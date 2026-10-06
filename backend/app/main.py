@@ -6,7 +6,15 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.config import Settings
-from app.routes import auth, events, organizers, public, ticket_tiers, tickets
+from app.routes import (
+    auth,
+    checkin,
+    events,
+    organizers,
+    public,
+    ticket_tiers,
+    tickets,
+)
 
 
 def create_app(settings: Settings) -> FastAPI:
@@ -30,6 +38,7 @@ def create_app(settings: Settings) -> FastAPI:
     app.include_router(events.router)
     app.include_router(ticket_tiers.router)
     app.include_router(tickets.router)
+    app.include_router(checkin.router)
     app.include_router(public.router)
     return app
 

@@ -3,9 +3,25 @@ import { Link, useOutletContext, useParams } from "react-router-dom";
 import {
   formatApiError,
   getApiClient,
+  type CheckInPointOut,
   type EventOut,
   type TicketTierOut,
 } from "../api/client";
+
+type PolicyType =
+  | "MULTI_ENTRY"
+  | "SINGLE_USE"
+  | "TIER_RESTRICTED"
+  | "CAPACITY_CAPPED";
+
+function isPolicyType(val: string): val is PolicyType {
+  return (
+    val === "MULTI_ENTRY" ||
+    val === "SINGLE_USE" ||
+    val === "TIER_RESTRICTED" ||
+    val === "CAPACITY_CAPPED"
+  );
+}
 
 export default function OrganizerEventDetail() {
   const { eventId } = useParams<{ eventId: string }>();
@@ -13,6 +29,7 @@ export default function OrganizerEventDetail() {
 
   const [event, setEvent] = useState<EventOut | null>(null);
   const [tiers, setTiers] = useState<TicketTierOut[]>([]);
+  const [points, setPoints] = useState<CheckInPointOut[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -25,6 +42,16 @@ export default function OrganizerEventDetail() {
   const [submittingTier, setSubmittingTier] = useState(false);
   const [tierFormError, setTierFormError] = useState<string | null>(null);
 
+  // New check-in point form state
+  const [showPointForm, setShowPointForm] = useState(false);
+  const [pointName, setPointName] = useState("");
+  const [pointLocation, setPointLocation] = useState("");
+  const [policyType, setPolicyType] = useState<PolicyType>("MULTI_ENTRY");
+  const [allowedTiers, setAllowedTiers] = useState<string[]>([]);
+  const [maxCapacity, setMaxCapacity] = useState<number | undefined>(undefined);
+  const [submittingPoint, setSubmittingPoint] = useState(false);
+  const [pointFormError, setPointFormError] = useState<string | null>(null);
+
   useEffect(() => {
     if (!eventId) return;
 
@@ -33,11 +60,14 @@ export default function OrganizerEventDetail() {
       setError(null);
       const client = getApiClient(apiKey);
 
-      const [eventRes, tiersRes] = await Promise.all([
+      const [eventRes, tiersRes, pointsRes] = await Promise.all([
         client.GET("/api/events/{event_id}", {
           params: { path: { event_id: eventId } },
         }),
         client.GET("/api/events/{event_id}/ticket-tiers", {
+          params: { path: { event_id: eventId } },
+        }),
+        client.GET("/api/events/{event_id}/checkin-points", {
           params: { path: { event_id: eventId } },
         }),
       ]);
@@ -53,6 +83,13 @@ export default function OrganizerEventDetail() {
       } else if (tiersRes.data) {
         setTiers(tiersRes.data);
       }
+
+      if (pointsRes.error) {
+        setError((prev) => prev ?? formatApiError(pointsRes.error));
+      } else if (pointsRes.data) {
+        setPoints(pointsRes.data);
+      }
+
       setLoading(false);
     };
 
@@ -97,6 +134,46 @@ export default function OrganizerEventDetail() {
     }
   };
 
+  const handleCreatePoint = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!eventId) return;
+    setPointFormError(null);
+
+    if (!pointName.trim()) {
+      setPointFormError("Please provide a name for the check-in point.");
+      return;
+    }
+
+    setSubmittingPoint(true);
+    const client = getApiClient(apiKey);
+    const { data, error: err } = await client.POST(
+      "/api/events/{event_id}/checkin-points",
+      {
+        params: { path: { event_id: eventId } },
+        body: {
+          name: pointName.trim(),
+          location: pointLocation.trim(),
+          policy_type: policyType,
+          allowed_tier_ids: policyType === "TIER_RESTRICTED" ? allowedTiers : [],
+          max_capacity: policyType === "CAPACITY_CAPPED" ? maxCapacity : undefined,
+        },
+      }
+    );
+
+    setSubmittingPoint(false);
+    if (err) {
+      setPointFormError(formatApiError(err));
+    } else if (data) {
+      setPoints((prev) => [...prev, data]);
+      setPointName("");
+      setPointLocation("");
+      setPolicyType("MULTI_ENTRY");
+      setAllowedTiers([]);
+      setMaxCapacity(undefined);
+      setShowPointForm(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="py-12 text-center text-sm text-neutral-500">
@@ -122,7 +199,7 @@ export default function OrganizerEventDetail() {
   }
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-10 font-sans">
       {/* Header and Back Link */}
       <div className="space-y-2">
         <Link
@@ -155,6 +232,204 @@ export default function OrganizerEventDetail() {
           <p className="text-sm text-neutral-700 pt-2 bg-white p-4 rounded-xl border border-neutral-200">
             {event.description}
           </p>
+        )}
+      </div>
+
+      {/* Check-In Points & Gate Policies Section */}
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-lg font-bold text-neutral-900">
+              Check-In Points & Entry Gates
+            </h2>
+            <p className="text-xs text-neutral-500">
+              Configure scanner gates, dining halls, and admission policy enforcement.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowPointForm((prev) => !prev)}
+            className="bg-emerald-600 hover:bg-emerald-700 text-white font-medium text-xs py-2 px-3.5 rounded-lg transition"
+          >
+            {showPointForm ? "Cancel" : "+ Add Check-In Point"}
+          </button>
+        </div>
+
+        {/* Add Check-In Point Form */}
+        {showPointForm && (
+          <div className="bg-white p-5 rounded-xl border border-neutral-200 shadow-sm space-y-4">
+            <h3 className="text-sm font-semibold text-neutral-900">
+              New Check-In Point
+            </h3>
+            <form onSubmit={handleCreatePoint} className="space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-700 mb-1">
+                    Point / Gate Name *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={pointName}
+                    onChange={(e) => setPointName(e.target.value)}
+                    placeholder="e.g. Main Gate Turnstiles, Lunch Catering"
+                    className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-emerald-500 bg-white text-sm"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-700 mb-1">
+                    Location
+                  </label>
+                  <input
+                    type="text"
+                    value={pointLocation}
+                    onChange={(e) => setPointLocation(e.target.value)}
+                    placeholder="e.g. Level 1 Entry, Ground Floor Food Court"
+                    className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-emerald-500 bg-white text-sm"
+                  />
+                </div>
+
+                <div className="sm:col-span-2">
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-700 mb-1">
+                    Admission Policy *
+                  </label>
+                  <select
+                    value={policyType}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      if (isPolicyType(val)) {
+                        setPolicyType(val);
+                      }
+                    }}
+                    className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-emerald-500 bg-white text-sm"
+                  >
+                    <option value="MULTI_ENTRY">MULTI_ENTRY (Allows repeated entry & exit timestamps)</option>
+                    <option value="SINGLE_USE">SINGLE_USE (Strictly prevents duplicate scans, e.g. Meals/Lunch)</option>
+                    <option value="TIER_RESTRICTED">TIER_RESTRICTED (Restricts gate access to specific ticket tiers)</option>
+                    <option value="CAPACITY_CAPPED">CAPACITY_CAPPED (Rejects entry when max capacity is reached)</option>
+                  </select>
+                </div>
+
+                {policyType === "TIER_RESTRICTED" && (
+                  <div className="sm:col-span-2 space-y-2">
+                    <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-700">
+                      Allowed Ticket Tiers
+                    </label>
+                    <div className="grid grid-cols-2 gap-2">
+                      {tiers.map((t) => (
+                        <label key={t.id} className="flex items-center gap-2 text-xs text-neutral-800">
+                          <input
+                            type="checkbox"
+                            checked={allowedTiers.includes(t.id)}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setAllowedTiers((prev) => [...prev, t.id]);
+                              } else {
+                                setAllowedTiers((prev) => prev.filter((id) => id !== t.id));
+                              }
+                            }}
+                            className="rounded border-neutral-300 text-emerald-600 focus:ring-emerald-500"
+                          />
+                          {t.name}
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {policyType === "CAPACITY_CAPPED" && (
+                  <div>
+                    <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-700 mb-1">
+                      Max Room Capacity
+                    </label>
+                    <input
+                      type="number"
+                      min="1"
+                      value={maxCapacity ?? ""}
+                      onChange={(e) => setMaxCapacity(Number(e.target.value) || undefined)}
+                      placeholder="e.g. 250"
+                      className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-emerald-500 bg-white text-sm"
+                    />
+                  </div>
+                )}
+              </div>
+
+              {pointFormError && (
+                <p className="text-sm text-red-600 bg-red-50 p-2.5 rounded-md">
+                  {pointFormError}
+                </p>
+              )}
+
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowPointForm(false)}
+                  className="px-4 py-2 border border-neutral-300 rounded-lg text-sm font-medium hover:bg-neutral-50 transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={submittingPoint}
+                  className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-medium text-sm py-2 px-5 rounded-lg transition"
+                >
+                  {submittingPoint ? "Saving..." : "Create Check-In Point"}
+                </button>
+              </div>
+            </form>
+          </div>
+        )}
+
+        {/* Check-In Points List */}
+        {points.length === 0 ? (
+          <div className="bg-white p-6 rounded-xl border border-neutral-200 text-center text-sm text-neutral-500">
+            No check-in points configured yet. Add points to deploy entrance gates or catering checkpoints.
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {points.map((p) => (
+              <div
+                key={p.id}
+                className="bg-white p-4 rounded-xl border border-neutral-200 shadow-sm space-y-2 flex flex-col justify-between"
+              >
+                <div>
+                  <div className="flex items-center justify-between gap-2">
+                    <h4 className="font-bold text-neutral-900 text-base">
+                      {p.name}
+                    </h4>
+                    <span
+                      className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${
+                        p.policy_type === "SINGLE_USE"
+                          ? "bg-amber-100 text-amber-800"
+                          : p.policy_type === "TIER_RESTRICTED"
+                          ? "bg-purple-100 text-purple-800"
+                          : p.policy_type === "CAPACITY_CAPPED"
+                          ? "bg-rose-100 text-rose-800"
+                          : "bg-blue-100 text-blue-800"
+                      }`}
+                    >
+                      {p.policy_type}
+                    </span>
+                  </div>
+                  <p className="text-xs text-neutral-500 pt-0.5">
+                    📍 {p.location || "General Area"}
+                  </p>
+                </div>
+                <div className="text-xs text-neutral-400 pt-2 border-t border-neutral-100 flex items-center justify-between">
+                  <a
+                    href={`/api/checkin-points/${p.id}/manifest`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-emerald-700 hover:text-emerald-800 font-semibold"
+                  >
+                    View Manifest JSON ↗
+                  </a>
+                  <span>ID: {p.id.slice(0, 8)}…</span>
+                </div>
+              </div>
+            ))}
+          </div>
         )}
       </div>
 

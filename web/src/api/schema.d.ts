@@ -159,6 +159,58 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/events/{event_id}/checkin-points": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Checkin Points */
+        get: operations["list_checkin_points_api_events__event_id__checkin_points_get"];
+        put?: never;
+        /** Create Checkin Point */
+        post: operations["create_checkin_point_api_events__event_id__checkin_points_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/checkin-points/{point_id}/manifest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Checkin Manifest */
+        get: operations["get_checkin_manifest_api_checkin_points__point_id__manifest_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/checkin-points/{point_id}/scans/batch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Ingest Scans Batch */
+        post: operations["ingest_scans_batch_api_checkin_points__point_id__scans_batch_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/public/events/{slug}": {
         parameters: {
             query?: never;
@@ -240,6 +292,80 @@ export interface components {
             token_type: string;
             user: components["schemas"]["UserOut"];
         };
+        /** BatchScanRequest */
+        BatchScanRequest: {
+            /** Scans */
+            scans: components["schemas"]["ScanSubmission"][];
+        };
+        /** BatchScanResponse */
+        BatchScanResponse: {
+            /** Results */
+            results: components["schemas"]["ScanResult"][];
+        };
+        /** CheckInManifest */
+        CheckInManifest: {
+            checkin_point: components["schemas"]["CheckInPointOut"];
+            /**
+             * Event Id
+             * Format: uuid
+             */
+            event_id: string;
+            /**
+             * Generated At
+             * Format: date-time
+             */
+            generated_at: string;
+            /** Tickets */
+            tickets: components["schemas"]["ManifestTicket"][];
+        };
+        /** CheckInPointCreate */
+        CheckInPointCreate: {
+            /** Name */
+            name: string;
+            /**
+             * Location
+             * @default
+             */
+            location: string;
+            /**
+             * Policy Type
+             * @description MULTI_ENTRY, SINGLE_USE, TIER_RESTRICTED, CAPACITY_CAPPED
+             * @default MULTI_ENTRY
+             */
+            policy_type: string;
+            /** Allowed Tier Ids */
+            allowed_tier_ids?: string[];
+            /** Max Capacity */
+            max_capacity?: number | null;
+        };
+        /** CheckInPointOut */
+        CheckInPointOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Event Id
+             * Format: uuid
+             */
+            event_id: string;
+            /** Name */
+            name: string;
+            /** Location */
+            location: string;
+            /** Policy Type */
+            policy_type: string;
+            /** Allowed Tier Ids */
+            allowed_tier_ids: string[];
+            /** Max Capacity */
+            max_capacity: number | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
         /** EventCreate */
         EventCreate: {
             /** Name */
@@ -295,6 +421,31 @@ export interface components {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
         };
+        /** ManifestTicket */
+        ManifestTicket: {
+            /** Qr Secret */
+            qr_secret: string;
+            /**
+             * Ticket Id
+             * Format: uuid
+             */
+            ticket_id: string;
+            /** Attendee Name */
+            attendee_name: string;
+            /** Attendee Email */
+            attendee_email: string;
+            /**
+             * Ticket Tier Id
+             * Format: uuid
+             */
+            ticket_tier_id: string;
+            /** Ticket Tier Name */
+            ticket_tier_name: string;
+            /** Admission Count */
+            admission_count: number;
+            /** Is Admitted */
+            is_admitted: boolean;
+        };
         /** OrganizerCreate */
         OrganizerCreate: {
             /** Name */
@@ -342,6 +493,39 @@ export interface components {
             description: string;
             /** Ticket Tiers */
             ticket_tiers: components["schemas"]["TicketTierOut"][];
+        };
+        /** ScanResult */
+        ScanResult: {
+            /**
+             * Scan Id
+             * Format: uuid
+             */
+            scan_id: string;
+            /** Qr Secret */
+            qr_secret: string;
+            /** Status */
+            status: string;
+            /** Rejection Reason */
+            rejection_reason?: string | null;
+            /** Attendee Name */
+            attendee_name?: string | null;
+            /** Ticket Tier Name */
+            ticket_tier_name?: string | null;
+        };
+        /** ScanSubmission */
+        ScanSubmission: {
+            /**
+             * Scan Id
+             * Format: uuid
+             */
+            scan_id: string;
+            /** Qr Secret */
+            qr_secret: string;
+            /**
+             * Scanned At
+             * Format: date-time
+             */
+            scanned_at: string;
         };
         /** TicketOut */
         TicketOut: {
@@ -809,6 +993,138 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AttendeeTicketDetail"][];
+                };
+            };
+        };
+    };
+    list_checkin_points_api_events__event_id__checkin_points_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CheckInPointOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_checkin_point_api_events__event_id__checkin_points_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CheckInPointCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CheckInPointOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_checkin_manifest_api_checkin_points__point_id__manifest_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                point_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CheckInManifest"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    ingest_scans_batch_api_checkin_points__point_id__scans_batch_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                point_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BatchScanRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BatchScanResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

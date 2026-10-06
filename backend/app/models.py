@@ -1,7 +1,17 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, func
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -104,5 +114,43 @@ class EntityQR(Base):
     entity_id: Mapped[uuid.UUID] = mapped_column(index=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class CheckInPoint(Base):
+    """A physical or logical admission station (e.g. Entrance, Dining Hall, Hall A)."""
+
+    __tablename__ = "checkin_points"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    event_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("events.id"), index=True)
+    name: Mapped[str] = mapped_column(String(100))
+    location: Mapped[str] = mapped_column(String(200), default="")
+    policy_type: Mapped[str] = mapped_column(String(32), default="MULTI_ENTRY")
+    allowed_tier_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    max_capacity: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class CheckIn(Base):
+    """An admission scan event processed at a Check-In Point."""
+
+    __tablename__ = "checkins"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True)  # client-generated scan_id
+    checkin_point_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("checkin_points.id"), index=True
+    )
+    ticket_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("tickets.id"), nullable=True, index=True
+    )
+    qr_secret: Mapped[str] = mapped_column(String(64), index=True)
+    status: Mapped[str] = mapped_column(String(32))  # ADMITTED or REJECTED
+    rejection_reason: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    scanned_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    synced_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

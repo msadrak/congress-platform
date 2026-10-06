@@ -12,6 +12,10 @@ export type AuthResponse = components["schemas"]["AuthResponse"];
 export type UserOut = components["schemas"]["UserOut"];
 export type UserRegister = components["schemas"]["UserRegister"];
 export type UserLogin = components["schemas"]["UserLogin"];
+export type CheckInPointOut = components["schemas"]["CheckInPointOut"];
+export type CheckInPointCreate = components["schemas"]["CheckInPointCreate"];
+export type CheckInManifest = components["schemas"]["CheckInManifest"];
+export type BatchScanResponse = components["schemas"]["BatchScanResponse"];
 
 export const ORGANIZER_KEY_STORAGE = "congress_organizer_api_key";
 export const ATTENDEE_TOKEN_STORAGE = "congress_attendee_token";
