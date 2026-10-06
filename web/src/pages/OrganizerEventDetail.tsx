@@ -219,12 +219,18 @@ export default function OrganizerEventDetail() {
               {new Date(event.ends_at).toLocaleDateString()}
             </p>
           </div>
-          <div className="flex items-center gap-2 self-start sm:self-auto">
+          <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
+            <Link
+              to={`/organizer/events/${event.id}/analytics`}
+              className="bg-neutral-900 hover:bg-neutral-800 text-white text-xs font-bold px-3 py-2 rounded-lg transition shadow-xs flex items-center gap-1.5"
+            >
+              📊 Live Analytics →
+            </Link>
             <Link
               to={`/organizer/events/${event.id}/desk`}
               className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-3 py-2 rounded-lg transition shadow-xs"
             >
-              ⚡ Open Front-Desk Station →
+              ⚡ Front-Desk Station →
             </Link>
             <Link
               to={`/e/${event.slug}`}

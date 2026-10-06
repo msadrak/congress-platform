@@ -5,6 +5,7 @@ import "./index.css";
 import GateScanner from "./pages/GateScanner";
 import Home from "./pages/Home";
 import MyTickets from "./pages/MyTickets";
+import OrganizerAnalytics from "./pages/OrganizerAnalytics";
 import OrganizerDesk from "./pages/OrganizerDesk";
 import OrganizerEventDetail from "./pages/OrganizerEventDetail";
 import OrganizerEvents from "./pages/OrganizerEvents";
@@ -20,6 +21,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
           <Route index element={<OrganizerEvents />} />
           <Route path="events/:eventId" element={<OrganizerEventDetail />} />
           <Route path="events/:eventId/desk" element={<OrganizerDesk />} />
+          <Route path="events/:eventId/analytics" element={<OrganizerAnalytics />} />
         </Route>
         <Route path="/e/:slug" element={<PublicEvent />} />
         <Route path="/my-tickets" element={<MyTickets />} />

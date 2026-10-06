@@ -20,6 +20,10 @@ export type DeskRegistrationCreate = components["schemas"]["DeskRegistrationCrea
 export type DeskRegistrationOut = components["schemas"]["DeskRegistrationOut"];
 export type AttendeeSearchItem = components["schemas"]["AttendeeSearchItem"];
 export type AttendeeDetailCard = components["schemas"]["AttendeeDetailCard"];
+export type AttendanceAnalyticsResponse = components["schemas"]["AttendanceAnalyticsResponse"];
+export type GateMetric = components["schemas"]["GateMetric"];
+export type CateringMetric = components["schemas"]["CateringMetric"];
+export type HourlyScanCount = components["schemas"]["HourlyScanCount"];
 
 export const ORGANIZER_KEY_STORAGE = "congress_organizer_api_key";
 export const ATTENDEE_TOKEN_STORAGE = "congress_attendee_token";

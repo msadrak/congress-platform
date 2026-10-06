@@ -262,6 +262,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/events/{event_id}/analytics/attendance": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Attendance Analytics */
+        get: operations["get_attendance_analytics_api_events__event_id__analytics_attendance_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/events/{event_id}/analytics/export-csv": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Export Attendance Csv */
+        get: operations["export_attendance_csv_api_events__event_id__analytics_export_csv_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/public/events/{slug}": {
         parameters: {
             query?: never;
@@ -283,6 +317,30 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** AttendanceAnalyticsResponse */
+        AttendanceAnalyticsResponse: {
+            /**
+             * Event Id
+             * Format: uuid
+             */
+            event_id: string;
+            /** Total Tickets */
+            total_tickets: number;
+            /** Unique Admitted */
+            unique_admitted: number;
+            /** Checkin Rate */
+            checkin_rate: number;
+            /** Total Scans */
+            total_scans: number;
+            /** Total Admitted */
+            total_admitted: number;
+            /** Total Rejected */
+            total_rejected: number;
+            /** Catering Metrics */
+            catering_metrics: components["schemas"]["CateringMetric"][];
+            /** Gate Breakdown */
+            gate_breakdown: components["schemas"]["GateMetric"][];
+        };
         /** AttendeeDetailCard */
         AttendeeDetailCard: {
             /**
@@ -420,6 +478,22 @@ export interface components {
         BatchScanResponse: {
             /** Results */
             results: components["schemas"]["ScanResult"][];
+        };
+        /** CateringMetric */
+        CateringMetric: {
+            /**
+             * Point Id
+             * Format: uuid
+             */
+            point_id: string;
+            /** Point Name */
+            point_name: string;
+            /** Meals Served */
+            meals_served: number;
+            /** Total Attendees */
+            total_attendees: number;
+            /** Redemption Rate */
+            redemption_rate: number;
         };
         /** CheckInManifest */
         CheckInManifest: {
@@ -582,10 +656,39 @@ export interface components {
             /** Description */
             description: string;
         };
+        /** GateMetric */
+        GateMetric: {
+            /**
+             * Point Id
+             * Format: uuid
+             */
+            point_id: string;
+            /** Point Name */
+            point_name: string;
+            /** Location */
+            location: string;
+            /** Policy Type */
+            policy_type: string;
+            /** Total Admitted */
+            total_admitted: number;
+            /** Total Rejected */
+            total_rejected: number;
+            /** Current Occupancy */
+            current_occupancy: number;
+            /** Hourly Scans */
+            hourly_scans: components["schemas"]["HourlyScanCount"][];
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
+        };
+        /** HourlyScanCount */
+        HourlyScanCount: {
+            /** Hour */
+            hour: string;
+            /** Count */
+            count: number;
         };
         /** ManifestTicket */
         ManifestTicket: {
@@ -1397,6 +1500,73 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AttendeeDetailCard"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_attendance_analytics_api_events__event_id__analytics_attendance_get: {
+        parameters: {
+            query?: {
+                point_id?: string | null;
+                ticket_tier_id?: string | null;
+                from_time?: string | null;
+                to_time?: string | null;
+            };
+            header?: never;
+            path: {
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AttendanceAnalyticsResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    export_attendance_csv_api_events__event_id__analytics_export_csv_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */
