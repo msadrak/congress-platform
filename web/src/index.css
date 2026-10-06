@@ -1,0 +1,10 @@
+@import "tailwindcss";
+
+@layer base {
+  /* 16px+ inputs stop iOS Safari zooming the page on focus. */
+  input,
+  textarea,
+  select {
+    font-size: 1rem;
+  }
+}
