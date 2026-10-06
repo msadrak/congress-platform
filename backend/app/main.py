@@ -13,6 +13,7 @@ from app.routes import (
     checkin,
     desk,
     events,
+    leads,
     network,
     organizers,
     public,
@@ -46,6 +47,7 @@ def create_app(settings: Settings) -> FastAPI:
     app.include_router(desk.router)
     app.include_router(analytics.router)
     app.include_router(booths.router)
+    app.include_router(leads.router)
     app.include_router(network.router)
     app.include_router(public.router)
     return app

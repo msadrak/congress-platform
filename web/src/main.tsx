@@ -2,6 +2,7 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 import "./index.css";
+import ExhibitorPortal from "./pages/ExhibitorPortal";
 import GateScanner from "./pages/GateScanner";
 import Home from "./pages/Home";
 import MyNetwork from "./pages/MyNetwork";
@@ -27,6 +28,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
         </Route>
         <Route path="/e/:slug" element={<PublicEvent />} />
         <Route path="/e/:slug/booths/:boothId" element={<PublicBooth />} />
+        <Route path="/booth/:boothId" element={<ExhibitorPortal />} />
         <Route path="/my-tickets" element={<MyTickets />} />
         <Route path="/my-network" element={<MyNetwork />} />
         <Route path="/scan/:pointId" element={<GateScanner />} />

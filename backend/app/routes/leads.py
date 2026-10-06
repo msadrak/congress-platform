@@ -1,0 +1,215 @@
+import uuid
+from datetime import datetime
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, HTTPException, Response, status
+from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy import select
+
+from app.db import SessionDep
+from app.models import Booth, BoothStaff, EntityQR, Event, Lead, Ticket, TicketTier, User
+from app.routes.auth import CurrentUserDep
+
+router = APIRouter(prefix="/api/booths/{booth_id}/leads", tags=["leads"])
+
+
+class LeadScanRequest(BaseModel):
+    qr_secret: str
+    rating: str = Field(default="WARM", description="HOT, WARM, COLD")
+    tags: list[str] = Field(default_factory=list)
+    notes: str = ""
+
+
+class LeadOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    booth_id: uuid.UUID
+    ticket_id: uuid.UUID
+    attendee_name: str
+    attendee_email: str
+    organization: str
+    title: str
+    ticket_tier_name: str
+    rating: str
+    tags: list[str]
+    notes: str
+    created_at: datetime
+    updated_at: datetime
+
+
+async def authorized_booth_staff(
+    booth_id: uuid.UUID,
+    user: CurrentUserDep,
+    session: SessionDep,
+) -> Booth:
+    booth = await session.get(Booth, booth_id)
+    if booth is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Booth not found")
+
+    is_staff = await session.scalar(
+        select(BoothStaff.id).where(
+            BoothStaff.booth_id == booth.id, BoothStaff.user_id == user.id
+        )
+    )
+    if not is_staff:
+        # Check if organizer of the event
+        event = await session.get(Event, booth.event_id)
+        if event is None:
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN,
+                "You are not authorized to access this booth portal",
+            )
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "You are not authorized to access this booth portal",
+        )
+
+    return booth
+
+
+AuthorizedBoothDep = Annotated[Booth, Depends(authorized_booth_staff)]
+
+
+@router.post("/scan")
+async def scan_attendee_lead(
+    booth: AuthorizedBoothDep,
+    body: LeadScanRequest,
+    user: CurrentUserDep,
+    session: SessionDep,
+    response: Response,
+) -> LeadOut:
+    secret = body.qr_secret.strip().lower()
+
+    # 1. Resolve EntityQR
+    qr = await session.scalar(
+        select(EntityQR).where(
+            EntityQR.secret == secret, EntityQR.is_active.is_(True)
+        )
+    )
+    if qr is None or qr.entity_type != "attendee_ticket":
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, "Invalid or unrecognized attendee badge QR"
+        )
+
+    # 2. Resolve Ticket, Tier, and Attendee User
+    ticket_row = await session.execute(
+        select(Ticket, TicketTier, User)
+        .join(TicketTier, Ticket.ticket_tier_id == TicketTier.id)
+        .join(User, Ticket.user_id == User.id)
+        .where(Ticket.id == qr.entity_id)
+    )
+    resolved = ticket_row.one_or_none()
+    if resolved is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Attendee ticket not found")
+
+    ticket, tier, attendee = resolved[0], resolved[1], resolved[2]
+
+    # 3. Check event match
+    if ticket.event_id != booth.event_id:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, "Attendee ticket is for a different event"
+        )
+
+    # 4. Check if lead already captured
+    existing = await session.scalar(
+        select(Lead).where(
+            Lead.booth_id == booth.id, Lead.ticket_id == ticket.id
+        )
+    )
+
+    clean_rating = body.rating.upper() if body.rating.upper() in {"HOT", "WARM", "COLD"} else "WARM"
+
+    if existing is not None:
+        # Update existing lead
+        existing.rating = clean_rating
+        existing.tags = body.tags
+        if body.notes.strip():
+            existing.notes = body.notes.strip()
+        existing.updated_at = datetime.now()
+        await session.commit()
+        response.status_code = status.HTTP_200_OK
+
+        return LeadOut(
+            id=existing.id,
+            booth_id=booth.id,
+            ticket_id=ticket.id,
+            attendee_name=attendee.full_name,
+            attendee_email=attendee.email,
+            organization=attendee.organization,
+            title=attendee.title,
+            ticket_tier_name=tier.name,
+            rating=existing.rating,
+            tags=existing.tags,
+            notes=existing.notes,
+            created_at=existing.created_at,
+            updated_at=existing.updated_at,
+        )
+
+    # 5. Create new Lead
+    now = datetime.now()
+    lead = Lead(
+        booth_id=booth.id,
+        ticket_id=ticket.id,
+        captured_by_user_id=user.id,
+        rating=clean_rating,
+        tags=body.tags,
+        notes=body.notes.strip(),
+        created_at=now,
+        updated_at=now,
+    )
+    session.add(lead)
+    await session.commit()
+    response.status_code = status.HTTP_201_CREATED
+
+    return LeadOut(
+        id=lead.id,
+        booth_id=booth.id,
+        ticket_id=ticket.id,
+        attendee_name=attendee.full_name,
+        attendee_email=attendee.email,
+        organization=attendee.organization,
+        title=attendee.title,
+        ticket_tier_name=tier.name,
+        rating=lead.rating,
+        tags=lead.tags,
+        notes=lead.notes,
+        created_at=lead.created_at,
+        updated_at=lead.updated_at,
+    )
+
+
+@router.get("")
+async def list_booth_leads(
+    booth: AuthorizedBoothDep,
+    session: SessionDep,
+) -> list[LeadOut]:
+    query = (
+        select(Lead, Ticket, TicketTier, User)
+        .join(Ticket, Lead.ticket_id == Ticket.id)
+        .join(TicketTier, Ticket.ticket_tier_id == TicketTier.id)
+        .join(User, Ticket.user_id == User.id)
+        .where(Lead.booth_id == booth.id)
+        .order_by(Lead.created_at.desc())
+    )
+    res = await session.execute(query)
+    rows = res.all()
+
+    return [
+        LeadOut(
+            id=lead.id,
+            booth_id=booth.id,
+            ticket_id=ticket.id,
+            attendee_name=attendee.full_name,
+            attendee_email=attendee.email,
+            organization=attendee.organization,
+            title=attendee.title,
+            ticket_tier_name=tier.name,
+            rating=lead.rating,
+            tags=lead.tags,
+            notes=lead.notes,
+            created_at=lead.created_at,
+            updated_at=lead.updated_at,
+        )
+        for lead, ticket, tier, attendee in rows
+    ]

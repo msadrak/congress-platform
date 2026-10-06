@@ -232,3 +232,28 @@ class BoothBookmark(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
+
+
+class Lead(Base):
+    """A commercial sales lead captured by an exhibitor scanning an attendee badge."""
+
+    __tablename__ = "leads"
+    __table_args__ = (
+        UniqueConstraint("booth_id", "ticket_id", name="uq_booth_ticket_lead"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    booth_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("booths.id"), index=True)
+    ticket_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tickets.id"), index=True)
+    captured_by_user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id"), index=True
+    )
+    rating: Mapped[str] = mapped_column(String(16), default="WARM")  # HOT, WARM, COLD
+    tags: Mapped[list[str]] = mapped_column(JSON, default=list)
+    notes: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
