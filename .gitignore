@@ -12,6 +12,11 @@ node_modules/
 dist/
 .tmp/
 
+# Dart & Flutter
+.dart_tool/
+.packages
+build/
+
 # Environment
 .env
 .env.*
