@@ -399,7 +399,7 @@ export default function OrganizerEventDetail() {
             {points.map((p) => (
               <div
                 key={p.id}
-                className="bg-white p-4 rounded-xl border border-neutral-200 shadow-sm space-y-2 flex flex-col justify-between"
+                className="bg-white p-4 rounded-xl border border-neutral-200 shadow-sm space-y-3 flex flex-col justify-between"
               >
                 <div>
                   <div className="flex items-center justify-between gap-2">
@@ -424,16 +424,24 @@ export default function OrganizerEventDetail() {
                     📍 {p.location || "General Area"}
                   </p>
                 </div>
-                <div className="text-xs text-neutral-400 pt-2 border-t border-neutral-100 flex items-center justify-between">
+
+                <div className="pt-2 border-t border-neutral-100 flex items-center justify-between gap-2">
+                  <Link
+                    to={`/scan/${p.id}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs px-3 py-1.5 rounded-lg transition shadow-xs"
+                  >
+                    📱 Launch Gate Scanner →
+                  </Link>
                   <a
                     href={`/api/checkin-points/${p.id}/manifest`}
                     target="_blank"
                     rel="noreferrer"
-                    className="text-emerald-700 hover:text-emerald-800 font-semibold"
+                    className="text-neutral-500 hover:text-neutral-800 text-[11px] underline"
                   >
-                    View Manifest JSON ↗
+                    Manifest JSON ↗
                   </a>
-                  <span>ID: {p.id.slice(0, 8)}…</span>
                 </div>
               </div>
             ))}
