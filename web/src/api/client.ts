@@ -28,6 +28,9 @@ export type BoothOut = components["schemas"]["BoothOut"];
 export type BoothCreate = components["schemas"]["BoothCreate"];
 export type BoothStaffAssign = components["schemas"]["BoothStaffAssign"];
 export type BoothStaffOut = components["schemas"]["BoothStaffOut"];
+export type ConnectionOut = components["schemas"]["ConnectionOut"];
+export type ConnectionScanRequest = components["schemas"]["ConnectionScanRequest"];
+export type ConnectionUpdate = components["schemas"]["ConnectionUpdate"];
 
 export const ORGANIZER_KEY_STORAGE = "congress_organizer_api_key";
 export const ATTENDEE_TOKEN_STORAGE = "congress_attendee_token";

@@ -366,6 +366,74 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/attendees/me/network/scan": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Scan Peer Badge */
+        post: operations["scan_peer_badge_api_attendees_me_network_scan_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/attendees/me/network": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List My Connections */
+        get: operations["list_my_connections_api_attendees_me_network_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/attendees/me/network/{connection_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update Connection Notes */
+        patch: operations["update_connection_notes_api_attendees_me_network__connection_id__patch"];
+        trace?: never;
+    };
+    "/api/attendees/me/network/{connection_id}/vcard": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Export Connection Vcard */
+        get: operations["export_connection_vcard_api_attendees_me_network__connection_id__vcard_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/public/events/{slug}": {
         parameters: {
             query?: never;
@@ -717,6 +785,54 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+        };
+        /** ConnectionOut */
+        ConnectionOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Connected User Id
+             * Format: uuid
+             */
+            connected_user_id: string;
+            /** Full Name */
+            full_name: string;
+            /** Email */
+            email: string;
+            /** Organization */
+            organization: string;
+            /** Title */
+            title: string;
+            /**
+             * Event Id
+             * Format: uuid
+             */
+            event_id: string;
+            /** Private Notes */
+            private_notes: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
+        /** ConnectionScanRequest */
+        ConnectionScanRequest: {
+            /** Qr Secret */
+            qr_secret: string;
+            /**
+             * Private Notes
+             * @default
+             */
+            private_notes: string;
+        };
+        /** ConnectionUpdate */
+        ConnectionUpdate: {
+            /** Private Notes */
+            private_notes: string;
         };
         /** DeskRegistrationCreate */
         DeskRegistrationCreate: {
@@ -1911,6 +2027,125 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["BoothOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    scan_peer_badge_api_attendees_me_network_scan_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConnectionScanRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectionOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_my_connections_api_attendees_me_network_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectionOut"][];
+                };
+            };
+        };
+    };
+    update_connection_notes_api_attendees_me_network__connection_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                connection_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConnectionUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectionOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    export_connection_vcard_api_attendees_me_network__connection_id__vcard_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                connection_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */

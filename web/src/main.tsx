@@ -4,6 +4,7 @@ import { BrowserRouter, Route, Routes } from "react-router-dom";
 import "./index.css";
 import GateScanner from "./pages/GateScanner";
 import Home from "./pages/Home";
+import MyNetwork from "./pages/MyNetwork";
 import MyTickets from "./pages/MyTickets";
 import OrganizerAnalytics from "./pages/OrganizerAnalytics";
 import OrganizerDesk from "./pages/OrganizerDesk";
@@ -25,6 +26,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
         </Route>
         <Route path="/e/:slug" element={<PublicEvent />} />
         <Route path="/my-tickets" element={<MyTickets />} />
+        <Route path="/my-network" element={<MyNetwork />} />
         <Route path="/scan/:pointId" element={<GateScanner />} />
       </Routes>
     </BrowserRouter>

@@ -1,0 +1,235 @@
+import re
+import uuid
+from datetime import datetime
+
+from fastapi import APIRouter, HTTPException, Response, status
+from pydantic import BaseModel, ConfigDict
+from sqlalchemy import select
+
+from app.db import SessionDep
+from app.models import Connection, EntityQR, Ticket, User
+from app.routes.auth import CurrentUserDep
+
+router = APIRouter(prefix="/api/attendees/me/network", tags=["networking"])
+
+
+class ConnectionScanRequest(BaseModel):
+    qr_secret: str
+    private_notes: str = ""
+
+
+class ConnectionUpdate(BaseModel):
+    private_notes: str
+
+
+class ConnectionOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    connected_user_id: uuid.UUID
+    full_name: str
+    email: str
+    organization: str
+    title: str
+    event_id: uuid.UUID
+    private_notes: str
+    created_at: datetime
+
+
+@router.post("/scan")
+async def scan_peer_badge(
+    body: ConnectionScanRequest,
+    current_user: CurrentUserDep,
+    session: SessionDep,
+    response: Response,
+) -> ConnectionOut:
+    secret = body.qr_secret.strip().lower()
+
+    # 1. Resolve EntityQR
+    qr = await session.scalar(
+        select(EntityQR).where(
+            EntityQR.secret == secret, EntityQR.is_active.is_(True)
+        )
+    )
+    if qr is None or qr.entity_type != "attendee_ticket":
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, "Invalid or unrecognized attendee badge QR"
+        )
+
+    # 2. Resolve Ticket & Peer User
+    ticket = await session.get(Ticket, qr.entity_id)
+    if ticket is None:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, "Attendee ticket not found"
+        )
+
+    peer = await session.get(User, ticket.user_id)
+    if peer is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Peer profile not found")
+
+    # 3. Reject self-connect
+    if peer.id == current_user.id:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, "Cannot connect with your own badge"
+        )
+
+    # 4. Check duplicate connection
+    existing = await session.scalar(
+        select(Connection).where(
+            Connection.user_id == current_user.id,
+            Connection.connected_user_id == peer.id,
+            Connection.event_id == ticket.event_id,
+        )
+    )
+
+    if existing is not None:
+        if body.private_notes.strip():
+            existing.private_notes = body.private_notes.strip()
+            await session.commit()
+        response.status_code = status.HTTP_200_OK
+        return ConnectionOut(
+            id=existing.id,
+            connected_user_id=peer.id,
+            full_name=peer.full_name,
+            email=peer.email,
+            organization=peer.organization,
+            title=peer.title,
+            event_id=existing.event_id,
+            private_notes=existing.private_notes,
+            created_at=existing.created_at,
+        )
+
+    # 5. Create new Connection
+    conn = Connection(
+        user_id=current_user.id,
+        connected_user_id=peer.id,
+        event_id=ticket.event_id,
+        private_notes=body.private_notes.strip(),
+    )
+    session.add(conn)
+    await session.commit()
+    response.status_code = status.HTTP_201_CREATED
+
+    return ConnectionOut(
+        id=conn.id,
+        connected_user_id=peer.id,
+        full_name=peer.full_name,
+        email=peer.email,
+        organization=peer.organization,
+        title=peer.title,
+        event_id=conn.event_id,
+        private_notes=conn.private_notes,
+        created_at=conn.created_at,
+    )
+
+
+@router.get("")
+async def list_my_connections(
+    current_user: CurrentUserDep,
+    session: SessionDep,
+) -> list[ConnectionOut]:
+    query = (
+        select(Connection, User)
+        .join(User, Connection.connected_user_id == User.id)
+        .where(Connection.user_id == current_user.id)
+        .order_by(Connection.created_at.desc())
+    )
+    res = await session.execute(query)
+    rows = res.all()
+
+    return [
+        ConnectionOut(
+            id=conn.id,
+            connected_user_id=peer.id,
+            full_name=peer.full_name,
+            email=peer.email,
+            organization=peer.organization,
+            title=peer.title,
+            event_id=conn.event_id,
+            private_notes=conn.private_notes,
+            created_at=conn.created_at,
+        )
+        for conn, peer in rows
+    ]
+
+
+@router.patch("/{connection_id}")
+async def update_connection_notes(
+    connection_id: uuid.UUID,
+    body: ConnectionUpdate,
+    current_user: CurrentUserDep,
+    session: SessionDep,
+) -> ConnectionOut:
+    conn = await session.scalar(
+        select(Connection).where(
+            Connection.id == connection_id,
+            Connection.user_id == current_user.id,
+        )
+    )
+    if conn is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Connection not found")
+
+    conn.private_notes = body.private_notes.strip()
+    await session.commit()
+
+    peer = await session.get(User, conn.connected_user_id)
+    if peer is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Peer not found")
+
+    return ConnectionOut(
+        id=conn.id,
+        connected_user_id=peer.id,
+        full_name=peer.full_name,
+        email=peer.email,
+        organization=peer.organization,
+        title=peer.title,
+        event_id=conn.event_id,
+        private_notes=conn.private_notes,
+        created_at=conn.created_at,
+    )
+
+
+@router.get("/{connection_id}/vcard")
+async def export_connection_vcard(
+    connection_id: uuid.UUID,
+    current_user: CurrentUserDep,
+    session: SessionDep,
+) -> Response:
+    conn = await session.scalar(
+        select(Connection).where(
+            Connection.id == connection_id,
+            Connection.user_id == current_user.id,
+        )
+    )
+    if conn is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Connection not found")
+
+    peer = await session.get(User, conn.connected_user_id)
+    if peer is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Peer profile not found")
+
+    # Format RFC 6350 / vCard 3.0
+    vcard_lines = [
+        "BEGIN:VCARD",
+        "VERSION:3.0",
+        f"FN:{peer.full_name}",
+        f"ORG:{peer.organization}",
+        f"TITLE:{peer.title}",
+        f"EMAIL;TYPE=INTERNET:{peer.email}",
+    ]
+    if conn.private_notes:
+        vcard_lines.append(f"NOTE:{conn.private_notes}")
+    vcard_lines.append("END:VCARD")
+    vcard_lines.append("")
+
+    vcard_text = "\r\n".join(vcard_lines)
+
+    # Sanitize name for filename
+    clean_name = re.sub(r"[^a-zA-Z0-9]+", "-", peer.full_name.lower()).strip("-")
+    filename = f"{clean_name or 'contact'}.vcf"
+
+    return Response(
+        content=vcard_text,
+        media_type="text/vcard; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )

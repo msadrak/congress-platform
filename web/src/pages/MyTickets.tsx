@@ -115,9 +115,12 @@ export default function MyTickets() {
             Congress Platform
           </Link>
           <div className="flex items-center gap-3">
-            <span className="text-xs text-neutral-500 hidden sm:inline">
-              Attendee Portal
-            </span>
+            <Link
+              to="/my-network"
+              className="text-xs font-semibold text-emerald-700 hover:text-emerald-800 bg-emerald-50 px-2.5 py-1.5 rounded-md transition"
+            >
+              My Network 🤝
+            </Link>
             <button
               type="button"
               onClick={handleLogout}
