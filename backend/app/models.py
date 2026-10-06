@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -50,7 +50,59 @@ class TicketTier(Base):
     name: Mapped[str] = mapped_column(String(100))
     description: Mapped[str] = mapped_column(Text, default="")
     quota: Mapped[int] = mapped_column(Integer)
+    reserved_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     is_open: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class User(Base):
+    """An attendee or buyer user account."""
+
+    __tablename__ = "users"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    password_hash: Mapped[str] = mapped_column(String(255))
+    full_name: Mapped[str] = mapped_column(String(200))
+    organization: Mapped[str] = mapped_column(String(200), default="")
+    title: Mapped[str] = mapped_column(String(100), default="")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class Ticket(Base):
+    """A free digital ticket entitlement held by an attendee."""
+
+    __tablename__ = "tickets"
+    __table_args__ = (
+        UniqueConstraint("event_id", "user_id", name="uq_tickets_event_user"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    event_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("events.id"), index=True)
+    ticket_tier_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("ticket_tiers.id"), index=True
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), index=True)
+    status: Mapped[str] = mapped_column(String(32), default="active")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class EntityQR(Base):
+    """Universal polymorphic QR registry (attendee_ticket, booth, hall, session)."""
+
+    __tablename__ = "entity_qrs"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    secret: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    entity_type: Mapped[str] = mapped_column(String(50), index=True)
+    entity_id: Mapped[uuid.UUID] = mapped_column(index=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

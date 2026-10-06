@@ -3,9 +3,10 @@ import ReactDOM from "react-dom/client";
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 import "./index.css";
 import Home from "./pages/Home";
-import OrganizerLayout from "./pages/OrganizerLayout";
-import OrganizerEvents from "./pages/OrganizerEvents";
+import MyTickets from "./pages/MyTickets";
 import OrganizerEventDetail from "./pages/OrganizerEventDetail";
+import OrganizerEvents from "./pages/OrganizerEvents";
+import OrganizerLayout from "./pages/OrganizerLayout";
 import PublicEvent from "./pages/PublicEvent";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
@@ -18,6 +19,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
           <Route path="events/:eventId" element={<OrganizerEventDetail />} />
         </Route>
         <Route path="/e/:slug" element={<PublicEvent />} />
+        <Route path="/my-tickets" element={<MyTickets />} />
       </Routes>
     </BrowserRouter>
   </React.StrictMode>

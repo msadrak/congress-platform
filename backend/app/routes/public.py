@@ -1,3 +1,4 @@
+import uuid
 from datetime import datetime
 
 from fastapi import APIRouter, HTTPException, status
@@ -12,6 +13,7 @@ router = APIRouter(prefix="/api/public/events", tags=["public"])
 
 
 class PublicEvent(BaseModel):
+    id: uuid.UUID
     name: str
     slug: str
     starts_at: datetime
@@ -32,6 +34,7 @@ async def get_public_event(slug: str, session: SessionDep) -> PublicEvent:
         .order_by(TicketTier.created_at, TicketTier.id)
     )
     return PublicEvent(
+        id=event.id,
         name=event.name,
         slug=event.slug,
         starts_at=event.starts_at,

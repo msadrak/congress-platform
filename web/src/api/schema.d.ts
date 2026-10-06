@@ -4,6 +4,57 @@
  */
 
 export interface paths {
+    "/api/auth/register": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Register User */
+        post: operations["register_user_api_auth_register_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/login": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Login User */
+        post: operations["login_user_api_auth_login_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get My Profile */
+        get: operations["get_my_profile_api_auth_me_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/organizers": {
         parameters: {
             query?: never;
@@ -74,6 +125,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/events/{event_id}/tickets/reserve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Reserve Ticket */
+        post: operations["reserve_ticket_api_events__event_id__tickets_reserve_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/attendees/me/tickets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get My Tickets */
+        get: operations["get_my_tickets_api_attendees_me_tickets_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/public/events/{slug}": {
         parameters: {
             query?: never;
@@ -95,6 +180,66 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** AttendeeTicketDetail */
+        AttendeeTicketDetail: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Event Id
+             * Format: uuid
+             */
+            event_id: string;
+            /** Event Name */
+            event_name: string;
+            /** Event Slug */
+            event_slug: string;
+            /** Event Location */
+            event_location: string;
+            /**
+             * Event Starts At
+             * Format: date-time
+             */
+            event_starts_at: string;
+            /**
+             * Event Ends At
+             * Format: date-time
+             */
+            event_ends_at: string;
+            /**
+             * Ticket Tier Id
+             * Format: uuid
+             */
+            ticket_tier_id: string;
+            /** Ticket Tier Name */
+            ticket_tier_name: string;
+            /** Attendee Name */
+            attendee_name: string;
+            /** Attendee Email */
+            attendee_email: string;
+            /** Status */
+            status: string;
+            /** Qr Secret */
+            qr_secret: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
+        /** AuthResponse */
+        AuthResponse: {
+            /** Access Token */
+            access_token: string;
+            /**
+             * Token Type
+             * @default bearer
+             */
+            token_type: string;
+            user: components["schemas"]["UserOut"];
+        };
         /** EventCreate */
         EventCreate: {
             /** Name */
@@ -172,6 +317,11 @@ export interface components {
         };
         /** PublicEvent */
         PublicEvent: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
             /** Name */
             name: string;
             /** Slug */
@@ -192,6 +342,47 @@ export interface components {
             description: string;
             /** Ticket Tiers */
             ticket_tiers: components["schemas"]["TicketTierOut"][];
+        };
+        /** TicketOut */
+        TicketOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Event Id
+             * Format: uuid
+             */
+            event_id: string;
+            /**
+             * Ticket Tier Id
+             * Format: uuid
+             */
+            ticket_tier_id: string;
+            /** Ticket Tier Name */
+            ticket_tier_name: string;
+            /** Attendee Name */
+            attendee_name: string;
+            /** Attendee Email */
+            attendee_email: string;
+            /** Status */
+            status: string;
+            /** Qr Secret */
+            qr_secret: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
+        /** TicketReserveRequest */
+        TicketReserveRequest: {
+            /**
+             * Ticket Tier Id
+             * Format: uuid
+             */
+            ticket_tier_id: string;
         };
         /** TicketTierCreate */
         TicketTierCreate: {
@@ -226,6 +417,54 @@ export interface components {
             /** Is Open */
             is_open: boolean;
         };
+        /** UserLogin */
+        UserLogin: {
+            /**
+             * Email
+             * Format: email
+             */
+            email: string;
+            /** Password */
+            password: string;
+        };
+        /** UserOut */
+        UserOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Email */
+            email: string;
+            /** Full Name */
+            full_name: string;
+            /** Organization */
+            organization: string;
+            /** Title */
+            title: string;
+        };
+        /** UserRegister */
+        UserRegister: {
+            /**
+             * Email
+             * Format: email
+             */
+            email: string;
+            /** Password */
+            password: string;
+            /** Full Name */
+            full_name: string;
+            /**
+             * Organization
+             * @default
+             */
+            organization: string;
+            /**
+             * Title
+             * @default
+             */
+            title: string;
+        };
         /** ValidationError */
         ValidationError: {
             /** Location */
@@ -248,6 +487,92 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    register_user_api_auth_register_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UserRegister"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    login_user_api_auth_login_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UserLogin"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_my_profile_api_auth_me_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserOut"];
+                };
+            };
+        };
+    };
     provision_organizer_api_organizers_post: {
         parameters: {
             query?: never;
@@ -429,6 +754,61 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reserve_ticket_api_events__event_id__tickets_reserve_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TicketReserveRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TicketOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_my_tickets_api_attendees_me_tickets_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AttendeeTicketDetail"][];
                 };
             };
         };
