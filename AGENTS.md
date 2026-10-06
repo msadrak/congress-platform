@@ -15,11 +15,32 @@
   - Run static analysis: `dart analyze`
   - *(Dart binary on Windows is located at `%LOCALAPPDATA%\Microsoft\WinGet\Packages\Google.DartSDK_...\dart-sdk\bin\dart.exe`)*
 
+## Web Route Map (`web/src/main.tsx`)
+
+| Route | Role & Capabilities |
+| :--- | :--- |
+| `/` | Platform landing page |
+| `/e/:slug` | Public event page with free ticket reservation modal |
+| `/e/:slug/booths/:boothId` | Public company booth profile, digital brochure download, and bookmarking |
+| `/my-tickets` | Attendee pass portal: high-contrast QR pass, offline cache, saved booths |
+| `/my-network` | Attendee networking hub: peer badge scanner, private notes, `.vcf` vCard download |
+| `/scan/:pointId` | Gate scanner PWA: camera BarcodeDetector, USB HID gun listener, offline buffer |
+| `/booth/:boothId` | Exhibitor lead portal: badge scanner, lead qualification drawer, CRM CSV export |
+| `/organizer` | Organizer console: API key gate, events list, and event creation |
+| `/organizer/events/:id` | Event settings: ticket tiers, check-in points, exhibition booths, standee QRs |
+| `/organizer/events/:id/desk` | Front-desk station: rapid walk-in pass minting and live attendee search |
+| `/organizer/events/:id/analytics` | Real-time analytics: attendance KPIs, gate throughput bars, catering widget, CSV |
+
 ## Verification guardrail
 
 Before marking any task complete, run the unified full-stack verification script:
 - Linux / macOS / Git Bash: `./scripts/check.sh`
 - Windows CMD / PowerShell: `scripts\check.bat`
+
+To install as a git pre-commit hook:
+```bash
+cp scripts/check.sh .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit
+```
 
 ## Coding standards
 

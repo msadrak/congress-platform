@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Git pre-commit hook running full-stack verification before commit
+set -euo pipefail
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+echo "[pre-commit] Running full-stack verification..."
+exec bash "$REPO_ROOT/scripts/check.sh"

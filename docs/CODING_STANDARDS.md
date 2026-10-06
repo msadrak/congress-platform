@@ -44,6 +44,14 @@ This document records the engineering standards and patterns enforced across the
 ### C. Environment-First Configuration
 - **Rule:** Configuration values (database DSN, admin tokens, CORS origins) must be defined in `app/config.py` using `pydantic-settings` with `CONGRESS_` prefixes. Hardcoded secrets in production code are prohibited.
 
+### D. Route Precedence: Static Before Parameterized Paths
+- **Rule:** In any router file, all static sub-paths (`/me`, `/export-csv`, `/manifest`, `/batch`) **must** be declared before parameterized paths (`/{id}`, `/{slug}`).
+- **Why:** FastAPI matches routes top-to-bottom. If a dynamic path like `/{booth_id}` is declared above `/me`, FastAPI attempts to parse the literal string `"me"` as a `uuid.UUID` and fails with `422 Unprocessable Entity`.
+
+### E. Unique Slugs in Multi-Event Test Fixtures
+- **Rule:** When writing tests that provision more than one event, every secondary event must randomize or parameterize its slug (e.g. `f"event-b-{uuid.uuid4().hex[:6]}"`).
+- **Why:** Global unique constraints on `events.slug` reject duplicate slugs with `409 Conflict`. Reusing static dictionary fixtures across multiple events causes unforced test failures.
+
 ---
 
 ## 3. Flutter & Dart Standards (`mobile/`)
