@@ -16,6 +16,10 @@ export type CheckInPointOut = components["schemas"]["CheckInPointOut"];
 export type CheckInPointCreate = components["schemas"]["CheckInPointCreate"];
 export type CheckInManifest = components["schemas"]["CheckInManifest"];
 export type BatchScanResponse = components["schemas"]["BatchScanResponse"];
+export type DeskRegistrationCreate = components["schemas"]["DeskRegistrationCreate"];
+export type DeskRegistrationOut = components["schemas"]["DeskRegistrationOut"];
+export type AttendeeSearchItem = components["schemas"]["AttendeeSearchItem"];
+export type AttendeeDetailCard = components["schemas"]["AttendeeDetailCard"];
 
 export const ORGANIZER_KEY_STORAGE = "congress_organizer_api_key";
 export const ATTENDEE_TOKEN_STORAGE = "congress_attendee_token";

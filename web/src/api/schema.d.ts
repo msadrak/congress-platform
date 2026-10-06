@@ -211,6 +211,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/events/{event_id}/desk-registrations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create Desk Registration */
+        post: operations["create_desk_registration_api_events__event_id__desk_registrations_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/events/{event_id}/attendees": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Search Event Attendees */
+        get: operations["search_event_attendees_api_events__event_id__attendees_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/events/{event_id}/attendees/{ticket_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Attendee Ticket Detail */
+        get: operations["get_attendee_ticket_detail_api_events__event_id__attendees__ticket_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/public/events/{slug}": {
         parameters: {
             query?: never;
@@ -232,6 +283,74 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** AttendeeDetailCard */
+        AttendeeDetailCard: {
+            /**
+             * Ticket Id
+             * Format: uuid
+             */
+            ticket_id: string;
+            /**
+             * Attendee Id
+             * Format: uuid
+             */
+            attendee_id: string;
+            /** Attendee Name */
+            attendee_name: string;
+            /** Attendee Email */
+            attendee_email: string;
+            /** Organization */
+            organization: string;
+            /** Title */
+            title: string;
+            /** Ticket Tier Name */
+            ticket_tier_name: string;
+            /** Qr Secret */
+            qr_secret: string;
+            /** Status */
+            status: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Scan History */
+            scan_history: components["schemas"]["ScanHistoryItem"][];
+        };
+        /** AttendeeSearchItem */
+        AttendeeSearchItem: {
+            /**
+             * Ticket Id
+             * Format: uuid
+             */
+            ticket_id: string;
+            /**
+             * Attendee Id
+             * Format: uuid
+             */
+            attendee_id: string;
+            /** Attendee Name */
+            attendee_name: string;
+            /** Attendee Email */
+            attendee_email: string;
+            /** Organization */
+            organization: string;
+            /** Title */
+            title: string;
+            /**
+             * Ticket Tier Id
+             * Format: uuid
+             */
+            ticket_tier_id: string;
+            /** Ticket Tier Name */
+            ticket_tier_name: string;
+            /** Qr Secret */
+            qr_secret: string;
+            /** Status */
+            status: string;
+            /** Checkin Count */
+            checkin_count: number;
+        };
         /** AttendeeTicketDetail */
         AttendeeTicketDetail: {
             /**
@@ -366,6 +485,53 @@ export interface components {
              */
             created_at: string;
         };
+        /** DeskRegistrationCreate */
+        DeskRegistrationCreate: {
+            /** Full Name */
+            full_name: string;
+            /** Email */
+            email?: string | null;
+            /**
+             * Organization
+             * @default
+             */
+            organization: string;
+            /**
+             * Title
+             * @default
+             */
+            title: string;
+            /**
+             * Ticket Tier Id
+             * Format: uuid
+             */
+            ticket_tier_id: string;
+        };
+        /** DeskRegistrationOut */
+        DeskRegistrationOut: {
+            /**
+             * Ticket Id
+             * Format: uuid
+             */
+            ticket_id: string;
+            /** Attendee Name */
+            attendee_name: string;
+            /** Attendee Email */
+            attendee_email: string;
+            /** Organization */
+            organization: string;
+            /** Title */
+            title: string;
+            /** Ticket Tier Name */
+            ticket_tier_name: string;
+            /** Qr Secret */
+            qr_secret: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
         /** EventCreate */
         EventCreate: {
             /** Name */
@@ -493,6 +659,20 @@ export interface components {
             description: string;
             /** Ticket Tiers */
             ticket_tiers: components["schemas"]["TicketTierOut"][];
+        };
+        /** ScanHistoryItem */
+        ScanHistoryItem: {
+            /** Checkin Point Name */
+            checkin_point_name: string;
+            /** Status */
+            status: string;
+            /** Rejection Reason */
+            rejection_reason: string | null;
+            /**
+             * Scanned At
+             * Format: date-time
+             */
+            scanned_at: string;
         };
         /** ScanResult */
         ScanResult: {
@@ -1116,6 +1296,107 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["BatchScanResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_desk_registration_api_events__event_id__desk_registrations_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeskRegistrationCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeskRegistrationOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    search_event_attendees_api_events__event_id__attendees_get: {
+        parameters: {
+            query?: {
+                q?: string;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AttendeeSearchItem"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_attendee_ticket_detail_api_events__event_id__attendees__ticket_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ticket_id: string;
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AttendeeDetailCard"];
                 };
             };
             /** @description Validation Error */

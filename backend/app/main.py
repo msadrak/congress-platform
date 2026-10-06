@@ -9,6 +9,7 @@ from app.config import Settings
 from app.routes import (
     auth,
     checkin,
+    desk,
     events,
     organizers,
     public,
@@ -39,6 +40,7 @@ def create_app(settings: Settings) -> FastAPI:
     app.include_router(ticket_tiers.router)
     app.include_router(tickets.router)
     app.include_router(checkin.router)
+    app.include_router(desk.router)
     app.include_router(public.router)
     return app
 
