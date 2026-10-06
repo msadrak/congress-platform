@@ -3,13 +3,13 @@ import uuid
 from datetime import datetime
 from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Response, status
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, StringConstraints
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
 from app.db import SessionDep
-from app.models import Booth, BoothStaff, EntityQR, Event, User
+from app.models import Booth, BoothBookmark, BoothStaff, EntityQR, Event, User
 from app.routes.auth import CurrentUserDep
 from app.routes.events import OwnedEventDep
 from app.security import generate_entity_qr_secret, hash_password
@@ -55,6 +55,24 @@ class BoothStaffOut(BaseModel):
     user_id: uuid.UUID
     email: str
     full_name: str
+
+
+class BookmarkToggleOut(BaseModel):
+    bookmarked: bool
+    booth_id: uuid.UUID
+
+
+class BookmarkedBoothOut(BaseModel):
+    booth_id: uuid.UUID
+    name: str
+    slug: str
+    location: str
+    description: str
+    website_url: str
+    brochure_url: str
+    event_name: str
+    event_slug: str
+    bookmarked_at: datetime
 
 
 @router.post(
@@ -310,3 +328,88 @@ async def get_booth_portal(
         qr_secret=qr.secret,
         created_at=booth.created_at,
     )
+
+
+@router.post(
+    "/api/attendees/me/bookmarks/booths/{booth_id}",
+    status_code=status.HTTP_201_CREATED,
+)
+async def bookmark_booth(
+    booth_id: uuid.UUID,
+    user: CurrentUserDep,
+    session: SessionDep,
+    response: Response,
+) -> BookmarkToggleOut:
+    booth = await session.get(Booth, booth_id)
+    if booth is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Booth not found")
+
+    existing = await session.scalar(
+        select(BoothBookmark).where(
+            BoothBookmark.user_id == user.id,
+            BoothBookmark.booth_id == booth.id,
+        )
+    )
+    if existing is not None:
+        response.status_code = status.HTTP_200_OK
+        return BookmarkToggleOut(bookmarked=True, booth_id=booth.id)
+
+    bookmark = BoothBookmark(user_id=user.id, booth_id=booth.id)
+    session.add(bookmark)
+    await session.commit()
+    return BookmarkToggleOut(bookmarked=True, booth_id=booth.id)
+
+
+@router.delete("/api/attendees/me/bookmarks/booths/{booth_id}")
+async def unbookmark_booth(
+    booth_id: uuid.UUID,
+    user: CurrentUserDep,
+    session: SessionDep,
+) -> BookmarkToggleOut:
+    booth = await session.get(Booth, booth_id)
+    if booth is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Booth not found")
+
+    bookmark = await session.scalar(
+        select(BoothBookmark).where(
+            BoothBookmark.user_id == user.id,
+            BoothBookmark.booth_id == booth.id,
+        )
+    )
+    if bookmark is not None:
+        await session.delete(bookmark)
+        await session.commit()
+
+    return BookmarkToggleOut(bookmarked=False, booth_id=booth.id)
+
+
+@router.get("/api/attendees/me/bookmarks/booths")
+async def list_my_bookmarked_booths(
+    user: CurrentUserDep,
+    session: SessionDep,
+) -> list[BookmarkedBoothOut]:
+    query = (
+        select(BoothBookmark, Booth, Event)
+        .join(Booth, BoothBookmark.booth_id == Booth.id)
+        .join(Event, Booth.event_id == Event.id)
+        .where(BoothBookmark.user_id == user.id)
+        .order_by(BoothBookmark.created_at.desc())
+    )
+    res = await session.execute(query)
+    rows = res.all()
+
+    return [
+        BookmarkedBoothOut(
+            booth_id=b.id,
+            name=b.name,
+            slug=b.slug,
+            location=b.location,
+            description=b.description,
+            website_url=b.website_url,
+            brochure_url=b.brochure_url,
+            event_name=ev.name,
+            event_slug=ev.slug,
+            bookmarked_at=bm.created_at,
+        )
+        for bm, b, ev in rows
+    ]

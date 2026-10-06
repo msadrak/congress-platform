@@ -216,3 +216,19 @@ class Connection(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+
+
+class BoothBookmark(Base):
+    """An attendee bookmark saving a visited commercial sponsor booth."""
+
+    __tablename__ = "booth_bookmarks"
+    __table_args__ = (
+        UniqueConstraint("user_id", "booth_id", name="uq_user_booth_bookmark"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), index=True)
+    booth_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("booths.id"), index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )

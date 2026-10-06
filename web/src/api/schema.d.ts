@@ -366,6 +366,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/attendees/me/bookmarks/booths/{booth_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Bookmark Booth */
+        post: operations["bookmark_booth_api_attendees_me_bookmarks_booths__booth_id__post"];
+        /** Unbookmark Booth */
+        delete: operations["unbookmark_booth_api_attendees_me_bookmarks_booths__booth_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/attendees/me/bookmarks/booths": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List My Bookmarked Booths */
+        get: operations["list_my_bookmarked_booths_api_attendees_me_bookmarks_booths_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/attendees/me/network/scan": {
         parameters: {
             query?: never;
@@ -443,6 +478,23 @@ export interface paths {
         };
         /** Get Public Event */
         get: operations["get_public_event_api_public_events__slug__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/public/events/{slug}/booths/{booth_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Public Booth */
+        get: operations["get_public_booth_api_public_events__slug__booths__booth_id__get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -616,6 +668,45 @@ export interface components {
         BatchScanResponse: {
             /** Results */
             results: components["schemas"]["ScanResult"][];
+        };
+        /** BookmarkToggleOut */
+        BookmarkToggleOut: {
+            /** Bookmarked */
+            bookmarked: boolean;
+            /**
+             * Booth Id
+             * Format: uuid
+             */
+            booth_id: string;
+        };
+        /** BookmarkedBoothOut */
+        BookmarkedBoothOut: {
+            /**
+             * Booth Id
+             * Format: uuid
+             */
+            booth_id: string;
+            /** Name */
+            name: string;
+            /** Slug */
+            slug: string;
+            /** Location */
+            location: string;
+            /** Description */
+            description: string;
+            /** Website Url */
+            website_url: string;
+            /** Brochure Url */
+            brochure_url: string;
+            /** Event Name */
+            event_name: string;
+            /** Event Slug */
+            event_slug: string;
+            /**
+             * Bookmarked At
+             * Format: date-time
+             */
+            bookmarked_at: string;
         };
         /** BoothCreate */
         BoothCreate: {
@@ -1009,6 +1100,35 @@ export interface components {
              * @description Shown once. Only its hash is stored.
              */
             api_key: string;
+        };
+        /** PublicBoothOut */
+        PublicBoothOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /** Slug */
+            slug: string;
+            /** Location */
+            location: string;
+            /** Description */
+            description: string;
+            /** Website Url */
+            website_url: string;
+            /** Brochure Url */
+            brochure_url: string;
+            /** Event Name */
+            event_name: string;
+            /** Event Slug */
+            event_slug: string;
+            /**
+             * Is Bookmarked
+             * @default false
+             */
+            is_bookmarked: boolean;
         };
         /** PublicEvent */
         PublicEvent: {
@@ -2040,6 +2160,88 @@ export interface operations {
             };
         };
     };
+    bookmark_booth_api_attendees_me_bookmarks_booths__booth_id__post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                booth_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BookmarkToggleOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    unbookmark_booth_api_attendees_me_bookmarks_booths__booth_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                booth_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BookmarkToggleOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_my_bookmarked_booths_api_attendees_me_bookmarks_booths_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BookmarkedBoothOut"][];
+                };
+            };
+        };
+    };
     scan_peer_badge_api_attendees_me_network_scan_post: {
         parameters: {
             query?: never;
@@ -2177,6 +2379,40 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PublicEvent"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_public_booth_api_public_events__slug__booths__booth_id__get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                slug: string;
+                booth_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicBoothOut"];
                 };
             };
             /** @description Validation Error */
