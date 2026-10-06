@@ -8,6 +8,14 @@ import {
   type LeadOut,
 } from "../api/client";
 
+const DEFAULT_TAGS = [
+  "Send Quote",
+  "Schedule Demo",
+  "Decision Maker",
+  "Product Sample",
+  "General Inquiry",
+];
+
 export default function ExhibitorPortal() {
   const { boothId } = useParams<{ boothId: string }>();
   const navigate = useNavigate();
@@ -27,8 +35,18 @@ export default function ExhibitorPortal() {
   // Recently scanned lead highlight
   const [lastScannedLead, setLastScannedLead] = useState<LeadOut | null>(null);
 
-  // Search filter
+  // Search filter and rating filter
   const [searchFilter, setSearchFilter] = useState("");
+  const [ratingFilter, setRatingFilter] = useState<string>("");
+
+  // Qualification Drawer / Edit Modal state
+  const [editingLead, setEditingLead] = useState<LeadOut | null>(null);
+  const [editRating, setEditRating] = useState<"HOT" | "WARM" | "COLD">("WARM");
+  const [editTags, setEditTags] = useState<string[]>([]);
+  const [editNotes, setEditNotes] = useState("");
+  const [customTagInput, setCustomTagInput] = useState("");
+  const [savingLead, setSavingLead] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
 
   const token =
     typeof window !== "undefined"
@@ -51,7 +69,13 @@ export default function ExhibitorPortal() {
         params: { path: { booth_id: boothId } },
       }),
       client.GET("/api/booths/{booth_id}/leads", {
-        params: { path: { booth_id: boothId } },
+        params: {
+          path: { booth_id: boothId },
+          query: {
+            q: searchFilter || undefined,
+            rating: (ratingFilter as "HOT" | "WARM" | "COLD") || undefined,
+          },
+        },
       }),
     ]);
 
@@ -70,7 +94,7 @@ export default function ExhibitorPortal() {
 
   useEffect(() => {
     loadData();
-  }, [boothId, token]);
+  }, [boothId, token, searchFilter, ratingFilter]);
 
   const handleScanLead = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -102,6 +126,81 @@ export default function ExhibitorPortal() {
       setNotes("");
       loadData();
     }
+  };
+
+  const handleOpenEdit = (lead: LeadOut) => {
+    setEditingLead(lead);
+    setEditRating(
+      lead.rating === "HOT" || lead.rating === "COLD" ? lead.rating : "WARM"
+    );
+    setEditTags(lead.tags || []);
+    setEditNotes(lead.notes || "");
+    setCustomTagInput("");
+    setEditError(null);
+  };
+
+  const handleSaveQualification = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!boothId || !token || !editingLead) return;
+
+    setSavingLead(true);
+    setEditError(null);
+    const client = getApiClient(token);
+
+    const { data, error: err } = await client.PATCH(
+      "/api/booths/{booth_id}/leads/{lead_id}",
+      {
+        params: {
+          path: { booth_id: boothId, lead_id: editingLead.id },
+        },
+        body: {
+          rating: editRating,
+          tags: editTags,
+          notes: editNotes.trim(),
+        },
+      }
+    );
+
+    setSavingLead(false);
+    if (err) {
+      setEditError(formatApiError(err));
+    } else if (data) {
+      setLeads((prev) =>
+        prev.map((l) => (l.id === editingLead.id ? data : l))
+      );
+      if (lastScannedLead?.id === editingLead.id) {
+        setLastScannedLead(data);
+      }
+      setEditingLead(null);
+    }
+  };
+
+  const handleAddCustomTag = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      const trimmed = customTagInput.trim();
+      if (trimmed && !editTags.includes(trimmed)) {
+        setEditTags((prev) => [...prev, trimmed]);
+        setCustomTagInput("");
+      }
+    }
+  };
+
+  const handleExportCsv = () => {
+    if (!boothId || !booth || !token) return;
+    const url = `/api/booths/${boothId}/leads/export-csv`;
+    fetch(url, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((res) => res.blob())
+      .then((blob) => {
+        const link = document.createElement("a");
+        link.href = URL.createObjectURL(blob);
+        link.download = `${booth.slug}-leads.csv`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      });
   };
 
   if (!token) {
@@ -154,13 +253,6 @@ export default function ExhibitorPortal() {
     );
   }
 
-  const filteredLeads = leads.filter(
-    (l) =>
-      l.attendee_name.toLowerCase().includes(searchFilter.toLowerCase()) ||
-      l.attendee_email.toLowerCase().includes(searchFilter.toLowerCase()) ||
-      l.organization.toLowerCase().includes(searchFilter.toLowerCase())
-  );
-
   return (
     <div className="min-h-screen bg-neutral-950 text-white flex flex-col font-sans">
       {/* Top Header */}
@@ -177,11 +269,20 @@ export default function ExhibitorPortal() {
               </span>
             </div>
             <p className="text-[11px] text-neutral-400">
-              📍 {booth.location || "Exhibition Floor"} • {leads.length} leads captured
+              📍 {booth.location || "Exhibition Floor"} • {leads.length} leads in database
             </p>
           </div>
 
           <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleExportCsv}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-3 py-1.5 rounded-lg transition shadow-xs flex items-center gap-1.5"
+              title="Download leads CSV formatted for CRM"
+            >
+              <span>📥 Export CRM CSV</span>
+            </button>
+
             <button
               type="button"
               onClick={() => {
@@ -295,17 +396,26 @@ export default function ExhibitorPortal() {
                 </p>
               </div>
 
-              <span
-                className={`text-xs font-black uppercase px-2.5 py-1 rounded-full self-start sm:self-auto ${
-                  lastScannedLead.rating === "HOT"
-                    ? "bg-red-500 text-white"
-                    : lastScannedLead.rating === "WARM"
-                    ? "bg-amber-500 text-white"
-                    : "bg-blue-500 text-white"
-                }`}
-              >
-                {lastScannedLead.rating} LEAD
-              </span>
+              <div className="flex items-center gap-2 self-start sm:self-auto">
+                <span
+                  className={`text-xs font-black uppercase px-2.5 py-1 rounded-full ${
+                    lastScannedLead.rating === "HOT"
+                      ? "bg-red-500 text-white"
+                      : lastScannedLead.rating === "WARM"
+                      ? "bg-amber-500 text-white"
+                      : "bg-blue-500 text-white"
+                  }`}
+                >
+                  {lastScannedLead.rating} LEAD
+                </span>
+                <button
+                  type="button"
+                  onClick={() => handleOpenEdit(lastScannedLead)}
+                  className="text-xs bg-neutral-800 hover:bg-neutral-700 text-neutral-200 px-3 py-1.5 rounded-lg border border-neutral-700 transition"
+                >
+                  Edit Qualification ✏️
+                </button>
+              </div>
             </div>
           )}
         </section>
@@ -318,33 +428,47 @@ export default function ExhibitorPortal() {
                 Captured Booth Leads ({leads.length})
               </h2>
               <p className="text-xs text-neutral-400">
-                All visitor badges scanned at your exhibition booth.
+                Click any lead to qualify interest ratings, action tags, and conversation notes.
               </p>
             </div>
 
-            <input
-              type="text"
-              value={searchFilter}
-              onChange={(e) => setSearchFilter(e.target.value)}
-              placeholder="Search leads..."
-              className="text-xs bg-neutral-900 border border-neutral-800 rounded-xl px-3 py-2 text-white focus:ring-2 focus:ring-emerald-500 w-full sm:w-60"
-            />
+            {/* Filter Bar */}
+            <div className="flex items-center gap-2 w-full sm:w-auto">
+              <select
+                value={ratingFilter}
+                onChange={(e) => setRatingFilter(e.target.value)}
+                className="text-xs bg-neutral-900 border border-neutral-800 rounded-xl px-2.5 py-2 text-white focus:ring-2 focus:ring-emerald-500"
+              >
+                <option value="">All Ratings</option>
+                <option value="HOT">🔥 HOT</option>
+                <option value="WARM">☀️ WARM</option>
+                <option value="COLD">❄️ COLD</option>
+              </select>
+
+              <input
+                type="text"
+                value={searchFilter}
+                onChange={(e) => setSearchFilter(e.target.value)}
+                placeholder="Search leads..."
+                className="text-xs bg-neutral-900 border border-neutral-800 rounded-xl px-3 py-2 text-white focus:ring-2 focus:ring-emerald-500 w-full sm:w-56"
+              />
+            </div>
           </div>
 
-          {filteredLeads.length === 0 ? (
+          {leads.length === 0 ? (
             <div className="bg-neutral-900 p-8 rounded-2xl border border-neutral-800 text-center text-xs text-neutral-500">
-              {searchFilter
-                ? "No leads matching your search filter."
+              {searchFilter || ratingFilter
+                ? "No leads matching your search filters."
                 : "No leads captured yet. Scan visitor badges above to start building your sales pipeline."}
             </div>
           ) : (
             <div className="space-y-3">
-              {filteredLeads.map((l) => (
+              {leads.map((l) => (
                 <div
                   key={l.id}
-                  className="bg-neutral-900 p-4 rounded-2xl border border-neutral-800 space-y-2 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4"
+                  className="bg-neutral-900 p-4 rounded-2xl border border-neutral-800 hover:border-neutral-700 transition space-y-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4"
                 >
-                  <div className="space-y-1">
+                  <div className="space-y-1.5 flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                       <h3 className="font-bold text-sm text-white">
                         {l.attendee_name}
@@ -370,6 +494,20 @@ export default function ExhibitorPortal() {
                       {l.attendee_email}
                     </p>
 
+                    {/* Tags */}
+                    {l.tags && l.tags.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5 pt-1">
+                        {l.tags.map((t, idx) => (
+                          <span
+                            key={idx}
+                            className="text-[10px] bg-neutral-800 text-neutral-300 px-2 py-0.5 rounded-md font-medium"
+                          >
+                            🏷️ {t}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+
                     {l.notes && (
                       <p className="text-xs text-neutral-400 italic pt-1">
                         "{l.notes}"
@@ -377,8 +515,17 @@ export default function ExhibitorPortal() {
                     )}
                   </div>
 
-                  <div className="text-[10px] text-neutral-500 shrink-0 sm:text-right">
-                    <span>Captured {new Date(l.created_at).toLocaleTimeString()}</span>
+                  <div className="flex sm:flex-col items-center sm:items-end gap-2 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => handleOpenEdit(l)}
+                      className="bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-xs font-semibold px-3 py-1.5 rounded-lg border border-neutral-700 transition"
+                    >
+                      Qualify Lead ✏️
+                    </button>
+                    <span className="text-[10px] text-neutral-500">
+                      {new Date(l.created_at).toLocaleTimeString()}
+                    </span>
                   </div>
                 </div>
               ))}
@@ -386,6 +533,142 @@ export default function ExhibitorPortal() {
           )}
         </section>
       </main>
+
+      {/* Qualification Modal / Drawer */}
+      {editingLead && (
+        <div className="fixed inset-0 z-50 bg-neutral-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-neutral-900 max-w-lg w-full rounded-3xl p-6 sm:p-8 shadow-2xl border border-neutral-700 space-y-5 animate-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between">
+              <div>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400">
+                  Lead Qualification
+                </span>
+                <h3 className="text-lg font-bold text-white">
+                  {editingLead.attendee_name}
+                </h3>
+                <p className="text-xs text-neutral-400">
+                  {editingLead.title} • {editingLead.organization}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingLead(null)}
+                className="text-neutral-400 hover:text-white p-1"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveQualification} className="space-y-4">
+              {/* Rating Buttons */}
+              <div className="space-y-1.5">
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-neutral-400">
+                  Interest Level *
+                </label>
+                <div className="grid grid-cols-3 gap-2">
+                  {(["HOT", "WARM", "COLD"] as const).map((r) => (
+                    <button
+                      key={r}
+                      type="button"
+                      onClick={() => setEditRating(r)}
+                      className={`py-2 px-3 rounded-xl text-xs font-bold transition border ${
+                        editRating === r
+                          ? r === "HOT"
+                            ? "bg-red-600 text-white border-red-500"
+                            : r === "WARM"
+                            ? "bg-amber-600 text-white border-amber-500"
+                            : "bg-blue-600 text-white border-blue-500"
+                          : "bg-neutral-800 text-neutral-400 border-neutral-700 hover:text-white"
+                      }`}
+                    >
+                      {r === "HOT" ? "🔥 HOT" : r === "WARM" ? "☀️ WARM" : "❄️ COLD"}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Action Tags */}
+              <div className="space-y-1.5">
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-neutral-400">
+                  Follow-Up Action Tags
+                </label>
+                <div className="flex flex-wrap gap-1.5">
+                  {DEFAULT_TAGS.map((tag) => {
+                    const isSelected = editTags.includes(tag);
+                    return (
+                      <button
+                        key={tag}
+                        type="button"
+                        onClick={() => {
+                          if (isSelected) {
+                            setEditTags((prev) => prev.filter((t) => t !== tag));
+                          } else {
+                            setEditTags((prev) => [...prev, tag]);
+                          }
+                        }}
+                        className={`text-xs px-2.5 py-1 rounded-lg font-medium transition border ${
+                          isSelected
+                            ? "bg-emerald-950 text-emerald-300 border-emerald-700"
+                            : "bg-neutral-800 text-neutral-400 border-neutral-700 hover:text-white"
+                        }`}
+                      >
+                        {isSelected ? "✓ " : "+ "}
+                        {tag}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <input
+                  type="text"
+                  value={customTagInput}
+                  onChange={(e) => setCustomTagInput(e.target.value)}
+                  onKeyDown={handleAddCustomTag}
+                  placeholder="Type custom tag and press Enter..."
+                  className="w-full mt-2 px-3 py-1.5 bg-neutral-950 border border-neutral-700 rounded-lg text-xs text-white focus:ring-2 focus:ring-emerald-500"
+                />
+              </div>
+
+              {/* Freeform Notes */}
+              <div className="space-y-1.5">
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-neutral-400">
+                  Conversation & Qualification Notes
+                </label>
+                <textarea
+                  rows={3}
+                  value={editNotes}
+                  onChange={(e) => setEditNotes(e.target.value)}
+                  placeholder="Record specifics about their clinical requirements, procurement timeline, budget..."
+                  className="w-full px-3 py-2 bg-neutral-950 border border-neutral-700 rounded-xl text-xs text-white focus:ring-2 focus:ring-emerald-500"
+                />
+              </div>
+
+              {editError && (
+                <p className="text-xs text-red-300 bg-red-950/80 p-2.5 rounded-xl border border-red-800">
+                  {editError}
+                </p>
+              )}
+
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setEditingLead(null)}
+                  className="px-4 py-2 border border-neutral-700 rounded-xl text-xs font-medium text-neutral-300 hover:bg-neutral-800 transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingLead}
+                  className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold text-xs py-2 px-5 rounded-xl transition shadow-md"
+                >
+                  {savingLead ? "Saving..." : "Save Qualification"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

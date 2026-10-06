@@ -418,6 +418,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/booths/{booth_id}/leads/{lead_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update Lead Qualification */
+        patch: operations["update_lead_qualification_api_booths__booth_id__leads__lead_id__patch"];
+        trace?: never;
+    };
     "/api/booths/{booth_id}/leads": {
         parameters: {
             query?: never;
@@ -427,6 +444,23 @@ export interface paths {
         };
         /** List Booth Leads */
         get: operations["list_booth_leads_api_booths__booth_id__leads_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/booths/{booth_id}/leads/export-csv": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Export Booth Leads Csv */
+        get: operations["export_booth_leads_csv_api_booths__booth_id__leads_export_csv_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1151,6 +1185,15 @@ export interface components {
              * @default
              */
             notes: string;
+        };
+        /** LeadUpdate */
+        LeadUpdate: {
+            /** Rating */
+            rating?: ("HOT" | "WARM" | "COLD") | null;
+            /** Tags */
+            tags?: string[] | null;
+            /** Notes */
+            notes?: string | null;
         };
         /** ManifestTicket */
         ManifestTicket: {
@@ -2373,7 +2416,77 @@ export interface operations {
             };
         };
     };
+    update_lead_qualification_api_booths__booth_id__leads__lead_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                lead_id: string;
+                booth_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LeadUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_booth_leads_api_booths__booth_id__leads_get: {
+        parameters: {
+            query?: {
+                q?: string;
+                rating?: ("HOT" | "WARM" | "COLD") | null;
+            };
+            header?: never;
+            path: {
+                booth_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    export_booth_leads_csv_api_booths__booth_id__leads_export_csv_get: {
         parameters: {
             query?: never;
             header?: never;
@@ -2390,7 +2503,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["LeadOut"][];
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */

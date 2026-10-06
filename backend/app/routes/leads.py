@@ -1,10 +1,12 @@
+import csv
+import io
 import uuid
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import select
+from sqlalchemy import or_, select
 
 from app.db import SessionDep
 from app.models import Booth, BoothStaff, EntityQR, Event, Lead, Ticket, TicketTier, User
@@ -18,6 +20,12 @@ class LeadScanRequest(BaseModel):
     rating: str = Field(default="WARM", description="HOT, WARM, COLD")
     tags: list[str] = Field(default_factory=list)
     notes: str = ""
+
+
+class LeadUpdate(BaseModel):
+    rating: Literal["HOT", "WARM", "COLD"] | None = None
+    tags: list[str] | None = None
+    notes: str | None = None
 
 
 class LeadOut(BaseModel):
@@ -53,7 +61,6 @@ async def authorized_booth_staff(
         )
     )
     if not is_staff:
-        # Check if organizer of the event
         event = await session.get(Event, booth.event_id)
         if event is None:
             raise HTTPException(
@@ -118,7 +125,11 @@ async def scan_attendee_lead(
         )
     )
 
-    clean_rating = body.rating.upper() if body.rating.upper() in {"HOT", "WARM", "COLD"} else "WARM"
+    clean_rating = (
+        body.rating.upper()
+        if body.rating.upper() in {"HOT", "WARM", "COLD"}
+        else "WARM"
+    )
 
     if existing is not None:
         # Update existing lead
@@ -179,19 +190,88 @@ async def scan_attendee_lead(
     )
 
 
+@router.patch("/{lead_id}")
+async def update_lead_qualification(
+    booth: AuthorizedBoothDep,
+    lead_id: uuid.UUID,
+    body: LeadUpdate,
+    session: SessionDep,
+) -> LeadOut:
+    lead = await session.get(Lead, lead_id)
+    if lead is None or lead.booth_id != booth.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Lead not found")
+
+    if body.rating is not None:
+        lead.rating = body.rating
+    if body.tags is not None:
+        lead.tags = body.tags
+    if body.notes is not None:
+        lead.notes = body.notes.strip()
+
+    lead.updated_at = datetime.now()
+    await session.commit()
+
+    ticket_row = await session.execute(
+        select(Ticket, TicketTier, User)
+        .join(TicketTier, Ticket.ticket_tier_id == TicketTier.id)
+        .join(User, Ticket.user_id == User.id)
+        .where(Ticket.id == lead.ticket_id)
+    )
+    row = ticket_row.one_or_none()
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Associated ticket not found")
+
+    ticket, tier, attendee = row[0], row[1], row[2]
+
+    return LeadOut(
+        id=lead.id,
+        booth_id=booth.id,
+        ticket_id=ticket.id,
+        attendee_name=attendee.full_name,
+        attendee_email=attendee.email,
+        organization=attendee.organization,
+        title=attendee.title,
+        ticket_tier_name=tier.name,
+        rating=lead.rating,
+        tags=lead.tags,
+        notes=lead.notes,
+        created_at=lead.created_at,
+        updated_at=lead.updated_at,
+    )
+
+
 @router.get("")
 async def list_booth_leads(
     booth: AuthorizedBoothDep,
     session: SessionDep,
+    q: Annotated[str, Query()] = "",
+    rating: Annotated[Literal["HOT", "WARM", "COLD"] | None, Query()] = None,
 ) -> list[LeadOut]:
+    term = q.strip()
+
     query = (
         select(Lead, Ticket, TicketTier, User)
         .join(Ticket, Lead.ticket_id == Ticket.id)
         .join(TicketTier, Ticket.ticket_tier_id == TicketTier.id)
         .join(User, Ticket.user_id == User.id)
         .where(Lead.booth_id == booth.id)
-        .order_by(Lead.created_at.desc())
     )
+
+    if rating is not None:
+        query = query.where(Lead.rating == rating)
+
+    if term:
+        like_term = f"%{term}%"
+        query = query.where(
+            or_(
+                User.full_name.ilike(like_term),
+                User.email.ilike(like_term),
+                User.organization.ilike(like_term),
+                Lead.notes.ilike(like_term),
+            )
+        )
+
+    query = query.order_by(Lead.created_at.desc())
     res = await session.execute(query)
     rows = res.all()
 
@@ -213,3 +293,65 @@ async def list_booth_leads(
         )
         for lead, ticket, tier, attendee in rows
     ]
+
+
+@router.get("/export-csv")
+async def export_booth_leads_csv(
+    booth: AuthorizedBoothDep,
+    session: SessionDep,
+) -> Response:
+    query = (
+        select(Lead, Ticket, TicketTier, User)
+        .join(Ticket, Lead.ticket_id == Ticket.id)
+        .join(TicketTier, Ticket.ticket_tier_id == TicketTier.id)
+        .join(User, Ticket.user_id == User.id)
+        .where(Lead.booth_id == booth.id)
+        .order_by(Lead.created_at.desc())
+    )
+    res = await session.execute(query)
+    rows = res.all()
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+
+    # CSV Header
+    writer.writerow(
+        [
+            "Lead ID",
+            "Attendee Name",
+            "Attendee Email",
+            "Organization",
+            "Title",
+            "Ticket Tier",
+            "Interest Rating",
+            "Follow-Up Tags",
+            "Notes",
+            "Captured At (UTC)",
+            "Last Updated (UTC)",
+        ]
+    )
+
+    for lead, ticket, tier, attendee in rows:
+        writer.writerow(
+            [
+                str(lead.id),
+                attendee.full_name,
+                attendee.email,
+                attendee.organization,
+                attendee.title,
+                tier.name,
+                lead.rating,
+                "; ".join(lead.tags or []),
+                lead.notes,
+                lead.created_at.isoformat(),
+                lead.updated_at.isoformat(),
+            ]
+        )
+
+    content = output.getvalue()
+    filename = f"{booth.slug}-leads.csv"
+    return Response(
+        content=content,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )

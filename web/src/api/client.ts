@@ -36,6 +36,7 @@ export type BookmarkToggleOut = components["schemas"]["BookmarkToggleOut"];
 export type BookmarkedBoothOut = components["schemas"]["BookmarkedBoothOut"];
 export type LeadOut = components["schemas"]["LeadOut"];
 export type LeadScanRequest = components["schemas"]["LeadScanRequest"];
+export type LeadUpdate = components["schemas"]["LeadUpdate"];
 
 export const ORGANIZER_KEY_STORAGE = "congress_organizer_api_key";
 export const ATTENDEE_TOKEN_STORAGE = "congress_attendee_token";
