@@ -68,7 +68,7 @@ class TicketTier(Base):
 
 
 class User(Base):
-    """An attendee or buyer user account."""
+    """An attendee, buyer, or booth staff user account."""
 
     __tablename__ = "users"
 
@@ -152,5 +152,42 @@ class CheckIn(Base):
     rejection_reason: Mapped[str | None] = mapped_column(String(64), nullable=True)
     scanned_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     synced_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class Booth(Base):
+    """An exhibition stall or space assigned to a commercial sponsor."""
+
+    __tablename__ = "booths"
+    __table_args__ = (
+        UniqueConstraint("event_id", "slug", name="uq_booths_event_slug"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    event_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("events.id"), index=True)
+    name: Mapped[str] = mapped_column(String(200))
+    slug: Mapped[str] = mapped_column(String(100), index=True)
+    location: Mapped[str] = mapped_column(String(100), default="")
+    description: Mapped[str] = mapped_column(Text, default="")
+    website_url: Mapped[str] = mapped_column(String(500), default="")
+    brochure_url: Mapped[str] = mapped_column(String(500), default="")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class BoothStaff(Base):
+    """A user account authorized to manage leads and operations for a Booth."""
+
+    __tablename__ = "booth_staff"
+    __table_args__ = (
+        UniqueConstraint("booth_id", "user_id", name="uq_booth_staff"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    booth_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("booths.id"), index=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), index=True)
+    created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

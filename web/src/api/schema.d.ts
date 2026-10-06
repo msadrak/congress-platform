@@ -296,6 +296,76 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/events/{event_id}/booths": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Event Booths */
+        get: operations["list_event_booths_api_events__event_id__booths_get"];
+        put?: never;
+        /** Create Booth */
+        post: operations["create_booth_api_events__event_id__booths_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/events/{event_id}/booths/{booth_id}/staff": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Booth Staff */
+        get: operations["list_booth_staff_api_events__event_id__booths__booth_id__staff_get"];
+        put?: never;
+        /** Assign Booth Staff */
+        post: operations["assign_booth_staff_api_events__event_id__booths__booth_id__staff_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/booths/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get My Assigned Booths */
+        get: operations["get_my_assigned_booths_api_booths_me_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/booths/{booth_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Booth Portal */
+        get: operations["get_booth_portal_api_booths__booth_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/public/events/{slug}": {
         parameters: {
             query?: never;
@@ -478,6 +548,95 @@ export interface components {
         BatchScanResponse: {
             /** Results */
             results: components["schemas"]["ScanResult"][];
+        };
+        /** BoothCreate */
+        BoothCreate: {
+            /** Name */
+            name: string;
+            /** Slug */
+            slug: string;
+            /**
+             * Location
+             * @default
+             */
+            location: string;
+            /**
+             * Description
+             * @default
+             */
+            description: string;
+            /**
+             * Website Url
+             * @default
+             */
+            website_url: string;
+            /**
+             * Brochure Url
+             * @default
+             */
+            brochure_url: string;
+        };
+        /** BoothOut */
+        BoothOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Event Id
+             * Format: uuid
+             */
+            event_id: string;
+            /** Name */
+            name: string;
+            /** Slug */
+            slug: string;
+            /** Location */
+            location: string;
+            /** Description */
+            description: string;
+            /** Website Url */
+            website_url: string;
+            /** Brochure Url */
+            brochure_url: string;
+            /** Qr Secret */
+            qr_secret: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
+        /** BoothStaffAssign */
+        BoothStaffAssign: {
+            /**
+             * Email
+             * Format: email
+             */
+            email: string;
+        };
+        /** BoothStaffOut */
+        BoothStaffOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Booth Id
+             * Format: uuid
+             */
+            booth_id: string;
+            /**
+             * User Id
+             * Format: uuid
+             */
+            user_id: string;
+            /** Email */
+            email: string;
+            /** Full Name */
+            full_name: string;
         };
         /** CateringMetric */
         CateringMetric: {
@@ -1567,6 +1726,191 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_event_booths_api_events__event_id__booths_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BoothOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_booth_api_events__event_id__booths_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BoothCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BoothOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_booth_staff_api_events__event_id__booths__booth_id__staff_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                booth_id: string;
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BoothStaffOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    assign_booth_staff_api_events__event_id__booths__booth_id__staff_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                booth_id: string;
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BoothStaffAssign"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BoothStaffOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_my_assigned_booths_api_booths_me_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BoothOut"][];
+                };
+            };
+        };
+    };
+    get_booth_portal_api_booths__booth_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                booth_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BoothOut"];
                 };
             };
             /** @description Validation Error */

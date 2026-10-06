@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
+import QRCode from "react-qr-code";
 import { Link, useOutletContext, useParams } from "react-router-dom";
 import {
   formatApiError,
   getApiClient,
+  type BoothOut,
   type CheckInPointOut,
   type EventOut,
   type TicketTierOut,
@@ -30,6 +32,7 @@ export default function OrganizerEventDetail() {
   const [event, setEvent] = useState<EventOut | null>(null);
   const [tiers, setTiers] = useState<TicketTierOut[]>([]);
   const [points, setPoints] = useState<CheckInPointOut[]>([]);
+  const [booths, setBooths] = useState<BoothOut[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -52,6 +55,26 @@ export default function OrganizerEventDetail() {
   const [submittingPoint, setSubmittingPoint] = useState(false);
   const [pointFormError, setPointFormError] = useState<string | null>(null);
 
+  // New booth form state
+  const [showBoothForm, setShowBoothForm] = useState(false);
+  const [boothName, setBoothName] = useState("");
+  const [boothSlug, setBoothSlug] = useState("");
+  const [boothLocation, setBoothLocation] = useState("");
+  const [boothDescription, setBoothDescription] = useState("");
+  const [boothWebsite, setBoothWebsite] = useState("");
+  const [boothBrochure, setBoothBrochure] = useState("");
+  const [submittingBooth, setSubmittingBooth] = useState(false);
+  const [boothFormError, setBoothFormError] = useState<string | null>(null);
+
+  // Assign staff state
+  const [assigningBoothId, setAssigningBoothId] = useState<string | null>(null);
+  const [staffEmail, setStaffEmail] = useState("");
+  const [assigningStaff, setAssigningStaff] = useState(false);
+  const [staffMessage, setStaffMessage] = useState<string | null>(null);
+
+  // Standee QR modal state
+  const [selectedBoothQr, setSelectedBoothQr] = useState<BoothOut | null>(null);
+
   useEffect(() => {
     if (!eventId) return;
 
@@ -60,7 +83,7 @@ export default function OrganizerEventDetail() {
       setError(null);
       const client = getApiClient(apiKey);
 
-      const [eventRes, tiersRes, pointsRes] = await Promise.all([
+      const [eventRes, tiersRes, pointsRes, boothsRes] = await Promise.all([
         client.GET("/api/events/{event_id}", {
           params: { path: { event_id: eventId } },
         }),
@@ -68,6 +91,9 @@ export default function OrganizerEventDetail() {
           params: { path: { event_id: eventId } },
         }),
         client.GET("/api/events/{event_id}/checkin-points", {
+          params: { path: { event_id: eventId } },
+        }),
+        client.GET("/api/events/{event_id}/booths", {
           params: { path: { event_id: eventId } },
         }),
       ]);
@@ -78,17 +104,9 @@ export default function OrganizerEventDetail() {
         setEvent(eventRes.data);
       }
 
-      if (tiersRes.error) {
-        setError((prev) => prev ?? formatApiError(tiersRes.error));
-      } else if (tiersRes.data) {
-        setTiers(tiersRes.data);
-      }
-
-      if (pointsRes.error) {
-        setError((prev) => prev ?? formatApiError(pointsRes.error));
-      } else if (pointsRes.data) {
-        setPoints(pointsRes.data);
-      }
+      if (tiersRes.data) setTiers(tiersRes.data);
+      if (pointsRes.data) setPoints(pointsRes.data);
+      if (boothsRes.data) setBooths(boothsRes.data);
 
       setLoading(false);
     };
@@ -174,9 +192,79 @@ export default function OrganizerEventDetail() {
     }
   };
 
+  const handleCreateBooth = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!eventId) return;
+    setBoothFormError(null);
+
+    if (!boothName.trim() || !boothSlug.trim()) {
+      setBoothFormError("Company name and URL slug are required.");
+      return;
+    }
+
+    setSubmittingBooth(true);
+    const client = getApiClient(apiKey);
+    const { data, error: err } = await client.POST(
+      "/api/events/{event_id}/booths",
+      {
+        params: { path: { event_id: eventId } },
+        body: {
+          name: boothName.trim(),
+          slug: boothSlug.trim().toLowerCase(),
+          location: boothLocation.trim(),
+          description: boothDescription.trim(),
+          website_url: boothWebsite.trim(),
+          brochure_url: boothBrochure.trim(),
+        },
+      }
+    );
+
+    setSubmittingBooth(false);
+    if (err) {
+      setBoothFormError(formatApiError(err));
+    } else if (data) {
+      setBooths((prev) => [...prev, data]);
+      setBoothName("");
+      setBoothSlug("");
+      setBoothLocation("");
+      setBoothDescription("");
+      setBoothWebsite("");
+      setBoothBrochure("");
+      setShowBoothForm(false);
+    }
+  };
+
+  const handleAssignStaff = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!eventId || !assigningBoothId || !staffEmail.trim()) return;
+
+    setAssigningStaff(true);
+    setStaffMessage(null);
+    const client = getApiClient(apiKey);
+    const { data, error: err } = await client.POST(
+      "/api/events/{event_id}/booths/{booth_id}/staff",
+      {
+        params: { path: { event_id: eventId, booth_id: assigningBoothId } },
+        body: { email: staffEmail.trim() },
+      }
+    );
+
+    setAssigningStaff(false);
+    if (err) {
+      setStaffMessage(formatApiError(err));
+    } else if (data) {
+      setStaffMessage(`✓ Assigned ${data.email} as booth representative!`);
+      setStaffEmail("");
+      setTimeout(() => {
+        setAssigningBoothId(null);
+        setStaffMessage(null);
+      }, 1500);
+    }
+  };
+
   if (loading) {
     return (
-      <div className="py-12 text-center text-sm text-neutral-500">
+      <div className="py-12 text-center text-sm text-neutral-500 font-sans">
         Loading event details...
       </div>
     );
@@ -184,7 +272,7 @@ export default function OrganizerEventDetail() {
 
   if (error || !event) {
     return (
-      <div className="space-y-4">
+      <div className="space-y-4 font-sans">
         <Link
           to="/organizer"
           className="text-sm font-medium text-emerald-700 hover:text-emerald-800"
@@ -248,6 +336,310 @@ export default function OrganizerEventDetail() {
           </p>
         )}
       </div>
+
+      {/* Commercial Exhibition & Booths Section */}
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-lg font-bold text-neutral-900">
+              Exhibition Booths & Commercial Sponsors
+            </h2>
+            <p className="text-xs text-neutral-500">
+              Set up sponsor stalls, generate standee QR codes, and invite booth lead staff.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowBoothForm((prev) => !prev)}
+            className="bg-emerald-600 hover:bg-emerald-700 text-white font-medium text-xs py-2 px-3.5 rounded-lg transition"
+          >
+            {showBoothForm ? "Cancel" : "+ Add Exhibition Booth"}
+          </button>
+        </div>
+
+        {/* Add Booth Form */}
+        {showBoothForm && (
+          <div className="bg-white p-5 rounded-xl border border-neutral-200 shadow-sm space-y-4">
+            <h3 className="text-sm font-semibold text-neutral-900">
+              New Exhibition Booth
+            </h3>
+            <form onSubmit={handleCreateBooth} className="space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-700 mb-1">
+                    Company / Sponsor Name *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={boothName}
+                    onChange={(e) => {
+                      setBoothName(e.target.value);
+                      if (!boothSlug) {
+                        setBoothSlug(
+                          e.target.value
+                            .toLowerCase()
+                            .replace(/[^a-z0-9]+/g, "-")
+                            .replace(/(^-|-$)/g, "")
+                        );
+                      }
+                    }}
+                    placeholder="e.g. Siemens Healthineers"
+                    className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-emerald-500 bg-white text-sm"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-700 mb-1">
+                    URL Slug *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={boothSlug}
+                    onChange={(e) => setBoothSlug(e.target.value)}
+                    placeholder="e.g. siemens-healthineers"
+                    className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-emerald-500 bg-white text-sm"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-700 mb-1">
+                    Stand Location
+                  </label>
+                  <input
+                    type="text"
+                    value={boothLocation}
+                    onChange={(e) => setBoothLocation(e.target.value)}
+                    placeholder="e.g. Booth B-14, Hall 2"
+                    className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-emerald-500 bg-white text-sm"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-700 mb-1">
+                    Website URL
+                  </label>
+                  <input
+                    type="url"
+                    value={boothWebsite}
+                    onChange={(e) => setBoothWebsite(e.target.value)}
+                    placeholder="https://company.com"
+                    className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-emerald-500 bg-white text-sm"
+                  />
+                </div>
+
+                <div className="sm:col-span-2">
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-700 mb-1">
+                    Digital Brochure URL (PDF / Download)
+                  </label>
+                  <input
+                    type="url"
+                    value={boothBrochure}
+                    onChange={(e) => setBoothBrochure(e.target.value)}
+                    placeholder="https://company.com/brochure.pdf"
+                    className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-emerald-500 bg-white text-sm"
+                  />
+                </div>
+
+                <div className="sm:col-span-2">
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-700 mb-1">
+                    Company Description
+                  </label>
+                  <textarea
+                    rows={2}
+                    value={boothDescription}
+                    onChange={(e) => setBoothDescription(e.target.value)}
+                    placeholder="Company overview, products showcased, research focus..."
+                    className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-emerald-500 bg-white text-sm"
+                  />
+                </div>
+              </div>
+
+              {boothFormError && (
+                <p className="text-sm text-red-600 bg-red-50 p-2.5 rounded-md">
+                  {boothFormError}
+                </p>
+              )}
+
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowBoothForm(false)}
+                  className="px-4 py-2 border border-neutral-300 rounded-lg text-sm font-medium hover:bg-neutral-50 transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={submittingBooth}
+                  className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-medium text-sm py-2 px-5 rounded-lg transition"
+                >
+                  {submittingBooth ? "Creating..." : "Save Booth"}
+                </button>
+              </div>
+            </form>
+          </div>
+        )}
+
+        {/* Booths List */}
+        {booths.length === 0 ? (
+          <div className="bg-white p-6 rounded-xl border border-neutral-200 text-center text-sm text-neutral-500">
+            No exhibition booths configured yet. Add booths to provide sponsors with lead retrieval and digital brochures.
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {booths.map((b) => (
+              <div
+                key={b.id}
+                className="bg-white p-5 rounded-xl border border-neutral-200 shadow-sm space-y-3 flex flex-col justify-between"
+              >
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <h4 className="font-bold text-neutral-900 text-base">
+                      {b.name}
+                    </h4>
+                    <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
+                      Sponsor Booth
+                    </span>
+                  </div>
+                  <p className="text-xs text-neutral-500">
+                    📍 {b.location || "Exhibition Floor"}
+                  </p>
+                  {b.description && (
+                    <p className="text-xs text-neutral-600 line-clamp-2 pt-1">
+                      {b.description}
+                    </p>
+                  )}
+                </div>
+
+                <div className="pt-3 border-t border-neutral-100 flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedBoothQr(b)}
+                      className="bg-neutral-900 hover:bg-neutral-800 text-white text-xs font-semibold px-2.5 py-1.5 rounded-lg transition flex items-center gap-1"
+                    >
+                      <span>🖨️ Standee QR</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAssigningBoothId(b.id);
+                        setStaffMessage(null);
+                      }}
+                      className="bg-neutral-100 hover:bg-neutral-200 text-neutral-800 text-xs font-medium px-2.5 py-1.5 rounded-lg transition"
+                    >
+                      + Staff Rep
+                    </button>
+                  </div>
+                  <span className="text-[11px] font-mono text-neutral-400">
+                    {b.slug}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Standee QR Preview Modal */}
+      {selectedBoothQr && (
+        <div className="fixed inset-0 z-50 bg-neutral-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white max-w-sm w-full rounded-2xl p-6 shadow-2xl border border-neutral-200 text-center space-y-4">
+            <h3 className="text-lg font-bold text-neutral-900">
+              {selectedBoothQr.name} Standee QR
+            </h3>
+            <p className="text-xs text-neutral-500">
+              Print this code on the booth table banner for attendees to scan and view brochures.
+            </p>
+
+            <div className="p-4 bg-white border-2 border-neutral-900 rounded-2xl inline-block shadow-inner mx-auto">
+              <QRCode
+                value={selectedBoothQr.qr_secret}
+                size={180}
+                level="M"
+                className="h-auto max-w-full"
+              />
+            </div>
+
+            <p className="text-[11px] font-mono uppercase bg-neutral-100 text-neutral-600 px-2.5 py-1 rounded">
+              {selectedBoothQr.qr_secret}
+            </p>
+
+            <div className="pt-2 flex flex-col gap-2">
+              <button
+                type="button"
+                onClick={() => window.print()}
+                className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs py-2.5 px-4 rounded-xl transition"
+              >
+                🖨️ Print Standee Banner
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelectedBoothQr(null)}
+                className="w-full bg-neutral-100 hover:bg-neutral-200 text-neutral-800 font-semibold text-xs py-2 px-4 rounded-xl transition"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Assign Staff Representative Modal */}
+      {assigningBoothId && (
+        <div className="fixed inset-0 z-50 bg-neutral-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white max-w-sm w-full rounded-2xl p-6 shadow-2xl border border-neutral-200 space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-base font-bold text-neutral-900">
+                Assign Booth Representative
+              </h3>
+              <button
+                type="button"
+                onClick={() => setAssigningBoothId(null)}
+                className="text-neutral-400 hover:text-neutral-600"
+              >
+                ✕
+              </button>
+            </div>
+
+            <p className="text-xs text-neutral-500">
+              Enter the staff representative's email. They will receive access to this booth's lead portal.
+            </p>
+
+            <form onSubmit={handleAssignStaff} className="space-y-3">
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-700 mb-1">
+                  Staff Email *
+                </label>
+                <input
+                  type="email"
+                  required
+                  value={staffEmail}
+                  onChange={(e) => setStaffEmail(e.target.value)}
+                  placeholder="rep@company.com"
+                  className="w-full px-3 py-2 border border-neutral-300 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 bg-white"
+                />
+              </div>
+
+              {staffMessage && (
+                <p className="text-xs text-emerald-700 bg-emerald-50 p-2.5 rounded-lg border border-emerald-200">
+                  {staffMessage}
+                </p>
+              )}
+
+              <button
+                type="submit"
+                disabled={assigningStaff}
+                className="w-full bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold text-xs py-2.5 px-4 rounded-xl transition"
+              >
+                {assigningStaff ? "Assigning..." : "Assign Representative"}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Check-In Points & Gate Policies Section */}
       <div className="space-y-4">

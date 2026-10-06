@@ -56,6 +56,26 @@ _Avoid_: Gate rule, scan constraint, access limit
 The verified admission event of an attendee at a Check-In Point.
 _Avoid_: Entry, scan (as an entity), arrival
 
+**Exhibitor**:
+A commercial organization, company, or sponsor presenting products and services at an event.
+_Avoid_: Vendor, seller, partner
+
+**Booth**:
+A physical exhibition stall or space assigned to an Exhibitor, represented by an Entity QR code.
+_Avoid_: Stall, stand, station
+
+**Lead**:
+A commercial contact record generated when an Exhibitor scans an Attendee's Entity QR, enriched with qualifiers and notes.
+_Avoid_: Contact (in commercial context), prospect, scan record
+
+**Connection**:
+A mutual networking contact established when one Attendee scans another Attendee's Entity QR badge.
+_Avoid_: Friend, peer, lead (in personal context)
+
+**Digital Brochure**:
+Informational documents, links, and resources published on an Exhibitor's Booth page.
+_Avoid_: Flyer, PDF, marketing material
+
 **Badge**:
 The physical identification credential printed for an attendee upon on-site check-in.
 _Avoid_: Tag, card, nameplate

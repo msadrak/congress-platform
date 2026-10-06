@@ -24,6 +24,10 @@ export type AttendanceAnalyticsResponse = components["schemas"]["AttendanceAnaly
 export type GateMetric = components["schemas"]["GateMetric"];
 export type CateringMetric = components["schemas"]["CateringMetric"];
 export type HourlyScanCount = components["schemas"]["HourlyScanCount"];
+export type BoothOut = components["schemas"]["BoothOut"];
+export type BoothCreate = components["schemas"]["BoothCreate"];
+export type BoothStaffAssign = components["schemas"]["BoothStaffAssign"];
+export type BoothStaffOut = components["schemas"]["BoothStaffOut"];
 
 export const ORGANIZER_KEY_STORAGE = "congress_organizer_api_key";
 export const ATTENDEE_TOKEN_STORAGE = "congress_attendee_token";
