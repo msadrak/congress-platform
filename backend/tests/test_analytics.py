@@ -79,6 +79,7 @@ async def setup_event_with_scans(
                 }
             ]
         },
+        headers=bearer(organizer),
     )
     await client.post(
         f"/api/checkin-points/{lunch_gate['id']}/scans/batch",
@@ -91,6 +92,7 @@ async def setup_event_with_scans(
                 }
             ]
         },
+        headers=bearer(organizer),
     )
 
     # Attendee One attempts 2nd scan at Lunch (REJECTED: ALREADY_ADMITTED)
@@ -105,6 +107,7 @@ async def setup_event_with_scans(
                 }
             ]
         },
+        headers=bearer(organizer),
     )
 
     # Attendee Two scans Main Entrance (ADMITTED)
@@ -119,6 +122,7 @@ async def setup_event_with_scans(
                 }
             ]
         },
+        headers=bearer(organizer),
     )
 
     # VIP Person has not scanned yet.

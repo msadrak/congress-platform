@@ -220,6 +220,7 @@ async def test_staff_can_view_attendee_ticket_and_scan_history(
                 }
             ]
         },
+        headers=bearer(organizer),
     )
     await client.post(
         f"/api/checkin-points/{lunch_gate.json()['id']}/scans/batch",
@@ -232,6 +233,7 @@ async def test_staff_can_view_attendee_ticket_and_scan_history(
                 }
             ]
         },
+        headers=bearer(organizer),
     )
 
     # Retrieve attendee detail card

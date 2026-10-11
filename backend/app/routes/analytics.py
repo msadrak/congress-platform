@@ -12,6 +12,7 @@ from sqlalchemy import func, select
 from app.db import SessionDep
 from app.models import CheckIn, CheckInPoint, Ticket, TicketTier, User
 from app.routes.events import OwnedEventDep
+from app.security import sanitize_csv_cell
 
 router = APIRouter(tags=["analytics"])
 
@@ -234,23 +235,23 @@ async def export_attendance_csv(
         writer.writerow(
             [
                 str(checkin.id),
-                point.name,
-                point.policy_type,
-                checkin.status,
-                checkin.rejection_reason or "",
+                sanitize_csv_cell(point.name),
+                sanitize_csv_cell(point.policy_type),
+                sanitize_csv_cell(checkin.status),
+                sanitize_csv_cell(checkin.rejection_reason or ""),
                 checkin.scanned_at.isoformat(),
-                user.full_name if user else "",
-                user.email if user else "",
-                user.organization if user else "",
-                user.title if user else "",
-                tier.name if tier else "",
+                sanitize_csv_cell(user.full_name if user else ""),
+                sanitize_csv_cell(user.email if user else ""),
+                sanitize_csv_cell(user.organization if user else ""),
+                sanitize_csv_cell(user.title if user else ""),
+                sanitize_csv_cell(tier.name if tier else ""),
             ]
         )
 
-    content = output.getvalue()
+    content = "\ufeff" + output.getvalue()
     filename = f"{event.slug}-attendance.csv"
     return Response(
         content=content,
-        media_type="text/csv",
+        media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )

@@ -1,6 +1,7 @@
 """Test harness: real PostgreSQL, real Alembic migrations, requests over the HTTP seam."""
 
 import asyncio
+import os
 from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
 
@@ -14,11 +15,19 @@ from app.config import Settings
 from app.main import create_app
 
 ADMIN_TOKEN = "test-admin-token"
-ADMIN_DSN = "postgresql://congress:congress@localhost:5433/postgres"
+TEST_JWT_SECRET = "test-secure-jwt-secret-minimum-32-chars-long-for-testing"
+TEST_HOST = os.environ.get("CONGRESS_TEST_HOST", "127.0.0.1").strip()
+TEST_PORT = os.environ.get("CONGRESS_TEST_PORT", "5433").strip()
+ADMIN_DSN = os.environ.get(
+    "CONGRESS_TEST_ADMIN_DSN",
+    f"postgresql://congress:congress@{TEST_HOST}:{TEST_PORT}/postgres",
+)
 TEST_DB = "congress_test"
-TEST_URL = f"postgresql+asyncpg://congress:congress@localhost:5433/{TEST_DB}"
+TEST_URL = os.environ.get(
+    "CONGRESS_TEST_DATABASE_URL",
+    f"postgresql+asyncpg://congress:congress@{TEST_HOST}:{TEST_PORT}/{TEST_DB}",
+)
 BACKEND_DIR = Path(__file__).resolve().parent.parent
-
 
 async def _recreate_database() -> None:
     conn = await asyncpg.connect(ADMIN_DSN)
@@ -32,6 +41,11 @@ async def _recreate_database() -> None:
 async def _truncate_all() -> None:
     conn = await asyncpg.connect(TEST_URL.replace("+asyncpg", ""))
     try:
+        # Terminate lingering connections from previous tests to avoid TRUNCATE deadlocks
+        await conn.execute(
+            f"SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
+            f"WHERE datname = '{TEST_DB}' AND pid <> pg_backend_pid()"
+        )
         tables = await conn.fetch(
             "SELECT tablename FROM pg_tables "
             "WHERE schemaname = 'public' AND tablename <> 'alembic_version'"
@@ -56,7 +70,11 @@ def migrated_database() -> Iterator[None]:
 @pytest.fixture
 async def client(migrated_database: None) -> AsyncIterator[AsyncClient]:
     await _truncate_all()
-    settings = Settings(database_url=TEST_URL, platform_admin_token=ADMIN_TOKEN)
+    settings = Settings(
+        database_url=TEST_URL,
+        platform_admin_token=ADMIN_TOKEN,
+        jwt_secret=TEST_JWT_SECRET,
+    )
     app = create_app(settings)
     async with app.router.lifespan_context(app):
         transport = ASGITransport(app=app)

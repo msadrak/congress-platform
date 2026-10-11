@@ -66,7 +66,8 @@ async def test_attendee_scans_peer_badge_and_creates_connection(
     assert scan_resp.status_code == 201, scan_resp.text
     data = scan_resp.json()
     assert data["full_name"] == "Dr. Bob Jones"
-    assert data["email"] == "bob@hospital.org"
+    # Issue #19: Default is privacy-preserving (email is None unless peer explicitly opted in)
+    assert data["email"] is None
     assert data["private_notes"] == "Met during morning keynote."
     assert "id" in data
 
@@ -178,10 +179,10 @@ async def test_vcard_download_returns_rfc_compliant_vcf_file(
     assert "BEGIN:VCARD" in vcard_text
     assert "VERSION:3.0" in vcard_text
     assert "FN:Dr. Bob Jones" in vcard_text
-    assert "EMAIL;TYPE=INTERNET:bob@hospital.org" in vcard_text
+    # Issue #19: Default privacy-preserving (email omitted from vCard unless peer opted in)
+    assert "EMAIL" not in vcard_text
     assert "NOTE:Met at keynote" in vcard_text
     assert "END:VCARD" in vcard_text
-
 
 async def test_authorization_isolation_on_network(
     client: AsyncClient,
@@ -207,3 +208,109 @@ async def test_authorization_isolation_on_network(
         headers={"Authorization": f"Bearer {token_c}"},
     )
     assert intruder_resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Issue #19 Regression Tests: Peer Contact-Sharing Consent
+# ---------------------------------------------------------------------------
+
+
+async def test_peer_privacy_preference_lifecycle_and_unauthorized_isolation(
+    client: AsyncClient,
+) -> None:
+    """Test viewing, updating, and revoking peer contact sharing preference."""
+    # Unauthenticated access rejected
+    unauth_res = await client.get("/api/attendees/me/network/privacy")
+    assert unauth_res.status_code == 401
+
+    # Register user -> default is False
+    user, token = await register_user(client, "consent_user@test.org", "Consent Tester")
+    auth_header = {"Authorization": f"Bearer {token}"}
+
+    get_res = await client.get("/api/attendees/me/network/privacy", headers=auth_header)
+    assert get_res.status_code == 200
+    assert get_res.json()["share_contact_with_peers"] is False
+
+    # Opt in to sharing
+    patch_res = await client.patch(
+        "/api/attendees/me/network/privacy",
+        json={"share_contact_with_peers": True},
+        headers=auth_header,
+    )
+    assert patch_res.status_code == 200
+    assert patch_res.json()["share_contact_with_peers"] is True
+
+    # Verify persistence on subsequent GET
+    get_after = await client.get("/api/attendees/me/network/privacy", headers=auth_header)
+    assert get_after.status_code == 200
+    assert get_after.json()["share_contact_with_peers"] is True
+
+    # Revoke consent
+    revoke_res = await client.patch(
+        "/api/attendees/me/network/privacy",
+        json={"share_contact_with_peers": False},
+        headers=auth_header,
+    )
+    assert revoke_res.status_code == 200
+    assert revoke_res.json()["share_contact_with_peers"] is False
+
+
+async def test_peer_consent_toggle_governs_api_and_vcard_disclosure(
+    client: AsyncClient,
+) -> None:
+    """When peer opts in, email is included in ConnectionOut and vCard; when revoked, it is redacted."""
+    event_id, user_a, token_a, t_a, token_b, t_b = await setup_event_and_attendees(client)
+    header_a = {"Authorization": f"Bearer {token_a}"}
+    header_b = {"Authorization": f"Bearer {token_b}"}
+
+    # 1. Initially Bob has consent=False. Alice scans Bob -> email is None
+    scan1 = await client.post(
+        "/api/attendees/me/network/scan",
+        json={"qr_secret": t_b["qr_secret"]},
+        headers=header_a,
+    )
+    assert scan1.status_code == 201
+    conn_id = scan1.json()["id"]
+    assert scan1.json()["email"] is None
+
+    # Initial vCard export has no email
+    vcard1 = await client.get(f"/api/attendees/me/network/{conn_id}/vcard", headers=header_a)
+    assert vcard1.status_code == 200
+    assert "EMAIL" not in vcard1.text
+
+    # 2. Bob grants consent to share email
+    opt_in = await client.patch(
+        "/api/attendees/me/network/privacy",
+        json={"share_contact_with_peers": True},
+        headers=header_b,
+    )
+    assert opt_in.status_code == 200
+    assert opt_in.json()["share_contact_with_peers"] is True
+
+    # Subsequent list by Alice now includes Bob's email
+    list_after = await client.get("/api/attendees/me/network", headers=header_a)
+    assert list_after.status_code == 200
+    alice_view_of_bob = next(c for c in list_after.json() if c["id"] == conn_id)
+    assert alice_view_of_bob["email"] == "bob@hospital.org"
+
+    # Subsequent vCard export now includes Bob's email
+    vcard_after = await client.get(f"/api/attendees/me/network/{conn_id}/vcard", headers=header_a)
+    assert "EMAIL;TYPE=INTERNET:bob@hospital.org" in vcard_after.text
+
+    # 3. Bob revokes consent
+    opt_out = await client.patch(
+        "/api/attendees/me/network/privacy",
+        json={"share_contact_with_peers": False},
+        headers=header_b,
+    )
+    assert opt_out.status_code == 200
+    assert opt_out.json()["share_contact_with_peers"] is False
+
+    # Subsequent list immediately redacts Bob's email
+    list_revoked = await client.get("/api/attendees/me/network", headers=header_a)
+    revoked_bob = next(c for c in list_revoked.json() if c["id"] == conn_id)
+    assert revoked_bob["email"] is None
+
+    # Subsequent vCard export immediately omits Bob's email
+    vcard_revoked = await client.get(f"/api/attendees/me/network/{conn_id}/vcard", headers=header_a)
+    assert "EMAIL" not in vcard_revoked.text

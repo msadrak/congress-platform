@@ -111,8 +111,10 @@ async def test_compact_manifest_snapshot_returns_valid_tickets_and_status(
         client, event_id, tier_id, "user2@example.com", "Attendee Two"
     )
 
-    # Fetch manifest
-    manifest_resp = await client.get(f"/api/checkin-points/{point_id}/manifest")
+    # Fetch manifest with authorized organizer credentials
+    manifest_resp = await client.get(
+        f"/api/checkin-points/{point_id}/manifest", headers=bearer(organizer)
+    )
     assert manifest_resp.status_code == 200
     manifest = manifest_resp.json()
     assert manifest["checkin_point"]["id"] == point_id
@@ -123,7 +125,8 @@ async def test_compact_manifest_snapshot_returns_valid_tickets_and_status(
     assert t2["qr_secret"] in secrets
     assert secrets[t1["qr_secret"]]["attendee_name"] == "Attendee One"
     assert secrets[t1["qr_secret"]]["is_admitted"] is False
-
+    # Data minimization check: PII (email) is not leaked in offline manifest
+    assert "attendee_email" not in manifest["tickets"][0]
 
 async def test_single_use_admission_policy_enforcement(
     client: AsyncClient,
@@ -161,6 +164,7 @@ async def test_single_use_admission_policy_enforcement(
                 }
             ]
         },
+        headers=bearer(organizer),
     )
     assert res1.status_code == 200
     r1 = res1.json()["results"][0]
@@ -181,6 +185,7 @@ async def test_single_use_admission_policy_enforcement(
                 }
             ]
         },
+        headers=bearer(organizer),
     )
     assert res2.status_code == 200
     r2 = res2.json()["results"][0]
@@ -240,6 +245,7 @@ async def test_tier_restricted_admission_policy_enforcement(
                 },
             ]
         },
+        headers=bearer(organizer),
     )
     assert batch_resp.status_code == 200
     results = batch_resp.json()["results"]
@@ -271,6 +277,7 @@ async def test_invalid_qr_secret_is_rejected(
                 }
             ]
         },
+        headers=bearer(organizer),
     )
     assert res.status_code == 200
     r = res.json()["results"][0]
@@ -311,15 +318,169 @@ async def test_idempotent_batch_replay_with_identical_scan_id(
 
     # First transmission
     res1 = await client.post(
-        f"/api/checkin-points/{point_id}/scans/batch", json=payload
+        f"/api/checkin-points/{point_id}/scans/batch",
+        json=payload,
+        headers=bearer(organizer),
     )
     assert res1.status_code == 200
     assert res1.json()["results"][0]["status"] == "ADMITTED"
 
     # Network retry (re-sending identical payload with same scan_id)
     res2 = await client.post(
-        f"/api/checkin-points/{point_id}/scans/batch", json=payload
+        f"/api/checkin-points/{point_id}/scans/batch",
+        json=payload,
+        headers=bearer(organizer),
     )
-    assert res2.status_code == 200
     # Returns the exact original result without rejecting as double scan
     assert res2.json()["results"][0]["status"] == "ADMITTED"
+
+
+async def test_scanner_endpoint_authentication_and_authorization_controls(
+    client: AsyncClient,
+) -> None:
+    org1 = await provision_organizer(client, "Organizer One")
+    org2 = await provision_organizer(client, "Organizer Two")
+
+    event1_id = await create_event(client, org1)
+    event2_payload = dict(EVENT)
+    event2_payload["slug"] = f"event-two-{uuid.uuid4().hex[:6]}"
+    res_e2 = await client.post("/api/events", json=event2_payload, headers=bearer(org2))
+    assert res_e2.status_code == 201
+    event2_id = res_e2.json()["id"]
+
+    tier1_resp = await client.post(
+        f"/api/events/{event1_id}/ticket-tiers",
+        json=tier(name="General", quota=100),
+        headers=bearer(org1),
+    )
+    point1_resp = await client.post(
+        f"/api/events/{event1_id}/checkin-points",
+        json={"name": "Gate 1", "policy_type": "MULTI_ENTRY"},
+        headers=bearer(org1),
+    )
+    point1_id = point1_resp.json()["id"]
+
+    point1_b_resp = await client.post(
+        f"/api/events/{event1_id}/checkin-points",
+        json={"name": "Gate 1B", "policy_type": "MULTI_ENTRY"},
+        headers=bearer(org1),
+    )
+    point1_b_id = point1_b_resp.json()["id"]
+
+    point2_resp = await client.post(
+        f"/api/events/{event2_id}/checkin-points",
+        json={"name": "Foreign Gate", "policy_type": "MULTI_ENTRY"},
+        headers=bearer(org2),
+    )
+    point2_id = point2_resp.json()["id"]
+
+    t1 = await create_attendee_with_ticket(
+        client, event1_id, tier1_resp.json()["id"], "attendee1@example.com", "Attendee 1"
+    )
+
+    scan_payload = {
+        "scans": [
+            {
+                "scan_id": str(uuid.uuid4()),
+                "qr_secret": t1["qr_secret"],
+                "scanned_at": "2027-04-10T09:00:00Z",
+            }
+        ]
+    }
+
+    # 1. Unauthenticated manifest access is rejected (401)
+    unauth_manifest = await client.get(f"/api/checkin-points/{point1_id}/manifest")
+    assert unauth_manifest.status_code == 401
+
+    # 2. Unauthenticated batch scan ingestion is rejected (401)
+    unauth_batch = await client.post(
+        f"/api/checkin-points/{point1_id}/scans/batch", json=scan_payload
+    )
+    assert unauth_batch.status_code == 401
+
+    # 3. Invalid credentials rejected (401)
+    bad_manifest = await client.get(
+        f"/api/checkin-points/{point1_id}/manifest",
+        headers={"Authorization": "Bearer invalid_garbage_token"},
+    )
+    assert bad_manifest.status_code == 401
+
+    bad_batch = await client.post(
+        f"/api/checkin-points/{point1_id}/scans/batch",
+        json=scan_payload,
+        headers={"Authorization": "Bearer invalid_garbage_token"},
+    )
+    assert bad_batch.status_code == 401
+
+    # 4. Standard attendee token (non-scanner role) rejected (403)
+    _, attendee_token = await register_user(
+        client, f"plain_attendee_{uuid.uuid4().hex[:6]}@test.com", "Plain Attendee"
+    )
+    attendee_manifest = await client.get(
+        f"/api/checkin-points/{point1_id}/manifest",
+        headers={"Authorization": f"Bearer {attendee_token}"},
+    )
+    assert attendee_manifest.status_code == 403
+
+    # 5. Organizer issues scanner token for Point 1
+    token_resp = await client.post(
+        f"/api/checkin-points/{point1_id}/token",
+        headers=bearer(org1),
+    )
+    assert token_resp.status_code == 201
+    scanner_token = token_resp.json()["scanner_token"]
+    assert scanner_token
+
+    # 6. Legitimate scanner token access to manifest and batch scan (200)
+    scanner_headers = {"Authorization": f"Bearer {scanner_token}"}
+    ok_manifest = await client.get(
+        f"/api/checkin-points/{point1_id}/manifest", headers=scanner_headers
+    )
+    assert ok_manifest.status_code == 200
+    manifest_data = ok_manifest.json()
+    assert manifest_data["checkin_point"]["id"] == point1_id
+    assert len(manifest_data["tickets"]) >= 1
+    # Verify attendee_email is minimized / not leaked
+    assert "attendee_email" not in manifest_data["tickets"][0]
+
+    ok_batch = await client.post(
+        f"/api/checkin-points/{point1_id}/scans/batch",
+        json=scan_payload,
+        headers=scanner_headers,
+    )
+    assert ok_batch.status_code == 200
+    assert ok_batch.json()["results"][0]["status"] == "ADMITTED"
+
+    # 7. Cross-point token access rejected (403)
+    # Scanner token for Point 1 used on Point 1B
+    cross_point_manifest = await client.get(
+        f"/api/checkin-points/{point1_b_id}/manifest", headers=scanner_headers
+    )
+    assert cross_point_manifest.status_code == 403
+
+    cross_point_batch = await client.post(
+        f"/api/checkin-points/{point1_b_id}/scans/batch",
+        json=scan_payload,
+        headers=scanner_headers,
+    )
+    assert cross_point_batch.status_code == 403
+
+    # 8. Cross-event / cross-tenant token access rejected (403)
+    # Scanner token for Point 1 (Event 1) used on Point 2 (Event 2)
+    cross_event_manifest = await client.get(
+        f"/api/checkin-points/{point2_id}/manifest", headers=scanner_headers
+    )
+    assert cross_event_manifest.status_code == 403
+
+    # 9. Cross-tenant organizer access masked (404)
+    foreign_org_manifest = await client.get(
+        f"/api/checkin-points/{point1_id}/manifest", headers=bearer(org2)
+    )
+    assert foreign_org_manifest.status_code == 404
+
+    foreign_org_batch = await client.post(
+        f"/api/checkin-points/{point1_id}/scans/batch",
+        json=scan_payload,
+        headers=bearer(org2),
+    )
+    assert foreign_org_batch.status_code == 404

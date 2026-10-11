@@ -11,6 +11,7 @@ from sqlalchemy import or_, select
 from app.db import SessionDep
 from app.models import Booth, BoothStaff, EntityQR, Event, Lead, Ticket, TicketTier, User
 from app.routes.auth import CurrentUserDep
+from app.security import sanitize_csv_cell
 
 router = APIRouter(prefix="/api/booths/{booth_id}/leads", tags=["leads"])
 
@@ -335,20 +336,20 @@ async def export_booth_leads_csv(
         writer.writerow(
             [
                 str(lead.id),
-                attendee.full_name,
-                attendee.email,
-                attendee.organization,
-                attendee.title,
-                tier.name,
-                lead.rating,
-                "; ".join(lead.tags or []),
-                lead.notes,
+                sanitize_csv_cell(attendee.full_name),
+                sanitize_csv_cell(attendee.email),
+                sanitize_csv_cell(attendee.organization),
+                sanitize_csv_cell(attendee.title),
+                sanitize_csv_cell(tier.name),
+                sanitize_csv_cell(lead.rating),
+                sanitize_csv_cell("; ".join(lead.tags or [])),
+                sanitize_csv_cell(lead.notes),
                 lead.created_at.isoformat(),
                 lead.updated_at.isoformat(),
             ]
         )
 
-    content = output.getvalue()
+    content = "\ufeff" + output.getvalue()
     filename = f"{booth.slug}-leads.csv"
     return Response(
         content=content,
