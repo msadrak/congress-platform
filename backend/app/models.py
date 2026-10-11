@@ -78,10 +78,12 @@ class User(Base):
     full_name: Mapped[str] = mapped_column(String(200))
     organization: Mapped[str] = mapped_column(String(200), default="")
     title: Mapped[str] = mapped_column(String(100), default="")
+    share_contact_with_peers: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false"
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
-
 
 class Ticket(Base):
     """A free digital ticket entitlement held by an attendee."""
@@ -148,6 +150,7 @@ class CheckIn(Base):
         ForeignKey("tickets.id"), nullable=True, index=True
     )
     qr_secret: Mapped[str] = mapped_column(String(64), index=True)
+    policy_type: Mapped[str] = mapped_column(String(32), default="MULTI_ENTRY", index=True)
     status: Mapped[str] = mapped_column(String(32))  # ADMITTED or REJECTED
     rejection_reason: Mapped[str | None] = mapped_column(String(64), nullable=True)
     scanned_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
@@ -155,6 +158,27 @@ class CheckIn(Base):
         DateTime(timezone=True), server_default=func.now()
     )
 
+class ScannerDevice(Base):
+    """A registered scanner client device authorized for a CheckInPoint."""
+
+    __tablename__ = "scanner_devices"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    checkin_point_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("checkin_points.id"), index=True
+    )
+    event_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("events.id"), index=True)
+    device_name: Mapped[str] = mapped_column(String(100), default="Scanner Client")
+    is_revoked: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    last_seen_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
 class Booth(Base):
     """An exhibition stall or space assigned to a commercial sponsor."""

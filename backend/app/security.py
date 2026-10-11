@@ -55,7 +55,39 @@ def decode_access_token(token: str, secret: str) -> dict[str, Any] | None:
         return None
 
 
+def create_scanner_token(
+    point_id: uuid.UUID,
+    event_id: uuid.UUID,
+    secret: str,
+    device_id: uuid.UUID | None = None,
+    expires_delta: timedelta | None = None,
+) -> str:
+    now = datetime.now(timezone.utc)
+    exp = now + (expires_delta or timedelta(days=7))
+    token_jti = str(device_id) if device_id else str(uuid.uuid4())
+    payload = {
+        "sub": f"scanner:{point_id}",
+        "jti": token_jti,
+        "type": "scanner",
+        "point_id": str(point_id),
+        "event_id": str(event_id),
+        "iat": int(now.timestamp()),
+        "exp": int(exp.timestamp()),
+    }
+    return jwt.encode(payload, secret, algorithm="HS256")
+
+
 def generate_entity_qr_secret() -> str:
     """128-bit CSPRNG secret encoded as lower-case base32 string without padding."""
     random_bytes = secrets.token_bytes(16)  # 128 bits
     return base64.b32encode(random_bytes).decode("ascii").rstrip("=").lower()
+
+
+def sanitize_csv_cell(value: Any) -> str:
+    """Sanitize CSV cell against CSV Formula Injection (CWE-1236) and preserve Unicode."""
+    if value is None:
+        return ""
+    val_str = str(value)
+    if val_str and val_str[0] in ("=", "+", "-", "@", "\t", "\r"):
+        return f"'{val_str}"
+    return val_str

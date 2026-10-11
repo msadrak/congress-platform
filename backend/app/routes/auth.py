@@ -45,7 +45,7 @@ class UserOut(BaseModel):
     full_name: str
     organization: str
     title: str
-
+    share_contact_with_peers: bool = False
 
 class AuthResponse(BaseModel):
     access_token: str
