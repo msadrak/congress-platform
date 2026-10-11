@@ -1,36 +1,52 @@
-import { useEffect, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import React, { useEffect, useState } from "react";
 import {
   ATTENDEE_TOKEN_STORAGE,
   formatApiError,
   getApiClient,
   type ConnectionOut,
+  type PrivacyPreferenceOut,
 } from "../api/client";
-
+import {
+  useAttendeeLocale,
+  formatLocalizedDate,
+} from "../lib/i18n";
+import { AttendeeLayout } from "../layouts/AttendeeLayout";
+import { Badge } from "../components/ui/Badge";
+import { Button, LinkButton } from "../components/ui/Button";
+import { Card } from "../components/ui/Card";
+import { Dialog } from "../components/ui/Dialog";
 export default function MyNetwork() {
-  const navigate = useNavigate();
+  const localeHook = useAttendeeLocale();
+  const { locale, t, isRtl } = localeHook;
+
   const [connections, setConnections] = useState<ConnectionOut[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Scan modal state
-  const [showScanModal, setShowScanModal] = useState(false);
+  // Privacy preference state (Issue #19)
+  const [privacyPref, setPrivacyPref] = useState<PrivacyPreferenceOut | null>(null);
+  const [updatingPrivacy, setUpdatingPrivacy] = useState(false);
+  const [privacyFeedback, setPrivacyFeedback] = useState<string | null>(null);
+
+  // Connect modal state
+  const [isConnectModalOpen, setIsConnectModalOpen] = useState(false);
   const [peerQrSecret, setPeerQrSecret] = useState("");
   const [initialNotes, setInitialNotes] = useState("");
-  const [submittingScan, setSubmittingScan] = useState(false);
-  const [scanModalError, setScanModalError] = useState<string | null>(null);
+  const [submittingConnect, setSubmittingConnect] = useState(false);
+  const [connectModalError, setConnectModalError] = useState<string | null>(null);
 
-  // Editing notes state
+  // Notes editing state
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editNotesText, setEditNotesText] = useState("");
   const [savingNote, setSavingNote] = useState(false);
+  const [noteFeedback, setNoteFeedback] = useState<string | null>(null);
 
   const token =
     typeof window !== "undefined"
       ? localStorage.getItem(ATTENDEE_TOKEN_STORAGE)
       : null;
 
-  const loadConnections = async () => {
+  const loadData = async () => {
     if (!token) {
       setLoading(false);
       return;
@@ -38,30 +54,58 @@ export default function MyNetwork() {
     setLoading(true);
     setError(null);
     const client = getApiClient(token);
-    const { data, error: err } = await client.GET("/api/attendees/me/network");
-    if (err) {
-      setError(formatApiError(err));
-    } else if (data) {
-      setConnections(data);
+
+    const [connRes, privacyRes] = await Promise.all([
+      client.GET("/api/attendees/me/network"),
+      client.GET("/api/attendees/me/network/privacy"),
+    ]);
+
+    if (connRes.error) {
+      setError(formatApiError(connRes.error));
+    } else if (connRes.data) {
+      setConnections(connRes.data);
     }
+
+    if (privacyRes.data) {
+      setPrivacyPref(privacyRes.data);
+    }
+
     setLoading(false);
   };
 
   useEffect(() => {
-    loadConnections();
+    loadData();
   }, [token]);
 
-  const handleLogout = () => {
-    localStorage.removeItem(ATTENDEE_TOKEN_STORAGE);
-    navigate("/");
+  const handleTogglePrivacyConsent = async () => {
+    if (!token || !privacyPref) return;
+    setUpdatingPrivacy(true);
+    setPrivacyFeedback(null);
+    const newConsent = !privacyPref.share_contact_with_peers;
+    const client = getApiClient(token);
+
+    const { data, error: err } = await client.PATCH(
+      "/api/attendees/me/network/privacy",
+      {
+        body: { share_contact_with_peers: newConsent },
+      }
+    );
+
+    if (err) {
+      setError(formatApiError(err));
+    } else if (data) {
+      setPrivacyPref(data);
+      setPrivacyFeedback(t.privacySavedFeedback);
+    }
+    setUpdatingPrivacy(false);
   };
 
   const handleConnectPeer = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!token || !peerQrSecret.trim()) return;
 
-    setSubmittingScan(true);
-    setScanModalError(null);
+    setSubmittingConnect(true);
+    setConnectModalError(null);
     const client = getApiClient(token);
     const { data, error: err } = await client.POST(
       "/api/attendees/me/network/scan",
@@ -73,20 +117,21 @@ export default function MyNetwork() {
       }
     );
 
-    setSubmittingScan(false);
+    setSubmittingConnect(false);
     if (err) {
-      setScanModalError(formatApiError(err));
+      setConnectModalError(formatApiError(err));
     } else if (data) {
       setPeerQrSecret("");
       setInitialNotes("");
-      setShowScanModal(false);
-      loadConnections();
+      setIsConnectModalOpen(false);
+      loadData();
     }
   };
 
   const handleSaveNotes = async (connectionId: string) => {
     if (!token) return;
     setSavingNote(true);
+    setNoteFeedback(null);
     const client = getApiClient(token);
     const { data, error: err } = await client.PATCH(
       "/api/attendees/me/network/{connection_id}",
@@ -103,288 +148,393 @@ export default function MyNetwork() {
         prev.map((c) => (c.id === connectionId ? data : c))
       );
       setEditingId(null);
+      setNoteFeedback(t.notesSavedFeedback);
     }
   };
 
-  const handleDownloadVcard = (connectionId: string, fullName: string) => {
+  const handleDownloadVcard = async (connectionId: string, fullName: string) => {
     if (!token) return;
-    fetch(`/api/attendees/me/network/${connectionId}/vcard`, {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-      .then((res) => res.blob())
-      .then((blob) => {
-        const link = document.createElement("a");
-        link.href = URL.createObjectURL(blob);
-        const cleanName = fullName.toLowerCase().replace(/[^a-z0-9]+/g, "-");
-        link.download = `${cleanName || "contact"}.vcf`;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
+    try {
+      const res = await fetch(`/api/attendees/me/network/${connectionId}/vcard`, {
+        headers: { Authorization: `Bearer ${token}` },
       });
+      if (!res.ok) return;
+      const blob = await res.blob();
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      const cleanName = fullName.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+      link.download = `${cleanName || "contact"}.vcf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(link.href);
+    } catch {
+      // ignore download error
+    }
   };
 
+  // Unauthenticated view (fails closed)
   if (!token) {
     return (
-      <div className="min-h-screen bg-neutral-50 flex items-center justify-center p-4 font-sans">
-        <div className="max-w-md w-full bg-white p-8 rounded-2xl border border-neutral-200 text-center space-y-4 shadow-sm">
-          <div className="text-3xl">🤝</div>
-          <h1 className="text-xl font-bold text-neutral-900">
-            Sign In to Access Your Network
-          </h1>
-          <p className="text-sm text-neutral-600">
-            You must be logged in to view your conference contacts and exchange business cards.
-          </p>
-          <Link
-            to="/"
-            className="inline-block bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-sm py-2.5 px-4 rounded-xl transition"
-          >
-            Go to Event Homepage
-          </Link>
+      <AttendeeLayout activeTab="network" localeProps={localeHook}>
+        <div className="max-w-md mx-auto px-4 py-20 text-center space-y-6">
+          <div className="w-16 h-16 rounded-2xl bg-action-subtle text-action-primary mx-auto flex items-center justify-center text-3xl shadow-xs">
+            🤝
+          </div>
+          <div className="space-y-2">
+            <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-text-primary">
+              {t.unauthenticatedTitle}
+            </h1>
+            <p className="text-xs sm:text-sm text-text-secondary leading-relaxed">
+              {t.unauthenticatedDesc}
+            </p>
+          </div>
+          <div className="pt-2">
+            <LinkButton to="/" variant="primary" size="lg" isFullWidth>
+              {t.loginAction} →
+            </LinkButton>
+          </div>
         </div>
-      </div>
+      </AttendeeLayout>
     );
   }
 
   return (
-    <div className="min-h-screen bg-neutral-50 text-neutral-900 flex flex-col font-sans">
-      <header className="bg-white border-b border-neutral-200 sticky top-0 z-20">
-        <div className="max-w-3xl mx-auto px-4 h-14 flex items-center justify-between">
-          <Link
-            to="/"
-            className="font-bold text-sm tracking-tight text-neutral-900 flex items-center gap-2"
-          >
-            <span className="w-2 h-2 rounded-full bg-emerald-600 inline-block" />
-            Congress Platform
-          </Link>
-          <div className="flex items-center gap-3">
-            <Link
-              to="/my-tickets"
-              className="text-xs font-semibold text-neutral-600 hover:text-neutral-900"
-            >
-              My Passes 🎫
-            </Link>
-            <button
-              type="button"
-              onClick={handleLogout}
-              className="text-xs bg-neutral-100 hover:bg-neutral-200 text-neutral-700 px-2.5 py-1.5 rounded-md font-medium transition"
-            >
-              Sign out
-            </button>
-          </div>
-        </div>
-      </header>
-
-      <main className="flex-1 max-w-3xl w-full mx-auto p-4 sm:p-6 space-y-6">
+    <AttendeeLayout activeTab="network" localeProps={localeHook}>
+      <div className="max-w-3xl mx-auto px-4 sm:px-6 py-8 sm:py-12 space-y-8">
+        {/* Top Header & Connect Action */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-extrabold tracking-tight text-neutral-900">
-              🤝 My Conference Network
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <Badge variant="brand" size="md">
+                {isRtl ? "ارتباطات علمی و حرفه‌ای" : "Professional Network"}
+              </Badge>
+              <span className="text-xs text-text-muted">
+                ({connections.length} {isRtl ? "همراه" : "contacts"})
+              </span>
+            </div>
+            <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-text-primary">
+              {t.networkHeading}
             </h1>
-            <p className="text-xs text-neutral-500">
-              Scan delegate badges to connect and export directly to your phone contacts (.vcf).
+            <p className="text-xs sm:text-sm text-text-secondary">
+              {t.networkDesc}
             </p>
           </div>
-          <button
-            type="button"
-            onClick={() => setShowScanModal(true)}
-            className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold py-2.5 px-4 rounded-xl transition shadow-xs flex items-center gap-2 self-start sm:self-auto"
-          >
-            <span>📷 Scan Badge to Connect</span>
-          </button>
+
+          <div className="shrink-0">
+            <Button
+              type="button"
+              variant="primary"
+              size="md"
+              onClick={() => setIsConnectModalOpen(true)}
+              className="gap-2 shadow-xs"
+            >
+              <span>+</span>
+              <span>{t.connectButton}</span>
+            </Button>
+          </div>
         </div>
 
-        {loading && (
-          <div className="py-12 text-center text-sm text-neutral-500">
-            Loading your network connections...
+        {/* Global Feedback Notifications */}
+        {privacyFeedback && (
+          <div
+            role="status"
+            className="p-3.5 rounded-xl bg-action-subtle text-action-primary border border-action-subtle-border text-xs leading-relaxed animate-in fade-in"
+          >
+            {privacyFeedback}
+          </div>
+        )}
+
+        {noteFeedback && (
+          <div
+            role="status"
+            className="p-3 rounded-xl bg-action-subtle text-action-primary border border-action-subtle-border text-xs animate-in fade-in"
+          >
+            {noteFeedback}
           </div>
         )}
 
         {error && (
-          <div className="p-4 bg-red-50 text-red-700 rounded-xl border border-red-200 text-sm">
+          <div
+            role="alert"
+            className="p-3.5 rounded-xl bg-status-danger-bg text-status-danger-text border border-status-danger-border text-xs leading-relaxed"
+          >
             {error}
           </div>
         )}
 
-        {!loading && connections.length === 0 && (
-          <div className="bg-white p-8 rounded-2xl border border-neutral-200 text-center space-y-3">
-            <p className="text-base font-semibold text-neutral-800">
-              No connections established yet
-            </p>
-            <p className="text-xs text-neutral-500 max-w-sm mx-auto">
-              Meet someone at a session? Tap "Scan Badge to Connect" and scan their personal QR code to exchange business cards.
-            </p>
-            <button
-              type="button"
-              onClick={() => setShowScanModal(true)}
-              className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold py-2 px-4 rounded-lg transition"
-            >
-              Scan First Badge
-            </button>
-          </div>
+        {/* Privacy & Contact Consent Card (Issue #19) */}
+        {privacyPref && (
+          <Card className="border-border-default shadow-xs overflow-hidden">
+            <div className="p-5 sm:p-6 bg-surface-panel flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="space-y-1.5 max-w-xl">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm">🔒</span>
+                  <h2 className="text-sm sm:text-base font-bold text-text-primary tracking-tight">
+                    {t.privacyHeading}
+                  </h2>
+                  <Badge
+                    variant={privacyPref.share_contact_with_peers ? "success" : "neutral"}
+                    size="sm"
+                  >
+                    {privacyPref.share_contact_with_peers
+                      ? t.emailSharedStatus
+                      : t.emailHiddenStatus}
+                  </Badge>
+                </div>
+                <p className="text-xs text-text-secondary leading-relaxed">
+                  {t.shareEmailToggleDesc}
+                </p>
+              </div>
+
+              <div className="shrink-0">
+                <Button
+                  type="button"
+                  variant={privacyPref.share_contact_with_peers ? "outline" : "secondary"}
+                  size="sm"
+                  disabled={updatingPrivacy}
+                  onClick={handleTogglePrivacyConsent}
+                >
+                  {updatingPrivacy
+                    ? "..."
+                    : privacyPref.share_contact_with_peers
+                    ? (isRtl ? "تغییر به محرمانه (غیرفعال)" : "Make Email Private")
+                    : (isRtl ? "فعال‌سازی اشتراک ایمیل" : "Enable Email Sharing")}
+                </Button>
+              </div>
+            </div>
+          </Card>
         )}
 
-        {connections.length > 0 && (
-          <div className="space-y-4">
-            {connections.map((c) => (
-              <div
-                key={c.id}
-                className="bg-white p-5 rounded-2xl border border-neutral-200 shadow-xs space-y-4"
+        {/* Connections List / Cards */}
+        {loading ? (
+          <div className="space-y-4 animate-pulse">
+            <div className="h-28 bg-surface-panel rounded-2xl border border-border-default" />
+            <div className="h-28 bg-surface-panel rounded-2xl border border-border-default" />
+          </div>
+        ) : connections.length === 0 ? (
+          <Card className="p-8 sm:p-12 text-center space-y-4 border-border-default">
+            <div className="w-14 h-14 rounded-2xl bg-action-subtle text-action-primary mx-auto flex items-center justify-center text-2xl font-bold">
+              🤝
+            </div>
+            <div className="space-y-1.5 max-w-md mx-auto">
+              <h2 className="text-lg font-bold text-text-primary">
+                {t.noConnectionsTitle}
+              </h2>
+              <p className="text-xs sm:text-sm text-text-secondary leading-relaxed">
+                {t.noConnectionsDesc}
+              </p>
+            </div>
+            <div className="pt-2">
+              <Button
+                type="button"
+                variant="primary"
+                size="md"
+                onClick={() => setIsConnectModalOpen(true)}
               >
+                {t.connectButton}
+              </Button>
+            </div>
+          </Card>
+        ) : (
+          <div className="space-y-4">
+            {connections.map((conn) => (
+              <article
+                key={conn.id}
+                aria-labelledby={`conn-${conn.id}`}
+                className="p-5 sm:p-6 rounded-2xl bg-surface-panel border border-border-default shadow-xs space-y-4"
+              >
+                {/* Header Row: Identity & vCard download */}
                 <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
                   <div className="space-y-1">
-                    <h3 className="text-lg font-bold text-neutral-900">
-                      {c.full_name}
-                    </h3>
-                    <p className="text-xs font-semibold text-emerald-800">
-                      {c.title || "Delegate"}
-                      {c.organization ? ` • ${c.organization}` : ""}
-                    </p>
-                    <p className="text-xs text-neutral-500">{c.email}</p>
+                    <h2 id={`conn-${conn.id}`} className="text-base sm:text-lg font-bold text-text-primary tracking-tight">
+                      {conn.full_name}
+                    </h2>
+                    {(conn.title || conn.organization) && (
+                      <p className="text-xs text-text-secondary font-medium">
+                        {conn.title}
+                        {conn.title && conn.organization ? " • " : ""}
+                        {conn.organization}
+                      </p>
+                    )}
+
+                    {/* Email display with privacy consent logic & Bidi isolation */}
+                    <div className="pt-1 text-xs">
+                      {conn.email ? (
+                        <a
+                          href={`mailto:${conn.email}`}
+                          className="text-action-primary hover:underline font-mono inline-flex items-center gap-1.5 focus-visible:outline-focus-ring"
+                        >
+                          <span aria-hidden="true">✉</span>
+                          <bdi dir="ltr">{conn.email}</bdi>
+                        </a>
+                      ) : (
+                        <span className="text-text-muted inline-flex items-center gap-1.5">
+                          <span aria-hidden="true">🔒</span>
+                          <span>{t.emailNotSharedNotice}</span>
+                        </span>
+                      )}
+                    </div>
                   </div>
 
-                  <div className="flex items-center gap-2 shrink-0">
-                    <button
+                  {/* Actions: vCard download */}
+                  <div className="shrink-0 flex items-center gap-2 pt-1 sm:pt-0">
+                    <Button
                       type="button"
-                      onClick={() => handleDownloadVcard(c.id, c.full_name)}
-                      className="bg-neutral-900 hover:bg-neutral-800 text-white text-xs font-semibold px-3 py-2 rounded-xl transition flex items-center gap-1.5 shadow-xs"
-                      title="Download vCard to phone contacts"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleDownloadVcard(conn.id, conn.full_name)}
+                      className="text-xs"
                     >
-                      <span>📇 Add to Phone (.vcf)</span>
-                    </button>
+                      <span>📇</span>
+                      <span>{t.downloadVCardAction}</span>
+                    </Button>
                   </div>
                 </div>
 
                 {/* Private Notes Section */}
-                <div className="pt-3 border-t border-neutral-100 space-y-1.5">
-                  <div className="flex items-center justify-between text-[11px] text-neutral-400">
-                    <span className="font-semibold uppercase tracking-wider">
-                      Private Notes (Only visible to you)
+                <div className="pt-3 border-t border-border-subtle space-y-2">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-semibold text-text-muted">
+                      {t.privateNotesLabel}
                     </span>
-                    {editingId !== c.id && (
+                    {editingId !== conn.id && (
                       <button
                         type="button"
                         onClick={() => {
-                          setEditingId(c.id);
-                          setEditNotesText(c.private_notes);
+                          setEditingId(conn.id);
+                          setEditNotesText(conn.private_notes || "");
                         }}
-                        className="text-emerald-700 hover:text-emerald-800 font-semibold"
+                        className="text-action-primary hover:underline font-medium text-[11px] cursor-pointer"
                       >
-                        {c.private_notes ? "Edit Note" : "+ Add Note"}
+                        {t.editNotesAction}
                       </button>
                     )}
                   </div>
 
-                  {editingId === c.id ? (
-                    <div className="space-y-2 pt-1">
+                  {editingId === conn.id ? (
+                    <div className="space-y-2">
                       <textarea
-                        rows={2}
+                        rows={3}
                         value={editNotesText}
                         onChange={(e) => setEditNotesText(e.target.value)}
-                        placeholder="e.g. Met after keynote, discuss joint research next month..."
-                        className="w-full px-3 py-2 border border-neutral-300 rounded-lg text-xs bg-white focus:ring-2 focus:ring-emerald-500"
+                        placeholder={t.privateNotesPlaceholder}
+                        className="w-full p-2.5 bg-white border border-border-default rounded-xl text-xs sm:text-sm text-text-primary focus:border-action-primary focus:ring-1 focus:ring-action-primary"
                       />
-                      <div className="flex justify-end gap-2">
-                        <button
+                      <div className="flex items-center gap-2">
+                        <Button
                           type="button"
-                          onClick={() => setEditingId(null)}
-                          className="px-2.5 py-1 text-xs border border-neutral-300 rounded-lg text-neutral-600 hover:bg-neutral-50"
-                        >
-                          Cancel
-                        </button>
-                        <button
-                          type="button"
+                          variant="primary"
+                          size="sm"
                           disabled={savingNote}
-                          onClick={() => handleSaveNotes(c.id)}
-                          className="px-3 py-1 text-xs bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg transition"
+                          onClick={() => handleSaveNotes(conn.id)}
                         >
-                          {savingNote ? "Saving..." : "Save Note"}
-                        </button>
+                          {savingNote ? "..." : t.saveNotesAction}
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          disabled={savingNote}
+                          onClick={() => setEditingId(null)}
+                        >
+                          {isRtl ? "انصراف" : "Cancel"}
+                        </Button>
                       </div>
                     </div>
                   ) : (
-                    <p className="text-xs text-neutral-700 italic">
-                      {c.private_notes || "No private notes added yet."}
+                    <p className="text-xs text-text-secondary leading-relaxed whitespace-pre-line bg-surface-page p-3 rounded-xl border border-border-subtle">
+                      {conn.private_notes || (
+                        <span className="text-text-muted italic">
+                          {isRtl ? "یادداشتی ثبت نشده است." : "No private notes recorded."}
+                        </span>
+                      )}
                     </p>
                   )}
                 </div>
 
-                <div className="text-[10px] text-neutral-400">
-                  Connected on {new Date(c.created_at).toLocaleDateString()}
+                {/* Date stamp with Bidi isolation */}
+                <div className="pt-1 text-[11px] text-text-muted">
+                  <span>{isRtl ? "تاریخ ثبت ارتباط: " : "Connected on: "}</span>
+                  <span>{formatLocalizedDate(conn.created_at, locale)}</span>
                 </div>
-              </div>
+              </article>
             ))}
           </div>
         )}
-      </main>
+      </div>
 
-      {/* Connect Scan Modal */}
-      {showScanModal && (
-        <div className="fixed inset-0 z-50 bg-neutral-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white max-w-sm w-full rounded-2xl p-6 shadow-2xl border border-neutral-200 space-y-4 animate-in zoom-in-95 duration-150">
-            <div className="flex items-center justify-between">
-              <h3 className="text-lg font-bold text-neutral-900">
-                Connect with Delegate
-              </h3>
-              <button
-                type="button"
-                onClick={() => setShowScanModal(false)}
-                className="text-neutral-400 hover:text-neutral-600 p-1"
-              >
-                ✕
-              </button>
-            </div>
-
-            <p className="text-xs text-neutral-500">
-              Scan or enter the delegate's personal QR secret to exchange business cards.
-            </p>
-
-            <form onSubmit={handleConnectPeer} className="space-y-3">
-              <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-700 mb-1">
-                  Peer QR Secret *
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={peerQrSecret}
-                  onChange={(e) => setPeerQrSecret(e.target.value)}
-                  placeholder="e.g. 26-character QR secret"
-                  className="w-full px-3 py-2 border border-neutral-300 rounded-lg text-sm font-mono focus:ring-2 focus:ring-emerald-500 bg-white"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-700 mb-1">
-                  Private Note
-                </label>
-                <textarea
-                  rows={2}
-                  value={initialNotes}
-                  onChange={(e) => setInitialNotes(e.target.value)}
-                  placeholder="Where did you meet? What did you discuss?"
-                  className="w-full px-3 py-2 border border-neutral-300 rounded-lg text-xs focus:ring-2 focus:ring-emerald-500 bg-white"
-                />
-              </div>
-
-              {scanModalError && (
-                <p className="text-xs text-red-600 bg-red-50 p-2.5 rounded-lg border border-red-200">
-                  {scanModalError}
-                </p>
-              )}
-
-              <div className="pt-2">
-                <button
-                  type="submit"
-                  disabled={submittingScan}
-                  className="w-full bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold text-sm py-2.5 px-4 rounded-xl transition shadow-xs"
-                >
-                  {submittingScan ? "Connecting..." : "✓ Add to My Network"}
-                </button>
-              </div>
-            </form>
+      {/* Connect with Peer Dialog */}
+      <Dialog
+        isOpen={isConnectModalOpen}
+        onClose={() => {
+          if (!submittingConnect) {
+            setIsConnectModalOpen(false);
+            setConnectModalError(null);
+          }
+        }}
+        title={t.connectModalTitle}
+        description={t.connectModalDesc}
+        size="md"
+      >
+        <form onSubmit={handleConnectPeer} className="space-y-4">
+          <div>
+            <label className="block text-xs font-semibold text-text-primary mb-1">
+              {t.peerCodeLabel} <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="text"
+              required
+              value={peerQrSecret}
+              onChange={(e) => setPeerQrSecret(e.target.value)}
+              placeholder="e.g. 7A8B9C0D..."
+              className="w-full px-3 py-2 bg-white border border-border-default rounded-lg text-sm text-text-primary font-mono focus:border-action-primary focus:ring-1 focus:ring-action-primary"
+            />
+            <span className="text-[11px] text-text-muted mt-1 block">
+              {isRtl
+                ? "کد نشان درج شده در زیر کیوآرکد همکار خود را وارد کنید."
+                : "Enter the credential code printed beneath your peer's badge QR."}
+            </span>
           </div>
-        </div>
-      )}
-    </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-text-primary mb-1">
+              {t.privateNotesLabel}
+            </label>
+            <textarea
+              rows={3}
+              value={initialNotes}
+              onChange={(e) => setInitialNotes(e.target.value)}
+              placeholder={t.privateNotesPlaceholder}
+              className="w-full p-2.5 bg-white border border-border-default rounded-lg text-xs sm:text-sm text-text-primary focus:border-action-primary focus:ring-1 focus:ring-action-primary"
+            />
+          </div>
+
+          {connectModalError && (
+            <div
+              role="alert"
+              aria-live="assertive"
+              className="p-3 rounded-lg bg-status-danger-bg text-status-danger-text border border-status-danger-border text-xs leading-relaxed"
+            >
+              {connectModalError}
+            </div>
+          )}
+
+          <div className="pt-2">
+            <Button
+              type="submit"
+              variant="primary"
+              size="md"
+              isFullWidth
+              disabled={submittingConnect}
+            >
+              {submittingConnect
+                ? "..."
+                : `${t.saveConnectionAction} →`}
+            </Button>
+          </div>
+        </form>
+      </Dialog>
+    </AttendeeLayout>
   );
 }

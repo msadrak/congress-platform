@@ -104,7 +104,8 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        patch?: never;
+        /** Update Event */
+        patch: operations["update_event_api_events__event_id__patch"];
         trace?: never;
     };
     "/api/events/{event_id}/ticket-tiers": {
@@ -123,6 +124,23 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/api/events/{event_id}/ticket-tiers/{tier_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update Ticket Tier */
+        patch: operations["update_ticket_tier_api_events__event_id__ticket_tiers__tier_id__patch"];
         trace?: never;
     };
     "/api/events/{event_id}/tickets/reserve": {
@@ -171,6 +189,94 @@ export interface paths {
         put?: never;
         /** Create Checkin Point */
         post: operations["create_checkin_point_api_events__event_id__checkin_points_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/events/{event_id}/checkin-points/{point_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update Checkin Point */
+        patch: operations["update_checkin_point_api_events__event_id__checkin_points__point_id__patch"];
+        trace?: never;
+    };
+    "/api/checkin-points/{point_id}/token": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Issue a point-scoped scanner client token */
+        post: operations["create_checkin_point_scanner_token_api_checkin_points__point_id__token_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/checkin-points/{point_id}/devices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List registered scanner devices for a check-in point */
+        get: operations["list_checkin_point_devices_api_checkin_points__point_id__devices_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/checkin-points/{point_id}/devices/self/revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Revoke the scanner device represented by its own credential
+         * @description Self-revocation is scoped to the authenticated device; no device ID is caller-supplied.
+         */
+        post: operations["revoke_current_scanner_device_api_checkin_points__point_id__devices_self_revoke_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/checkin-points/{point_id}/devices/{device_id}/revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Revoke a registered scanner device token */
+        post: operations["revoke_checkin_point_device_api_checkin_points__point_id__devices__device_id__revoke_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -501,6 +607,24 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/api/attendees/me/network/privacy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Privacy Preference */
+        get: operations["get_privacy_preference_api_attendees_me_network_privacy_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update Privacy Preference */
+        patch: operations["update_privacy_preference_api_attendees_me_network_privacy_patch"];
         trace?: never;
     };
     "/api/attendees/me/network/{connection_id}": {
@@ -945,6 +1069,22 @@ export interface components {
              */
             created_at: string;
         };
+        /** CheckInPointUpdate */
+        CheckInPointUpdate: {
+            /** Name */
+            name?: string | null;
+            /** Location */
+            location?: string | null;
+            /**
+             * Policy Type
+             * @description MULTI_ENTRY, SINGLE_USE, TIER_RESTRICTED, CAPACITY_CAPPED
+             */
+            policy_type?: string | null;
+            /** Allowed Tier Ids */
+            allowed_tier_ids?: string[] | null;
+            /** Max Capacity */
+            max_capacity?: number | null;
+        };
         /** ConnectionOut */
         ConnectionOut: {
             /**
@@ -960,7 +1100,7 @@ export interface components {
             /** Full Name */
             full_name: string;
             /** Email */
-            email: string;
+            email?: string | null;
             /** Organization */
             organization: string;
             /** Title */
@@ -1090,6 +1230,19 @@ export interface components {
             /** Description */
             description: string;
         };
+        /** EventUpdate */
+        EventUpdate: {
+            /** Name */
+            name?: string | null;
+            /** Starts At */
+            starts_at?: string | null;
+            /** Ends At */
+            ends_at?: string | null;
+            /** Location */
+            location?: string | null;
+            /** Description */
+            description?: string | null;
+        };
         /** GateMetric */
         GateMetric: {
             /**
@@ -1206,8 +1359,6 @@ export interface components {
             ticket_id: string;
             /** Attendee Name */
             attendee_name: string;
-            /** Attendee Email */
-            attendee_email: string;
             /**
              * Ticket Tier Id
              * Format: uuid
@@ -1239,6 +1390,16 @@ export interface components {
              * @description Shown once. Only its hash is stored.
              */
             api_key: string;
+        };
+        /** PrivacyPreferenceOut */
+        PrivacyPreferenceOut: {
+            /** Share Contact With Peers */
+            share_contact_with_peers: boolean;
+        };
+        /** PrivacyPreferenceUpdate */
+        PrivacyPreferenceUpdate: {
+            /** Share Contact With Peers */
+            share_contact_with_peers: boolean;
         };
         /** PublicBoothOut */
         PublicBoothOut: {
@@ -1344,6 +1505,75 @@ export interface components {
              */
             scanned_at: string;
         };
+        /** ScannerDeviceCreate */
+        ScannerDeviceCreate: {
+            /**
+             * Device Name
+             * @default Gate Scanner Client
+             */
+            device_name: string;
+        };
+        /** ScannerDeviceOut */
+        ScannerDeviceOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Checkin Point Id
+             * Format: uuid
+             */
+            checkin_point_id: string;
+            /**
+             * Event Id
+             * Format: uuid
+             */
+            event_id: string;
+            /** Device Name */
+            device_name: string;
+            /** Is Revoked */
+            is_revoked: boolean;
+            /** Revoked At */
+            revoked_at: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Last Seen At */
+            last_seen_at: string | null;
+        };
+        /** ScannerTokenOut */
+        ScannerTokenOut: {
+            /** Scanner Token */
+            scanner_token: string;
+            /**
+             * Token Type
+             * @default Bearer
+             */
+            token_type: string;
+            /**
+             * Point Id
+             * Format: uuid
+             */
+            point_id: string;
+            /**
+             * Event Id
+             * Format: uuid
+             */
+            event_id: string;
+            /**
+             * Device Id
+             * Format: uuid
+             */
+            device_id: string;
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+        };
         /** TicketOut */
         TicketOut: {
             /**
@@ -1415,8 +1645,24 @@ export interface components {
             description: string;
             /** Quota */
             quota: number;
+            /**
+             * Reserved Count
+             * @default 0
+             */
+            reserved_count: number;
             /** Is Open */
             is_open: boolean;
+        };
+        /** TicketTierUpdate */
+        TicketTierUpdate: {
+            /** Name */
+            name?: string | null;
+            /** Description */
+            description?: string | null;
+            /** Quota */
+            quota?: number | null;
+            /** Is Open */
+            is_open?: boolean | null;
         };
         /** UserLogin */
         UserLogin: {
@@ -1443,6 +1689,11 @@ export interface components {
             organization: string;
             /** Title */
             title: string;
+            /**
+             * Share Contact With Peers
+             * @default false
+             */
+            share_contact_with_peers: boolean;
         };
         /** UserRegister */
         UserRegister: {
@@ -1693,6 +1944,41 @@ export interface operations {
             };
         };
     };
+    update_event_api_events__event_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EventUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EventOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_ticket_tiers_api_events__event_id__ticket_tiers_get: {
         parameters: {
             query?: never;
@@ -1741,6 +2027,42 @@ export interface operations {
         responses: {
             /** @description Successful Response */
             201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TicketTierOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_ticket_tier_api_events__event_id__ticket_tiers__tier_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tier_id: string;
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TicketTierUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -1867,6 +2189,171 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CheckInPointOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_checkin_point_api_events__event_id__checkin_points__point_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                point_id: string;
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CheckInPointUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CheckInPointOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_checkin_point_scanner_token_api_checkin_points__point_id__token_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                point_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["ScannerDeviceCreate"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScannerTokenOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_checkin_point_devices_api_checkin_points__point_id__devices_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                point_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScannerDeviceOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    revoke_current_scanner_device_api_checkin_points__point_id__devices_self_revoke_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                point_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScannerDeviceOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    revoke_checkin_point_device_api_checkin_points__point_id__devices__device_id__revoke_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                point_id: string;
+                device_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScannerDeviceOut"];
                 };
             };
             /** @description Validation Error */
@@ -2566,6 +3053,59 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ConnectionOut"][];
+                };
+            };
+        };
+    };
+    get_privacy_preference_api_attendees_me_network_privacy_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PrivacyPreferenceOut"];
+                };
+            };
+        };
+    };
+    update_privacy_preference_api_attendees_me_network_privacy_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PrivacyPreferenceUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PrivacyPreferenceOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

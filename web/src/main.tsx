@@ -2,6 +2,8 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 import "./index.css";
+// Register PWA service worker (side-effect import — must remain top-level)
+import "./lib/pwaRegistration";
 import ExhibitorPortal from "./pages/ExhibitorPortal";
 import GateScanner from "./pages/GateScanner";
 import Home from "./pages/Home";

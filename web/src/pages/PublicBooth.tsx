@@ -6,6 +6,10 @@ import {
   getApiClient,
   type PublicBoothOut,
 } from "../api/client";
+import { PublicLayout } from "../layouts/PublicLayout";
+import { Badge } from "../components/ui/Badge";
+import { Button, LinkButton } from "../components/ui/Button";
+import { Card } from "../components/ui/Card";
 
 export default function PublicBooth() {
   const { slug, boothId } = useParams<{ slug: string; boothId: string }>();
@@ -14,7 +18,7 @@ export default function PublicBooth() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [bookmarking, setBookmarking] = useState(false);
-  const [bookmarkMessage, setBookmarkMessage] = useState<string | null>(null);
+  const [bookmarkFeedback, setBookmarkFeedback] = useState<string | null>(null);
 
   const token =
     typeof window !== "undefined"
@@ -49,190 +53,214 @@ export default function PublicBooth() {
   const handleToggleBookmark = async () => {
     if (!boothId || !booth) return;
     if (!token) {
-      setBookmarkMessage("Please sign in or reserve an attendee pass to save bookmarks.");
+      setBookmarkFeedback("Please sign in or register an attendee pass to save bookmarks to your portal.");
       return;
     }
 
     setBookmarking(true);
-    setBookmarkMessage(null);
+    setBookmarkFeedback(null);
     const client = getApiClient(token);
 
     if (booth.is_bookmarked) {
       // Unbookmark
-      const { data } = await client.DELETE(
+      const { data, error: err } = await client.DELETE(
         "/api/attendees/me/bookmarks/booths/{booth_id}",
         {
           params: { path: { booth_id: boothId } },
         }
       );
-      if (data) {
+      if (!err && data) {
         setBooth((prev) => (prev ? { ...prev, is_bookmarked: false } : null));
-        setBookmarkMessage("Removed from My Visited Booths.");
+        setBookmarkFeedback("Removed from your saved booths.");
       }
     } else {
       // Bookmark
-      const { data } = await client.POST(
+      const { data, error: err } = await client.POST(
         "/api/attendees/me/bookmarks/booths/{booth_id}",
         {
           params: { path: { booth_id: boothId } },
         }
       );
-      if (data) {
+      if (!err && data) {
         setBooth((prev) => (prev ? { ...prev, is_bookmarked: true } : null));
-        setBookmarkMessage("✓ Saved to My Visited Booths!");
+        setBookmarkFeedback("✓ Saved to My Bookmarked Booths!");
       }
     }
     setBookmarking(false);
   };
 
+  // Loading skeleton
   if (loading) {
     return (
-      <div className="min-h-screen bg-neutral-50 flex items-center justify-center p-4 font-sans">
-        <div className="text-sm text-neutral-500 animate-pulse">
-          Loading company profile...
+      <PublicLayout>
+        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-16 sm:py-24">
+          <div className="space-y-6 animate-pulse">
+            <div className="w-32 h-5 bg-surface-panel-subtle rounded-md" />
+            <div className="p-8 rounded-2xl bg-surface-panel border border-border-default space-y-4">
+              <div className="w-24 h-6 bg-surface-panel-subtle rounded-full" />
+              <div className="w-2/3 h-10 bg-surface-panel-subtle rounded-xl" />
+              <div className="w-1/3 h-5 bg-surface-panel-subtle rounded-md" />
+            </div>
+          </div>
         </div>
-      </div>
+      </PublicLayout>
     );
   }
 
+  // Error / Not Found state
   if (error || !booth) {
     return (
-      <div className="min-h-screen bg-neutral-50 flex items-center justify-center p-4 font-sans">
-        <div className="max-w-md w-full bg-white p-8 rounded-2xl border border-neutral-200 text-center space-y-4 shadow-sm">
-          <div className="text-3xl">🏢</div>
-          <h1 className="text-xl font-bold text-neutral-900">Booth Not Found</h1>
-          <p className="text-sm text-neutral-600">
-            {error ?? "The exhibition booth you are looking for does not exist."}
-          </p>
-          <Link
-            to={slug ? `/e/${slug}` : "/"}
-            className="inline-block text-xs font-semibold text-emerald-700 hover:text-emerald-800 uppercase tracking-wider"
-          >
-            ← Back to Event
-          </Link>
+      <PublicLayout>
+        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-20 sm:py-32 flex items-center justify-center">
+          <div className="max-w-md w-full bg-surface-panel p-8 sm:p-10 rounded-2xl border border-border-default shadow-xs text-center space-y-5">
+            <div className="w-12 h-12 rounded-full bg-action-subtle text-action-primary mx-auto flex items-center justify-center font-bold text-lg">
+              🏢
+            </div>
+            <div className="space-y-1.5">
+              <h1 className="text-xl font-bold text-text-primary tracking-tight">
+                Booth Profile Not Found
+              </h1>
+              <p className="text-sm text-text-secondary leading-relaxed">
+                {error ?? "The exhibition booth profile you requested does not exist or has been removed."}
+              </p>
+            </div>
+            <div className="pt-2">
+              <LinkButton
+                to={slug ? `/e/${slug}` : "/"}
+                variant="secondary"
+                size="md"
+              >
+                {slug ? "← Back to Event Page" : "← Platform Home"}
+              </LinkButton>
+            </div>
+          </div>
         </div>
-      </div>
+      </PublicLayout>
     );
   }
 
   return (
-    <div className="min-h-screen bg-neutral-50 text-neutral-900 flex flex-col font-sans">
-      <header className="bg-white border-b border-neutral-200 sticky top-0 z-20">
-        <div className="max-w-3xl mx-auto px-4 h-14 flex items-center justify-between">
+    <PublicLayout>
+      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-10 sm:py-16 space-y-6">
+        {/* Navigation Breadcrumb */}
+        <nav aria-label="Event Breadcrumb">
           <Link
             to={`/e/${slug}`}
-            className="font-bold text-sm tracking-tight text-neutral-800 flex items-center gap-2"
+            className="inline-flex items-center gap-1.5 text-xs font-semibold text-action-primary hover:text-action-hover focus-visible:outline-focus-ring"
           >
-            <span className="w-2 h-2 rounded-full bg-emerald-600 inline-block" />
-            {booth.event_name}
+            <span aria-hidden="true">←</span> Back to {booth.event_name}
           </Link>
-          <div className="flex items-center gap-3">
-            <Link
-              to="/my-tickets"
-              className="text-xs font-semibold text-neutral-600 hover:text-neutral-900"
-            >
-              My Passes 🎫
-            </Link>
-          </div>
-        </div>
-      </header>
-
-      <main className="flex-1 max-w-3xl w-full mx-auto p-4 sm:p-6 space-y-6">
-        <div className="space-y-1">
-          <Link
-            to={`/e/${slug}`}
-            className="text-xs font-semibold text-emerald-700 hover:text-emerald-800"
-          >
-            ← Back to {booth.event_name} Overview
-          </Link>
-        </div>
+        </nav>
 
         {/* Company Profile Hero Card */}
-        <section className="bg-white rounded-3xl p-6 sm:p-8 border border-neutral-200 shadow-sm space-y-6">
-          <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
-            <div className="space-y-2">
-              <div className="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
-                Official Commercial Sponsor
+        <Card className="border-border-default shadow-xs overflow-hidden">
+          <div className="p-6 sm:p-10 space-y-6">
+            {/* Top Identity Row */}
+            <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-5">
+              <div className="space-y-2 max-w-xl">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge variant="brand" size="md">
+                    Exhibitor Booth
+                  </Badge>
+                  <span className="text-xs text-text-muted">•</span>
+                  <span className="text-xs text-text-muted font-medium">
+                    {booth.event_name}
+                  </span>
+                </div>
+
+                <h1 className="text-2xl sm:text-4xl font-extrabold tracking-tight text-text-primary">
+                  {booth.name}
+                </h1>
+
+                <div className="flex items-center gap-2 text-xs sm:text-sm text-text-secondary font-medium pt-0.5">
+                  <span className="text-action-primary">📍</span>
+                  <span>Stand Location: {booth.location || "Main Exhibition Floor"}</span>
+                </div>
               </div>
-              <h1 className="text-2xl sm:text-3xl font-black text-neutral-900 tracking-tight">
-                {booth.name}
-              </h1>
-              <p className="text-sm text-neutral-500 font-medium">
-                📍 {booth.location || "Exhibition Floor"}
-              </p>
+
+              {/* Bookmark Action Button */}
+              <div className="shrink-0">
+                <Button
+                  type="button"
+                  variant={booth.is_bookmarked ? "secondary" : "primary"}
+                  size="md"
+                  disabled={bookmarking}
+                  onClick={handleToggleBookmark}
+                  className="gap-2"
+                >
+                  <span aria-hidden="true">{booth.is_bookmarked ? "★" : "☆"}</span>
+                  <span>{booth.is_bookmarked ? "Saved in Passes" : "Bookmark Booth"}</span>
+                </Button>
+              </div>
             </div>
 
-            {/* Bookmark button */}
-            <button
-              type="button"
-              disabled={bookmarking}
-              onClick={handleToggleBookmark}
-              className={`self-start sm:self-auto px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-xs border ${
-                booth.is_bookmarked
-                  ? "bg-amber-50 text-amber-800 border-amber-300 hover:bg-amber-100"
-                  : "bg-neutral-900 text-white border-neutral-900 hover:bg-neutral-800"
-              }`}
-            >
-              <span>{booth.is_bookmarked ? "⭐ Bookmarked" : "☆ Bookmark Booth"}</span>
-            </button>
-          </div>
-
-          {bookmarkMessage && (
-            <p className="text-xs p-2.5 rounded-lg bg-emerald-50 text-emerald-800 border border-emerald-200 animate-in fade-in">
-              {bookmarkMessage}
-            </p>
-          )}
-
-          {/* Action Links Bar */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
-            {booth.brochure_url ? (
-              <a
-                href={booth.brochure_url}
-                target="_blank"
-                rel="noreferrer"
-                className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs py-3 px-4 rounded-xl transition shadow-sm text-center flex items-center justify-center gap-2"
+            {/* Bookmark Feedback Message */}
+            {bookmarkFeedback && (
+              <div
+                role="status"
+                className="p-3 rounded-xl bg-action-subtle text-action-primary border border-action-subtle-border text-xs leading-relaxed animate-in fade-in"
               >
-                <span>📄 View / Download Digital Brochure</span>
-              </a>
-            ) : (
-              <div className="bg-neutral-100 text-neutral-400 text-xs py-3 px-4 rounded-xl text-center font-medium">
-                Digital brochure coming soon
+                {bookmarkFeedback}
               </div>
             )}
+            {/* Action Bar: Brochure & Official Website */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 pt-2">
+              {booth.brochure_url && /^https?:\/\//i.test(booth.brochure_url) ? (
+                <a
+                  href={booth.brochure_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center justify-center gap-2 p-3.5 rounded-xl bg-action-primary hover:bg-action-hover text-white text-xs sm:text-sm font-semibold transition-colors shadow-xs focus-visible:outline-2 focus-visible:outline-focus-ring"
+                >
+                  <span aria-hidden="true">📄</span>
+                  <span>View / Download Digital Brochure ↗</span>
+                </a>
+              ) : (
+                <div className="p-3.5 rounded-xl bg-surface-page border border-border-default text-xs text-text-muted text-center font-medium flex items-center justify-center">
+                  Digital brochure not yet published
+                </div>
+              )}
 
-            {booth.website_url ? (
-              <a
-                href={booth.website_url}
-                target="_blank"
-                rel="noreferrer"
-                className="bg-neutral-100 hover:bg-neutral-200 text-neutral-800 font-semibold text-xs py-3 px-4 rounded-xl transition text-center flex items-center justify-center gap-2 border border-neutral-200"
-              >
-                <span>🌐 Visit Official Website ↗</span>
-              </a>
-            ) : null}
-          </div>
+              {booth.website_url && /^https?:\/\//i.test(booth.website_url) ? (
+                <a
+                  href={booth.website_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center justify-center gap-2 p-3.5 rounded-xl bg-surface-panel hover:bg-surface-page border border-border-default text-text-primary text-xs sm:text-sm font-semibold transition-colors shadow-xs focus-visible:outline-2 focus-visible:outline-focus-ring"
+                >
+                  <span aria-hidden="true">🌐</span>
+                  <span>Visit Company Website ↗</span>
+                </a>
+              ) : null}
+            </div>
 
-          {/* Company Overview Description */}
-          {booth.description ? (
-            <div className="pt-4 border-t border-neutral-100 space-y-2">
-              <h2 className="text-xs font-bold uppercase tracking-wider text-neutral-400">
-                About the Company & Exhibition
+            {/* Company Description */}
+            <div className="pt-6 border-t border-border-default space-y-3">
+              <h2 className="text-xs font-bold uppercase tracking-wider text-text-muted">
+                About the Exhibitor
               </h2>
-              <p className="text-sm text-neutral-700 leading-relaxed whitespace-pre-line">
-                {booth.description}
+              {booth.description ? (
+                <p className="text-sm sm:text-base text-text-secondary leading-relaxed whitespace-pre-line">
+                  {booth.description}
+                </p>
+              ) : (
+                <p className="text-sm text-text-muted italic">
+                  Visit this exhibitor at {booth.location || "the exhibition area"} during conference break sessions to explore their products and services.
+                </p>
+              )}
+            </div>
+            {/* Standee QR Information Note (Issue #21 context) */}
+            <div className="p-4 rounded-xl bg-surface-page border border-border-subtle text-xs text-text-muted space-y-1">
+              <span className="font-semibold text-text-primary block">
+                Visiting this booth on-site?
+              </span>
+              <p>
+                Present your attendee digital pass to booth representatives to share contact credentials and download company brochures directly.
               </p>
             </div>
-          ) : (
-            <div className="pt-4 border-t border-neutral-100 text-xs text-neutral-400 italic">
-              Visit this sponsor at {booth.location || "the exhibition area"} to learn more about their products and services.
-            </div>
-          )}
-        </section>
-      </main>
-
-      <footer className="border-t border-neutral-200 bg-white py-6 mt-12 text-center text-xs text-neutral-500">
-        Congress Platform • Paperless Digital Exhibition Experience
-      </footer>
-    </div>
+          </div>
+        </Card>
+      </div>
+    </PublicLayout>
   );
 }

@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import React, { useEffect, useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
 import {
   ATTENDEE_TOKEN_STORAGE,
   formatApiError,
@@ -7,37 +7,49 @@ import {
   type BoothOut,
   type LeadOut,
 } from "../api/client";
+import {
+  useAttendeeLocale,
+  formatLocalizedDate,
+  formatLocalizedNumber,
+} from "../lib/i18n";
+import { SkipLink } from "../components/ui/SkipLink";
+import { Badge } from "../components/ui/Badge";
+import { Button, LinkButton } from "../components/ui/Button";
+import { Card } from "../components/ui/Card";
+import { Dialog } from "../components/ui/Dialog";
 
-const DEFAULT_TAGS = [
-  "Send Quote",
-  "Schedule Demo",
-  "Decision Maker",
-  "Product Sample",
-  "General Inquiry",
-];
+const PRESET_TAG_KEYS = [
+  "tagSendQuote",
+  "tagScheduleDemo",
+  "tagDecisionMaker",
+  "tagProductSample",
+  "tagGeneralInquiry",
+  "tagUrgentFollowUp",
+] as const;
 
 export default function ExhibitorPortal() {
   const { boothId } = useParams<{ boothId: string }>();
   const navigate = useNavigate();
+  const { locale, setLocale, t, isRtl, dir } = useAttendeeLocale();
 
   const [booth, setBooth] = useState<BoothOut | null>(null);
   const [leads, setLeads] = useState<LeadOut[]>([]);
   const [loading, setLoading] = useState(true);
   const [authError, setAuthError] = useState<string | null>(null);
 
-  // Scan lead form state
-  const [qrSecret, setQrSecret] = useState("");
-  const [rating, setRating] = useState<"HOT" | "WARM" | "COLD">("HOT");
-  const [notes, setNotes] = useState("");
-  const [submittingScan, setSubmittingScan] = useState(false);
-  const [scanError, setScanError] = useState<string | null>(null);
-
-  // Recently scanned lead highlight
-  const [lastScannedLead, setLastScannedLead] = useState<LeadOut | null>(null);
-
-  // Search filter and rating filter
+  // Search & filter state
   const [searchFilter, setSearchFilter] = useState("");
   const [ratingFilter, setRatingFilter] = useState<string>("");
+
+  // Capture Lead Modal state
+  const [isCaptureModalOpen, setIsCaptureModalOpen] = useState(false);
+  const [qrSecret, setQrSecret] = useState("");
+  const [captureRating, setCaptureRating] = useState<"HOT" | "WARM" | "COLD">("WARM");
+  const [captureTags, setCaptureTags] = useState<string[]>([]);
+  const [captureNotes, setCaptureNotes] = useState("");
+  const [submittingCapture, setSubmittingCapture] = useState(false);
+  const [captureError, setCaptureError] = useState<string | null>(null);
+  const [captureFeedback, setCaptureFeedback] = useState<string | null>(null);
 
   // Qualification Drawer / Edit Modal state
   const [editingLead, setEditingLead] = useState<LeadOut | null>(null);
@@ -47,84 +59,129 @@ export default function ExhibitorPortal() {
   const [customTagInput, setCustomTagInput] = useState("");
   const [savingLead, setSavingLead] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
+  const [editFeedback, setEditFeedback] = useState<string | null>(null);
+
+  // CSV Export state
+  const [isExporting, setIsExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
 
   const token =
     typeof window !== "undefined"
       ? localStorage.getItem(ATTENDEE_TOKEN_STORAGE)
       : null;
 
-  const loadData = async () => {
+  useEffect(() => {
+    let isMounted = true;
     if (!boothId) return;
     if (!token) {
       setLoading(false);
       return;
     }
 
-    setLoading(true);
-    setAuthError(null);
-    const client = getApiClient(token);
+    const fetchData = async () => {
+      setLoading(true);
+      setAuthError(null);
+      const client = getApiClient(token);
 
-    const [boothRes, leadsRes] = await Promise.all([
-      client.GET("/api/booths/{booth_id}", {
-        params: { path: { booth_id: boothId } },
-      }),
-      client.GET("/api/booths/{booth_id}/leads", {
-        params: {
-          path: { booth_id: boothId },
-          query: {
-            q: searchFilter || undefined,
-            rating: (ratingFilter as "HOT" | "WARM" | "COLD") || undefined,
+      const [boothRes, leadsRes] = await Promise.all([
+        client.GET("/api/booths/{booth_id}", {
+          params: { path: { booth_id: boothId } },
+        }),
+        client.GET("/api/booths/{booth_id}/leads", {
+          params: {
+            path: { booth_id: boothId },
+            query: {
+              q: searchFilter || undefined,
+              rating: (ratingFilter as "HOT" | "WARM" | "COLD") || undefined,
+            },
           },
-        },
-      }),
-    ]);
+        }),
+      ]);
 
-    if (boothRes.error) {
-      setAuthError(formatApiError(boothRes.error));
-    } else if (boothRes.data) {
-      setBooth(boothRes.data);
-    }
+      if (!isMounted) return;
 
-    if (leadsRes.data) {
-      setLeads(leadsRes.data);
-    }
+      if (boothRes.error) {
+        setAuthError(formatApiError(boothRes.error));
+      } else if (boothRes.data) {
+        setBooth(boothRes.data);
+      }
 
-    setLoading(false);
-  };
+      if (leadsRes.data) {
+        setLeads(leadsRes.data);
+      }
 
-  useEffect(() => {
-    loadData();
+      setLoading(false);
+    };
+
+    fetchData();
+    return () => {
+      isMounted = false;
+    };
   }, [boothId, token, searchFilter, ratingFilter]);
 
-  const handleScanLead = async (e: React.FormEvent) => {
+  const refreshLeads = async () => {
+    if (!boothId || !token) return;
+    const client = getApiClient(token);
+    const { data } = await client.GET("/api/booths/{booth_id}/leads", {
+      params: {
+        path: { booth_id: boothId },
+        query: {
+          q: searchFilter || undefined,
+          rating: (ratingFilter as "HOT" | "WARM" | "COLD") || undefined,
+        },
+      },
+    });
+    if (data) setLeads(data);
+  };
+
+  const handleLogout = () => {
+    if (typeof window !== "undefined") {
+      localStorage.removeItem(ATTENDEE_TOKEN_STORAGE);
+    }
+    navigate("/");
+  };
+
+  const toggleLocale = () => {
+    setLocale(locale === "fa" ? "en" : "fa");
+  };
+
+  const handleCaptureLead = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!boothId || !token || !qrSecret.trim()) return;
 
-    setSubmittingScan(true);
-    setScanError(null);
+    setSubmittingCapture(true);
+    setCaptureError(null);
+    setCaptureFeedback(null);
     const client = getApiClient(token);
 
-    const { data, error: err } = await client.POST(
+    const { data, error: err, response } = await client.POST(
       "/api/booths/{booth_id}/leads/scan",
       {
         params: { path: { booth_id: boothId } },
         body: {
           qr_secret: qrSecret.trim(),
-          rating,
-          notes: notes.trim(),
-          tags: rating === "HOT" ? ["Immediate Follow-Up"] : [],
+          rating: captureRating,
+          notes: captureNotes.trim(),
+          tags: captureTags,
         },
       }
     );
 
-    setSubmittingScan(false);
+    setSubmittingCapture(false);
     if (err) {
-      setScanError(formatApiError(err));
+      setCaptureError(formatApiError(err));
     } else if (data) {
-      setLastScannedLead(data);
+      // Check status code: 201 Created vs 200 OK (duplicate update)
+      const isDuplicateUpdate = response?.status === 200;
+      setCaptureFeedback(isDuplicateUpdate ? t.leadUpdatedSuccess : t.leadCapturedSuccess);
       setQrSecret("");
-      setNotes("");
-      loadData();
+      setCaptureNotes("");
+      setCaptureTags([]);
+      refreshLeads();
+      setTimeout(() => {
+        setIsCaptureModalOpen(false);
+        setCaptureFeedback(null);
+      }, 1200);
     }
   };
 
@@ -137,6 +194,7 @@ export default function ExhibitorPortal() {
     setEditNotes(lead.notes || "");
     setCustomTagInput("");
     setEditError(null);
+    setEditFeedback(null);
   };
 
   const handleSaveQualification = async (e: React.FormEvent) => {
@@ -145,6 +203,7 @@ export default function ExhibitorPortal() {
 
     setSavingLead(true);
     setEditError(null);
+    setEditFeedback(null);
     const client = getApiClient(token);
 
     const { data, error: err } = await client.PATCH(
@@ -168,10 +227,19 @@ export default function ExhibitorPortal() {
       setLeads((prev) =>
         prev.map((l) => (l.id === editingLead.id ? data : l))
       );
-      if (lastScannedLead?.id === editingLead.id) {
-        setLastScannedLead(data);
-      }
-      setEditingLead(null);
+      setEditFeedback(t.qualificationSavedSuccess);
+      setTimeout(() => {
+        setEditingLead(null);
+        setEditFeedback(null);
+      }, 1000);
+    }
+  };
+
+  const handleToggleTag = (tag: string, currentTags: string[], setter: (tags: string[]) => void) => {
+    if (currentTags.includes(tag)) {
+      setter(currentTags.filter((t) => t !== tag));
+    } else {
+      setter([...currentTags, tag]);
     }
   };
 
@@ -186,489 +254,763 @@ export default function ExhibitorPortal() {
     }
   };
 
-  const handleExportCsv = () => {
+  const handleExportCsv = async () => {
     if (!boothId || !booth || !token) return;
-    const url = `/api/booths/${boothId}/leads/export-csv`;
-    fetch(url, {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-      .then((res) => res.blob())
-      .then((blob) => {
-        const link = document.createElement("a");
-        link.href = URL.createObjectURL(blob);
-        link.download = `${booth.slug}-leads.csv`;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
+    setIsExporting(true);
+    setExportError(null);
+    try {
+      const url = `/api/booths/${boothId}/leads/export-csv`;
+      const res = await fetch(url, {
+        headers: { Authorization: `Bearer ${token}` },
       });
+      if (!res.ok) {
+        setExportError("Failed to export leads. Please verify authorization.");
+        setIsExporting(false);
+        return;
+      }
+      const blob = await res.blob();
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.download = `${booth.slug || "booth"}-leads.csv`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(link.href);
+    } catch {
+      setExportError("Network error while exporting CSV.");
+    } finally {
+      setIsExporting(false);
+    }
   };
 
+  // Helper to format rating badge
+  const renderRatingBadge = (r: string) => {
+    if (r === "HOT") {
+      return (
+        <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-rose-50 text-rose-700 border border-rose-200">
+          <span>🔥</span>
+          <span>{t.ratingHot}</span>
+        </span>
+      );
+    }
+    if (r === "COLD") {
+      return (
+        <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-700 border border-slate-200">
+          <span>❄️</span>
+          <span>{t.ratingCold}</span>
+        </span>
+      );
+    }
+    return (
+      <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200">
+        <span>⚡</span>
+        <span>{t.ratingWarm}</span>
+      </span>
+    );
+  };
+
+  // Counts summary
+  const hotCount = leads.filter((l) => l.rating === "HOT").length;
+  const warmCount = leads.filter((l) => l.rating === "WARM").length;
+  const coldCount = leads.filter((l) => l.rating === "COLD").length;
+
+  // Unauthenticated view (fails closed)
   if (!token) {
     return (
-      <div className="min-h-screen bg-neutral-900 text-white flex items-center justify-center p-4 font-sans">
-        <div className="max-w-md w-full bg-neutral-800 p-8 rounded-2xl border border-neutral-700 text-center space-y-4 shadow-xl">
-          <div className="text-3xl">🏢</div>
-          <h1 className="text-xl font-bold">Exhibitor Staff Sign In</h1>
-          <p className="text-xs text-neutral-400">
-            Please log in with your staff account to access this company's lead capture portal.
-          </p>
-          <Link
-            to="/"
-            className="inline-block w-full bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold py-2.5 px-4 rounded-xl transition"
-          >
-            Go to Platform Sign In
-          </Link>
-        </div>
+      <div dir={dir} lang={locale} className="min-h-screen bg-surface-page flex items-center justify-center p-4 font-sans">
+        <Card className="max-w-md w-full p-8 text-center space-y-5 border-border-default shadow-xs">
+          <div className="w-14 h-14 rounded-2xl bg-action-subtle text-action-primary mx-auto flex items-center justify-center text-3xl shadow-xs">
+            🏢
+          </div>
+          <div className="space-y-1.5">
+            <h1 className="text-xl font-bold text-text-primary tracking-tight">
+              {t.unauthenticatedExhibitorTitle}
+            </h1>
+            <p className="text-xs sm:text-sm text-text-secondary leading-relaxed">
+              {t.unauthenticatedExhibitorDesc}
+            </p>
+          </div>
+          <div className="pt-2">
+            <LinkButton to="/" variant="primary" size="lg" isFullWidth>
+              {isRtl ? "ورود به سامانه همایش" : "Sign In to Platform"} →
+            </LinkButton>
+          </div>
+        </Card>
       </div>
     );
   }
 
+  // Loading skeleton
   if (loading && !booth) {
     return (
-      <div className="min-h-screen bg-neutral-900 text-white flex items-center justify-center p-4 font-sans">
-        <div className="text-sm text-neutral-400 animate-pulse">
-          Loading booth lead portal...
+      <div dir={dir} lang={locale} className="min-h-screen bg-surface-page flex items-center justify-center p-4 font-sans">
+        <div className="max-w-md w-full p-8 rounded-2xl bg-surface-panel border border-border-default space-y-4 animate-pulse">
+          <div className="w-24 h-6 bg-surface-panel-subtle rounded-full mx-auto" />
+          <div className="w-3/4 h-8 bg-surface-panel-subtle rounded-xl mx-auto" />
+          <div className="w-1/2 h-4 bg-surface-panel-subtle rounded-md mx-auto" />
         </div>
       </div>
     );
   }
 
+  // Unauthorized (403 Forbidden) or Not Found view
   if (authError || !booth) {
     return (
-      <div className="min-h-screen bg-neutral-900 text-white flex items-center justify-center p-4 font-sans">
-        <div className="max-w-md w-full bg-neutral-800 p-8 rounded-2xl border border-neutral-700 text-center space-y-4 shadow-xl">
-          <div className="text-3xl">🚫</div>
-          <h1 className="text-xl font-bold">Commercial Access Restricted</h1>
-          <p className="text-xs text-neutral-400">
-            {authError ?? "You are not authorized to view or capture leads for this booth."}
-          </p>
-          <Link
-            to="/"
-            className="inline-block text-xs text-neutral-400 hover:text-white pt-2"
-          >
-            ← Return to Homepage
-          </Link>
-        </div>
+      <div dir={dir} lang={locale} className="min-h-screen bg-surface-page flex items-center justify-center p-4 font-sans">
+        <Card className="max-w-md w-full p-8 text-center space-y-5 border-border-default shadow-xs">
+          <div className="w-14 h-14 rounded-2xl bg-status-danger-bg text-status-danger-text mx-auto flex items-center justify-center text-2xl font-bold shadow-xs">
+            🚫
+          </div>
+          <div className="space-y-1.5">
+            <h1 className="text-xl font-bold text-text-primary tracking-tight">
+              {t.unauthorizedExhibitorTitle}
+            </h1>
+            <p className="text-xs sm:text-sm text-text-secondary leading-relaxed">
+              {authError ?? t.unauthorizedExhibitorDesc}
+            </p>
+          </div>
+          <div className="pt-2">
+            <LinkButton to="/" variant="secondary" size="md">
+              {t.platformHome} →
+            </LinkButton>
+          </div>
+        </Card>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-neutral-950 text-white flex flex-col font-sans">
-      {/* Top Header */}
-      <header className="bg-neutral-900 border-b border-neutral-800 px-4 py-3 sticky top-0 z-20">
-        <div className="max-w-4xl mx-auto flex items-center justify-between gap-3">
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" />
-              <h1 className="font-extrabold text-base tracking-tight text-white">
+    <div
+      dir={dir}
+      lang={locale}
+      className={`min-h-screen bg-surface-page text-text-primary flex flex-col font-sans selection:bg-action-subtle selection:text-action-primary ${
+        isRtl ? "text-start font-sans" : "text-start font-sans"
+      }`}
+    >
+      <SkipLink targetId="exhibitor-main-content">
+        {isRtl ? "پرش به محتوای اصلی پرتال غرفه" : "Skip to main booth lead content"}
+      </SkipLink>
+
+      {/* 1. Exhibitor Workspace Header */}
+      <header className="sticky top-0 z-40 bg-surface-panel/95 backdrop-blur-xs border-b border-border-default">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4">
+          {/* Booth Brand & Location */}
+          <div className="flex items-center gap-3">
+            <span className="w-8 h-8 rounded-lg bg-action-primary text-text-inverse flex items-center justify-center font-bold text-base shadow-xs shrink-0">
+              🏢
+            </span>
+            <div className="flex flex-col">
+              <span className="font-bold text-sm sm:text-base tracking-tight text-text-primary leading-tight">
                 {booth.name}
-              </h1>
-              <span className="text-[10px] font-bold uppercase bg-emerald-950 text-emerald-400 border border-emerald-800 px-2 py-0.5 rounded-full">
-                Lead Portal
+              </span>
+              <span className="text-[11px] text-text-muted font-medium leading-none">
+                📍 {booth.location || (isRtl ? "سالن اصلی نمایشگاه" : "Exhibition Floor")}
               </span>
             </div>
-            <p className="text-[11px] text-neutral-400">
-              📍 {booth.location || "Exhibition Floor"} • {leads.length} leads in database
-            </p>
           </div>
 
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={handleExportCsv}
-              className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-3 py-1.5 rounded-lg transition shadow-xs flex items-center gap-1.5"
-              title="Download leads CSV formatted for CRM"
-            >
-              <span>📥 Export CRM CSV</span>
-            </button>
+          {/* Controls: Language, Staff Badge & Logout */}
+          <div className="flex items-center gap-2.5">
+            <Badge variant="brand" size="sm" className="hidden sm:inline-flex">
+              {t.boothAuthorizedBadge}
+            </Badge>
 
             <button
               type="button"
-              onClick={() => {
-                localStorage.removeItem(ATTENDEE_TOKEN_STORAGE);
-                navigate("/");
-              }}
-              className="text-xs bg-neutral-800 hover:bg-neutral-700 text-neutral-300 px-3 py-1.5 rounded-lg transition"
+              onClick={toggleLocale}
+              className="text-xs font-semibold px-2.5 py-1.5 rounded-lg bg-surface-panel-subtle hover:bg-surface-page text-text-secondary border border-border-default transition-colors focus-visible:outline-2 focus-visible:outline-focus-ring cursor-pointer"
+              aria-label={isRtl ? "Switch language to English" : "تغییر زبان به فارسی"}
             >
-              Sign out
+              🌐 {t.languageToggle}
             </button>
+
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={handleLogout}
+              className="text-xs text-text-muted hover:text-text-primary"
+            >
+              {t.logout}
+            </Button>
           </div>
         </div>
       </header>
 
-      <main className="flex-1 max-w-4xl w-full mx-auto p-4 sm:p-6 space-y-8">
-        {/* Lead Scanner Card */}
-        <section className="bg-neutral-900 p-6 rounded-3xl border border-neutral-800 shadow-xl space-y-4">
-          <div className="flex items-center justify-between">
-            <div className="space-y-0.5">
-              <h2 className="text-lg font-bold text-white flex items-center gap-2">
-                <span>⚡</span> Scan Attendee Visitor Badge
-              </h2>
-              <p className="text-xs text-neutral-400">
-                Scan delegate QR code to immediately capture their contact card.
-              </p>
-            </div>
-            <span className="text-xs font-semibold text-emerald-400 bg-emerald-950/60 border border-emerald-800/80 px-2.5 py-1 rounded-full">
-              Ready for Scans
+      {/* Main Content Area */}
+      <main id="exhibitor-main-content" tabIndex={-1} className="flex-1 max-w-6xl w-full mx-auto p-4 sm:p-6 lg:p-8 space-y-6 sm:space-y-8 focus:outline-none">
+        {/* KPI Summary Bar & Capture Trigger */}
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-6 border-b border-border-default">
+          <div className="space-y-1">
+            <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-text-primary">
+              {t.leadsListHeading}
+            </h1>
+            <p className="text-xs sm:text-sm text-text-secondary">
+              {t.exhibitorPortalDesc}
+            </p>
+          </div>
+
+          <div className="shrink-0 flex items-center gap-2.5">
+            <Button
+              type="button"
+              variant="primary"
+              size="lg"
+              onClick={() => {
+                setIsCaptureModalOpen(true);
+                setCaptureError(null);
+                setCaptureFeedback(null);
+              }}
+              className="gap-2 shadow-xs"
+            >
+              <span>+</span>
+              <span>{t.captureLeadAction}</span>
+            </Button>
+          </div>
+        </div>
+
+        {/* Global Feedback Notifications */}
+        {exportError && (
+          <div role="alert" aria-live="assertive" className="p-3.5 rounded-xl bg-status-danger-bg text-status-danger-text border border-status-danger-border text-xs leading-relaxed">
+            {exportError}
+          </div>
+        )}
+
+        {/* Metrics Row */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
+          <div className="p-4 rounded-xl bg-surface-panel border border-border-default shadow-xs space-y-0.5">
+            <span className="text-[11px] font-semibold text-text-muted block">
+              {t.leadsCountLabel}
+            </span>
+            <span className="text-xl sm:text-2xl font-extrabold text-text-primary block">
+              {formatLocalizedNumber(leads.length, locale)}
             </span>
           </div>
 
-          <form onSubmit={handleScanLead} className="space-y-4 pt-1">
-            <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end">
-              <div className="sm:col-span-6">
-                <label className="block text-[11px] font-bold uppercase tracking-wider text-neutral-400 mb-1">
-                  Attendee QR Secret *
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={qrSecret}
-                  onChange={(e) => setQrSecret(e.target.value)}
-                  placeholder="Scan or paste 26-char QR secret"
-                  className="w-full px-3 py-2.5 bg-neutral-950 border border-neutral-700 rounded-xl text-sm font-mono focus:ring-2 focus:ring-emerald-500 text-white"
-                />
-              </div>
-
-              <div className="sm:col-span-3">
-                <label className="block text-[11px] font-bold uppercase tracking-wider text-neutral-400 mb-1">
-                  Interest Level
-                </label>
-                <select
-                  value={rating}
-                  onChange={(e) => setRating(e.target.value as "HOT" | "WARM" | "COLD")}
-                  className="w-full px-3 py-2.5 bg-neutral-950 border border-neutral-700 rounded-xl text-sm focus:ring-2 focus:ring-emerald-500 text-white"
-                >
-                  <option value="HOT">🔥 HOT (High Priority)</option>
-                  <option value="WARM">☀️ WARM (Interested)</option>
-                  <option value="COLD">❄️ COLD (General)</option>
-                </select>
-              </div>
-
-              <div className="sm:col-span-3">
-                <button
-                  type="submit"
-                  disabled={submittingScan}
-                  className="w-full bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold text-xs py-3 px-4 rounded-xl transition shadow-lg flex items-center justify-center gap-1.5"
-                >
-                  {submittingScan ? "Capturing..." : "✓ Capture Lead"}
-                </button>
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-[11px] font-bold uppercase tracking-wider text-neutral-400 mb-1">
-                Quick Qualification Notes (Optional)
-              </label>
-              <input
-                type="text"
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                placeholder="e.g. Needs quote for 3 units, follow up with CEO..."
-                className="w-full px-3 py-2 bg-neutral-950 border border-neutral-700 rounded-xl text-xs text-white focus:ring-2 focus:ring-emerald-500"
-              />
-            </div>
-
-            {scanError && (
-              <p className="text-xs text-red-300 bg-red-950/80 p-2.5 rounded-xl border border-red-800">
-                {scanError}
-              </p>
-            )}
-          </form>
-
-          {/* Last Scanned Lead Disclosure Card */}
-          {lastScannedLead && (
-            <div className="mt-4 p-4 bg-emerald-950/40 border border-emerald-800/80 rounded-2xl flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 animate-in fade-in">
-              <div className="space-y-0.5">
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-bold text-emerald-400 uppercase tracking-wider">
-                    ✓ Lead Captured:
-                  </span>
-                  <p className="text-base font-bold text-white">
-                    {lastScannedLead.attendee_name}
-                  </p>
-                </div>
-                <p className="text-xs text-neutral-300">
-                  {lastScannedLead.title || "Delegate"} • {lastScannedLead.organization || "No org"}
-                </p>
-                <p className="text-xs text-emerald-300 font-mono">
-                  {lastScannedLead.attendee_email}
-                </p>
-              </div>
-
-              <div className="flex items-center gap-2 self-start sm:self-auto">
-                <span
-                  className={`text-xs font-black uppercase px-2.5 py-1 rounded-full ${
-                    lastScannedLead.rating === "HOT"
-                      ? "bg-red-500 text-white"
-                      : lastScannedLead.rating === "WARM"
-                      ? "bg-amber-500 text-white"
-                      : "bg-blue-500 text-white"
-                  }`}
-                >
-                  {lastScannedLead.rating} LEAD
-                </span>
-                <button
-                  type="button"
-                  onClick={() => handleOpenEdit(lastScannedLead)}
-                  className="text-xs bg-neutral-800 hover:bg-neutral-700 text-neutral-200 px-3 py-1.5 rounded-lg border border-neutral-700 transition"
-                >
-                  Edit Qualification ✏️
-                </button>
-              </div>
-            </div>
-          )}
-        </section>
-
-        {/* Captured Leads Table */}
-        <section className="space-y-4">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-            <div>
-              <h2 className="text-lg font-bold text-white">
-                Captured Booth Leads ({leads.length})
-              </h2>
-              <p className="text-xs text-neutral-400">
-                Click any lead to qualify interest ratings, action tags, and conversation notes.
-              </p>
-            </div>
-
-            {/* Filter Bar */}
-            <div className="flex items-center gap-2 w-full sm:w-auto">
-              <select
-                value={ratingFilter}
-                onChange={(e) => setRatingFilter(e.target.value)}
-                className="text-xs bg-neutral-900 border border-neutral-800 rounded-xl px-2.5 py-2 text-white focus:ring-2 focus:ring-emerald-500"
-              >
-                <option value="">All Ratings</option>
-                <option value="HOT">🔥 HOT</option>
-                <option value="WARM">☀️ WARM</option>
-                <option value="COLD">❄️ COLD</option>
-              </select>
-
-              <input
-                type="text"
-                value={searchFilter}
-                onChange={(e) => setSearchFilter(e.target.value)}
-                placeholder="Search leads..."
-                className="text-xs bg-neutral-900 border border-neutral-800 rounded-xl px-3 py-2 text-white focus:ring-2 focus:ring-emerald-500 w-full sm:w-56"
-              />
-            </div>
+          <div className="p-4 rounded-xl bg-rose-50/60 border border-rose-200/80 shadow-xs space-y-0.5">
+            <span className="text-[11px] font-semibold text-rose-700 block">
+              🔥 {t.ratingHot}
+            </span>
+            <span className="text-xl sm:text-2xl font-extrabold text-rose-900 block">
+              {formatLocalizedNumber(hotCount, locale)}
+            </span>
           </div>
 
-          {leads.length === 0 ? (
-            <div className="bg-neutral-900 p-8 rounded-2xl border border-neutral-800 text-center text-xs text-neutral-500">
-              {searchFilter || ratingFilter
-                ? "No leads matching your search filters."
-                : "No leads captured yet. Scan visitor badges above to start building your sales pipeline."}
+          <div className="p-4 rounded-xl bg-amber-50/60 border border-amber-200/80 shadow-xs space-y-0.5">
+            <span className="text-[11px] font-semibold text-amber-800 block">
+              ⚡ {t.ratingWarm}
+            </span>
+            <span className="text-xl sm:text-2xl font-extrabold text-amber-950 block">
+              {formatLocalizedNumber(warmCount, locale)}
+            </span>
+          </div>
+
+          <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 shadow-xs space-y-0.5">
+            <span className="text-[11px] font-semibold text-slate-700 block">
+              ❄️ {t.ratingCold}
+            </span>
+            <span className="text-xl sm:text-2xl font-extrabold text-slate-900 block">
+              {formatLocalizedNumber(coldCount, locale)}
+            </span>
+          </div>
+        </div>
+
+        {/* Search, Filter & Export Controls Bar */}
+        <div className="p-4 sm:p-5 rounded-2xl bg-surface-panel border border-border-default shadow-xs flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+          {/* Search Input */}
+          <div className="flex-1 max-w-md relative">
+            <input
+              type="text"
+              value={searchFilter}
+              onChange={(e) => setSearchFilter(e.target.value)}
+              placeholder={t.searchLeadsPlaceholder}
+              className="w-full px-3.5 py-2 bg-surface-page border border-border-default rounded-xl text-xs sm:text-sm text-text-primary placeholder:text-text-muted focus:border-action-primary focus:ring-1 focus:ring-action-primary"
+            />
+            {searchFilter && (
+              <button
+                type="button"
+                onClick={() => setSearchFilter("")}
+                className="absolute end-2.5 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary text-xs"
+              >
+                ✕
+              </button>
+            )}
+          </div>
+
+          {/* Rating Filter Tabs & Export Button */}
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex items-center gap-1 p-1 bg-surface-panel-subtle rounded-xl border border-border-subtle text-xs">
+              <button
+                type="button"
+                onClick={() => setRatingFilter("")}
+                className={`px-2.5 py-1 rounded-lg font-medium transition-colors cursor-pointer ${
+                  ratingFilter === ""
+                    ? "bg-surface-panel text-text-primary shadow-xs font-bold"
+                    : "text-text-muted hover:text-text-primary"
+                }`}
+              >
+                {t.ratingFilterAll}
+              </button>
+              <button
+                type="button"
+                onClick={() => setRatingFilter("HOT")}
+                className={`px-2 py-1 rounded-lg font-medium transition-colors cursor-pointer ${
+                  ratingFilter === "HOT"
+                    ? "bg-rose-100 text-rose-800 shadow-xs font-bold"
+                    : "text-text-muted hover:text-rose-700"
+                }`}
+              >
+                🔥 {isRtl ? "زیاد" : "Hot"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setRatingFilter("WARM")}
+                className={`px-2 py-1 rounded-lg font-medium transition-colors cursor-pointer ${
+                  ratingFilter === "WARM"
+                    ? "bg-amber-100 text-amber-800 shadow-xs font-bold"
+                    : "text-text-muted hover:text-amber-800"
+                }`}
+              >
+                ⚡ {isRtl ? "متوسط" : "Warm"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setRatingFilter("COLD")}
+                className={`px-2 py-1 rounded-lg font-medium transition-colors cursor-pointer ${
+                  ratingFilter === "COLD"
+                    ? "bg-slate-200 text-slate-800 shadow-xs font-bold"
+                    : "text-text-muted hover:text-slate-800"
+                }`}
+              >
+                ❄️ {isRtl ? "کم" : "Cold"}
+              </button>
             </div>
-          ) : (
-            <div className="space-y-3">
-              {leads.map((l) => (
-                <div
-                  key={l.id}
-                  className="bg-neutral-900 p-4 rounded-2xl border border-neutral-800 hover:border-neutral-700 transition space-y-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4"
+
+            {/* Export CSV Button */}
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={isExporting || leads.length === 0}
+              onClick={handleExportCsv}
+              className="gap-1.5 shrink-0"
+            >
+              <span>📥</span>
+              <span>{isExporting ? t.exportingCsvAction : t.exportCsvAction}</span>
+            </Button>
+          </div>
+        </div>
+
+        {/* 2. Leads Worklist */}
+        {loading ? (
+          <div className="space-y-4 animate-pulse">
+            <div className="h-32 bg-surface-panel rounded-2xl border border-border-default" />
+            <div className="h-32 bg-surface-panel rounded-2xl border border-border-default" />
+          </div>
+        ) : leads.length === 0 ? (
+          <Card className="p-8 sm:p-14 text-center space-y-4 border-border-default">
+            <div className="w-14 h-14 rounded-2xl bg-action-subtle text-action-primary mx-auto flex items-center justify-center text-2xl font-bold shadow-xs">
+              👥
+            </div>
+            <div className="space-y-1.5 max-w-md mx-auto">
+              <h2 className="text-lg font-bold text-text-primary">
+                {searchFilter || ratingFilter ? t.noLeadsFilterMatch : t.noLeadsTitle}
+              </h2>
+              <p className="text-xs sm:text-sm text-text-secondary leading-relaxed">
+                {searchFilter || ratingFilter
+                  ? (isRtl ? "فیلترها را پاک کنید یا عبارت دیگری را جستجو نمایید." : "Clear active filters or try a different search keyword.")
+                  : t.noLeadsDesc}
+              </p>
+            </div>
+            {!searchFilter && !ratingFilter && (
+              <div className="pt-2">
+                <Button
+                  type="button"
+                  variant="primary"
+                  size="md"
+                  onClick={() => setIsCaptureModalOpen(true)}
                 >
-                  <div className="space-y-1.5 flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <h3 className="font-bold text-sm text-white">
-                        {l.attendee_name}
-                      </h3>
-                      <span
-                        className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-full ${
-                          l.rating === "HOT"
-                            ? "bg-red-950 text-red-300 border border-red-800"
-                            : l.rating === "WARM"
-                            ? "bg-amber-950 text-amber-300 border border-amber-800"
-                            : "bg-blue-950 text-blue-300 border border-blue-800"
-                        }`}
-                      >
-                        {l.rating}
-                      </span>
-                    </div>
+                  + {t.captureLeadAction}
+                </Button>
+              </div>
+            )}
+          </Card>
+        ) : (
+          <div className="grid grid-cols-1 gap-4">
+            {leads.map((lead) => (
+              <article
+                key={lead.id}
+                aria-labelledby={`lead-name-${lead.id}`}
+                className="p-5 sm:p-6 rounded-2xl bg-surface-panel border border-border-default shadow-xs flex flex-col md:flex-row md:items-start md:justify-between gap-5 transition-all hover:border-border-strong"
+              >
+                <div className="space-y-2.5 max-w-2xl flex-1">
+                  {/* Top Row: Rating Badge & Tier */}
+                  <div className="flex flex-wrap items-center gap-2">
+                    {renderRatingBadge(lead.rating)}
+                    <span className="text-xs text-text-muted">•</span>
+                    <Badge variant="neutral" size="sm">
+                      {lead.ticket_tier_name}
+                    </Badge>
+                    <span className="text-xs text-text-muted">•</span>
+                    <span className="text-[11px] text-text-muted">
+                      {t.capturedAtLabel}: {formatLocalizedDate(lead.created_at, locale)}
+                    </span>
+                  </div>
 
-                    <p className="text-xs text-neutral-300">
-                      {l.title ? `${l.title} • ` : ""}
-                      {l.organization}
-                    </p>
-                    <p className="text-xs text-emerald-400 font-mono">
-                      {l.attendee_email}
-                    </p>
-
-                    {/* Tags */}
-                    {l.tags && l.tags.length > 0 && (
-                      <div className="flex flex-wrap gap-1.5 pt-1">
-                        {l.tags.map((t, idx) => (
-                          <span
-                            key={idx}
-                            className="text-[10px] bg-neutral-800 text-neutral-300 px-2 py-0.5 rounded-md font-medium"
-                          >
-                            🏷️ {t}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-
-                    {l.notes && (
-                      <p className="text-xs text-neutral-400 italic pt-1">
-                        "{l.notes}"
+                  {/* Lead Attendee Identity */}
+                  <div>
+                    <h2 id={`lead-name-${lead.id}`} className="text-base sm:text-lg font-bold text-text-primary tracking-tight">
+                      {lead.attendee_name}
+                    </h2>
+                    {(lead.title || lead.organization) && (
+                      <p className="text-xs text-text-secondary font-medium">
+                        {lead.title}
+                        {lead.title && lead.organization ? " • " : ""}
+                        {lead.organization}
                       </p>
                     )}
                   </div>
 
-                  <div className="flex sm:flex-col items-center sm:items-end gap-2 shrink-0">
-                    <button
-                      type="button"
-                      onClick={() => handleOpenEdit(l)}
-                      className="bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-xs font-semibold px-3 py-1.5 rounded-lg border border-neutral-700 transition"
+                  {/* Contact Email (ADR 0011: Legitimate Exhibitor Lead Disclosure) */}
+                  <div className="text-xs">
+                    <a
+                      href={`mailto:${lead.attendee_email}`}
+                      className="text-action-primary hover:underline font-mono inline-flex items-center gap-1.5 focus-visible:outline-focus-ring"
                     >
-                      Qualify Lead ✏️
-                    </button>
-                    <span className="text-[10px] text-neutral-500">
-                      {new Date(l.created_at).toLocaleTimeString()}
-                    </span>
+                      <span aria-hidden="true">✉</span>
+                      <bdi dir="ltr">{lead.attendee_email}</bdi>
+                    </a>
                   </div>
+
+                  {/* Follow-up Tags */}
+                  {lead.tags && lead.tags.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 pt-1">
+                      {lead.tags.map((tag) => (
+                        <span
+                          key={tag}
+                          className="px-2 py-0.5 rounded-md text-[11px] font-medium bg-surface-page border border-border-subtle text-text-secondary"
+                        >
+                          #{tag}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Private Qualification Notes */}
+                  {lead.notes && (
+                    <div className="p-3 rounded-xl bg-surface-page border border-border-subtle text-xs text-text-secondary leading-relaxed whitespace-pre-line">
+                      <span className="font-semibold text-text-muted block text-[10px] uppercase tracking-wider mb-0.5">
+                        {t.notesLabel}:
+                      </span>
+                      {lead.notes}
+                    </div>
+                  )}
                 </div>
-              ))}
-            </div>
-          )}
-        </section>
+
+                {/* Qualify / Edit Action */}
+                <div className="shrink-0 pt-2 md:pt-0">
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => handleOpenEdit(lead)}
+                    className="gap-1.5 w-full md:w-auto"
+                  >
+                    <span>✏️</span>
+                    <span>{t.qualifyLeadButton}</span>
+                  </Button>
+                </div>
+              </article>
+            ))}
+          </div>
+        )}
       </main>
 
-      {/* Qualification Modal / Drawer */}
-      {editingLead && (
-        <div className="fixed inset-0 z-50 bg-neutral-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-neutral-900 max-w-lg w-full rounded-3xl p-6 sm:p-8 shadow-2xl border border-neutral-700 space-y-5 animate-in zoom-in-95 duration-150">
-            <div className="flex items-center justify-between">
-              <div>
-                <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400">
-                  Lead Qualification
-                </span>
-                <h3 className="text-lg font-bold text-white">
-                  {editingLead.attendee_name}
-                </h3>
-                <p className="text-xs text-neutral-400">
-                  {editingLead.title} • {editingLead.organization}
-                </p>
-              </div>
+      {/* 3. Accessible Capture Lead Modal */}
+      <Dialog
+        isOpen={isCaptureModalOpen}
+        onClose={() => {
+          if (!submittingCapture) {
+            setIsCaptureModalOpen(false);
+            setCaptureError(null);
+            setCaptureFeedback(null);
+          }
+        }}
+        title={t.captureLeadModalTitle}
+        description={t.captureLeadModalDesc}
+        size="md"
+      >
+        <form onSubmit={handleCaptureLead} className="space-y-4">
+          <div>
+            <label className="block text-xs font-semibold text-text-primary mb-1">
+              {t.badgeCodeLabel} <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="text"
+              required
+              value={qrSecret}
+              onChange={(e) => setQrSecret(e.target.value)}
+              placeholder={t.badgeCodePlaceholder}
+              className="w-full px-3.5 py-2.5 bg-white border border-border-default rounded-xl text-sm font-mono text-text-primary focus:border-action-primary focus:ring-1 focus:ring-action-primary"
+            />
+            <span className="text-[11px] text-text-muted mt-1 block">
+              {t.badgeCodeHint}
+            </span>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-text-primary mb-1.5">
+              {t.interestRatingLabel}
+            </label>
+            <div className="grid grid-cols-3 gap-2">
               <button
                 type="button"
-                onClick={() => setEditingLead(null)}
-                className="text-neutral-400 hover:text-white p-1"
+                onClick={() => setCaptureRating("HOT")}
+                className={`py-2 px-3 rounded-xl text-xs font-bold border transition-colors cursor-pointer ${
+                  captureRating === "HOT"
+                    ? "bg-rose-100 text-rose-800 border-rose-300 shadow-xs"
+                    : "bg-surface-page text-text-secondary border-border-default hover:bg-surface-panel-subtle"
+                }`}
               >
-                ✕
+                🔥 {isRtl ? "زیاد" : "Hot"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setCaptureRating("WARM")}
+                className={`py-2 px-3 rounded-xl text-xs font-bold border transition-colors cursor-pointer ${
+                  captureRating === "WARM"
+                    ? "bg-amber-100 text-amber-900 border-amber-300 shadow-xs"
+                    : "bg-surface-page text-text-secondary border-border-default hover:bg-surface-panel-subtle"
+                }`}
+              >
+                ⚡ {isRtl ? "متوسط" : "Warm"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setCaptureRating("COLD")}
+                className={`py-2 px-3 rounded-xl text-xs font-bold border transition-colors cursor-pointer ${
+                  captureRating === "COLD"
+                    ? "bg-slate-200 text-slate-800 border-slate-300 shadow-xs"
+                    : "bg-surface-page text-text-secondary border-border-default hover:bg-surface-panel-subtle"
+                }`}
+              >
+                ❄️ {isRtl ? "کم" : "Cold"}
               </button>
             </div>
+          </div>
 
-            <form onSubmit={handleSaveQualification} className="space-y-4">
-              {/* Rating Buttons */}
-              <div className="space-y-1.5">
-                <label className="block text-[11px] font-bold uppercase tracking-wider text-neutral-400">
-                  Interest Level *
-                </label>
-                <div className="grid grid-cols-3 gap-2">
-                  {(["HOT", "WARM", "COLD"] as const).map((r) => (
-                    <button
-                      key={r}
-                      type="button"
-                      onClick={() => setEditRating(r)}
-                      className={`py-2 px-3 rounded-xl text-xs font-bold transition border ${
-                        editRating === r
-                          ? r === "HOT"
-                            ? "bg-red-600 text-white border-red-500"
-                            : r === "WARM"
-                            ? "bg-amber-600 text-white border-amber-500"
-                            : "bg-blue-600 text-white border-blue-500"
-                          : "bg-neutral-800 text-neutral-400 border-neutral-700 hover:text-white"
-                      }`}
-                    >
-                      {r === "HOT" ? "🔥 HOT" : r === "WARM" ? "☀️ WARM" : "❄️ COLD"}
-                    </button>
-                  ))}
-                </div>
-              </div>
+          {/* Quick preset tags */}
+          <div>
+            <label className="block text-xs font-semibold text-text-primary mb-1.5">
+              {t.followUpTagsLabel}
+            </label>
+            <div className="flex flex-wrap gap-1.5">
+              {PRESET_TAG_KEYS.map((key) => {
+                const tagLabel = t[key];
+                const isSelected = captureTags.includes(tagLabel);
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => handleToggleTag(tagLabel, captureTags, setCaptureTags)}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors cursor-pointer ${
+                      isSelected
+                        ? "bg-action-subtle text-action-primary border-action-subtle-border font-bold"
+                        : "bg-surface-page text-text-secondary border-border-default hover:bg-surface-panel-subtle"
+                    }`}
+                  >
+                    {isSelected ? "✓ " : "+ "}
+                    {tagLabel}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
 
-              {/* Action Tags */}
-              <div className="space-y-1.5">
-                <label className="block text-[11px] font-bold uppercase tracking-wider text-neutral-400">
-                  Follow-Up Action Tags
-                </label>
-                <div className="flex flex-wrap gap-1.5">
-                  {DEFAULT_TAGS.map((tag) => {
-                    const isSelected = editTags.includes(tag);
-                    return (
-                      <button
-                        key={tag}
-                        type="button"
-                        onClick={() => {
-                          if (isSelected) {
-                            setEditTags((prev) => prev.filter((t) => t !== tag));
-                          } else {
-                            setEditTags((prev) => [...prev, tag]);
-                          }
-                        }}
-                        className={`text-xs px-2.5 py-1 rounded-lg font-medium transition border ${
-                          isSelected
-                            ? "bg-emerald-950 text-emerald-300 border-emerald-700"
-                            : "bg-neutral-800 text-neutral-400 border-neutral-700 hover:text-white"
-                        }`}
-                      >
-                        {isSelected ? "✓ " : "+ "}
-                        {tag}
-                      </button>
-                    );
-                  })}
-                </div>
+          <div>
+            <label className="block text-xs font-semibold text-text-primary mb-1">
+              {t.notesLabel}
+            </label>
+            <textarea
+              rows={2}
+              value={captureNotes}
+              onChange={(e) => setCaptureNotes(e.target.value)}
+              placeholder={t.notesPlaceholder}
+              className="w-full p-2.5 bg-white border border-border-default rounded-xl text-xs sm:text-sm text-text-primary focus:border-action-primary focus:ring-1 focus:ring-action-primary"
+            />
+          </div>
 
-                <input
-                  type="text"
-                  value={customTagInput}
-                  onChange={(e) => setCustomTagInput(e.target.value)}
-                  onKeyDown={handleAddCustomTag}
-                  placeholder="Type custom tag and press Enter..."
-                  className="w-full mt-2 px-3 py-1.5 bg-neutral-950 border border-neutral-700 rounded-lg text-xs text-white focus:ring-2 focus:ring-emerald-500"
-                />
-              </div>
+          {captureFeedback && (
+            <div role="status" className="p-3 rounded-xl bg-status-success-bg text-status-success-text border border-status-success-border text-xs">
+              {captureFeedback}
+            </div>
+          )}
 
-              {/* Freeform Notes */}
-              <div className="space-y-1.5">
-                <label className="block text-[11px] font-bold uppercase tracking-wider text-neutral-400">
-                  Conversation & Qualification Notes
-                </label>
-                <textarea
-                  rows={3}
-                  value={editNotes}
-                  onChange={(e) => setEditNotes(e.target.value)}
-                  placeholder="Record specifics about their clinical requirements, procurement timeline, budget..."
-                  className="w-full px-3 py-2 bg-neutral-950 border border-neutral-700 rounded-xl text-xs text-white focus:ring-2 focus:ring-emerald-500"
-                />
-              </div>
+          {captureError && (
+            <div role="alert" aria-live="assertive" className="p-3.5 rounded-xl bg-status-danger-bg text-status-danger-text border border-status-danger-border text-xs leading-relaxed">
+              {captureError}
+            </div>
+          )}
 
-              {editError && (
-                <p className="text-xs text-red-300 bg-red-950/80 p-2.5 rounded-xl border border-red-800">
-                  {editError}
-                </p>
-              )}
+          <div className="pt-2 flex justify-end gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              size="md"
+              disabled={submittingCapture}
+              onClick={() => setIsCaptureModalOpen(false)}
+            >
+              {isRtl ? "انصراف" : "Cancel"}
+            </Button>
+            <Button
+              type="submit"
+              variant="primary"
+              size="md"
+              disabled={submittingCapture}
+            >
+              {submittingCapture ? "..." : t.saveLeadAction}
+            </Button>
+          </div>
+        </form>
+      </Dialog>
 
-              <div className="flex justify-end gap-2 pt-2">
+      {/* 4. Accessible Qualification Drawer / Modal */}
+      <Dialog
+        isOpen={Boolean(editingLead)}
+        onClose={() => {
+          if (!savingLead) setEditingLead(null);
+        }}
+        title={editingLead ? `${t.qualificationDrawerTitle}: ${editingLead.attendee_name}` : ""}
+        description={t.qualificationDrawerDesc}
+        size="md"
+      >
+        {editingLead && (
+          <form onSubmit={handleSaveQualification} className="space-y-4">
+            <div>
+              <label className="block text-xs font-semibold text-text-primary mb-1.5">
+                {t.interestRatingLabel}
+              </label>
+              <div className="grid grid-cols-3 gap-2">
                 <button
                   type="button"
-                  onClick={() => setEditingLead(null)}
-                  className="px-4 py-2 border border-neutral-700 rounded-xl text-xs font-medium text-neutral-300 hover:bg-neutral-800 transition"
+                  onClick={() => setEditRating("HOT")}
+                  className={`py-2 px-3 rounded-xl text-xs font-bold border transition-colors cursor-pointer ${
+                    editRating === "HOT"
+                      ? "bg-rose-100 text-rose-800 border-rose-300 shadow-xs"
+                      : "bg-surface-page text-text-secondary border-border-default hover:bg-surface-panel-subtle"
+                  }`}
                 >
-                  Cancel
+                  🔥 {isRtl ? "زیاد" : "Hot"}
                 </button>
                 <button
-                  type="submit"
-                  disabled={savingLead}
-                  className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold text-xs py-2 px-5 rounded-xl transition shadow-md"
+                  type="button"
+                  onClick={() => setEditRating("WARM")}
+                  className={`py-2 px-3 rounded-xl text-xs font-bold border transition-colors cursor-pointer ${
+                    editRating === "WARM"
+                      ? "bg-amber-100 text-amber-900 border-amber-300 shadow-xs"
+                      : "bg-surface-page text-text-secondary border-border-default hover:bg-surface-panel-subtle"
+                  }`}
                 >
-                  {savingLead ? "Saving..." : "Save Qualification"}
+                  ⚡ {isRtl ? "متوسط" : "Warm"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setEditRating("COLD")}
+                  className={`py-2 px-3 rounded-xl text-xs font-bold border transition-colors cursor-pointer ${
+                    editRating === "COLD"
+                      ? "bg-slate-200 text-slate-800 border-slate-300 shadow-xs"
+                      : "bg-surface-page text-text-secondary border-border-default hover:bg-surface-panel-subtle"
+                  }`}
+                >
+                  ❄️ {isRtl ? "کم" : "Cold"}
                 </button>
               </div>
-            </form>
-          </div>
-        </div>
-      )}
+            </div>
+
+            {/* Tags management */}
+            <div className="space-y-2">
+              <label className="block text-xs font-semibold text-text-primary">
+                {t.followUpTagsLabel}
+              </label>
+              <div className="flex flex-wrap gap-1.5">
+                {PRESET_TAG_KEYS.map((key) => {
+                  const tagLabel = t[key];
+                  const isSelected = editTags.includes(tagLabel);
+                  return (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => handleToggleTag(tagLabel, editTags, setEditTags)}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors cursor-pointer ${
+                        isSelected
+                          ? "bg-action-subtle text-action-primary border-action-subtle-border font-bold"
+                          : "bg-surface-page text-text-secondary border-border-default hover:bg-surface-panel-subtle"
+                      }`}
+                    >
+                      {isSelected ? "✓ " : "+ "}
+                      {tagLabel}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Custom tag input */}
+              <input
+                type="text"
+                value={customTagInput}
+                onChange={(e) => setCustomTagInput(e.target.value)}
+                onKeyDown={handleAddCustomTag}
+                placeholder={t.addCustomTagPlaceholder}
+                className="w-full px-3 py-1.5 bg-surface-page border border-border-default rounded-lg text-xs text-text-primary placeholder:text-text-muted mt-1"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-text-primary mb-1">
+                {t.notesLabel}
+              </label>
+              <textarea
+                rows={3}
+                value={editNotes}
+                onChange={(e) => setEditNotes(e.target.value)}
+                placeholder={t.notesPlaceholder}
+                className="w-full p-2.5 bg-white border border-border-default rounded-xl text-xs sm:text-sm text-text-primary focus:border-action-primary focus:ring-1 focus:ring-action-primary"
+              />
+            </div>
+
+            {editFeedback && (
+              <div role="status" className="p-3 rounded-xl bg-status-success-bg text-status-success-text border border-status-success-border text-xs">
+                {editFeedback}
+              </div>
+            )}
+
+            {editError && (
+              <div role="alert" aria-live="assertive" className="p-3.5 rounded-xl bg-status-danger-bg text-status-danger-text border border-status-danger-border text-xs leading-relaxed">
+                {editError}
+              </div>
+            )}
+
+            <div className="pt-2 flex justify-end gap-2">
+              <Button
+                type="button"
+                variant="ghost"
+                size="md"
+                disabled={savingLead}
+                onClick={() => setEditingLead(null)}
+              >
+                {isRtl ? "انصراف" : "Cancel"}
+              </Button>
+              <Button
+                type="submit"
+                variant="primary"
+                size="md"
+                disabled={savingLead}
+              >
+                {savingLead ? "..." : t.saveQualificationAction}
+              </Button>
+            </div>
+          </form>
+        )}
+      </Dialog>
     </div>
   );
 }

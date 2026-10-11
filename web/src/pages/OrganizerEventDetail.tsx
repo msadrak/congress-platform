@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import QRCode from "react-qr-code";
 import { Link, useOutletContext, useParams } from "react-router-dom";
 import {
@@ -9,6 +9,12 @@ import {
   type EventOut,
   type TicketTierOut,
 } from "../api/client";
+import { formatLocalizedDate, formatLocalizedNumber } from "../lib/i18n";
+import type { OrganizerOutletContext } from "./OrganizerLayout";
+import { Badge } from "../components/ui/Badge";
+import { Button, LinkButton } from "../components/ui/Button";
+import { Card } from "../components/ui/Card";
+import { Dialog } from "../components/ui/Dialog";
 
 type PolicyType =
   | "MULTI_ENTRY"
@@ -16,18 +22,9 @@ type PolicyType =
   | "TIER_RESTRICTED"
   | "CAPACITY_CAPPED";
 
-function isPolicyType(val: string): val is PolicyType {
-  return (
-    val === "MULTI_ENTRY" ||
-    val === "SINGLE_USE" ||
-    val === "TIER_RESTRICTED" ||
-    val === "CAPACITY_CAPPED"
-  );
-}
-
 export default function OrganizerEventDetail() {
   const { eventId } = useParams<{ eventId: string }>();
-  const { apiKey } = useOutletContext<{ apiKey: string }>();
+  const { apiKey, locale, t, isRtl } = useOutletContext<OrganizerOutletContext>();
 
   const [event, setEvent] = useState<EventOut | null>(null);
   const [tiers, setTiers] = useState<TicketTierOut[]>([]);
@@ -36,8 +33,11 @@ export default function OrganizerEventDetail() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // New tier form state
-  const [showTierForm, setShowTierForm] = useState(false);
+  // Active section tab
+  const [activeTab, setActiveTab] = useState<"overview" | "tiers" | "points" | "booths">("overview");
+
+  // New tier form & modal state
+  const [isTierModalOpen, setIsTierModalOpen] = useState(false);
   const [tierName, setTierName] = useState("");
   const [tierDescription, setTierDescription] = useState("");
   const [tierQuota, setTierQuota] = useState(100);
@@ -45,8 +45,8 @@ export default function OrganizerEventDetail() {
   const [submittingTier, setSubmittingTier] = useState(false);
   const [tierFormError, setTierFormError] = useState<string | null>(null);
 
-  // New check-in point form state
-  const [showPointForm, setShowPointForm] = useState(false);
+  // New check-in point form & modal state
+  const [isPointModalOpen, setIsPointModalOpen] = useState(false);
   const [pointName, setPointName] = useState("");
   const [pointLocation, setPointLocation] = useState("");
   const [policyType, setPolicyType] = useState<PolicyType>("MULTI_ENTRY");
@@ -55,8 +55,8 @@ export default function OrganizerEventDetail() {
   const [submittingPoint, setSubmittingPoint] = useState(false);
   const [pointFormError, setPointFormError] = useState<string | null>(null);
 
-  // New booth form state
-  const [showBoothForm, setShowBoothForm] = useState(false);
+  // New booth form & modal state
+  const [isBoothModalOpen, setIsBoothModalOpen] = useState(false);
   const [boothName, setBoothName] = useState("");
   const [boothSlug, setBoothSlug] = useState("");
   const [boothLocation, setBoothLocation] = useState("");
@@ -66,15 +66,44 @@ export default function OrganizerEventDetail() {
   const [submittingBooth, setSubmittingBooth] = useState(false);
   const [boothFormError, setBoothFormError] = useState<string | null>(null);
 
-  // Assign staff state
-  const [assigningBoothId, setAssigningBoothId] = useState<string | null>(null);
+  // Assign staff modal state
+  const [assigningBooth, setAssigningBooth] = useState<BoothOut | null>(null);
   const [staffEmail, setStaffEmail] = useState("");
   const [assigningStaff, setAssigningStaff] = useState(false);
-  const [staffMessage, setStaffMessage] = useState<string | null>(null);
+  const [staffFeedback, setStaffFeedback] = useState<string | null>(null);
+  const [staffError, setStaffError] = useState<string | null>(null);
 
   // Standee QR modal state
   const [selectedBoothQr, setSelectedBoothQr] = useState<BoothOut | null>(null);
 
+  // Edit event modal state
+  const [isEditEventModalOpen, setIsEditEventModalOpen] = useState(false);
+  const [editEventName, setEditEventName] = useState("");
+  const [editEventLocation, setEditEventLocation] = useState("");
+  const [editEventStartsAt, setEditEventStartsAt] = useState("");
+  const [editEventEndsAt, setEditEventEndsAt] = useState("");
+  const [editEventDescription, setEditEventDescription] = useState("");
+  const [submittingEventEdit, setSubmittingEventEdit] = useState(false);
+  const [eventEditError, setEventEditError] = useState<string | null>(null);
+
+  // Edit ticket tier modal state
+  const [editingTier, setEditingTier] = useState<TicketTierOut | null>(null);
+  const [editTierName, setEditTierName] = useState("");
+  const [editTierDescription, setEditTierDescription] = useState("");
+  const [editTierQuota, setEditTierQuota] = useState(100);
+  const [editTierIsOpen, setEditTierIsOpen] = useState(true);
+  const [submittingTierEdit, setSubmittingTierEdit] = useState(false);
+  const [tierEditError, setTierEditError] = useState<string | null>(null);
+
+  // Edit check-in point modal state
+  const [editingPoint, setEditingPoint] = useState<CheckInPointOut | null>(null);
+  const [editPointName, setEditPointName] = useState("");
+  const [editPointLocation, setEditPointLocation] = useState("");
+  const [editPointPolicy, setEditPointPolicy] = useState<PolicyType>("MULTI_ENTRY");
+  const [editPointAllowedTiers, setEditPointAllowedTiers] = useState<string[]>([]);
+  const [editPointMaxCapacity, setEditPointMaxCapacity] = useState<number | undefined>(undefined);
+  const [submittingPointEdit, setSubmittingPointEdit] = useState(false);
+  const [pointEditError, setPointEditError] = useState<string | null>(null);
   useEffect(() => {
     if (!eventId) return;
 
@@ -120,7 +149,7 @@ export default function OrganizerEventDetail() {
     setTierFormError(null);
 
     if (!tierName.trim() || tierQuota < 1) {
-      setTierFormError("Please enter a valid tier name and positive quota.");
+      setTierFormError(isRtl ? "لطفاً نام رده و ظرفیت معتبر وارد کنید." : "Please enter a valid tier name and positive quota.");
       return;
     }
 
@@ -148,7 +177,7 @@ export default function OrganizerEventDetail() {
       setTierDescription("");
       setTierQuota(100);
       setTierIsOpen(true);
-      setShowTierForm(false);
+      setIsTierModalOpen(false);
     }
   };
 
@@ -158,7 +187,7 @@ export default function OrganizerEventDetail() {
     setPointFormError(null);
 
     if (!pointName.trim()) {
-      setPointFormError("Please provide a name for the check-in point.");
+      setPointFormError(isRtl ? "لطفاً نام گیت بازرسی را وارد کنید." : "Please provide a name for the check-in point.");
       return;
     }
 
@@ -172,8 +201,8 @@ export default function OrganizerEventDetail() {
           name: pointName.trim(),
           location: pointLocation.trim(),
           policy_type: policyType,
-          allowed_tier_ids: policyType === "TIER_RESTRICTED" ? allowedTiers : [],
-          max_capacity: policyType === "CAPACITY_CAPPED" ? maxCapacity : undefined,
+          allowed_tier_ids: policyType === "TIER_RESTRICTED" ? allowedTiers : undefined,
+          max_capacity: policyType === "CAPACITY_CAPPED" && maxCapacity ? maxCapacity : undefined,
         },
       }
     );
@@ -188,7 +217,7 @@ export default function OrganizerEventDetail() {
       setPolicyType("MULTI_ENTRY");
       setAllowedTiers([]);
       setMaxCapacity(undefined);
-      setShowPointForm(false);
+      setIsPointModalOpen(false);
     }
   };
 
@@ -198,7 +227,7 @@ export default function OrganizerEventDetail() {
     setBoothFormError(null);
 
     if (!boothName.trim() || !boothSlug.trim()) {
-      setBoothFormError("Company name and URL slug are required.");
+      setBoothFormError(isRtl ? "لطفاً نام و شناسه اینترنتی غرفه را وارد کنید." : "Please provide both a booth name and slug.");
       return;
     }
 
@@ -210,7 +239,7 @@ export default function OrganizerEventDetail() {
         params: { path: { event_id: eventId } },
         body: {
           name: boothName.trim(),
-          slug: boothSlug.trim().toLowerCase(),
+          slug: boothSlug.trim(),
           location: boothLocation.trim(),
           description: boothDescription.trim(),
           website_url: boothWebsite.trim(),
@@ -230,773 +259,1447 @@ export default function OrganizerEventDetail() {
       setBoothDescription("");
       setBoothWebsite("");
       setBoothBrochure("");
-      setShowBoothForm(false);
+      setIsBoothModalOpen(false);
     }
   };
 
   const handleAssignStaff = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!eventId || !assigningBoothId || !staffEmail.trim()) return;
+    if (!eventId || !assigningBooth || !staffEmail.trim()) return;
 
     setAssigningStaff(true);
-    setStaffMessage(null);
+    setStaffError(null);
+    setStaffFeedback(null);
     const client = getApiClient(apiKey);
+
     const { data, error: err } = await client.POST(
       "/api/events/{event_id}/booths/{booth_id}/staff",
       {
-        params: { path: { event_id: eventId, booth_id: assigningBoothId } },
+        params: { path: { event_id: eventId, booth_id: assigningBooth.id } },
         body: { email: staffEmail.trim() },
       }
     );
 
     setAssigningStaff(false);
     if (err) {
-      setStaffMessage(formatApiError(err));
+      setStaffError(formatApiError(err));
     } else if (data) {
-      setStaffMessage(`✓ Assigned ${data.email} as booth representative!`);
+      setStaffFeedback(isRtl ? "نماینده با موفقیت به غرفه تخصیص یافت." : "Representative assigned successfully.");
       setStaffEmail("");
       setTimeout(() => {
-        setAssigningBoothId(null);
-        setStaffMessage(null);
-      }, 1500);
+        setAssigningBooth(null);
+        setStaffFeedback(null);
+      }, 1200);
     }
   };
 
-  if (loading) {
+  const openEditEventModal = () => {
+    if (!event) return;
+    setEditEventName(event.name);
+    setEditEventLocation(event.location);
+    try {
+      setEditEventStartsAt(new Date(event.starts_at).toISOString().slice(0, 16));
+      setEditEventEndsAt(new Date(event.ends_at).toISOString().slice(0, 16));
+    } catch {
+      setEditEventStartsAt("");
+      setEditEventEndsAt("");
+    }
+    setEditEventDescription(event.description || "");
+    setEventEditError(null);
+    setIsEditEventModalOpen(true);
+  };
+
+  const handleUpdateEvent = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!event || !eventId) return;
+    setEventEditError(null);
+    if (!editEventName.trim() || !editEventStartsAt || !editEventEndsAt || !editEventLocation.trim()) {
+      setEventEditError(isRtl ? "لطفاً تمامی فیلدهای ستاره‌دار را تکمیل نمایید." : "Please fill out all required fields.");
+      return;
+    }
+    const startsDate = new Date(editEventStartsAt);
+    const endsDate = new Date(editEventEndsAt);
+    if (endsDate <= startsDate) {
+      setEventEditError(isRtl ? "زمان پایان همایش باید پس از زمان آغاز باشد." : "End time must be after start time.");
+      return;
+    }
+    setSubmittingEventEdit(true);
+    const client = getApiClient(apiKey);
+    const { data, error: err } = await client.PATCH("/api/events/{event_id}", {
+      params: { path: { event_id: eventId } },
+      body: {
+        name: editEventName.trim(),
+        location: editEventLocation.trim(),
+        starts_at: startsDate.toISOString(),
+        ends_at: endsDate.toISOString(),
+        description: editEventDescription.trim(),
+      },
+    });
+    setSubmittingEventEdit(false);
+    if (err) {
+      setEventEditError(formatApiError(err));
+    } else if (data) {
+      setEvent(data);
+      setIsEditEventModalOpen(false);
+    }
+  };
+
+  const openEditTierModal = (tier: TicketTierOut) => {
+    setEditingTier(tier);
+    setEditTierName(tier.name);
+    setEditTierDescription(tier.description || "");
+    setEditTierQuota(tier.quota);
+    setEditTierIsOpen(tier.is_open);
+    setTierEditError(null);
+  };
+
+  const handleUpdateTier = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingTier || !eventId) return;
+    setTierEditError(null);
+    if (!editTierName.trim() || editTierQuota < 1) {
+      setTierEditError(isRtl ? "لطفاً نام رده و ظرفیت معتبر وارد نمایید." : "Please enter a valid tier name and quota.");
+      return;
+    }
+    setSubmittingTierEdit(true);
+    const client = getApiClient(apiKey);
+    const { data, error: err } = await client.PATCH(
+      "/api/events/{event_id}/ticket-tiers/{tier_id}",
+      {
+        params: { path: { event_id: eventId, tier_id: editingTier.id } },
+        body: {
+          name: editTierName.trim(),
+          description: editTierDescription.trim(),
+          quota: editTierQuota,
+          is_open: editTierIsOpen,
+        },
+      }
+    );
+    setSubmittingTierEdit(false);
+    if (err) {
+      setTierEditError(formatApiError(err));
+    } else if (data) {
+      setTiers((prev) => prev.map((t) => (t.id === data.id ? data : t)));
+      setEditingTier(null);
+    }
+  };
+
+  const openEditPointModal = (pt: CheckInPointOut) => {
+    setEditingPoint(pt);
+    setEditPointName(pt.name);
+    setEditPointLocation(pt.location || "");
+    setEditPointPolicy(pt.policy_type as PolicyType);
+    setEditPointAllowedTiers(pt.allowed_tier_ids || []);
+    setEditPointMaxCapacity(pt.max_capacity ?? undefined);
+    setPointEditError(null);
+  };
+
+  const handleUpdatePoint = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingPoint || !eventId) return;
+    setPointEditError(null);
+    if (!editPointName.trim()) {
+      setPointEditError(isRtl ? "لطفاً نام گیت را وارد نمایید." : "Please enter a gate name.");
+      return;
+    }
+    if (editPointPolicy === "TIER_RESTRICTED" && editPointAllowedTiers.length === 0) {
+      setPointEditError(isRtl ? "حداقل یک رده بلیط مجاز برای این گیت انتخاب کنید." : "Select at least one allowed tier.");
+      return;
+    }
+    setSubmittingPointEdit(true);
+    const client = getApiClient(apiKey);
+    const { data, error: err } = await client.PATCH(
+      "/api/events/{event_id}/checkin-points/{point_id}",
+      {
+        params: { path: { event_id: eventId, point_id: editingPoint.id } },
+        body: {
+          name: editPointName.trim(),
+          location: editPointLocation.trim(),
+          policy_type: editPointPolicy,
+          allowed_tier_ids: editPointPolicy === "TIER_RESTRICTED" ? editPointAllowedTiers : [],
+          max_capacity: editPointPolicy === "CAPACITY_CAPPED" ? (editPointMaxCapacity || null) : null,
+        },
+      }
+    );
+    setSubmittingPointEdit(false);
+    if (err) {
+      setPointEditError(formatApiError(err));
+    } else if (data) {
+      setPoints((prev) => prev.map((p) => (p.id === data.id ? data : p)));
+      setEditingPoint(null);
+    }
+  };
+  if (loading && !event) {
     return (
-      <div className="py-12 text-center text-sm text-neutral-500 font-sans">
-        Loading event details...
+      <div className="space-y-6 animate-pulse">
+        <div className="w-64 h-8 bg-surface-panel-subtle rounded-xl" />
+        <div className="h-64 bg-surface-panel rounded-2xl border border-border-default" />
       </div>
     );
   }
 
   if (error || !event) {
     return (
-      <div className="space-y-4 font-sans">
-        <Link
-          to="/organizer"
-          className="text-sm font-medium text-emerald-700 hover:text-emerald-800"
-        >
-          ← Back to Events
-        </Link>
-        <div className="p-4 bg-red-50 text-red-700 rounded-xl border border-red-200 text-sm">
-          {error ?? "Event not found."}
-        </div>
-      </div>
+      <Card className="p-8 sm:p-12 text-center space-y-4 border-border-default">
+        <div className="text-3xl">⚠️</div>
+        <h1 className="text-xl font-bold text-text-primary">
+          {isRtl ? "خطا در بارگذاری همایش" : "Failed to Load Event"}
+        </h1>
+        <p className="text-sm text-text-secondary">{error}</p>
+        <LinkButton to="/organizer" variant="secondary" size="md">
+          {t.breadcrumbEvents}
+        </LinkButton>
+      </Card>
     );
   }
 
   return (
-    <div className="space-y-10 font-sans">
-      {/* Header and Back Link */}
-      <div className="space-y-2">
-        <Link
-          to="/organizer"
-          className="text-xs font-semibold text-emerald-700 hover:text-emerald-800 uppercase tracking-wider inline-block"
-        >
-          ← Back to All Events
-        </Link>
-        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight text-neutral-900">
-              {event.name}
-            </h1>
-            <p className="text-sm text-neutral-500 pt-0.5">
-              📍 {event.location} • 📅{" "}
-              {new Date(event.starts_at).toLocaleDateString()} to{" "}
-              {new Date(event.ends_at).toLocaleDateString()}
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
-            <Link
-              to={`/organizer/events/${event.id}/analytics`}
-              className="bg-neutral-900 hover:bg-neutral-800 text-white text-xs font-bold px-3 py-2 rounded-lg transition shadow-xs flex items-center gap-1.5"
-            >
-              📊 Live Analytics →
-            </Link>
-            <Link
-              to={`/organizer/events/${event.id}/desk`}
-              className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-3 py-2 rounded-lg transition shadow-xs"
-            >
-              ⚡ Front-Desk Station →
-            </Link>
-            <Link
-              to={`/e/${event.slug}`}
-              target="_blank"
-              rel="noreferrer"
-              className="bg-neutral-100 hover:bg-neutral-200 text-neutral-800 text-xs font-semibold px-3 py-2 rounded-lg transition"
-            >
-              Public Page ↗
-            </Link>
-          </div>
-        </div>
-        {event.description && (
-          <p className="text-sm text-neutral-700 pt-2 bg-white p-4 rounded-xl border border-neutral-200">
-            {event.description}
-          </p>
-        )}
-      </div>
-
-      {/* Commercial Exhibition & Booths Section */}
-      <div className="space-y-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-lg font-bold text-neutral-900">
-              Exhibition Booths & Commercial Sponsors
-            </h2>
-            <p className="text-xs text-neutral-500">
-              Set up sponsor stalls, generate standee QR codes, and invite booth lead staff.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => setShowBoothForm((prev) => !prev)}
-            className="bg-emerald-600 hover:bg-emerald-700 text-white font-medium text-xs py-2 px-3.5 rounded-lg transition"
-          >
-            {showBoothForm ? "Cancel" : "+ Add Exhibition Booth"}
-          </button>
-        </div>
-
-        {/* Add Booth Form */}
-        {showBoothForm && (
-          <div className="bg-white p-5 rounded-xl border border-neutral-200 shadow-sm space-y-4">
-            <h3 className="text-sm font-semibold text-neutral-900">
-              New Exhibition Booth
-            </h3>
-            <form onSubmit={handleCreateBooth} className="space-y-4">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-700 mb-1">
-                    Company / Sponsor Name *
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={boothName}
-                    onChange={(e) => {
-                      setBoothName(e.target.value);
-                      if (!boothSlug) {
-                        setBoothSlug(
-                          e.target.value
-                            .toLowerCase()
-                            .replace(/[^a-z0-9]+/g, "-")
-                            .replace(/(^-|-$)/g, "")
-                        );
-                      }
-                    }}
-                    placeholder="e.g. Siemens Healthineers"
-                    className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-emerald-500 bg-white text-sm"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-700 mb-1">
-                    URL Slug *
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={boothSlug}
-                    onChange={(e) => setBoothSlug(e.target.value)}
-                    placeholder="e.g. siemens-healthineers"
-                    className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-emerald-500 bg-white text-sm"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-700 mb-1">
-                    Stand Location
-                  </label>
-                  <input
-                    type="text"
-                    value={boothLocation}
-                    onChange={(e) => setBoothLocation(e.target.value)}
-                    placeholder="e.g. Booth B-14, Hall 2"
-                    className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-emerald-500 bg-white text-sm"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-700 mb-1">
-                    Website URL
-                  </label>
-                  <input
-                    type="url"
-                    value={boothWebsite}
-                    onChange={(e) => setBoothWebsite(e.target.value)}
-                    placeholder="https://company.com"
-                    className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-emerald-500 bg-white text-sm"
-                  />
-                </div>
-
-                <div className="sm:col-span-2">
-                  <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-700 mb-1">
-                    Digital Brochure URL (PDF / Download)
-                  </label>
-                  <input
-                    type="url"
-                    value={boothBrochure}
-                    onChange={(e) => setBoothBrochure(e.target.value)}
-                    placeholder="https://company.com/brochure.pdf"
-                    className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-emerald-500 bg-white text-sm"
-                  />
-                </div>
-
-                <div className="sm:col-span-2">
-                  <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-700 mb-1">
-                    Company Description
-                  </label>
-                  <textarea
-                    rows={2}
-                    value={boothDescription}
-                    onChange={(e) => setBoothDescription(e.target.value)}
-                    placeholder="Company overview, products showcased, research focus..."
-                    className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-emerald-500 bg-white text-sm"
-                  />
-                </div>
-              </div>
-
-              {boothFormError && (
-                <p className="text-sm text-red-600 bg-red-50 p-2.5 rounded-md">
-                  {boothFormError}
-                </p>
-              )}
-
-              <div className="flex justify-end gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setShowBoothForm(false)}
-                  className="px-4 py-2 border border-neutral-300 rounded-lg text-sm font-medium hover:bg-neutral-50 transition"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={submittingBooth}
-                  className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-medium text-sm py-2 px-5 rounded-lg transition"
-                >
-                  {submittingBooth ? "Creating..." : "Save Booth"}
-                </button>
-              </div>
-            </form>
-          </div>
-        )}
-
-        {/* Booths List */}
-        {booths.length === 0 ? (
-          <div className="bg-white p-6 rounded-xl border border-neutral-200 text-center text-sm text-neutral-500">
-            No exhibition booths configured yet. Add booths to provide sponsors with lead retrieval and digital brochures.
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {booths.map((b) => (
-              <div
-                key={b.id}
-                className="bg-white p-5 rounded-xl border border-neutral-200 shadow-sm space-y-3 flex flex-col justify-between"
-              >
-                <div className="space-y-1.5">
-                  <div className="flex items-center justify-between gap-2">
-                    <h4 className="font-bold text-neutral-900 text-base">
-                      {b.name}
-                    </h4>
-                    <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
-                      Sponsor Booth
-                    </span>
-                  </div>
-                  <p className="text-xs text-neutral-500">
-                    📍 {b.location || "Exhibition Floor"}
-                  </p>
-                  {b.description && (
-                    <p className="text-xs text-neutral-600 line-clamp-2 pt-1">
-                      {b.description}
-                    </p>
-                  )}
-                </div>
-
-                <div className="pt-3 border-t border-neutral-100 flex flex-wrap items-center justify-between gap-2">
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setSelectedBoothQr(b)}
-                      className="bg-neutral-900 hover:bg-neutral-800 text-white text-xs font-semibold px-2.5 py-1.5 rounded-lg transition flex items-center gap-1"
-                    >
-                      <span>🖨️ Standee QR</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setAssigningBoothId(b.id);
-                        setStaffMessage(null);
-                      }}
-                      className="bg-neutral-100 hover:bg-neutral-200 text-neutral-800 text-xs font-medium px-2.5 py-1.5 rounded-lg transition"
-                    >
-                      + Staff Rep
-                    </button>
-                  </div>
-                  <span className="text-[11px] font-mono text-neutral-400">
-                    {b.slug}
-                  </span>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* Standee QR Preview Modal */}
-      {selectedBoothQr && (
-        <div className="fixed inset-0 z-50 bg-neutral-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white max-w-sm w-full rounded-2xl p-6 shadow-2xl border border-neutral-200 text-center space-y-4">
-            <h3 className="text-lg font-bold text-neutral-900">
-              {selectedBoothQr.name} Standee QR
-            </h3>
-            <p className="text-xs text-neutral-500">
-              Print this code on the booth table banner for attendees to scan and view brochures.
-            </p>
-
-            <div className="p-4 bg-white border-2 border-neutral-900 rounded-2xl inline-block shadow-inner mx-auto">
-              <QRCode
-                value={selectedBoothQr.qr_secret}
-                size={180}
-                level="M"
-                className="h-auto max-w-full"
-              />
+    <div className="space-y-8">
+      {/* 1. Event Master Header & Context */}
+      <div className="p-6 sm:p-8 rounded-3xl bg-surface-panel border border-border-default shadow-xs space-y-6">
+        <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-6">
+          <div className="space-y-2.5 max-w-2xl">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant="brand" size="sm">
+                {t.breadcrumbEventConfig}
+              </Badge>
+              <span className="text-xs text-text-muted">•</span>
+              <span className="text-xs font-mono text-text-muted">
+                <bdi dir="ltr">/e/{event.slug}</bdi>
+              </span>
             </div>
 
-            <p className="text-[11px] font-mono uppercase bg-neutral-100 text-neutral-600 px-2.5 py-1 rounded">
-              {selectedBoothQr.qr_secret}
-            </p>
+            <h1 className="text-2xl sm:text-4xl font-extrabold tracking-tight text-text-primary">
+              {event.name}
+            </h1>
 
-            <div className="pt-2 flex flex-col gap-2">
-              <button
-                type="button"
-                onClick={() => window.print()}
-                className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs py-2.5 px-4 rounded-xl transition"
-              >
-                🖨️ Print Standee Banner
-              </button>
-              <button
-                type="button"
-                onClick={() => setSelectedBoothQr(null)}
-                className="w-full bg-neutral-100 hover:bg-neutral-200 text-neutral-800 font-semibold text-xs py-2 px-4 rounded-xl transition"
-              >
-                Close
-              </button>
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-text-secondary font-medium pt-1">
+              <span>📍 {event.location}</span>
+              <span>
+                📅 {formatLocalizedDate(event.starts_at, locale)} – {formatLocalizedDate(event.ends_at, locale)}
+              </span>
+            </div>
+          </div>
+
+          {/* Quick Real Links to Operational Stations */}
+          <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+            <LinkButton
+              to={`/organizer/events/${event.id}/desk`}
+              variant="primary"
+              size="sm"
+              className="gap-1.5"
+            >
+              <span>🖨️</span>
+              <span>{t.openDeskAction}</span>
+            </LinkButton>
+
+            <LinkButton
+              to={`/organizer/events/${event.id}/analytics`}
+              variant="secondary"
+              size="sm"
+              className="gap-1.5"
+            >
+              <span>📊</span>
+              <span>{t.openAnalyticsAction}</span>
+            </LinkButton>
+
+            <Button
+              onClick={openEditEventModal}
+              variant="secondary"
+              size="sm"
+              className="gap-1.5"
+            >
+              <span>✏️</span>
+              <span>{t.editEventAction || (isRtl ? "ویرایش همایش" : "Edit Event")}</span>
+            </Button>
+
+            <a
+              href={`/e/${event.slug}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold text-action-primary hover:bg-action-subtle transition-colors focus-visible:outline-2 focus-visible:outline-focus-ring"
+            >
+              <span>{t.openPublicPageAction}</span>
+              <span aria-hidden="true">↗</span>
+            </a>
+          </div>
+        </div>
+
+        {/* Task-Oriented Navigation Tabs */}
+        <div
+          role="tablist"
+          aria-label={t.breadcrumbEventConfig}
+          className="flex border-b border-border-subtle pt-2 overflow-x-auto gap-2"
+        >
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === "overview"}
+            onClick={() => setActiveTab("overview")}
+            className={`pb-3 px-3 text-xs sm:text-sm font-bold border-b-2 transition-colors shrink-0 cursor-pointer ${
+              activeTab === "overview"
+                ? "border-action-primary text-action-primary"
+                : "border-transparent text-text-muted hover:text-text-primary"
+            }`}
+          >
+            📋 {t.tabOverview}
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === "tiers"}
+            onClick={() => setActiveTab("tiers")}
+            className={`pb-3 px-3 text-xs sm:text-sm font-bold border-b-2 transition-colors shrink-0 cursor-pointer ${
+              activeTab === "tiers"
+                ? "border-action-primary text-action-primary"
+                : "border-transparent text-text-muted hover:text-text-primary"
+            }`}
+          >
+            🎫 {t.tabTiers} ({tiers.length})
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === "points"}
+            onClick={() => setActiveTab("points")}
+            className={`pb-3 px-3 text-xs sm:text-sm font-bold border-b-2 transition-colors shrink-0 cursor-pointer ${
+              activeTab === "points"
+                ? "border-action-primary text-action-primary"
+                : "border-transparent text-text-muted hover:text-text-primary"
+            }`}
+          >
+            🚪 {t.tabPoints} ({points.length})
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === "booths"}
+            onClick={() => setActiveTab("booths")}
+            className={`pb-3 px-3 text-xs sm:text-sm font-bold border-b-2 transition-colors shrink-0 cursor-pointer ${
+              activeTab === "booths"
+                ? "border-action-primary text-action-primary"
+                : "border-transparent text-text-muted hover:text-text-primary"
+            }`}
+          >
+            🏢 {t.tabBooths} ({booths.length})
+          </button>
+        </div>
+      </div>
+
+      {/* 2. Task Section Content */}
+
+      {/* TAB A: Overview */}
+      {activeTab === "overview" && (
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="p-5 rounded-2xl bg-surface-panel border border-border-default shadow-xs space-y-1">
+              <span className="text-xs font-semibold text-text-muted block">{t.tabTiers}</span>
+              <span className="text-2xl font-extrabold text-text-primary block">
+                {formatLocalizedNumber(tiers.length, locale)}
+              </span>
+              <span className="text-[11px] text-text-secondary block">
+                {isRtl ? "رده فعال پذیرش" : "Active ticket tiers"}
+              </span>
+            </div>
+
+            <div className="p-5 rounded-2xl bg-surface-panel border border-border-default shadow-xs space-y-1">
+              <span className="text-xs font-semibold text-text-muted block">{t.tabPoints}</span>
+              <span className="text-2xl font-extrabold text-text-primary block">
+                {formatLocalizedNumber(points.length, locale)}
+              </span>
+              <span className="text-[11px] text-text-secondary block">
+                {isRtl ? "ایستگاه اسکن بارکد" : "Gate scanner stations"}
+              </span>
+            </div>
+
+            <div className="p-5 rounded-2xl bg-surface-panel border border-border-default shadow-xs space-y-1">
+              <span className="text-xs font-semibold text-text-muted block">{t.tabBooths}</span>
+              <span className="text-2xl font-extrabold text-text-primary block">
+                {formatLocalizedNumber(booths.length, locale)}
+              </span>
+              <span className="text-[11px] text-text-secondary block">
+                {isRtl ? "غرفه تجاری ثبت‌شده" : "Exhibitor stands"}
+              </span>
+            </div>
+          </div>
+
+          {/* Operational Stations Card Grid */}
+          <div className="space-y-3">
+            <h2 className="text-base font-bold text-text-primary tracking-tight">
+              {t.fastActionsHeading}
+            </h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="p-5 rounded-2xl bg-surface-panel border border-border-default shadow-xs flex items-start justify-between gap-4">
+                <div className="space-y-1">
+                  <h3 className="font-bold text-sm text-text-primary flex items-center gap-1.5">
+                    <span>🖨️</span>
+                    <span>{t.openDeskAction}</span>
+                  </h3>
+                  <p className="text-xs text-text-secondary leading-relaxed">
+                    {t.deskStationDesc}
+                  </p>
+                </div>
+                <LinkButton to={`/organizer/events/${event.id}/desk`} variant="secondary" size="sm">
+                  {isRtl ? "ورود" : "Open"} →
+                </LinkButton>
+              </div>
+
+              <div className="p-5 rounded-2xl bg-surface-panel border border-border-default shadow-xs flex items-start justify-between gap-4">
+                <div className="space-y-1">
+                  <h3 className="font-bold text-sm text-text-primary flex items-center gap-1.5">
+                    <span>📊</span>
+                    <span>{t.openAnalyticsAction}</span>
+                  </h3>
+                  <p className="text-xs text-text-secondary leading-relaxed">
+                    {t.analyticsStationDesc}
+                  </p>
+                </div>
+                <LinkButton to={`/organizer/events/${event.id}/analytics`} variant="secondary" size="sm">
+                  {isRtl ? "مشاهده" : "View"} →
+                </LinkButton>
+              </div>
             </div>
           </div>
         </div>
       )}
 
-      {/* Assign Staff Representative Modal */}
-      {assigningBoothId && (
-        <div className="fixed inset-0 z-50 bg-neutral-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white max-w-sm w-full rounded-2xl p-6 shadow-2xl border border-neutral-200 space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-base font-bold text-neutral-900">
-                Assign Booth Representative
-              </h3>
-              <button
-                type="button"
-                onClick={() => setAssigningBoothId(null)}
-                className="text-neutral-400 hover:text-neutral-600"
-              >
-                ✕
-              </button>
+      {/* TAB B: Ticket Tiers */}
+      {activeTab === "tiers" && (
+        <div className="space-y-6">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div className="space-y-1">
+              <h2 className="text-lg sm:text-xl font-bold tracking-tight text-text-primary">
+                {t.tiersHeading}
+              </h2>
+              <p className="text-xs sm:text-sm text-text-secondary">
+                {t.tiersDesc}
+              </p>
             </div>
+            <Button
+              type="button"
+              variant="primary"
+              size="md"
+              onClick={() => setIsTierModalOpen(true)}
+              className="gap-2 shrink-0 shadow-xs"
+            >
+              <span>+</span>
+              <span>{t.createTierButton}</span>
+            </Button>
+          </div>
 
-            <p className="text-xs text-neutral-500">
-              Enter the staff representative's email. They will receive access to this booth's lead portal.
-            </p>
+          {tiers.length === 0 ? (
+            <Card className="p-8 text-center text-xs text-text-muted border-border-default">
+              {t.noTiersTitle}
+            </Card>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {tiers.map((tier) => (
+                <div
+                  key={tier.id}
+                  className="p-5 rounded-2xl bg-surface-panel border border-border-default shadow-xs space-y-3"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <h3 className="font-bold text-base text-text-primary">
+                      {tier.name}
+                    </h3>
+                    <div className="flex items-center gap-1.5">
+                      {(tier.reserved_count ?? 0) >= tier.quota ? (
+                        <Badge variant="neutral" size="sm" className="bg-amber-100 text-amber-900 border-amber-300">
+                          {t.tierStatusSoldOut || (isRtl ? "تکمیل ظرفیت" : "Sold Out")}
+                        </Badge>
+                      ) : !tier.is_open ? (
+                        <Badge variant="neutral" size="sm">
+                          {t.tierStatusClosed}
+                        </Badge>
+                      ) : (
+                        <Badge variant="success" size="sm">
+                          {t.tierStatusOpen}
+                        </Badge>
+                      )}
+                    </div>
+                  </div>
+                  <p className="text-xs text-text-secondary leading-relaxed">
+                    {tier.description || (isRtl ? "دسترسی عمومی به سالن‌های همایش." : "General congress admission.")}
+                  </p>
+                  <div className="pt-2 border-t border-border-subtle flex items-center justify-between text-xs text-text-muted">
+                    <span>
+                      {isRtl ? "ثبت‌نام‌شده:" : "Registered:"}{" "}
+                      <strong className="text-text-primary">{formatLocalizedNumber(tier.reserved_count ?? 0, locale)}</strong> /{" "}
+                      {formatLocalizedNumber(tier.quota, locale)}
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => openEditTierModal(tier)}
+                        className="gap-1 text-xs py-1 px-2.5"
+                      >
+                        <span>✏️</span>
+                        <span>{t.editTierAction || (isRtl ? "ویرایش" : "Edit")}</span>
+                      </Button>
+                      <span className="text-[11px] font-mono text-text-muted">
+                        <bdi dir="ltr">ID: {tier.id.slice(0, 8)}</bdi>
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
-            <form onSubmit={handleAssignStaff} className="space-y-3">
-              <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-700 mb-1">
-                  Staff Email *
+      {/* TAB C: Check-In Points */}
+      {activeTab === "points" && (
+        <div className="space-y-6">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div className="space-y-1">
+              <h2 className="text-lg sm:text-xl font-bold tracking-tight text-text-primary">
+                {t.pointsHeading}
+              </h2>
+              <p className="text-xs sm:text-sm text-text-secondary">
+                {t.pointsDesc}
+              </p>
+            </div>
+            <Button
+              type="button"
+              variant="primary"
+              size="md"
+              onClick={() => setIsPointModalOpen(true)}
+              className="gap-2 shrink-0 shadow-xs"
+            >
+              <span>+</span>
+              <span>{t.createPointButton}</span>
+            </Button>
+          </div>
+
+          {points.length === 0 ? (
+            <Card className="p-8 text-center text-xs text-text-muted border-border-default">
+              {t.noPointsTitle}
+            </Card>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {points.map((pt) => {
+                let policyLabel = pt.policy_type;
+                let policyDesc = "";
+                if (pt.policy_type === "SINGLE_USE") {
+                  policyLabel = t.policySingleUse;
+                  policyDesc = t.policySingleUseDesc;
+                } else if (pt.policy_type === "MULTI_ENTRY") {
+                  policyLabel = t.policyMultiEntry;
+                  policyDesc = t.policyMultiEntryDesc;
+                } else if (pt.policy_type === "TIER_RESTRICTED") {
+                  policyLabel = t.policyTierRestricted;
+                  policyDesc = t.policyTierRestrictedDesc;
+                } else if (pt.policy_type === "CAPACITY_CAPPED") {
+                  policyLabel = t.policyCapacityCapped;
+                  policyDesc = t.policyCapacityCappedDesc;
+                }
+
+                return (
+                  <div
+                    key={pt.id}
+                    className="p-5 rounded-2xl bg-surface-panel border border-border-default shadow-xs space-y-3.5"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <h3 className="font-bold text-base text-text-primary">
+                        {pt.name}
+                      </h3>
+                      <Badge variant="brand" size="sm">
+                        {policyLabel}
+                      </Badge>
+                    </div>
+
+                    <div className="text-xs text-text-secondary space-y-1">
+                      <p>📍 {pt.location || (isRtl ? "درب اصلی ورودی" : "Main Gate Area")}</p>
+                      <p className="text-[11px] text-text-muted leading-relaxed">
+                        {policyDesc}
+                      </p>
+                    </div>
+
+                    <div className="pt-2 border-t border-border-subtle flex items-center justify-between">
+                      <div className="flex items-center gap-2.5">
+                        <Link
+                          to={`/scan/${pt.id}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-xs font-semibold text-action-primary hover:underline focus-visible:outline-focus-ring flex items-center gap-1"
+                        >
+                          <span>{t.openScannerAction}</span>
+                          <span aria-hidden="true">↗</span>
+                        </Link>
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => openEditPointModal(pt)}
+                          className="gap-1 text-xs py-1 px-2.5"
+                        >
+                          <span>✏️</span>
+                          <span>{t.editPointAction || (isRtl ? "ویرایش" : "Edit")}</span>
+                        </Button>
+                      </div>
+                      <span className="text-[11px] font-mono text-text-muted">
+                        <bdi dir="ltr">Point: {pt.id.slice(0, 8)}</bdi>
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* TAB D: Exhibition Booths */}
+      {activeTab === "booths" && (
+        <div className="space-y-6">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div className="space-y-1">
+              <h2 className="text-lg sm:text-xl font-bold tracking-tight text-text-primary">
+                {t.boothsHeading}
+              </h2>
+              <p className="text-xs sm:text-sm text-text-secondary">
+                {t.boothsDesc}
+              </p>
+            </div>
+            <Button
+              type="button"
+              variant="primary"
+              size="md"
+              onClick={() => setIsBoothModalOpen(true)}
+              className="gap-2 shrink-0 shadow-xs"
+            >
+              <span>+</span>
+              <span>{t.createBoothButton}</span>
+            </Button>
+          </div>
+
+          {booths.length === 0 ? (
+            <Card className="p-8 text-center text-xs text-text-muted border-border-default">
+              {t.noBoothsTitle}
+            </Card>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {booths.map((b) => (
+                <div
+                  key={b.id}
+                  className="p-5 rounded-2xl bg-surface-panel border border-border-default shadow-xs space-y-4"
+                >
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between gap-2">
+                      <Badge variant="neutral" size="sm">
+                        {b.location || (isRtl ? "سالن نمایشگاه" : "Stand Area")}
+                      </Badge>
+                      <span className="text-[11px] font-mono text-text-muted">
+                        <bdi dir="ltr">/booth/{b.id.slice(0, 8)}</bdi>
+                      </span>
+                    </div>
+                    <h3 className="font-bold text-base text-text-primary">
+                      {b.name}
+                    </h3>
+                    {b.description && (
+                      <p className="text-xs text-text-secondary line-clamp-2 leading-relaxed">
+                        {b.description}
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="pt-2 border-t border-border-subtle flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => {
+                          setAssigningBooth(b);
+                          setStaffEmail("");
+                          setStaffFeedback(null);
+                          setStaffError(null);
+                        }}
+                      >
+                        👥 {t.assignStaffButton}
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setSelectedBoothQr(b)}
+                      >
+                        📱 {t.standeeQrButton}
+                      </Button>
+                    </div>
+
+                    <Link
+                      to={`/e/${event.slug}/booths/${b.id}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs font-semibold text-action-primary hover:underline"
+                    >
+                      {t.viewBoothAction} ↗
+                    </Link>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* MODAL 1: Create Ticket Tier */}
+      <Dialog
+        isOpen={isTierModalOpen}
+        onClose={() => {
+          if (!submittingTier) {
+            setIsTierModalOpen(false);
+            setTierFormError(null);
+          }
+        }}
+        title={t.createTierModalTitle}
+        description={t.createTierModalDesc}
+        size="md"
+      >
+        <form onSubmit={handleCreateTier} className="space-y-4">
+          <div>
+            <label className="block text-xs font-semibold text-text-primary mb-1">
+              {t.tierNameLabel} <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="text"
+              required
+              value={tierName}
+              onChange={(e) => setTierName(e.target.value)}
+              placeholder={isRtl ? "مثال: ثبت‌نام استاندارد هیئت علمی" : "e.g. Faculty Full Delegate"}
+              className="w-full px-3.5 py-2.5 bg-white border border-border-default rounded-xl text-sm text-text-primary focus:border-action-primary focus:ring-1 focus:ring-action-primary"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-text-primary mb-1">
+              {t.tierQuotaLabel} <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="number"
+              required
+              min={1}
+              value={tierQuota}
+              onChange={(e) => setTierQuota(Number(e.target.value))}
+              className="w-full px-3.5 py-2.5 bg-white border border-border-default rounded-xl text-sm font-mono text-text-primary focus:border-action-primary focus:ring-1 focus:ring-action-primary"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-text-primary mb-1">
+              {t.tierDescriptionLabel}
+            </label>
+            <textarea
+              rows={2}
+              value={tierDescription}
+              onChange={(e) => setTierDescription(e.target.value)}
+              placeholder={isRtl ? "شامل دسترسی به تمامی سخنرانی‌ها و نمایشگاه..." : "Includes access to all keynote sessions..."}
+              className="w-full p-3 bg-white border border-border-default rounded-xl text-sm text-text-primary focus:border-action-primary focus:ring-1 focus:ring-action-primary"
+            />
+          </div>
+
+          <div className="flex items-center gap-2 pt-1">
+            <input
+              type="checkbox"
+              id="tierIsOpenInput"
+              checked={tierIsOpen}
+              onChange={(e) => setTierIsOpen(e.target.checked)}
+              className="rounded text-action-primary focus:ring-action-primary"
+            />
+            <label htmlFor="tierIsOpenInput" className="text-xs font-medium text-text-primary cursor-pointer">
+              {t.tierIsOpenLabel}
+            </label>
+          </div>
+
+          {tierFormError && (
+            <div role="alert" aria-live="assertive" className="p-3 rounded-xl bg-status-danger-bg text-status-danger-text border border-status-danger-border text-xs">
+              {tierFormError}
+            </div>
+          )}
+
+          <div className="pt-2 flex justify-end gap-2">
+            <Button type="button" variant="ghost" size="md" onClick={() => setIsTierModalOpen(false)}>
+              {isRtl ? "انصراف" : "Cancel"}
+            </Button>
+            <Button type="submit" variant="primary" size="md" disabled={submittingTier}>
+              {submittingTier ? "..." : t.saveTierAction}
+            </Button>
+          </div>
+        </form>
+      </Dialog>
+
+      {/* MODAL 2: Create Check-In Point */}
+      <Dialog
+        isOpen={isPointModalOpen}
+        onClose={() => {
+          if (!submittingPoint) {
+            setIsPointModalOpen(false);
+            setPointFormError(null);
+          }
+        }}
+        title={t.createPointModalTitle}
+        description={t.createPointModalDesc}
+        size="md"
+      >
+        <form onSubmit={handleCreatePoint} className="space-y-4">
+          <div>
+            <label className="block text-xs font-semibold text-text-primary mb-1">
+              {t.pointNameLabel} <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="text"
+              required
+              value={pointName}
+              onChange={(e) => setPointName(e.target.value)}
+              placeholder={isRtl ? "مثال: گیت ورودی شمالی سالن ۱" : "e.g. North Gate Entrance"}
+              className="w-full px-3.5 py-2.5 bg-white border border-border-default rounded-xl text-sm text-text-primary focus:border-action-primary focus:ring-1 focus:ring-action-primary"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-text-primary mb-1">
+              {t.pointLocationLabel}
+            </label>
+            <input
+              type="text"
+              value={pointLocation}
+              onChange={(e) => setPointLocation(e.target.value)}
+              placeholder={isRtl ? "مثال: طبقه همکف، درب B" : "e.g. Ground Floor, Gate B"}
+              className="w-full px-3.5 py-2.5 bg-white border border-border-default rounded-xl text-sm text-text-primary focus:border-action-primary focus:ring-1 focus:ring-action-primary"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-text-primary mb-1">
+              {t.policyTypeLabel} <span className="text-red-500">*</span>
+            </label>
+            <select
+              value={policyType}
+              onChange={(e) => setPolicyType(e.target.value as PolicyType)}
+              className="w-full px-3.5 py-2.5 bg-white border border-border-default rounded-xl text-sm text-text-primary focus:border-action-primary focus:ring-1 focus:ring-action-primary"
+            >
+              <option value="MULTI_ENTRY">{t.policyMultiEntry}</option>
+              <option value="SINGLE_USE">{t.policySingleUse}</option>
+              <option value="TIER_RESTRICTED">{t.policyTierRestricted}</option>
+              <option value="CAPACITY_CAPPED">{t.policyCapacityCapped}</option>
+            </select>
+          </div>
+
+          {policyType === "CAPACITY_CAPPED" && (
+            <div>
+              <label className="block text-xs font-semibold text-text-primary mb-1">
+                {t.maxCapacityLabel}
+              </label>
+              <input
+                type="number"
+                min={1}
+                value={maxCapacity || ""}
+                onChange={(e) => setMaxCapacity(e.target.value ? Number(e.target.value) : undefined)}
+                placeholder="e.g. 250"
+                className="w-full px-3.5 py-2.5 bg-white border border-border-default rounded-xl text-sm font-mono text-text-primary"
+              />
+            </div>
+          )}
+
+          {pointFormError && (
+            <div role="alert" aria-live="assertive" className="p-3 rounded-xl bg-status-danger-bg text-status-danger-text border border-status-danger-border text-xs">
+              {pointFormError}
+            </div>
+          )}
+
+          <div className="pt-2 flex justify-end gap-2">
+            <Button type="button" variant="ghost" size="md" onClick={() => setIsPointModalOpen(false)}>
+              {isRtl ? "انصراف" : "Cancel"}
+            </Button>
+            <Button type="submit" variant="primary" size="md" disabled={submittingPoint}>
+              {submittingPoint ? "..." : t.savePointAction}
+            </Button>
+          </div>
+        </form>
+      </Dialog>
+
+      {/* MODAL 3: Create Exhibition Booth */}
+      <Dialog
+        isOpen={isBoothModalOpen}
+        onClose={() => {
+          if (!submittingBooth) {
+            setIsBoothModalOpen(false);
+            setBoothFormError(null);
+          }
+        }}
+        title={t.createBoothModalTitle}
+        description={t.createBoothModalDesc}
+        size="md"
+      >
+        <form onSubmit={handleCreateBooth} className="space-y-4">
+          <div>
+            <label className="block text-xs font-semibold text-text-primary mb-1">
+              {t.boothNameLabel} <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="text"
+              required
+              value={boothName}
+              onChange={(e) => {
+                setBoothName(e.target.value);
+                if (!boothSlug) {
+                  setBoothSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "-"));
+                }
+              }}
+              placeholder={isRtl ? "مثال: شرکت پیشگامان زیست‌فناوری" : "e.g. Biotech Systems Global"}
+              className="w-full px-3.5 py-2.5 bg-white border border-border-default rounded-xl text-sm text-text-primary focus:border-action-primary focus:ring-1 focus:ring-action-primary"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-text-primary mb-1">
+              {t.boothSlugLabel} <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="text"
+              required
+              value={boothSlug}
+              onChange={(e) => setBoothSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""))}
+              placeholder="biotech-systems"
+              className="w-full px-3.5 py-2.5 bg-white border border-border-default rounded-xl text-sm font-mono text-text-primary"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-text-primary mb-1">
+              {t.boothLocationLabel}
+            </label>
+            <input
+              type="text"
+              value={boothLocation}
+              onChange={(e) => setBoothLocation(e.target.value)}
+              placeholder={isRtl ? "مثال: سالن B، استند شماره ۱۰۴" : "e.g. Hall B, Stand 104"}
+              className="w-full px-3.5 py-2.5 bg-white border border-border-default rounded-xl text-sm text-text-primary"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-text-primary mb-1">
+              {t.websiteUrlLabel}
+            </label>
+            <input
+              type="url"
+              value={boothWebsite}
+              onChange={(e) => setBoothWebsite(e.target.value)}
+              placeholder="https://company.example.com"
+              className="w-full px-3.5 py-2.5 bg-white border border-border-default rounded-xl text-sm font-mono text-text-primary"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-text-primary mb-1">
+              {t.brochureUrlLabel}
+            </label>
+            <input
+              type="url"
+              value={boothBrochure}
+              onChange={(e) => setBoothBrochure(e.target.value)}
+              placeholder="https://company.example.com/brochure.pdf"
+              className="w-full px-3.5 py-2.5 bg-white border border-border-default rounded-xl text-sm font-mono text-text-primary"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-text-primary mb-1">
+              {t.boothDescriptionLabel}
+            </label>
+            <textarea
+              rows={2}
+              value={boothDescription}
+              onChange={(e) => setBoothDescription(e.target.value)}
+              placeholder={isRtl ? "توضیح مختصر محصولات و فعالیت‌های غرفه..." : "Overview of company products..."}
+              className="w-full p-3 bg-white border border-border-default rounded-xl text-sm text-text-primary"
+            />
+          </div>
+
+          {boothFormError && (
+            <div role="alert" aria-live="assertive" className="p-3 rounded-xl bg-status-danger-bg text-status-danger-text border border-status-danger-border text-xs">
+              {boothFormError}
+            </div>
+          )}
+
+          <div className="pt-2 flex justify-end gap-2">
+            <Button type="button" variant="ghost" size="md" onClick={() => setIsBoothModalOpen(false)}>
+              {isRtl ? "انصراف" : "Cancel"}
+            </Button>
+            <Button type="submit" variant="primary" size="md" disabled={submittingBooth}>
+              {submittingBooth ? "..." : t.saveBoothAction}
+            </Button>
+          </div>
+        </form>
+      </Dialog>
+
+      {/* MODAL 4: Assign Staff to Booth */}
+      <Dialog
+        isOpen={Boolean(assigningBooth)}
+        onClose={() => {
+          if (!assigningStaff) setAssigningBooth(null);
+        }}
+        title={t.assignStaffModalTitle}
+        description={assigningBooth ? `${t.assignStaffModalDesc} (${assigningBooth.name})` : undefined}
+        size="sm"
+      >
+        <form onSubmit={handleAssignStaff} className="space-y-4">
+          <div>
+            <label className="block text-xs font-semibold text-text-primary mb-1">
+              {t.staffEmailLabel} <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="email"
+              required
+              value={staffEmail}
+              onChange={(e) => setStaffEmail(e.target.value)}
+              placeholder="representative@company.com"
+              className="w-full px-3.5 py-2.5 bg-white border border-border-default rounded-xl text-sm font-mono text-text-primary focus:border-action-primary focus:ring-1 focus:ring-action-primary"
+            />
+            <span className="text-[11px] text-text-muted mt-1 block leading-relaxed">
+              {isRtl
+                ? "نماینده با این ایمیل به پورتال جمع‌آوری لیدهای تجاری غرفه دسترسی خواهد یافت."
+                : "Authorizes this staff email to access the booth's lead qualification portal."}
+            </span>
+          </div>
+
+          {staffFeedback && (
+            <div role="status" className="p-3 rounded-xl bg-status-success-bg text-status-success-text border border-status-success-border text-xs">
+              {staffFeedback}
+            </div>
+          )}
+
+          {staffError && (
+            <div role="alert" aria-live="assertive" className="p-3 rounded-xl bg-status-danger-bg text-status-danger-text border border-status-danger-border text-xs">
+              {staffError}
+            </div>
+          )}
+
+          <div className="pt-2 flex justify-end gap-2">
+            <Button type="button" variant="ghost" size="md" onClick={() => setAssigningBooth(null)}>
+              {isRtl ? "انصراف" : "Cancel"}
+            </Button>
+            <Button type="submit" variant="primary" size="md" disabled={assigningStaff}>
+              {assigningStaff ? "..." : t.assignStaffAction}
+            </Button>
+          </div>
+        </form>
+      </Dialog>
+
+      {/* MODAL 5: Standee QR Preview */}
+      <Dialog
+        isOpen={Boolean(selectedBoothQr)}
+        onClose={() => setSelectedBoothQr(null)}
+        title={t.standeeQrModalTitle}
+        description={selectedBoothQr ? `${t.standeeQrModalDesc} (${selectedBoothQr.name})` : undefined}
+        size="sm"
+      >
+        {selectedBoothQr && (
+          <div className="text-center space-y-4 py-2">
+            <div className="p-6 bg-white rounded-2xl border-2 border-border-default shadow-xs inline-block">
+              <QRCode
+                value={selectedBoothQr.id}
+                size={180}
+                level="M"
+                viewBox="0 0 256 256"
+                fgColor="#0F172A"
+                bgColor="#FFFFFF"
+                className="w-44 h-44 select-none"
+              />
+            </div>
+            <div className="space-y-1">
+              <h3 className="text-base font-bold text-text-primary">{selectedBoothQr.name}</h3>
+              <p className="text-xs text-text-secondary">{selectedBoothQr.location || "Exhibition Floor"}</p>
+              <span className="text-[11px] font-mono text-text-muted block pt-1">
+                <bdi dir="ltr">Booth ID: {selectedBoothQr.id}</bdi>
+              </span>
+            </div>
+            <div className="pt-2">
+              <Button type="button" variant="secondary" size="md" isFullWidth onClick={() => window.print()}>
+                🖨️ {isRtl ? "چاپ کیوآرکد استند" : "Print Standee QR"}
+              </Button>
+            </div>
+          </div>
+        )}
+      </Dialog>
+
+      {/* EDIT EVENT MODAL */}
+      <Dialog
+        isOpen={isEditEventModalOpen}
+        onClose={() => {
+          if (!submittingEventEdit) {
+            setIsEditEventModalOpen(false);
+            setEventEditError(null);
+          }
+        }}
+        title={t.editEventTitle || (isRtl ? "ویرایش مشخصات همایش" : "Edit Event")}
+        description={t.editEventDesc || (isRtl ? "ویرایش عنوان، محل برگزاری، توضیحات و زمان‌بندی همایش." : "Update event details.")}
+        size="lg"
+      >
+        {event && (
+          <form onSubmit={handleUpdateEvent} className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="sm:col-span-2">
+                <label className="block text-xs font-semibold text-text-primary mb-1">
+                  {t.eventNameLabel} <span className="text-red-500">*</span>
                 </label>
                 <input
-                  type="email"
+                  type="text"
                   required
-                  value={staffEmail}
-                  onChange={(e) => setStaffEmail(e.target.value)}
-                  placeholder="rep@company.com"
-                  className="w-full px-3 py-2 border border-neutral-300 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 bg-white"
+                  value={editEventName}
+                  onChange={(e) => setEditEventName(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-white border border-border-default rounded-xl text-sm text-text-primary focus:border-action-primary focus:ring-1 focus:ring-action-primary"
                 />
               </div>
 
-              {staffMessage && (
-                <p className="text-xs text-emerald-700 bg-emerald-50 p-2.5 rounded-lg border border-emerald-200">
-                  {staffMessage}
-                </p>
-              )}
+              <div className="sm:col-span-2">
+                <label className="block text-xs font-semibold text-text-primary mb-1">
+                  {t.eventSlugLabel}
+                </label>
+                <input
+                  type="text"
+                  disabled
+                  value={event.slug}
+                  className="w-full px-3.5 py-2.5 bg-neutral-100 border border-border-subtle rounded-xl text-sm font-mono text-text-muted cursor-not-allowed opacity-75"
+                />
+                <span className="text-[11px] text-text-muted mt-1 block">
+                  {isRtl
+                    ? "شناسه اختصاصی اینترنتی (اسلاگ) جهت حفظ پیوند کارت‌ها و آدرس‌های عمومی ثابت می‌ماند."
+                    : "The public URL slug is preserved to protect published links and attendee passes."}
+                </span>
+              </div>
 
-              <button
+              <div>
+                <label className="block text-xs font-semibold text-text-primary mb-1">
+                  {t.startsAtLabel} <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="datetime-local"
+                  required
+                  value={editEventStartsAt}
+                  onChange={(e) => setEditEventStartsAt(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-white border border-border-default rounded-xl text-sm font-mono text-text-primary focus:border-action-primary focus:ring-1 focus:ring-action-primary"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-text-primary mb-1">
+                  {t.endsAtLabel} <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="datetime-local"
+                  required
+                  value={editEventEndsAt}
+                  onChange={(e) => setEditEventEndsAt(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-white border border-border-default rounded-xl text-sm font-mono text-text-primary focus:border-action-primary focus:ring-1 focus:ring-action-primary"
+                />
+              </div>
+
+              <div className="sm:col-span-2">
+                <label className="block text-xs font-semibold text-text-primary mb-1">
+                  {t.locationLabel} <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={editEventLocation}
+                  onChange={(e) => setEditEventLocation(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-white border border-border-default rounded-xl text-sm text-text-primary focus:border-action-primary focus:ring-1 focus:ring-action-primary"
+                />
+              </div>
+
+              <div className="sm:col-span-2">
+                <label className="block text-xs font-semibold text-text-primary mb-1">
+                  {t.descriptionLabel}
+                </label>
+                <textarea
+                  rows={3}
+                  value={editEventDescription}
+                  onChange={(e) => setEditEventDescription(e.target.value)}
+                  className="w-full p-3 bg-white border border-border-default rounded-xl text-sm text-text-primary focus:border-action-primary focus:ring-1 focus:ring-action-primary"
+                />
+              </div>
+            </div>
+
+            {eventEditError && (
+              <div
+                role="alert"
+                aria-live="assertive"
+                className="p-3.5 rounded-xl bg-status-danger-bg text-status-danger-text border border-status-danger-border text-xs leading-relaxed"
+              >
+                {eventEditError}
+              </div>
+            )}
+
+            <div className="pt-2 flex justify-end gap-2.5">
+              <Button
+                type="button"
+                variant="ghost"
+                size="md"
+                disabled={submittingEventEdit}
+                onClick={() => setIsEditEventModalOpen(false)}
+              >
+                {t.cancelAction || (isRtl ? "انصراف" : "Cancel")}
+              </Button>
+              <Button
                 type="submit"
-                disabled={assigningStaff}
-                className="w-full bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold text-xs py-2.5 px-4 rounded-xl transition"
+                variant="primary"
+                size="md"
+                disabled={submittingEventEdit}
               >
-                {assigningStaff ? "Assigning..." : "Assign Representative"}
-              </button>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* Check-In Points & Gate Policies Section */}
-      <div className="space-y-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-lg font-bold text-neutral-900">
-              Check-In Points & Entry Gates
-            </h2>
-            <p className="text-xs text-neutral-500">
-              Configure scanner gates, dining halls, and admission policy enforcement.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => setShowPointForm((prev) => !prev)}
-            className="bg-emerald-600 hover:bg-emerald-700 text-white font-medium text-xs py-2 px-3.5 rounded-lg transition"
-          >
-            {showPointForm ? "Cancel" : "+ Add Check-In Point"}
-          </button>
-        </div>
-
-        {/* Add Check-In Point Form */}
-        {showPointForm && (
-          <div className="bg-white p-5 rounded-xl border border-neutral-200 shadow-sm space-y-4">
-            <h3 className="text-sm font-semibold text-neutral-900">
-              New Check-In Point
-            </h3>
-            <form onSubmit={handleCreatePoint} className="space-y-4">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-700 mb-1">
-                    Point / Gate Name *
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={pointName}
-                    onChange={(e) => setPointName(e.target.value)}
-                    placeholder="e.g. Main Gate Turnstiles, Lunch Catering"
-                    className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-emerald-500 bg-white text-sm"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-700 mb-1">
-                    Location
-                  </label>
-                  <input
-                    type="text"
-                    value={pointLocation}
-                    onChange={(e) => setPointLocation(e.target.value)}
-                    placeholder="e.g. Level 1 Entry, Ground Floor Food Court"
-                    className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-emerald-500 bg-white text-sm"
-                  />
-                </div>
-
-                <div className="sm:col-span-2">
-                  <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-700 mb-1">
-                    Admission Policy *
-                  </label>
-                  <select
-                    value={policyType}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      if (isPolicyType(val)) {
-                        setPolicyType(val);
-                      }
-                    }}
-                    className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-emerald-500 bg-white text-sm"
-                  >
-                    <option value="MULTI_ENTRY">MULTI_ENTRY (Allows repeated entry & exit timestamps)</option>
-                    <option value="SINGLE_USE">SINGLE_USE (Strictly prevents duplicate scans, e.g. Meals/Lunch)</option>
-                    <option value="TIER_RESTRICTED">TIER_RESTRICTED (Restricts gate access to specific ticket tiers)</option>
-                    <option value="CAPACITY_CAPPED">CAPACITY_CAPPED (Rejects entry when max capacity is reached)</option>
-                  </select>
-                </div>
-
-                {policyType === "TIER_RESTRICTED" && (
-                  <div className="sm:col-span-2 space-y-2">
-                    <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-700">
-                      Allowed Ticket Tiers
-                    </label>
-                    <div className="grid grid-cols-2 gap-2">
-                      {tiers.map((t) => (
-                        <label key={t.id} className="flex items-center gap-2 text-xs text-neutral-800">
-                          <input
-                            type="checkbox"
-                            checked={allowedTiers.includes(t.id)}
-                            onChange={(e) => {
-                              if (e.target.checked) {
-                                setAllowedTiers((prev) => [...prev, t.id]);
-                              } else {
-                                setAllowedTiers((prev) => prev.filter((id) => id !== t.id));
-                              }
-                            }}
-                            className="rounded border-neutral-300 text-emerald-600 focus:ring-emerald-500"
-                          />
-                          {t.name}
-                        </label>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {policyType === "CAPACITY_CAPPED" && (
-                  <div>
-                    <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-700 mb-1">
-                      Max Room Capacity
-                    </label>
-                    <input
-                      type="number"
-                      min="1"
-                      value={maxCapacity ?? ""}
-                      onChange={(e) => setMaxCapacity(Number(e.target.value) || undefined)}
-                      placeholder="e.g. 250"
-                      className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-emerald-500 bg-white text-sm"
-                    />
-                  </div>
-                )}
-              </div>
-
-              {pointFormError && (
-                <p className="text-sm text-red-600 bg-red-50 p-2.5 rounded-md">
-                  {pointFormError}
-                </p>
-              )}
-
-              <div className="flex justify-end gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setShowPointForm(false)}
-                  className="px-4 py-2 border border-neutral-300 rounded-lg text-sm font-medium hover:bg-neutral-50 transition"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={submittingPoint}
-                  className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-medium text-sm py-2 px-5 rounded-lg transition"
-                >
-                  {submittingPoint ? "Saving..." : "Create Check-In Point"}
-                </button>
-              </div>
-            </form>
-          </div>
+                {submittingEventEdit ? (t.savingAction || "...") : (t.saveChangesAction || (isRtl ? "ذخیره تغییرات" : "Save Changes"))}
+              </Button>
+            </div>
+          </form>
         )}
+      </Dialog>
 
-        {/* Check-In Points List */}
-        {points.length === 0 ? (
-          <div className="bg-white p-6 rounded-xl border border-neutral-200 text-center text-sm text-neutral-500">
-            No check-in points configured yet. Add points to deploy entrance gates or catering checkpoints.
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {points.map((p) => (
+      {/* EDIT TIER MODAL */}
+      <Dialog
+        isOpen={editingTier !== null}
+        onClose={() => {
+          if (!submittingTierEdit) {
+            setEditingTier(null);
+            setTierEditError(null);
+          }
+        }}
+        title={t.editTierTitle || (isRtl ? "ویرایش رده بلیت و سهمیه" : "Edit Ticket Tier")}
+        description={t.editTierDesc || (isRtl ? "ویرایش نام، توضیحات، سهمیه و وضعیت ثبت‌نام رده." : "Update tier details.")}
+        size="md"
+      >
+        {editingTier && (
+          <form onSubmit={handleUpdateTier} className="space-y-4">
+            <div>
+              <label className="block text-xs font-semibold text-text-primary mb-1">
+                {t.tierNameLabel} <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="text"
+                required
+                value={editTierName}
+                onChange={(e) => setEditTierName(e.target.value)}
+                className="w-full px-3.5 py-2 bg-white border border-border-default rounded-xl text-sm text-text-primary focus:border-action-primary focus:ring-1 focus:ring-action-primary"
+              />
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-semibold text-text-primary mb-1">
+                  {t.tierQuotaLabel} <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="number"
+                  required
+                  min={1}
+                  value={editTierQuota}
+                  onChange={(e) => setEditTierQuota(parseInt(e.target.value) || 0)}
+                  className="w-full px-3.5 py-2 bg-white border border-border-default rounded-xl text-sm font-mono text-text-primary focus:border-action-primary focus:ring-1 focus:ring-action-primary"
+                />
+                <span className="text-[11px] text-text-muted mt-1 block">
+                  {isRtl ? "سهمیه نمی‌تواند کمتر از بلیت‌های صادرشده باشد." : "Quota cannot fall below confirmed registrations."}
+                </span>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-text-primary mb-1">
+                  {t.tierStatusLabel || (isRtl ? "وضعیت ثبت‌نام" : "Registration Status")}
+                </label>
+                <select
+                  value={editTierIsOpen ? "open" : "closed"}
+                  onChange={(e) => setEditTierIsOpen(e.target.value === "open")}
+                  className="w-full px-3.5 py-2 bg-white border border-border-default rounded-xl text-sm text-text-primary focus:border-action-primary focus:ring-1 focus:ring-action-primary"
+                >
+                  <option value="open">{t.tierOpenOption || (isRtl ? "باز جهت ثبت‌نام و صدور بلیت" : "Open for Registration")}</option>
+                  <option value="closed">{t.tierClosedOption || (isRtl ? "بسته شده (عدم پذیرش ثبت‌نام)" : "Closed")}</option>
+                </select>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-text-primary mb-1">
+                {t.tierDescriptionLabel || (isRtl ? "توضیحات و مزایای رده" : "Tier Description")}
+              </label>
+              <textarea
+                rows={2}
+                value={editTierDescription}
+                onChange={(e) => setEditTierDescription(e.target.value)}
+                className="w-full p-2.5 bg-white border border-border-default rounded-xl text-sm text-text-primary focus:border-action-primary focus:ring-1 focus:ring-action-primary"
+              />
+            </div>
+
+            {tierEditError && (
               <div
-                key={p.id}
-                className="bg-white p-4 rounded-xl border border-neutral-200 shadow-sm space-y-3 flex flex-col justify-between"
+                role="alert"
+                aria-live="assertive"
+                className="p-3 rounded-xl bg-status-danger-bg text-status-danger-text border border-status-danger-border text-xs leading-relaxed"
               >
-                <div>
-                  <div className="flex items-center justify-between gap-2">
-                    <h4 className="font-bold text-neutral-900 text-base">
-                      {p.name}
-                    </h4>
-                    <span
-                      className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${
-                        p.policy_type === "SINGLE_USE"
-                          ? "bg-amber-100 text-amber-800"
-                          : p.policy_type === "TIER_RESTRICTED"
-                          ? "bg-purple-100 text-purple-800"
-                          : p.policy_type === "CAPACITY_CAPPED"
-                          ? "bg-rose-100 text-rose-800"
-                          : "bg-blue-100 text-blue-800"
-                      }`}
-                    >
-                      {p.policy_type}
-                    </span>
-                  </div>
-                  <p className="text-xs text-neutral-500 pt-0.5">
-                    📍 {p.location || "General Area"}
-                  </p>
-                </div>
-
-                <div className="pt-2 border-t border-neutral-100 flex items-center justify-between gap-2">
-                  <Link
-                    to={`/scan/${p.id}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs px-3 py-1.5 rounded-lg transition shadow-xs"
-                  >
-                    📱 Launch Gate Scanner →
-                  </Link>
-                  <a
-                    href={`/api/checkin-points/${p.id}/manifest`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-neutral-500 hover:text-neutral-800 text-[11px] underline"
-                  >
-                    Manifest JSON ↗
-                  </a>
-                </div>
+                {tierEditError}
               </div>
-            ))}
-          </div>
+            )}
+
+            <div className="pt-2 flex justify-end gap-2.5">
+              <Button
+                type="button"
+                variant="ghost"
+                size="md"
+                disabled={submittingTierEdit}
+                onClick={() => setEditingTier(null)}
+              >
+                {t.cancelAction || (isRtl ? "انصراف" : "Cancel")}
+              </Button>
+              <Button
+                type="submit"
+                variant="primary"
+                size="md"
+                disabled={submittingTierEdit}
+              >
+                {submittingTierEdit ? (t.savingAction || "...") : (t.saveChangesAction || (isRtl ? "ذخیره تغییرات" : "Save Changes"))}
+              </Button>
+            </div>
+          </form>
         )}
-      </div>
+      </Dialog>
 
-      {/* Ticket Tiers Section */}
-      <div className="space-y-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-lg font-bold text-neutral-900">Ticket Tiers</h2>
-            <p className="text-xs text-neutral-500">
-              Configure free attendance categories and admission quotas.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => setShowTierForm((prev) => !prev)}
-            className="bg-emerald-600 hover:bg-emerald-700 text-white font-medium text-xs py-2 px-3.5 rounded-lg transition"
-          >
-            {showTierForm ? "Cancel" : "+ Add Ticket Tier"}
-          </button>
-        </div>
+      {/* EDIT POINT MODAL */}
+      <Dialog
+        isOpen={editingPoint !== null}
+        onClose={() => {
+          if (!submittingPointEdit) {
+            setEditingPoint(null);
+            setPointEditError(null);
+          }
+        }}
+        title={t.editPointTitle || (isRtl ? "ویرایش گیت پذیرش" : "Edit Check-In Point")}
+        description={t.editPointDesc || (isRtl ? "ویرایش نام، محل استقرار و ظرفیت گیت." : "Update gate details.")}
+        size="md"
+      >
+        {editingPoint && (
+          <form onSubmit={handleUpdatePoint} className="space-y-4">
+            <div>
+              <label className="block text-xs font-semibold text-text-primary mb-1">
+                {t.pointNameLabel} <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="text"
+                required
+                value={editPointName}
+                onChange={(e) => setEditPointName(e.target.value)}
+                className="w-full px-3.5 py-2 bg-white border border-border-default rounded-xl text-sm text-text-primary focus:border-action-primary focus:ring-1 focus:ring-action-primary"
+              />
+            </div>
 
-        {/* Add Tier Form */}
-        {showTierForm && (
-          <div className="bg-white p-5 rounded-xl border border-neutral-200 shadow-sm space-y-4">
-            <h3 className="text-sm font-semibold text-neutral-900">
-              New Ticket Tier
-            </h3>
-            <form onSubmit={handleCreateTier} className="space-y-4">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-700 mb-1">
-                    Tier Name *
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={tierName}
-                    onChange={(e) => setTierName(e.target.value)}
-                    placeholder="e.g. General Admission, VIP, Student"
-                    className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-emerald-500 bg-white text-sm"
-                  />
-                </div>
+            <div>
+              <label className="block text-xs font-semibold text-text-primary mb-1">
+                {t.pointLocationLabel}
+              </label>
+              <input
+                type="text"
+                value={editPointLocation}
+                onChange={(e) => setEditPointLocation(e.target.value)}
+                placeholder={isRtl ? "مثال: ورودی سالن اصلی، طبقه ۱" : "e.g. Main Hall North, Floor 1"}
+                className="w-full px-3.5 py-2 bg-white border border-border-default rounded-xl text-sm text-text-primary focus:border-action-primary focus:ring-1 focus:ring-action-primary"
+              />
+            </div>
 
-                <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-700 mb-1">
-                    Capacity Quota *
-                  </label>
-                  <input
-                    type="number"
-                    min="1"
-                    required
-                    value={tierQuota}
-                    onChange={(e) => setTierQuota(Number(e.target.value))}
-                    className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-emerald-500 bg-white text-sm"
-                  />
-                </div>
+            <div>
+              <label className="block text-xs font-semibold text-text-primary mb-1">
+                {t.policyTypeLabel}
+              </label>
+              <select
+                value={editPointPolicy}
+                onChange={(e) => setEditPointPolicy(e.target.value as PolicyType)}
+                className="w-full px-3.5 py-2 bg-white border border-border-default rounded-xl text-sm text-text-primary focus:border-action-primary focus:ring-1 focus:ring-action-primary"
+              >
+                <option value="MULTI_ENTRY">{t.policyMultiEntry}</option>
+                <option value="SINGLE_USE">{t.policySingleUse}</option>
+                <option value="TIER_RESTRICTED">{t.policyTierRestricted}</option>
+                <option value="CAPACITY_CAPPED">{t.policyCapacityCapped}</option>
+              </select>
+              <span className="text-[11px] text-text-muted mt-1 block leading-relaxed">
+                {t.policyLockedNotice || (isRtl ? "سیاست پذیرش پس از ثبت اسکن جهت حفظ یکپارچگی مانیفست قفل می‌شود." : "Policy locked once scans are recorded.")}
+              </span>
+            </div>
 
-                <div className="sm:col-span-2">
-                  <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-700 mb-1">
-                    Description
-                  </label>
-                  <textarea
-                    rows={2}
-                    value={tierDescription}
-                    onChange={(e) => setTierDescription(e.target.value)}
-                    placeholder="Privileges, entry permissions, seating access..."
-                    className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-emerald-500 bg-white text-sm"
-                  />
-                </div>
-
-                <div className="sm:col-span-2 flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    id="tierIsOpen"
-                    checked={tierIsOpen}
-                    onChange={(e) => setTierIsOpen(e.target.checked)}
-                    className="w-4 h-4 text-emerald-600 rounded border-neutral-300 focus:ring-emerald-500"
-                  />
-                  <label
-                    htmlFor="tierIsOpen"
-                    className="text-sm text-neutral-800 font-medium cursor-pointer"
-                  >
-                    Open for registration
-                  </label>
+            {editPointPolicy === "TIER_RESTRICTED" && (
+              <div className="space-y-2 p-3 bg-surface-panel-subtle rounded-xl border border-border-subtle">
+                <span className="text-xs font-semibold text-text-primary block">
+                  {t.allowedTiersLabel} <span className="text-red-500">*</span>
+                </span>
+                <div className="space-y-1.5 max-h-36 overflow-y-auto">
+                  {tiers.map((tr) => (
+                    <label key={tr.id} className="flex items-center gap-2 text-xs text-text-secondary cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={editPointAllowedTiers.includes(tr.id)}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setEditPointAllowedTiers((prev) => [...prev, tr.id]);
+                          } else {
+                            setEditPointAllowedTiers((prev) => prev.filter((id) => id !== tr.id));
+                          }
+                        }}
+                        className="rounded border-border-default text-action-primary focus:ring-action-primary"
+                      />
+                      <span>{tr.name}</span>
+                    </label>
+                  ))}
                 </div>
               </div>
+            )}
 
-              {tierFormError && (
-                <p className="text-sm text-red-600 bg-red-50 p-2.5 rounded-md">
-                  {tierFormError}
-                </p>
-              )}
-
-              <div className="flex justify-end gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setShowTierForm(false)}
-                  className="px-4 py-2 border border-neutral-300 rounded-lg text-sm font-medium hover:bg-neutral-50 transition"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={submittingTier}
-                  className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-medium text-sm py-2 px-5 rounded-lg transition"
-                >
-                  {submittingTier ? "Saving..." : "Add Tier"}
-                </button>
+            {editPointPolicy === "CAPACITY_CAPPED" && (
+              <div>
+                <label className="block text-xs font-semibold text-text-primary mb-1">
+                  {t.maxCapacityLabel}
+                </label>
+                <input
+                  type="number"
+                  min={1}
+                  value={editPointMaxCapacity ?? ""}
+                  onChange={(e) => setEditPointMaxCapacity(e.target.value ? parseInt(e.target.value) : undefined)}
+                  placeholder="200"
+                  className="w-full px-3.5 py-2 bg-white border border-border-default rounded-xl text-sm font-mono text-text-primary focus:border-action-primary focus:ring-1 focus:ring-action-primary"
+                />
               </div>
-            </form>
-          </div>
-        )}
+            )}
 
-        {/* Tiers List */}
-        {tiers.length === 0 ? (
-          <div className="bg-white p-6 rounded-xl border border-neutral-200 text-center text-sm text-neutral-500">
-            No ticket tiers created yet. Click "+ Add Ticket Tier" to configure admission quotas.
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {tiers.map((tier) => (
+            {pointEditError && (
               <div
-                key={tier.id}
-                className="bg-white p-4 rounded-xl border border-neutral-200 shadow-sm space-y-2 flex flex-col justify-between"
+                role="alert"
+                aria-live="assertive"
+                className="p-3 rounded-xl bg-status-danger-bg text-status-danger-text border border-status-danger-border text-xs leading-relaxed"
               >
-                <div>
-                  <div className="flex items-center justify-between gap-2">
-                    <h4 className="font-bold text-neutral-900 text-base">
-                      {tier.name}
-                    </h4>
-                    <span
-                      className={`text-[11px] font-semibold uppercase px-2 py-0.5 rounded-full ${
-                        tier.is_open
-                          ? "bg-emerald-100 text-emerald-800"
-                          : "bg-neutral-100 text-neutral-600"
-                      }`}
-                    >
-                      {tier.is_open ? "Open" : "Closed"}
-                    </span>
-                  </div>
-                  <p className="text-xs text-neutral-600 pt-1">
-                    {tier.description || "General admission access."}
-                  </p>
-                </div>
-                <div className="text-xs font-semibold text-neutral-500 pt-2 border-t border-neutral-100 flex items-center justify-between">
-                  <span>Quota: {tier.quota.toLocaleString()} tickets</span>
-                  <span className="text-emerald-700 font-medium">Free ($0)</span>
-                </div>
+                {pointEditError}
               </div>
-            ))}
-          </div>
+            )}
+
+            <div className="pt-2 flex justify-end gap-2.5">
+              <Button
+                type="button"
+                variant="ghost"
+                size="md"
+                disabled={submittingPointEdit}
+                onClick={() => setEditingPoint(null)}
+              >
+                {t.cancelAction || (isRtl ? "انصراف" : "Cancel")}
+              </Button>
+              <Button
+                type="submit"
+                variant="primary"
+                size="md"
+                disabled={submittingPointEdit}
+              >
+                {submittingPointEdit ? (t.savingAction || "...") : (t.saveChangesAction || (isRtl ? "ذخیره تغییرات" : "Save Changes"))}
+              </Button>
+            </div>
+          </form>
         )}
-      </div>
+      </Dialog>
     </div>
   );
 }

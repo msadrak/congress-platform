@@ -3,8 +3,10 @@ import type { components, paths } from "./schema";
 
 export type EventOut = components["schemas"]["EventOut"];
 export type EventCreate = components["schemas"]["EventCreate"];
+export type EventUpdate = components["schemas"]["EventUpdate"];
 export type TicketTierOut = components["schemas"]["TicketTierOut"];
 export type TicketTierCreate = components["schemas"]["TicketTierCreate"];
+export type TicketTierUpdate = components["schemas"]["TicketTierUpdate"];
 export type PublicEvent = components["schemas"]["PublicEvent"];
 export type AttendeeTicketDetail = components["schemas"]["AttendeeTicketDetail"];
 export type TicketOut = components["schemas"]["TicketOut"];
@@ -14,6 +16,7 @@ export type UserRegister = components["schemas"]["UserRegister"];
 export type UserLogin = components["schemas"]["UserLogin"];
 export type CheckInPointOut = components["schemas"]["CheckInPointOut"];
 export type CheckInPointCreate = components["schemas"]["CheckInPointCreate"];
+export type CheckInPointUpdate = components["schemas"]["CheckInPointUpdate"];
 export type CheckInManifest = components["schemas"]["CheckInManifest"];
 export type BatchScanResponse = components["schemas"]["BatchScanResponse"];
 export type DeskRegistrationCreate = components["schemas"]["DeskRegistrationCreate"];
@@ -37,17 +40,36 @@ export type BookmarkedBoothOut = components["schemas"]["BookmarkedBoothOut"];
 export type LeadOut = components["schemas"]["LeadOut"];
 export type LeadScanRequest = components["schemas"]["LeadScanRequest"];
 export type LeadUpdate = components["schemas"]["LeadUpdate"];
-
+export type PrivacyPreferenceOut = components["schemas"]["PrivacyPreferenceOut"];
+export type PrivacyPreferenceUpdate = components["schemas"]["PrivacyPreferenceUpdate"];
 export const ORGANIZER_KEY_STORAGE = "congress_organizer_api_key";
 export const ATTENDEE_TOKEN_STORAGE = "congress_attendee_token";
 
-export function getApiClient(token?: string | null) {
-  const authToken =
-    token ??
-    (typeof window !== "undefined"
-      ? sessionStorage.getItem(ORGANIZER_KEY_STORAGE) ||
-        localStorage.getItem(ATTENDEE_TOKEN_STORAGE)
-      : null);
+export type AuthScope = "organizer" | "attendee" | "any";
+
+export function getApiClient(token?: string | null, scope: AuthScope = "any") {
+  let authToken = token;
+  if (!authToken && typeof window !== "undefined") {
+    if (scope === "organizer") {
+      authToken = sessionStorage.getItem(ORGANIZER_KEY_STORAGE);
+    } else if (scope === "attendee") {
+      authToken = localStorage.getItem(ATTENDEE_TOKEN_STORAGE);
+    } else {
+      // Contextual fallback: prioritize organizer key only when on organizer routes;
+      // on attendee and public routes, prioritize attendee token so organizer keys
+      // never accidentally override attendee JWTs.
+      const isOrganizerRoute = window.location.pathname.startsWith("/organizer");
+      if (isOrganizerRoute) {
+        authToken =
+          sessionStorage.getItem(ORGANIZER_KEY_STORAGE) ||
+          localStorage.getItem(ATTENDEE_TOKEN_STORAGE);
+      } else {
+        authToken =
+          localStorage.getItem(ATTENDEE_TOKEN_STORAGE) ||
+          sessionStorage.getItem(ORGANIZER_KEY_STORAGE);
+      }
+    }
+  }
   return createClient<paths>({
     baseUrl: "",
     headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},

@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import QRCode from "react-qr-code";
-import { Link, useOutletContext, useParams } from "react-router-dom";
+import { useOutletContext, useParams } from "react-router-dom";
 import {
   formatApiError,
   getApiClient,
@@ -10,10 +10,16 @@ import {
   type EventOut,
   type TicketTierOut,
 } from "../api/client";
+import { formatLocalizedDate, formatLocalizedNumber } from "../lib/i18n";
+import type { OrganizerOutletContext } from "./OrganizerLayout";
+import { Badge } from "../components/ui/Badge";
+import { Button, LinkButton } from "../components/ui/Button";
+import { Card } from "../components/ui/Card";
+import { Dialog } from "../components/ui/Dialog";
 
 export default function OrganizerDesk() {
   const { eventId } = useParams<{ eventId: string }>();
-  const { apiKey } = useOutletContext<{ apiKey: string }>();
+  const { apiKey, locale, t, isRtl } = useOutletContext<OrganizerOutletContext>();
   const nameInputRef = useRef<HTMLInputElement>(null);
 
   const [event, setEvent] = useState<EventOut | null>(null);
@@ -42,7 +48,9 @@ export default function OrganizerDesk() {
   const [selectedCard, setSelectedCard] = useState<AttendeeDetailCard | null>(null);
 
   useEffect(() => {
+    let isMounted = true;
     if (!eventId) return;
+
     const loadEventData = async () => {
       setLoading(true);
       const client = getApiClient(apiKey);
@@ -54,6 +62,8 @@ export default function OrganizerDesk() {
           params: { path: { event_id: eventId } },
         }),
       ]);
+
+      if (!isMounted) return;
 
       if (evRes.error) {
         setPageError(formatApiError(evRes.error));
@@ -71,11 +81,15 @@ export default function OrganizerDesk() {
     };
 
     loadEventData();
+    return () => {
+      isMounted = false;
+    };
   }, [eventId, apiKey]);
 
-  // Search effect with debounce
+  // Search effect with 200ms debounce
   useEffect(() => {
     if (!eventId) return;
+    let isMounted = true;
     const timer = setTimeout(async () => {
       setSearching(true);
       const client = getApiClient(apiKey);
@@ -85,13 +99,16 @@ export default function OrganizerDesk() {
           query: { q: searchQuery, limit: 30 },
         },
       });
-      if (data) {
+      if (isMounted && data) {
         setSearchResults(data);
       }
-      setSearching(false);
+      if (isMounted) setSearching(false);
     }, 200);
 
-    return () => clearTimeout(timer);
+    return () => {
+      isMounted = false;
+      clearTimeout(timer);
+    };
   }, [searchQuery, eventId, apiKey]);
 
   const handleRegisterWalkIn = async (e: React.FormEvent) => {
@@ -100,7 +117,7 @@ export default function OrganizerDesk() {
     setFormError(null);
 
     if (!fullName.trim()) {
-      setFormError("Attendee full name is required.");
+      setFormError(isRtl ? "نام و نام خانوادگی شرکت‌کننده الزامی است." : "Attendee full name is required.");
       return;
     }
 
@@ -125,12 +142,10 @@ export default function OrganizerDesk() {
       setFormError(formatApiError(err));
     } else if (data) {
       setMintedPass(data);
-      // Reset form
       setFullName("");
       setEmail("");
       setOrganization("");
       setTitle("");
-      // Refresh search results
       setSearchQuery("");
     }
   };
@@ -158,62 +173,84 @@ export default function OrganizerDesk() {
 
   if (loading) {
     return (
-      <div className="py-12 text-center text-sm text-neutral-500">
-        Loading front-desk station...
+      <div className="space-y-6 animate-pulse">
+        <div className="w-64 h-8 bg-surface-panel-subtle rounded-xl" />
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+          <div className="lg:col-span-5 h-96 bg-surface-panel rounded-2xl border border-border-default" />
+          <div className="lg:col-span-7 h-96 bg-surface-panel rounded-2xl border border-border-default" />
+        </div>
       </div>
     );
   }
 
   if (pageError || !event) {
     return (
-      <div className="p-4 bg-red-50 text-red-700 rounded-xl border border-red-200 text-sm">
-        {pageError ?? "Event not found."}
-      </div>
+      <Card className="p-8 sm:p-12 text-center space-y-4 border-border-default">
+        <div className="text-3xl">⚠️</div>
+        <h1 className="text-xl font-bold text-text-primary">
+          {pageError ?? (isRtl ? "همایش یافت نشد." : "Event not found.")}
+        </h1>
+        <LinkButton to="/organizer" variant="secondary" size="md">
+          {t.breadcrumbEvents}
+        </LinkButton>
+      </Card>
     );
   }
 
   return (
-    <div className="space-y-8 font-sans">
-      {/* Header Banner */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-2 border-b border-neutral-200">
-        <div>
-          <div className="flex items-center gap-2">
-            <span className="w-2.5 h-2.5 rounded-full bg-emerald-600 inline-block animate-pulse" />
-            <span className="text-xs font-bold uppercase tracking-wider text-emerald-800">
-              Front-Desk Operations Active
-            </span>
-          </div>
-          <h1 className="text-2xl font-extrabold text-neutral-900 tracking-tight">
-            Check-In & Registration Desk
-          </h1>
-          <p className="text-xs text-neutral-500">
-            {event.name} • {event.location}
-          </p>
-        </div>
-        <Link
-          to={`/organizer/events/${eventId}`}
-          className="text-xs font-semibold text-neutral-600 hover:text-neutral-900 bg-neutral-100 hover:bg-neutral-200 px-3 py-1.5 rounded-lg transition self-start sm:self-auto"
-        >
-          ← Back to Event Settings
-        </Link>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-        {/* Left Column: Rapid Walk-In Registration */}
-        <section className="lg:col-span-5 bg-white p-6 rounded-2xl border border-neutral-200 shadow-sm space-y-5">
+    <div className="space-y-8">
+      {/* 1. Header Banner */}
+      <div className="p-6 sm:p-8 rounded-3xl bg-surface-panel border border-border-default shadow-xs space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div className="space-y-1">
-            <h2 className="text-lg font-bold text-neutral-900">
-              ⚡ Rapid Walk-In Registration
-            </h2>
-            <p className="text-xs text-neutral-500">
-              Create an on-site pass immediately in under 1 second.
+            <div className="flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" aria-hidden="true" />
+              <Badge variant="brand" size="sm">
+                {isRtl ? "ایستگاه پذیرش حضوری فعال" : "Front-Desk Operations Active"}
+              </Badge>
+              <span className="text-xs text-text-muted">•</span>
+              <span className="text-xs text-text-muted font-medium">{event.name}</span>
+            </div>
+            <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-text-primary">
+              {t.deskTitle}
+            </h1>
+            <p className="text-xs sm:text-sm text-text-secondary">
+              {t.deskSubtitle}
             </p>
           </div>
 
-          <form onSubmit={handleRegisterWalkIn} className="space-y-4">
+          <div className="shrink-0 flex items-center gap-2.5">
+            <LinkButton
+              to={`/organizer/events/${eventId}`}
+              variant="secondary"
+              size="sm"
+            >
+              {isRtl ? "تنظیمات همایش" : "Event Settings"} {isRtl ? "←" : "→"}
+            </LinkButton>
+          </div>
+        </div>
+      </div>
+
+      {/* 2. Operational Two-Column Split (Walk-In Form on left 5 cols, Search on right 7 cols) */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+        {/* Left Column: Rapid Walk-In Registration */}
+        <section aria-labelledby="walkin-heading" className="lg:col-span-5 p-6 sm:p-7 rounded-2xl bg-surface-panel border border-border-default shadow-xs space-y-5">
+          <div className="space-y-1 pb-3 border-b border-border-subtle">
+            <h2 id="walkin-heading" className="text-base sm:text-lg font-bold text-text-primary flex items-center gap-2">
+              <span>⚡</span>
+              <span>{t.walkInRegistrationHeading}</span>
+            </h2>
+            <p className="text-xs text-text-secondary leading-relaxed">
+              {isRtl
+                ? "صدور آنی کارت ورود بدون اتلاف وقت در کمتر از چند ثانیه."
+                : "Create and mint an attendee pass immediately."}
+            </p>
+          </div>
+
+          <form onSubmit={handleRegisterWalkIn} className="space-y-3.5">
             <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-700 mb-1">
-                Full Name *
+              <label className="block text-xs font-semibold text-text-primary mb-1">
+                {isRtl ? "نام و نام خانوادگی شرکت‌کننده" : "Full Name"} <span className="text-red-500">*</span>
               </label>
               <input
                 ref={nameInputRef}
@@ -221,306 +258,331 @@ export default function OrganizerDesk() {
                 required
                 value={fullName}
                 onChange={(e) => setFullName(e.target.value)}
-                placeholder="e.g. Dr. Sara Alavi"
-                className="w-full px-3 py-2 border border-neutral-300 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 bg-white"
+                placeholder={isRtl ? "مثال: دکتر مهدی احمدی" : "e.g. Dr. Mahdi Ahmadi"}
+                className="w-full px-3.5 py-2.5 bg-white border border-border-default rounded-xl text-sm text-text-primary focus:border-action-primary focus:ring-1 focus:ring-action-primary"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-700 mb-1">
-                Email Address (Optional)
+              <label className="block text-xs font-semibold text-text-primary mb-1">
+                {isRtl ? "آدرس ایمیل (اختیاری)" : "Email Address (Optional)"}
               </label>
               <input
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="Leave blank if attendee has no email"
-                className="w-full px-3 py-2 border border-neutral-300 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 bg-white"
+                placeholder="name@institution.com"
+                className="w-full px-3.5 py-2.5 bg-white border border-border-default rounded-xl text-sm text-text-primary focus:border-action-primary focus:ring-1 focus:ring-action-primary font-mono"
               />
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-700 mb-1">
-                  Organization
+                <label className="block text-xs font-semibold text-text-primary mb-1">
+                  {isRtl ? "سازمان / دانشگاه" : "Organization"}
                 </label>
                 <input
                   type="text"
                   value={organization}
                   onChange={(e) => setOrganization(e.target.value)}
-                  placeholder="Hospital / University"
-                  className="w-full px-3 py-2 border border-neutral-300 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 bg-white"
+                  placeholder={isRtl ? "دانشگاه علوم پزشکی" : "University / Hospital"}
+                  className="w-full px-3.5 py-2 bg-white border border-border-default rounded-xl text-xs sm:text-sm text-text-primary"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-700 mb-1">
-                  Title
+                <label className="block text-xs font-semibold text-text-primary mb-1">
+                  {isRtl ? "عنوان حرفه‌ای" : "Title"}
                 </label>
                 <input
                   type="text"
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
-                  placeholder="e.g. Fellow, Nurse"
-                  className="w-full px-3 py-2 border border-neutral-300 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 bg-white"
+                  placeholder={isRtl ? "متخصص، پژوهشگر" : "Specialist, Researcher"}
+                  className="w-full px-3.5 py-2 bg-white border border-border-default rounded-xl text-xs sm:text-sm text-text-primary"
                 />
               </div>
             </div>
 
             <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-700 mb-1">
-                Admission Tier *
+              <label className="block text-xs font-semibold text-text-primary mb-1">
+                {t.tierLabel} <span className="text-red-500">*</span>
               </label>
               <select
                 value={selectedTierId}
                 onChange={(e) => setSelectedTierId(e.target.value)}
-                className="w-full px-3 py-2 border border-neutral-300 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 bg-white"
+                className="w-full px-3.5 py-2.5 bg-white border border-border-default rounded-xl text-xs sm:text-sm text-text-primary focus:border-action-primary focus:ring-1 focus:ring-action-primary"
               >
-                {tiers.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.name} (Quota: {t.quota})
+                {tiers.map((tkt) => (
+                  <option key={tkt.id} value={tkt.id}>
+                    {tkt.name} ({t.tierQuotaTotal}: {formatLocalizedNumber(tkt.quota, locale)})
                   </option>
                 ))}
               </select>
             </div>
 
             {formError && (
-              <p className="text-xs text-red-600 bg-red-50 p-2.5 rounded-lg border border-red-200">
+              <div role="alert" aria-live="assertive" className="p-3.5 rounded-xl bg-status-danger-bg text-status-danger-text border border-status-danger-border text-xs leading-relaxed">
                 {formError}
-              </p>
+              </div>
             )}
 
-            <button
-              type="submit"
-              disabled={submitting}
-              className="w-full bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold text-sm py-3 px-4 rounded-xl transition shadow-sm"
-            >
-              {submitting ? "Minting Pass..." : "✓ Register Walk-In & Generate Pass"}
-            </button>
+            <div className="pt-2">
+              <Button
+                type="submit"
+                variant="primary"
+                size="lg"
+                isFullWidth
+                disabled={submitting || tiers.length === 0}
+                className="shadow-xs font-bold"
+              >
+                {submitting ? t.mintingBadge : `${t.mintBadgeAction} →`}
+              </Button>
+            </div>
           </form>
         </section>
 
-        {/* Right Column: Live Attendee Search & Lookup */}
-        <section className="lg:col-span-7 bg-white p-6 rounded-2xl border border-neutral-200 shadow-sm space-y-5">
-          <div className="space-y-1">
-            <h2 className="text-lg font-bold text-neutral-900">
-              🔍 Attendee Search & Badge Lookup
+        {/* Right Column: Rapid Live Attendee Search */}
+        <section aria-labelledby="search-heading" className="lg:col-span-7 p-6 sm:p-7 rounded-2xl bg-surface-panel border border-border-default shadow-xs space-y-4">
+          <div className="space-y-1 pb-2 border-b border-border-subtle">
+            <h2 id="search-heading" className="text-base sm:text-lg font-bold text-text-primary flex items-center justify-between">
+              <span>🔍 {t.searchAttendeeHeading}</span>
+              {searching && (
+                <span className="text-xs font-normal text-text-muted animate-pulse">
+                  {isRtl ? "در حال جستجو..." : "Searching..."}
+                </span>
+              )}
             </h2>
-            <p className="text-xs text-neutral-500">
-              Find registered attendees by name, email, or affiliation.
+            <p className="text-xs text-text-secondary">
+              {isRtl
+                ? "جستجوی بلادرنگ شرکت‌کنندگان از پیش ثبت‌نام‌شده جهت صدور کارت یا بررسی تاریخچه تردد."
+                : "Live lookup by name or email with 200ms debounce."}
             </p>
           </div>
 
-          <div>
+          {/* Search Input */}
+          <div className="relative">
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search by name, email, or organization..."
-              className="w-full px-4 py-2.5 border border-neutral-300 rounded-xl text-sm focus:ring-2 focus:ring-emerald-500 bg-neutral-50 focus:bg-white transition"
+              placeholder={t.searchAttendeePlaceholder}
+              className="w-full px-4 py-2.5 bg-surface-page border border-border-default rounded-xl text-xs sm:text-sm text-text-primary placeholder:text-text-muted focus:border-action-primary focus:ring-1 focus:ring-action-primary"
             />
-          </div>
-
-          {searching && (
-            <div className="py-4 text-center text-xs text-neutral-400">
-              Searching attendees...
-            </div>
-          )}
-
-          {!searching && searchResults.length === 0 && (
-            <div className="py-8 text-center text-xs text-neutral-400">
-              {searchQuery ? "No matching attendees found." : "Type a query above to search attendees."}
-            </div>
-          )}
-
-          {!searching && searchResults.length > 0 && (
-            <div className="space-y-2 max-h-[460px] overflow-y-auto pr-1">
-              {searchResults.map((a) => (
-                <div
-                  key={a.ticket_id}
-                  className="p-3.5 rounded-xl border border-neutral-200 hover:border-emerald-300 transition flex items-center justify-between gap-3 bg-neutral-50/50"
-                >
-                  <div className="space-y-0.5">
-                    <div className="flex items-center gap-2">
-                      <p className="text-sm font-bold text-neutral-900">
-                        {a.attendee_name}
-                      </p>
-                      <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
-                        {a.ticket_tier_name}
-                      </span>
-                    </div>
-                    <p className="text-xs text-neutral-500">
-                      {a.attendee_email}
-                      {a.organization ? ` • ${a.organization}` : ""}
-                    </p>
-                  </div>
-
-                  <div className="flex items-center gap-2 shrink-0">
-                    <span className="text-xs text-neutral-500 font-medium">
-                      {a.checkin_count > 0 ? (
-                        <span className="text-emerald-700 font-semibold">
-                          ✓ {a.checkin_count} scan{a.checkin_count > 1 ? "s" : ""}
-                        </span>
-                      ) : (
-                        <span className="text-neutral-400">Not checked in</span>
-                      )}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => handleViewAttendeeCard(a.ticket_id)}
-                      className="text-xs bg-neutral-900 hover:bg-neutral-800 text-white font-medium px-2.5 py-1.5 rounded-lg transition"
-                    >
-                      View Pass →
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </section>
-      </div>
-
-      {/* Minted Pass Modal (Displayed immediately after walk-in registration) */}
-      {mintedPass && (
-        <div className="fixed inset-0 z-50 bg-neutral-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white max-w-sm w-full rounded-2xl p-6 shadow-2xl border border-neutral-200 text-center space-y-4 animate-in zoom-in-95 duration-150">
-            <div className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-emerald-800 bg-emerald-100 px-3 py-1 rounded-full">
-              ✓ Pass Minted Successfully
-            </div>
-
-            <div className="p-3 bg-white border-2 border-neutral-900 rounded-2xl inline-block shadow-inner mx-auto">
-              <QRCode
-                value={mintedPass.qr_secret}
-                size={180}
-                level="M"
-                className="h-auto max-w-full"
-              />
-            </div>
-
-            <div className="space-y-1">
-              <h3 className="text-xl font-bold text-neutral-900">
-                {mintedPass.attendee_name}
-              </h3>
-              <p className="text-xs font-semibold text-emerald-700">
-                {mintedPass.ticket_tier_name}
-              </p>
-              <p className="text-xs text-neutral-500">
-                {mintedPass.attendee_email}
-              </p>
-              <p className="text-[11px] font-mono uppercase bg-neutral-100 text-neutral-600 px-2 py-0.5 rounded inline-block mt-1">
-                {mintedPass.qr_secret}
-              </p>
-            </div>
-
-            <div className="pt-2 flex flex-col gap-2">
+            {searchQuery && (
               <button
                 type="button"
-                onClick={() => window.print()}
-                className="w-full bg-neutral-100 hover:bg-neutral-200 text-neutral-800 font-semibold text-xs py-2.5 px-4 rounded-xl transition"
-              >
-                🖨️ Print Badge Pass
-              </button>
-              <button
-                type="button"
-                onClick={handleNextAttendee}
-                className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs py-2.5 px-4 rounded-xl transition"
-              >
-                Next Walk-In Attendee →
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Attendee Detail Card Modal */}
-      {selectedCard && (
-        <div className="fixed inset-0 z-50 bg-neutral-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white max-w-md w-full rounded-2xl p-6 shadow-2xl border border-neutral-200 space-y-4 animate-in zoom-in-95 duration-150">
-            <div className="flex items-center justify-between">
-              <h3 className="text-lg font-bold text-neutral-900">
-                Attendee Credential Card
-              </h3>
-              <button
-                type="button"
-                onClick={() => setSelectedCard(null)}
-                className="text-neutral-400 hover:text-neutral-600 p-1"
+                onClick={() => setSearchQuery("")}
+                className="absolute end-3 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary text-xs"
               >
                 ✕
               </button>
-            </div>
+            )}
+          </div>
 
-            <div className="flex items-center gap-4 p-4 bg-neutral-50 rounded-xl border border-neutral-100">
-              <div className="p-2 bg-white border border-neutral-300 rounded-lg shrink-0">
-                <QRCode value={selectedCard.qr_secret} size={84} level="M" />
+          {/* Search Results Worklist */}
+          <div className="max-h-[500px] overflow-y-auto space-y-2.5 pt-1">
+            {searchResults.length === 0 && searchQuery.trim() ? (
+              <div className="p-8 text-center text-xs text-text-muted rounded-xl bg-surface-page border border-border-subtle">
+                {t.noAttendeeFound}
               </div>
-              <div className="space-y-0.5 min-w-0">
-                <h4 className="text-base font-bold text-neutral-900 truncate">
-                  {selectedCard.attendee_name}
-                </h4>
-                <p className="text-xs font-semibold text-emerald-800">
-                  {selectedCard.ticket_tier_name}
-                </p>
-                <p className="text-xs text-neutral-500 truncate">
-                  {selectedCard.attendee_email}
-                </p>
-                {selectedCard.organization && (
-                  <p className="text-[11px] text-neutral-600 truncate">
-                    {selectedCard.organization}
-                  </p>
-                )}
+            ) : searchResults.length === 0 ? (
+              <div className="p-8 text-center text-xs text-text-muted rounded-xl bg-surface-page border border-border-subtle">
+                {isRtl
+                  ? "برای مشاهده نتایج، نام یا ایمیل شرکت‌کننده را جستجو فرمایید."
+                  : "Type a name or email to search existing attendees."}
               </div>
-            </div>
-
-            {/* Scan History */}
-            <div className="space-y-2">
-              <h5 className="text-xs font-bold uppercase tracking-wider text-neutral-600">
-                Admission History ({selectedCard.scan_history.length})
-              </h5>
-              {selectedCard.scan_history.length === 0 ? (
-                <p className="text-xs text-neutral-400 py-3 text-center bg-neutral-50 rounded-lg">
-                  No gate scans recorded yet.
-                </p>
-              ) : (
-                <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
-                  {selectedCard.scan_history.map((scan, idx) => (
-                    <div
-                      key={idx}
-                      className="text-xs p-2.5 rounded-lg border border-neutral-100 bg-white flex items-center justify-between"
-                    >
-                      <div>
-                        <p className="font-semibold text-neutral-800">
-                          {scan.checkin_point_name}
-                        </p>
-                        <p className="text-[10px] text-neutral-400">
-                          {new Date(scan.scanned_at).toLocaleTimeString()} •{" "}
-                          {new Date(scan.scanned_at).toLocaleDateString()}
-                        </p>
-                      </div>
-                      <span
-                        className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${
-                          scan.status === "ADMITTED"
-                            ? "bg-emerald-100 text-emerald-800"
-                            : "bg-red-100 text-red-800"
-                        }`}
-                      >
-                        {scan.status}
+            ) : (
+              searchResults.map((att) => (
+                <div
+                  key={att.ticket_id}
+                  className="p-3.5 sm:p-4 rounded-xl bg-surface-page border border-border-default hover:border-border-strong transition-all flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3"
+                >
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-sm text-text-primary">
+                        {att.attendee_name}
                       </span>
+                      <Badge variant="neutral" size="sm">
+                        {att.ticket_tier_name}
+                      </Badge>
+                    </div>
+
+                    <div className="text-xs text-text-secondary flex flex-wrap gap-x-3 gap-y-0.5">
+                      {att.attendee_email && (
+                        <span className="font-mono text-text-muted">
+                          <bdi dir="ltr">{att.attendee_email}</bdi>
+                        </span>
+                      )}
+                      {(att.organization || att.title) && (
+                        <span>
+                          {att.title} {att.title && att.organization ? "•" : ""} {att.organization}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="shrink-0 flex items-center gap-2">
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => handleViewAttendeeCard(att.ticket_id)}
+                      className="text-xs"
+                    >
+                      <span>🪪</span>
+                      <span>{isRtl ? "کارت و سوابق" : "Badge & History"}</span>
+                    </Button>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </section>
+      </div>
+
+      {/* 3. Accessible Minted Pass Modal */}
+      <Dialog
+        isOpen={Boolean(mintedPass)}
+        onClose={handleNextAttendee}
+        title={t.ticketIssuedSuccess}
+        description={isRtl ? "کارت ورود با موفقیت صادر شد. می‌توانید کارت را چاپ کرده یا به شرکت‌کننده تحویل دهید." : "Pass minted successfully."}
+        size="sm"
+      >
+        {mintedPass && (
+          <div className="text-center space-y-4 py-2">
+            {/* Printable Pass Container */}
+            <div className="p-4 sm:p-6 bg-white rounded-2xl border-2 border-slate-900 shadow-xs inline-block">
+              <QRCode
+                value={mintedPass.qr_secret}
+                size={180}
+                level="H"
+                viewBox="0 0 256 256"
+                fgColor="#0F172A"
+                bgColor="#FFFFFF"
+                className="w-44 h-44 select-none"
+              />
+            </div>
+
+            <div className="space-y-1 text-center">
+              <h3 className="text-lg font-bold text-text-primary">
+                {mintedPass.attendee_name}
+              </h3>
+              <p className="text-xs text-text-secondary font-medium">
+                {mintedPass.ticket_tier_name} • {mintedPass.organization || (isRtl ? "شرکت‌کننده آزاد" : "Independent Attendee")}
+              </p>
+              <span className="text-[11px] font-mono text-text-muted block pt-1">
+                <bdi dir="ltr">Pass ID: #{mintedPass.ticket_id.slice(0, 8).toUpperCase()}</bdi>
+              </span>
+            </div>
+
+            <div className="pt-2 flex flex-col gap-2">
+              <Button
+                type="button"
+                variant="secondary"
+                size="md"
+                isFullWidth
+                onClick={() => window.print()}
+                className="gap-2"
+              >
+                <span>🖨️</span>
+                <span>{t.printPassAction}</span>
+              </Button>
+
+              <Button
+                type="button"
+                variant="primary"
+                size="md"
+                isFullWidth
+                onClick={handleNextAttendee}
+                className="gap-1.5"
+              >
+                <span>{t.nextAttendeeAction}</span>
+                <span>{isRtl ? "←" : "→"}</span>
+              </Button>
+            </div>
+          </div>
+        )}
+      </Dialog>
+
+      {/* 4. Accessible Attendee Detail & History Modal */}
+      <Dialog
+        isOpen={Boolean(selectedCard)}
+        onClose={() => setSelectedCard(null)}
+        title={selectedCard?.attendee_name || ""}
+        description={selectedCard?.ticket_tier_name || ""}
+        size="md"
+      >
+        {selectedCard && (
+          <div className="space-y-5 py-1">
+            <div className="p-4 rounded-xl bg-surface-page border border-border-subtle space-y-1.5 text-xs">
+              <div className="flex items-center justify-between">
+                <span className="text-text-muted">{isRtl ? "وضعیت بلیط:" : "Ticket Status:"}</span>
+                <Badge variant={selectedCard.status === "active" ? "success" : "neutral"} size="sm">
+                  {selectedCard.status === "active" ? t.ticketStatusActive : selectedCard.status}
+                </Badge>
+              </div>
+              {selectedCard.attendee_email && (
+                <div className="flex items-center justify-between font-mono">
+                  <span className="text-text-muted">{isRtl ? "ایمیل:" : "Email:"}</span>
+                  <bdi dir="ltr">{selectedCard.attendee_email}</bdi>
+                </div>
+              )}
+              {selectedCard.organization && (
+                <div className="flex items-center justify-between">
+                  <span className="text-text-muted">{isRtl ? "سازمان:" : "Organization:"}</span>
+                  <span>{selectedCard.organization}</span>
+                </div>
+              )}
+            </div>
+
+            {/* Check-In Scan History */}
+            <div className="space-y-2">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-text-muted">
+                {isRtl ? "سوابق تردد و اسکن‌های گیت" : "Check-In Scan History"}
+              </h3>
+              {selectedCard.scan_history.length === 0 ? (
+                <div className="p-4 rounded-xl bg-surface-page border border-border-subtle text-xs text-text-muted text-center">
+                  {isRtl ? "هنوز هیچ ترددی برای این کارت ثبت نشده است." : "No gate scans recorded yet."}
+                </div>
+              ) : (
+                <div className="space-y-2 max-h-48 overflow-y-auto">
+                  {selectedCard.scan_history.map((scan, sIdx) => (
+                    <div
+                      key={`${scan.checkin_point_name}-${scan.scanned_at}-${sIdx}`}
+                      className="p-3 rounded-xl bg-surface-page border border-border-subtle flex items-center justify-between text-xs"
+                    >
+                      <div className="space-y-0.5">
+                        <span className="font-bold text-text-primary block">
+                          {scan.checkin_point_name}
+                        </span>
+                        <span className="text-[11px] text-text-muted block">
+                          {formatLocalizedDate(scan.scanned_at, locale)}
+                        </span>
+                      </div>
+                      <Badge variant={scan.status === "ADMITTED" ? "success" : "danger"} size="sm">
+                        {scan.status}
+                      </Badge>
                     </div>
                   ))}
                 </div>
               )}
             </div>
 
-            <button
-              type="button"
-              onClick={() => setSelectedCard(null)}
-              className="w-full bg-neutral-100 hover:bg-neutral-200 text-neutral-800 font-semibold text-xs py-2 px-4 rounded-xl transition"
-            >
-              Close
-            </button>
+            <div className="pt-2">
+              <Button
+                type="button"
+                variant="secondary"
+                size="md"
+                isFullWidth
+                onClick={() => setSelectedCard(null)}
+              >
+                {isRtl ? "بستن" : "Close"}
+              </Button>
+            </div>
           </div>
-        </div>
-      )}
+        )}
+      </Dialog>
     </div>
   );
 }

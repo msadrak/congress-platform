@@ -73,3 +73,30 @@ export function playErrorBuzz(): void {
     // Audio autoplay restrictions or unsupported
   }
 }
+
+export function playProvisionalChime(): void {
+  try {
+    const ctx = getAudioContext();
+    if (!ctx) return;
+
+    const now = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+
+    osc.type = "triangle";
+    // Dual mid-tone warm chime (587Hz D5 then 659Hz E5) - distinctly non-final compared to success (880/1760Hz)
+    osc.frequency.setValueAtTime(587.33, now);
+    osc.frequency.setValueAtTime(659.25, now + 0.1);
+
+    gain.gain.setValueAtTime(0.28, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+
+    osc.start(now);
+    osc.stop(now + 0.3);
+  } catch {
+    // Audio autoplay restrictions or unsupported
+  }
+}
