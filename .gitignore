@@ -21,9 +21,15 @@ build/
 .env
 .env.*
 !.env.example
-
+demo_credentials.json
+*.local.json
 # IDE & OS
 .vscode/
 .idea/
 .DS_Store
 Thumbs.db
+
+# Agent tooling & local artifacts
+.obsidian/
+nul
+web/test-results/
