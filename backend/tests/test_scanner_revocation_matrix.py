@@ -12,6 +12,7 @@ Covers:
 """
 
 import asyncio
+from typing import Any
 import uuid
 from datetime import timedelta
 
@@ -63,7 +64,7 @@ def _scanner_auth(token: str) -> dict[str, str]:
 
 async def _create_ticket(
     client: AsyncClient, event_id: str, tier_id: str, email: str, name: str
-) -> dict:
+) -> dict[str, Any]:
     _, token = await register_user(client, email, name)
     resp = await client.post(
         f"/api/events/{event_id}/tickets/reserve",
