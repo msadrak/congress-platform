@@ -3,9 +3,10 @@ class ScanRecord {
   final String pointId;
   final String qrSecret;
   final DateTime scannedAt;
-  final String status; // ADMITTED or REJECTED
-  final String? rejectionReason;
+  String status; // ADMITTED or REJECTED
+  String? rejectionReason;
   bool isSynced;
+  String syncState; // PROVISIONAL, CONFIRMED, CONFLICT, LOCAL_REJECTED
 
   ScanRecord({
     required this.scanId,
@@ -15,6 +16,7 @@ class ScanRecord {
     required this.status,
     this.rejectionReason,
     this.isSynced = false,
+    this.syncState = 'PROVISIONAL',
   });
 
   factory ScanRecord.fromJson(Map<String, dynamic> json) {
@@ -26,6 +28,7 @@ class ScanRecord {
       status: json['status'] as String,
       rejectionReason: json['rejection_reason'] as String?,
       isSynced: (json['is_synced'] as bool?) ?? false,
+      syncState: (json['sync_state'] as String?) ?? 'PROVISIONAL',
     );
   }
 
@@ -38,6 +41,7 @@ class ScanRecord {
       'status': status,
       'rejection_reason': rejectionReason,
       'is_synced': isSynced,
+      'sync_state': syncState,
     };
   }
 }

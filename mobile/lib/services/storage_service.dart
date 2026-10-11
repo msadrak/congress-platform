@@ -6,6 +6,7 @@ abstract class IStorageService {
   Future<void> enqueueScan(ScanRecord scan);
   Future<List<ScanRecord>> getUnsyncedScans(String pointId);
   Future<void> markScansSynced(List<String> scanIds);
+  Future<void> reconcileBatchOutcomes(String pointId, List<Map<String, dynamic>> results);
   Future<void> clearAll();
 }
 
@@ -45,6 +46,27 @@ class LocalStorageService implements IStorageService {
     }
   }
 
+  @override
+  Future<void> reconcileBatchOutcomes(
+      String pointId, List<Map<String, dynamic>> results) async {
+    final resultMap = {for (var r in results) r['scan_id'] as String: r};
+    for (final s in _scans) {
+      if (s.pointId != pointId) continue;
+      final serverRes = resultMap[s.scanId];
+      if (serverRes == null) continue;
+
+      s.isSynced = true;
+      if (serverRes['status'] == 'ADMITTED') {
+        s.status = 'ADMITTED';
+        s.syncState = 'CONFIRMED';
+      } else {
+        s.status = 'REJECTED';
+        s.syncState = 'CONFLICT';
+        s.rejectionReason =
+            serverRes['rejection_reason'] as String? ?? 'SERVER_REJECTED';
+      }
+    }
+  }
   @override
   Future<void> clearAll() async {
     _manifests.clear();
