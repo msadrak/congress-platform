@@ -409,7 +409,7 @@ export default function PublicEvent() {
                     You already hold an active attendee pass for this congress.
                   </p>
                 </div>
-                <LinkButton to="/my-tickets" variant="primary" size="sm">
+                <LinkButton to={`/c/${event.slug}/my-ticket`} variant="primary" size="sm">
                   View My Pass →
                 </LinkButton>
               </div>

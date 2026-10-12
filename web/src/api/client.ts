@@ -48,6 +48,8 @@ export type LeadScanRequest = components["schemas"]["LeadScanRequest"];
 export type LeadUpdate = components["schemas"]["LeadUpdate"];
 export type PrivacyPreferenceOut = components["schemas"]["PrivacyPreferenceOut"];
 export type PrivacyPreferenceUpdate = components["schemas"]["PrivacyPreferenceUpdate"];
+export type AccessOut = components["schemas"]["AccessOut"];
+export type AccessEvent = components["schemas"]["AccessEvent"];
 export const ORGANIZER_KEY_STORAGE = "congress_organizer_api_key";
 export const ATTENDEE_TOKEN_STORAGE = "congress_attendee_token";
 

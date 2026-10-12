@@ -5,17 +5,94 @@ import { SkipLink } from "../components/ui/SkipLink";
 import { Button } from "../components/ui/Button";
 import { clearOwnerScopedTickets } from "../lib/ticketCache";
 import { ATTENDEE_TOKEN_STORAGE } from "../api/client";
+import {
+  ATTENDEE_DESTINATIONS,
+  congressPath,
+  useCongressEvent,
+  type AttendeeDestination,
+} from "../lib/congressContext";
 
 interface AttendeeLayoutProps {
   children?: React.ReactNode;
   activeTab?: "tickets" | "network";
   localeProps?: AttendeeLocaleContext;
+  /** When set, the layout is the five-destination Attendee Portal shell for this congress. */
+  eventSlug?: string;
+  destination?: AttendeeDestination;
 }
-export function AttendeeLayout({ children, activeTab, localeProps }: AttendeeLayoutProps) {
+
+const DESTINATION_ICONS: Record<AttendeeDestination, string> = {
+  "my-congress": "🏛️",
+  "my-network": "🤝",
+  "my-ticket": "🎫",
+  "my-profile": "👤",
+  details: "ℹ️",
+};
+
+function ShellNav({ slug, active, labels, variant }: {
+  slug: string;
+  active?: AttendeeDestination;
+  labels: Record<AttendeeDestination, string>;
+  variant: "top" | "bottom";
+}) {
+  if (variant === "top") {
+    return (
+      <nav aria-label={labels["my-congress"]} className="hidden md:flex items-center gap-1 p-1 bg-surface-panel-subtle rounded-xl border border-border-subtle">
+        {ATTENDEE_DESTINATIONS.map((d) => (
+          <Link
+            key={d}
+            to={congressPath(slug, d)}
+            aria-current={active === d ? "page" : undefined}
+            className={`px-3 py-2 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors focus-visible:outline-2 focus-visible:outline-focus-ring ${
+              active === d ? "bg-surface-panel text-action-primary shadow-xs border border-border-subtle" : "text-text-secondary hover:text-text-primary"
+            }`}
+          >
+            {labels[d]}
+          </Link>
+        ))}
+      </nav>
+    );
+  }
+  return (
+    <nav
+      aria-label={labels["my-congress"]}
+      className="md:hidden fixed bottom-0 inset-x-0 z-40 bg-surface-panel/95 backdrop-blur-xs border-t border-border-default pb-[env(safe-area-inset-bottom)]"
+    >
+      <ul className="grid grid-cols-5">
+        {ATTENDEE_DESTINATIONS.map((d) => (
+          <li key={d} className="min-w-0">
+            <Link
+              to={congressPath(slug, d)}
+              aria-current={active === d ? "page" : undefined}
+              className={`min-h-14 px-0.5 py-1.5 flex flex-col items-center justify-center gap-0.5 text-[10px] leading-tight font-semibold text-center focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-focus-ring ${
+                active === d ? "text-action-primary" : "text-text-secondary"
+              }`}
+            >
+              <span aria-hidden="true" className={`text-lg leading-none rounded-full px-3 py-0.5 ${active === d ? "bg-action-subtle" : ""}`}>
+                {DESTINATION_ICONS[d]}
+              </span>
+              <span className="w-full break-words">{labels[d]}</span>
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </nav>
+  );
+}
+
+export function AttendeeLayout({ children, activeTab, localeProps, eventSlug, destination }: AttendeeLayoutProps) {
   const localHook = useAttendeeLocale();
   const { locale, setLocale, t, isRtl, dir } = localeProps || localHook;
   const location = useLocation();
   const navigate = useNavigate();
+  const congress = useCongressEvent(eventSlug);
+  const shellLabels: Record<AttendeeDestination, string> = {
+    "my-congress": t.navMyCongress,
+    "my-network": t.navMyNetwork,
+    "my-ticket": t.navMyTicket,
+    "my-profile": t.navMyProfile,
+    details: t.navCongressDetails,
+  };
 
   const currentTab = activeTab || (location.pathname.includes("/my-network") ? "network" : "tickets");
 
@@ -49,7 +126,7 @@ export function AttendeeLayout({ children, activeTab, localeProps }: AttendeeLay
         <div className="max-w-4xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-4">
           {/* Brand & Attendee Portal Identity */}
           <Link
-            to="/my-tickets"
+            to={eventSlug ? congressPath(eventSlug, "my-congress") : "/my-tickets"}
             className="flex items-center gap-2.5 rounded-lg focus-visible:outline-2 focus-visible:outline-focus-ring"
             aria-label={t.digitalPassTitle}
           >
@@ -69,17 +146,20 @@ export function AttendeeLayout({ children, activeTab, localeProps }: AttendeeLay
                 <path d="M6 10h10" />
               </svg>
             </span>
-            <div className="flex flex-col">
+            <div className="flex flex-col min-w-0">
               <span className="font-bold text-sm sm:text-base tracking-tight text-text-primary leading-tight">
                 {t.attendeePortal}
               </span>
-              <span className="text-[11px] text-text-muted font-normal leading-none hidden sm:inline">
-                {isRtl ? "سامانه شرکت‌کنندگان" : "Attendee Pass & Network"}
+              <span className={`text-[11px] text-text-muted font-normal leading-tight truncate max-w-[45vw] ${eventSlug ? "" : "hidden sm:inline"}`}>
+                {eventSlug
+                  ? (congress.status === "ready" ? congress.event.name : "…")
+                  : isRtl ? "سامانه شرکت‌کنندگان" : "Attendee Pass & Network"}
               </span>
             </div>
           </Link>
 
           {/* Desktop Navigation Tabs */}
+          {eventSlug ? <ShellNav slug={eventSlug} active={destination} labels={shellLabels} variant="top" /> : (
           <nav aria-label={t.attendeePortal} className="hidden sm:flex items-center gap-1.5 p-1 bg-surface-panel-subtle rounded-xl border border-border-subtle">
             <Link
               to="/my-tickets"
@@ -102,6 +182,7 @@ export function AttendeeLayout({ children, activeTab, localeProps }: AttendeeLay
               🤝 {t.myNetwork}
             </Link>
           </nav>
+          )}
 
           {/* Controls: Language Switcher & Logout */}
           <div className="flex items-center gap-2">
@@ -126,6 +207,7 @@ export function AttendeeLayout({ children, activeTab, localeProps }: AttendeeLay
         </div>
 
         {/* Mobile Sub-Navigation Bar */}
+        {!eventSlug && (
         <div className="sm:hidden border-t border-border-subtle bg-surface-panel px-4 py-2 flex items-center justify-around gap-2">
           <Link
             to="/my-tickets"
@@ -148,15 +230,16 @@ export function AttendeeLayout({ children, activeTab, localeProps }: AttendeeLay
             🤝 {t.myNetwork}
           </Link>
         </div>
+        )}
       </header>
 
       {/* Main Attendee Content Area */}
-      <main id="attendee-main-content" tabIndex={-1} className="flex-1 focus:outline-none">
+      <main id="attendee-main-content" tabIndex={-1} className={`flex-1 focus:outline-none ${eventSlug ? "pb-24 md:pb-0" : ""}`}>
         {children}
       </main>
 
       {/* Dedicated Attendee Security & Trust Footer */}
-      <footer className="border-t border-border-default bg-surface-panel text-text-secondary py-8 mt-12">
+      <footer className={`border-t border-border-default bg-surface-panel text-text-secondary py-8 mt-12 ${eventSlug ? "mb-20 md:mb-0" : ""}`}>
         <div className="max-w-4xl mx-auto px-4 sm:px-6 space-y-4 text-center sm:text-start">
           <div className="flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-text-muted">
             <p>
@@ -175,6 +258,7 @@ export function AttendeeLayout({ children, activeTab, localeProps }: AttendeeLay
           </p>
         </div>
       </footer>
+      {eventSlug && <ShellNav slug={eventSlug} active={destination} labels={shellLabels} variant="bottom" />}
     </div>
   );
 }

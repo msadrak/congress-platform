@@ -15,7 +15,9 @@ import {
   useAttendeeLocale,
   formatLocalizedDate,
 } from "../lib/i18n";
+import { useParams } from "react-router-dom";
 import { AttendeeLayout } from "../layouts/AttendeeLayout";
+import { useCongressEvent } from "../lib/congressContext";
 import { Badge } from "../components/ui/Badge";
 import { Button, LinkButton } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
@@ -24,7 +26,10 @@ export default function MyNetwork() {
   const localeHook = useAttendeeLocale();
   const { locale, t, isRtl } = localeHook;
 
+  const { slug } = useParams<{ slug?: string }>();
+  const congress = useCongressEvent(slug);
   const [connections, setConnections] = useState<ConnectionOut[]>([]);
+  const [scopeNotice, setScopeNotice] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -45,6 +50,14 @@ export default function MyNetwork() {
   const [editNotesText, setEditNotesText] = useState("");
   const [savingNote, setSavingNote] = useState(false);
   const [noteFeedback, setNoteFeedback] = useState<string | null>(null);
+
+  // Inside a congress portal only that congress's connections are shown and actionable. The list
+  // endpoint returns every event, so the filter uses each connection's own event_id.
+  const activeEventId = congress.status === "ready" ? congress.event.id : null;
+  const visibleConnections = slug
+    ? connections.filter((c) => c.event_id === activeEventId)
+    : connections;
+  const isVisibleConnection = (id: string) => visibleConnections.some((c) => c.id === id);
 
   const token =
     typeof window !== "undefined"
@@ -160,12 +173,19 @@ export default function MyNetwork() {
       setPeerQrSecret("");
       setInitialNotes("");
       setIsConnectModalOpen(false);
+      setScopeNotice(
+        slug && activeEventId && data.event_id !== activeEventId
+          ? isRtl
+            ? "این کارت متعلق به همایش دیگری است؛ ارتباط در همان همایش ذخیره شد و اینجا نمایش داده نمی‌شود."
+            : "This badge belongs to another congress. The contact was saved there and is not shown here."
+          : null
+      );
       loadData();
     }
   };
 
   const handleSaveNotes = async (connectionId: string) => {
-    if (!token) return;
+    if (!token || !isVisibleConnection(connectionId)) return;
     if (!isStoredAttendeeToken(token)) {
       setError(SESSION_CHANGED_MESSAGE);
       return;
@@ -196,7 +216,7 @@ export default function MyNetwork() {
   };
 
   const handleDownloadVcard = async (connectionId: string, fullName: string) => {
-    if (!token) return;
+    if (!token || !isVisibleConnection(connectionId)) return;
     if (!isStoredAttendeeToken(token)) {
       setError(SESSION_CHANGED_MESSAGE);
       return;
@@ -235,7 +255,7 @@ export default function MyNetwork() {
   // Unauthenticated view (fails closed)
   if (!token) {
     return (
-      <AttendeeLayout activeTab="network" localeProps={localeHook}>
+      <AttendeeLayout activeTab="network" localeProps={localeHook} eventSlug={slug} destination="my-network">
         <div className="max-w-md mx-auto px-4 py-20 text-center space-y-6">
           <div className="w-16 h-16 rounded-2xl bg-action-subtle text-action-primary mx-auto flex items-center justify-center text-3xl shadow-xs">
             🤝
@@ -259,7 +279,7 @@ export default function MyNetwork() {
   }
 
   return (
-    <AttendeeLayout activeTab="network" localeProps={localeHook}>
+    <AttendeeLayout activeTab="network" localeProps={localeHook} eventSlug={slug} destination="my-network">
       <div className="max-w-3xl mx-auto px-4 sm:px-6 py-8 sm:py-12 space-y-8">
         {/* Top Header & Connect Action */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -269,7 +289,7 @@ export default function MyNetwork() {
                 {isRtl ? "ارتباطات علمی و حرفه‌ای" : "Professional Network"}
               </Badge>
               <span className="text-xs text-text-muted">
-                ({connections.length} {isRtl ? "همراه" : "contacts"})
+                ({visibleConnections.length} {isRtl ? "همراه" : "contacts"})
               </span>
             </div>
             <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-text-primary">
@@ -304,6 +324,12 @@ export default function MyNetwork() {
           </div>
         )}
 
+        {scopeNotice && (
+          <div role="status" className="p-3 rounded-xl bg-status-warning-bg text-status-warning-text border border-status-warning-border text-xs">
+            {scopeNotice}
+          </div>
+        )}
+
         {noteFeedback && (
           <div
             role="status"
@@ -332,6 +358,11 @@ export default function MyNetwork() {
                   <h2 className="text-sm sm:text-base font-bold text-text-primary tracking-tight">
                     {t.privacyHeading}
                   </h2>
+                  {slug && (
+                    <span className="text-[11px] text-text-muted">
+                      {isRtl ? "(برای همه همایش‌ها)" : "(applies to all congresses)"}
+                    </span>
+                  )}
                   <Badge
                     variant={privacyPref.share_contact_with_peers ? "success" : "neutral"}
                     size="sm"
@@ -366,12 +397,12 @@ export default function MyNetwork() {
         )}
 
         {/* Connections List / Cards */}
-        {loading ? (
+        {loading || (slug && congress.status === "loading") ? (
           <div className="space-y-4 animate-pulse">
             <div className="h-28 bg-surface-panel rounded-2xl border border-border-default" />
             <div className="h-28 bg-surface-panel rounded-2xl border border-border-default" />
           </div>
-        ) : connections.length === 0 ? (
+        ) : visibleConnections.length === 0 ? (
           <Card className="p-8 sm:p-12 text-center space-y-4 border-border-default">
             <div className="w-14 h-14 rounded-2xl bg-action-subtle text-action-primary mx-auto flex items-center justify-center text-2xl font-bold">
               🤝
@@ -397,7 +428,7 @@ export default function MyNetwork() {
           </Card>
         ) : (
           <div className="space-y-4">
-            {connections.map((conn) => (
+            {visibleConnections.map((conn) => (
               <article
                 key={conn.id}
                 aria-labelledby={`conn-${conn.id}`}

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import QRCode from "react-qr-code";
 import {
   ATTENDEE_TOKEN_STORAGE,
@@ -22,6 +22,7 @@ import {
   formatLocalizedDate,
 } from "../lib/i18n";
 import { AttendeeLayout } from "../layouts/AttendeeLayout";
+import { congressPath } from "../lib/congressContext";
 import { Badge } from "../components/ui/Badge";
 import { LinkButton } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
@@ -30,9 +31,10 @@ export default function MyTickets() {
   const localeHook = useAttendeeLocale();
   const { locale, t, isRtl } = localeHook;
 
-  const [tickets, setTickets] = useState<AttendeeTicketDetail[]>([]);
+  const { slug } = useParams<{ slug?: string }>();
+  const [allTickets, setTickets] = useState<AttendeeTicketDetail[]>([]);
   const [activeTicketIndex, setActiveTicketIndex] = useState(0);
-  const [bookmarkedBooths, setBookmarkedBooths] = useState<BookmarkedBoothOut[]>([]);
+  const [allBookmarks, setBookmarkedBooths] = useState<BookmarkedBoothOut[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
@@ -40,6 +42,10 @@ export default function MyTickets() {
   const [removingBoothId, setRemovingBoothId] = useState<string | null>(null);
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
   const [sessionRejected, setSessionRejected] = useState(false);
+
+  // Inside a congress portal only that congress's passes and saved booths are shown.
+  const tickets = slug ? allTickets.filter((tkt) => tkt.event_slug === slug) : allTickets;
+  const bookmarkedBooths = slug ? allBookmarks.filter((b) => b.event_slug === slug) : allBookmarks;
 
   const token =
     typeof window !== "undefined"
@@ -159,7 +165,7 @@ export default function MyTickets() {
   // Unauthenticated view (fails closed)
   if (!token) {
     return (
-      <AttendeeLayout activeTab="tickets" localeProps={localeHook}>
+      <AttendeeLayout activeTab="tickets" localeProps={localeHook} eventSlug={slug} destination="my-ticket">
         <div className="max-w-md mx-auto px-4 py-20 text-center space-y-6">
           <div className="w-16 h-16 rounded-2xl bg-action-subtle text-action-primary mx-auto flex items-center justify-center text-3xl shadow-xs">
             🎫
@@ -173,7 +179,7 @@ export default function MyTickets() {
             </p>
           </div>
           <div className="pt-2">
-            <LinkButton to="/" variant="primary" size="lg" isFullWidth>
+            <LinkButton to={slug ? `/e/${slug}` : "/"} variant="primary" size="lg" isFullWidth>
               {t.loginAction} →
             </LinkButton>
           </div>
@@ -185,7 +191,7 @@ export default function MyTickets() {
   // Loading skeleton
   if (loading && tickets.length === 0) {
     return (
-      <AttendeeLayout activeTab="tickets" localeProps={localeHook}>
+      <AttendeeLayout activeTab="tickets" localeProps={localeHook} eventSlug={slug} destination="my-ticket">
         <div className="max-w-2xl mx-auto px-4 sm:px-6 py-12 space-y-6 animate-pulse">
           <div className="w-48 h-8 bg-surface-panel-subtle rounded-xl" />
           <div className="h-96 bg-surface-panel rounded-2xl border border-border-default" />
@@ -198,7 +204,7 @@ export default function MyTickets() {
   const currentTicket: AttendeeTicketDetail | undefined = tickets[activeTicketIndex] ?? tickets[0];
 
   return (
-    <AttendeeLayout activeTab="tickets" localeProps={localeHook}>
+    <AttendeeLayout activeTab="tickets" localeProps={localeHook} eventSlug={slug} destination="my-ticket">
       <div className="max-w-3xl mx-auto px-4 sm:px-6 py-8 sm:py-12 space-y-8">
         {/* Network / Offline & Cache Status Banner */}
         {(isOffline || isCachedPass) && (
@@ -276,6 +282,12 @@ export default function MyTickets() {
           </div>
         )}
 
+        {!slug && currentTicket && (
+          <LinkButton to={congressPath(currentTicket.event_slug, "my-congress")} variant="secondary" size="md" isFullWidth>
+            🏛️ {t.openCongressPortal}: {currentTicket.event_name}
+          </LinkButton>
+        )}
+
         {/* No Tickets View */}
         {tickets.length === 0 && !loading ? (
           <Card className="p-8 sm:p-12 text-center space-y-5 border-border-default">
@@ -291,7 +303,7 @@ export default function MyTickets() {
               </p>
             </div>
             <div className="pt-2">
-              <LinkButton to="/" variant="secondary" size="md">
+              <LinkButton to={slug ? `/e/${slug}` : "/"} variant="secondary" size="md">
                 {t.browseEventsLink}
               </LinkButton>
             </div>
