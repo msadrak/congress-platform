@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.config import Settings
 from app.routes import (
+    access,
     analytics,
     auth,
     booths,
@@ -39,6 +40,7 @@ def create_app(settings: Settings) -> FastAPI:
         allow_headers=["*"],
     )
     app.include_router(auth.router)
+    app.include_router(access.router)
     app.include_router(organizers.router)
     app.include_router(events.router)
     app.include_router(ticket_tiers.router)

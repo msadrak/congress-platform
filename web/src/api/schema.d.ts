@@ -55,6 +55,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/me/access": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get My Access */
+        get: operations["get_my_access_api_me_access_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/organizers": {
         parameters: {
             query?: never;
@@ -381,6 +398,23 @@ export interface paths {
         /** Add Desk Operator */
         post: operations["add_desk_operator_api_events__event_id__desk_operators_post"];
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/events/{event_id}/desk/operators/{operator_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Revoke Desk Operator */
+        delete: operations["revoke_desk_operator_api_events__event_id__desk_operators__operator_id__delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -785,6 +819,38 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** AccessEvent */
+        AccessEvent: {
+            /**
+             * Event Id
+             * Format: uuid
+             */
+            event_id: string;
+            /** Event Slug */
+            event_slug: string;
+            /** Event Name */
+            event_name: string;
+            /** Roles */
+            roles: ("ATTENDEE" | "RECEPTION" | "PARTNER")[];
+            /** Ticket Ids */
+            ticket_ids: string[];
+            /** Desk Operator Ids */
+            desk_operator_ids: string[];
+            /** Booth Ids */
+            booth_ids: string[];
+            /** Partner Ids */
+            partner_ids: string[];
+        };
+        /** AccessOut */
+        AccessOut: {
+            /**
+             * User Id
+             * Format: uuid
+             */
+            user_id: string;
+            /** Events */
+            events: components["schemas"]["AccessEvent"][];
+        };
         /** AttendanceAnalyticsResponse */
         AttendanceAnalyticsResponse: {
             /**
@@ -2039,6 +2105,26 @@ export interface operations {
             };
         };
     };
+    get_my_access_api_me_access_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccessOut"];
+                };
+            };
+        };
+    };
     provision_organizer_api_organizers_post: {
         parameters: {
             query?: never;
@@ -2797,6 +2883,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DeskOperatorCreated"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    revoke_desk_operator_api_events__event_id__desk_operators__operator_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                operator_id: string;
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeskOperatorOut"];
                 };
             };
             /** @description Validation Error */
