@@ -721,11 +721,13 @@ async def ingest_scans_batch(
         ticket, tier, user = ticket_row[0], ticket_row[1], ticket_row[2]
 
         if ticket.event_id != point.event_id:
-            # Ticket is for another event
+            # Ticket is for another event. The rejection is recorded against the gate only: the
+            # foreign ticket is not linked (so this event's reports and exports never join the
+            # other congress's attendee) and its holder's identity is never disclosed.
             checkin = CheckIn(
                 id=scan.scan_id,
                 checkin_point_id=point.id,
-                ticket_id=ticket.id,
+                ticket_id=None,
                 qr_secret=scan.qr_secret,
                 policy_type=point.policy_type,
                 status="REJECTED",
@@ -749,8 +751,6 @@ async def ingest_scans_batch(
                             qr_secret=existing_pk.qr_secret,
                             status=existing_pk.status,
                             rejection_reason=existing_pk.rejection_reason,
-                            attendee_name=user.full_name,
-                            ticket_tier_name=tier.name,
                         )
                     )
                     continue
@@ -771,8 +771,6 @@ async def ingest_scans_batch(
                     qr_secret=scan.qr_secret,
                     status="REJECTED",
                     rejection_reason="EVENT_MISMATCH",
-                    attendee_name=user.full_name,
-                    ticket_tier_name=tier.name,
                 )
             )
             continue
