@@ -20,6 +20,7 @@ import OrganizerEventDetail from "./pages/OrganizerEventDetail";
 import OrganizerEvents from "./pages/OrganizerEvents";
 import OrganizerLayout from "./pages/OrganizerLayout";
 import PublicBooth from "./pages/PublicBooth";
+import ReceptionPortal, { ReceptionEntry } from "./pages/ReceptionPortal";
 import PublicEvent from "./pages/PublicEvent";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
@@ -37,6 +38,9 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
           <Route path="events/:eventId/desk" element={<OrganizerDesk />} />
           <Route path="events/:eventId/analytics" element={<OrganizerAnalytics />} />
         </Route>
+        <Route path="/reception" element={<ReceptionEntry />} />
+        <Route path="/reception/e/:slug" element={<ReceptionEntry />} />
+        <Route path="/reception/:eventId" element={<ReceptionPortal />} />
         <Route path="/e/:slug" element={<PublicEvent />} />
         <Route path="/e/:slug/booths/:boothId" element={<PublicBooth />} />
         <Route path="/booth/:boothId" element={<ExhibitorPortal />} />

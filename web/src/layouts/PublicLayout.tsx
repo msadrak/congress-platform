@@ -261,6 +261,14 @@ export function PublicLayout({ children }: PublicLayoutProps) {
                     Attendee Networking Hub
                   </Link>
                 </li>
+                <li>
+                  <Link
+                    to="/reception"
+                    className="hover:text-action-primary transition-colors focus-visible:outline-focus-ring"
+                  >
+                    Reception Desk
+                  </Link>
+                </li>
               </ul>
               <p className="text-[11px] text-text-muted leading-normal pt-1">
                 Exhibitors access leads via dedicated booth links (<code className="text-[10px] bg-surface-panel-subtle px-1 py-0.5 rounded border border-border-subtle">/booth/:id</code>).

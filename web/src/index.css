@@ -94,6 +94,23 @@
   --color-status-info-border: var(--status-info-border);
 }
 
+@media print {
+  /* Print only the selected pass; the rest of the reception screen is hidden. */
+  body * {
+    visibility: hidden;
+  }
+  .print-pass,
+  .print-pass * {
+    visibility: visible;
+  }
+  .print-pass {
+    position: fixed;
+    top: 2rem;
+    inset-inline: 0;
+    margin: 0 auto;
+  }
+}
+
 @layer base {
   /* 16px+ inputs stop iOS Safari zooming the page on focus. */
   input,
