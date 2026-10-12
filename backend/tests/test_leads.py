@@ -251,3 +251,53 @@ async def test_scanning_ticket_from_different_event_is_rejected(
     )
     assert scan_resp.status_code == 400
     assert "different event" in scan_resp.json()["detail"].lower()
+
+
+async def test_rescan_with_only_the_badge_keeps_existing_qualification(
+    client: AsyncClient,
+) -> None:
+    _, booth_id, staff_token, _, ticket = await setup_booth_staff_and_attendee(client)
+    headers = {"Authorization": f"Bearer {staff_token}"}
+    first = await client.post(
+        f"/api/booths/{booth_id}/leads/scan",
+        json={
+            "qr_secret": ticket["qr_secret"],
+            "rating": "HOT",
+            "tags": ["Send Quote"],
+            "notes": "Wants a demo.",
+        },
+        headers=headers,
+    )
+    assert first.status_code == 201
+
+    again = await client.post(
+        f"/api/booths/{booth_id}/leads/scan",
+        json={"qr_secret": ticket["qr_secret"]},
+        headers=headers,
+    )
+
+    assert again.status_code == 200
+    assert again.json()["id"] == first.json()["id"]
+    assert again.json()["rating"] == "HOT"
+    assert again.json()["tags"] == ["Send Quote"]
+    assert again.json()["notes"] == "Wants a demo."
+
+
+async def test_rescan_updates_only_the_fields_it_sends(client: AsyncClient) -> None:
+    _, booth_id, staff_token, _, ticket = await setup_booth_staff_and_attendee(client)
+    headers = {"Authorization": f"Bearer {staff_token}"}
+    await client.post(
+        f"/api/booths/{booth_id}/leads/scan",
+        json={"qr_secret": ticket["qr_secret"], "rating": "HOT", "tags": ["A"], "notes": "n1"},
+        headers=headers,
+    )
+
+    again = await client.post(
+        f"/api/booths/{booth_id}/leads/scan",
+        json={"qr_secret": ticket["qr_secret"], "tags": ["B"]},
+        headers=headers,
+    )
+
+    assert again.json()["rating"] == "HOT"
+    assert again.json()["tags"] == ["B"]
+    assert again.json()["notes"] == "n1"
