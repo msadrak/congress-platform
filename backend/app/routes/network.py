@@ -16,6 +16,10 @@ router = APIRouter(prefix="/api/attendees/me/network", tags=["networking"])
 class ConnectionScanRequest(BaseModel):
     qr_secret: str
     private_notes: str = ""
+    # Event-scoped callers (the congress portal) name the congress they are scanning in; a badge
+    # from another congress is then rejected before anything is written. Omitted: legacy
+    # all-congress behaviour, the connection is stored in the badge's own congress.
+    event_id: uuid.UUID | None = None
 
 
 class ConnectionUpdate(BaseModel):
@@ -73,6 +77,12 @@ async def scan_peer_badge(
     peer = await session.get(User, ticket.user_id)
     if peer is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Peer profile not found")
+
+    if body.event_id is not None and ticket.event_id != body.event_id:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "This badge belongs to a different congress",
+        )
 
     # 3. Reject self-connect
     if peer.id == current_user.id:

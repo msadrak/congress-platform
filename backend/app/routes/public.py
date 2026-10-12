@@ -38,6 +38,18 @@ class PublicBoothOut(BaseModel):
     is_bookmarked: bool = False
 
 
+class PublicBoothSummary(BaseModel):
+    """Directory entry: public booth metadata only, never staff, leads or QR secrets."""
+
+    id: uuid.UUID
+    name: str
+    slug: str
+    location: str
+    description: str
+    website_url: str
+    brochure_url: str
+
+
 async def optional_user_id(
     request: Request, authorization: Annotated[str | None, Header()] = None
 ) -> uuid.UUID | None:
@@ -74,6 +86,32 @@ async def get_public_event(slug: str, session: SessionDep) -> PublicEvent:
         description=event.description,
         ticket_tiers=[TicketTierOut.model_validate(tier) for tier in tiers],
     )
+
+
+@router.get("/{slug}/booths")
+async def list_public_booths(
+    slug: str, session: SessionDep
+) -> list[PublicBoothSummary]:
+    event = await session.scalar(select(Event).where(Event.slug == slug))
+    if event is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Event not found")
+    booths = await session.scalars(
+        select(Booth)
+        .where(Booth.event_id == event.id)
+        .order_by(Booth.name, Booth.id)
+    )
+    return [
+        PublicBoothSummary(
+            id=b.id,
+            name=b.name,
+            slug=b.slug,
+            location=b.location,
+            description=b.description,
+            website_url=b.website_url,
+            brochure_url=b.brochure_url,
+        )
+        for b in booths
+    ]
 
 
 @router.get("/{slug}/booths/{booth_id}")

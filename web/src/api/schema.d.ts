@@ -798,6 +798,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/public/events/{slug}/booths": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Public Booths */
+        get: operations["list_public_booths_api_public_events__slug__booths_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/public/events/{slug}/booths/{booth_id}": {
         parameters: {
             query?: never;
@@ -1283,6 +1300,8 @@ export interface components {
              * @default
              */
             private_notes: string;
+            /** Event Id */
+            event_id?: string | null;
         };
         /** ConnectionUpdate */
         ConnectionUpdate: {
@@ -1709,6 +1728,29 @@ export interface components {
              * @default false
              */
             is_bookmarked: boolean;
+        };
+        /**
+         * PublicBoothSummary
+         * @description Directory entry: public booth metadata only, never staff, leads or QR secrets.
+         */
+        PublicBoothSummary: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /** Slug */
+            slug: string;
+            /** Location */
+            location: string;
+            /** Description */
+            description: string;
+            /** Website Url */
+            website_url: string;
+            /** Brochure Url */
+            brochure_url: string;
         };
         /** PublicEvent */
         PublicEvent: {
@@ -3721,6 +3763,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PublicEvent"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_public_booths_api_public_events__slug__booths_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicBoothSummary"][];
                 };
             };
             /** @description Validation Error */
