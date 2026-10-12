@@ -59,7 +59,7 @@ export type ApiAuthority =
   | { readonly kind: "user"; readonly token: string }
   | { readonly kind: "organizer"; readonly token: string }
   | { readonly kind: "desk"; readonly token: string; readonly eventId: string }
-  | { readonly kind: "scanner"; readonly token: string; readonly eventId: string; readonly pointId: string };
+  | { readonly kind: "scanner"; readonly token: string; readonly pointId: string; readonly eventId?: string };
 
 export interface ApiClientOptions {
   readonly baseUrl?: string;
@@ -99,7 +99,7 @@ export function createApiClient(authority: ApiAuthority | null, options: ApiClie
       break;
     case "scanner":
       requireContext(context.token, "credential");
-      requireContext(context.eventId, "event context");
+      if (context.eventId !== undefined) requireContext(context.eventId, "event context");
       requireContext(context.pointId, "check-in point context");
       break;
     default:
@@ -147,15 +147,18 @@ export function createDeskApiClient(
   return client;
 }
 
-/** Scanner endpoint URLs carry a point, so their expected event is explicit here. */
+/**
+ * Scanner endpoint URLs carry only a point. The event is optional descriptive context (a device
+ * token is opaque to the browser); when supplied it must be non-blank and consistent.
+ */
 export function createScannerApiClient(
   authority: Extract<ApiAuthority, { kind: "scanner" | "organizer" }>,
-  scope: { readonly eventId: string; readonly pointId: string },
+  scope: { readonly eventId?: string; readonly pointId: string },
   options: ApiClientOptions = {},
 ) {
   if (!scope) throw new ApiContextError("Missing scanner resource context");
   const { eventId, pointId } = scope;
-  requireContext(eventId, "event context");
+  if (eventId !== undefined) requireContext(eventId, "event context");
   requireContext(pointId, "check-in point context");
   if (!authority || (authority.kind !== "scanner" && authority.kind !== "organizer")) {
     throw new ApiContextError("Missing scanner or Organizer authority");

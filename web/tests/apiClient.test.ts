@@ -216,3 +216,15 @@ describe("explicit-authority API transport", () => {
     assert.equal(attempts, 1);
   });
 });
+
+describe("scanner authority without an event context (opaque device token)", () => {
+  it("stays bound to its point, sends exactly its token and still rejects a blank event", async () => {
+    const transport = captureTransport();
+    const client = createScannerApiClient({ kind: "scanner", token: "opaque-device", pointId: "point-a" }, { pointId: "point-a" }, transport.options);
+    await client.GET("/api/checkin-points/{point_id}/manifest", { params: { path: { point_id: "point-a" } } });
+    await assert.rejects(client.GET("/api/checkin-points/{point_id}/manifest", { params: { path: { point_id: "point-b" } } }), ApiContextError);
+    assert.equal(transport.requests.length, 1);
+    assert.equal(transport.requests[0].headers.get("authorization"), "Bearer opaque-device");
+    assert.throws(() => createScannerApiClient({ kind: "scanner", token: "opaque-device", pointId: "point-a", eventId: "  " }, { pointId: "point-a" }, transport.options), ApiContextError);
+  });
+});

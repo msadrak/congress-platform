@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { formatApiError, getApiClient, type CheckInManifest } from "../api/client";
+import { createScannerApiClient, formatApiError, type CheckInManifest } from "../api/client";
 import { playErrorBuzz, playSuccessChime, playProvisionalChime } from "../lib/audioFeedback";
 import { useAttendeeLocale } from "../lib/i18n";
 import jsQR from "jsqr";
@@ -73,6 +73,11 @@ export default function GateScanner() {
       null
     );
   };
+
+  // Explicit device authority bound to this check-in point. Without a device credential nothing is
+  // dispatched, so no other session (User, organizer, desk) can ever be attached to scanner requests.
+  const scannerClient = (token: string | null) =>
+    pointId && token ? createScannerApiClient({ kind: "scanner", token, pointId }, { pointId }) : null;
 
   // On mount: restore persisted credential from IndexedDB into memory.
   useEffect(() => {
@@ -281,7 +286,8 @@ export default function GateScanner() {
     // Refresh from live server if online or forced
     if (navigator.onLine || forceRefresh) {
       try {
-        const client = getApiClient(getStoredScannerToken());
+        const client = scannerClient(getStoredScannerToken());
+        if (!client) throw new Error("No scanner credential available");
         const { data, error: err, response } = await client.GET(
           "/api/checkin-points/{point_id}/manifest",
           {
@@ -371,7 +377,9 @@ export default function GateScanner() {
 
     setIsSyncing(true);
     try {
-      const client = getApiClient(getStoredScannerToken());
+      const client = scannerClient(getStoredScannerToken());
+      // No credential: nothing is sent and every queued record stays on the device.
+      if (!client) return;
       const payload = {
         scans: unsynced.map((s) => ({
           scan_id: s.scan_id,
@@ -579,12 +587,13 @@ export default function GateScanner() {
         }
       }
 
-      const response = await fetch(
-        `/api/checkin-points/${encodeURIComponent(pointId)}/devices/self/revoke`,
-        { method: "POST", headers: { Authorization: `Bearer ${token}` } }
+      const client = scannerClient(token);
+      if (!client) return;
+      const { data: result, response } = await client.POST(
+        "/api/checkin-points/{point_id}/devices/self/revoke",
+        { params: { path: { point_id: pointId } } }
       );
-      const result: unknown = await response.json().catch(() => null);
-      if (!response.ok || !result || typeof result !== "object" || !("is_revoked" in result) || result.is_revoked !== true) {
+      if (!response.ok || result?.is_revoked !== true) {
         setUnpairNotice(
           `Scanner is disabled locally, but server revocation was not confirmed (HTTP ${response.status}). The credential is retained for retry; the server may still accept it. Ask an organizer to revoke it if retry fails.`
         );
