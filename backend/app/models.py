@@ -4,6 +4,7 @@ from datetime import datetime
 from sqlalchemy import (
     JSON,
     Boolean,
+    CheckConstraint,
     DateTime,
     ForeignKey,
     Integer,
@@ -90,6 +91,7 @@ class DeskOperator(Base):
     __tablename__ = "desk_operators"
     __table_args__ = (
         UniqueConstraint("event_id", "user_id", name="uq_desk_operators_event_user"),
+        CheckConstraint("session_version >= 0", name="ck_desk_operators_session_version"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
@@ -97,6 +99,9 @@ class DeskOperator(Base):
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), index=True)
     operator_name: Mapped[str] = mapped_column(String(200))
     is_revoked: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    session_version: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
     revoked_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )

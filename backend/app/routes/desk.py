@@ -203,6 +203,18 @@ async def authorized_desk_operator(
                 headers={"WWW-Authenticate": "Bearer"},
             )
 
+        token_version = payload.get("session_version")
+        if (
+            type(token_version) is not int
+            or token_version < 0
+            or token_version != operator.session_version
+        ):
+            raise HTTPException(
+                status.HTTP_401_UNAUTHORIZED,
+                "Front desk session has been superseded or is invalid",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
         return AuthorizedDeskContext(
             event=event,
             operator=operator,
@@ -278,6 +290,7 @@ async def desk_operator_login(
         operator_id=operator.id,
         event_id=event.id,
         user_id=user.id,
+        session_version=operator.session_version,
         secret=jwt_secret,
         operator_name=operator.operator_name,
     )
@@ -383,11 +396,12 @@ async def add_desk_operator(
         select(DeskOperator).where(
             DeskOperator.event_id == event.id,
             DeskOperator.user_id == user.id,
-        )
+        ).with_for_update()
     )
     if existing_op is not None:
         if existing_op.is_revoked:
             existing_op.is_revoked = False
+            existing_op.session_version += 1
             existing_op.revoked_at = None
             existing_op.operator_name = body.operator_name.strip()
             await session.commit()
@@ -441,7 +455,7 @@ async def revoke_desk_operator(
         select(DeskOperator).where(
             DeskOperator.id == operator_id,
             DeskOperator.event_id == event.id,
-        )
+        ).with_for_update()
     )
     if operator is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Desk operator not found")
@@ -450,6 +464,7 @@ async def revoke_desk_operator(
     email = user.email if user else ""
 
     operator.is_revoked = True
+    operator.session_version += 1
     operator.revoked_at = datetime.now(timezone.utc)
     await session.commit()
 

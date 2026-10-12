@@ -79,6 +79,7 @@ def create_desk_operator_token(
     operator_id: uuid.UUID,
     event_id: uuid.UUID,
     user_id: uuid.UUID,
+    session_version: int,
     secret: str,
     operator_name: str = "",
     expires_delta: timedelta | None = None,
@@ -92,6 +93,7 @@ def create_desk_operator_token(
         "event_id": str(event_id),
         "user_id": str(user_id),
         "operator_name": operator_name,
+        "session_version": session_version,
         "iat": int(now.timestamp()),
         "exp": int(exp.timestamp()),
     }
