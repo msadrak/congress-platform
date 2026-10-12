@@ -349,15 +349,16 @@ test('booth staff workflow: load, capture, qualify and UTF-8 CSV export use only
   await page.getByPlaceholder('e.g. ABC123XYZ...').fill('synthetic-badge');
   await page.getByRole('button', { name: 'Record Lead to Booth CRM' }).click();
   await expect(page.getByText('Attendee lead captured successfully.')).toBeVisible();
-  await page.getByRole('button', { name: 'Qualify & Follow Up' }).first().click();
+  await page.getByTestId('capture-result').getByRole('button', { name: 'Qualify & Follow Up' }).click();
   await page.getByRole('button', { name: 'Save Qualification Changes' }).click();
   await expect(page.getByText('Lead qualification updated successfully.')).toBeVisible();
+  await page.getByTestId('capture-result').getByRole('button', { name: 'Done' }).click();
   const download = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Export CRM CSV' }).click();
   const file = await download;
   expect(file.suggestedFilename()).toBe('slug-booth-1-leads.csv');
   expect(await readFile(await file.path(), 'utf8')).toBe('name,notes\nZoë Müller,café\n');
-  expect(requests.map(r => `${r.method} ${r.path}`)).toEqual(expect.arrayContaining(['GET /api/booths/booth-1', 'GET /api/booths/booth-1/leads', 'POST /api/booths/booth-1/leads/scan', 'PATCH /api/booths/booth-1/leads/lead-1', 'GET /api/booths/booth-1/leads/export-csv']));
+  expect(requests.map(r => `${r.method} ${r.path}`)).toEqual(expect.arrayContaining(['GET /api/booths/booth-1', 'GET /api/booths/booth-1/leads', 'POST /api/booths/booth-1/leads/scan', 'PATCH /api/booths/booth-1/leads/lead-new', 'GET /api/booths/booth-1/leads/export-csv']));
   expect(onlyUser(requests, tokenA)).toBe(true);
   await otherCredentialsIntact(page);
 });

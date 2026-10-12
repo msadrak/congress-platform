@@ -46,6 +46,8 @@ export type BookmarkToggleOut = components["schemas"]["BookmarkToggleOut"];
 export type BookmarkedBoothOut = components["schemas"]["BookmarkedBoothOut"];
 export type LeadOut = components["schemas"]["LeadOut"];
 export type LeadScanRequest = components["schemas"]["LeadScanRequest"];
+/** The API only requires `qr_secret`; openapi-typescript marks defaulted fields as required. */
+export type LeadScanInput = Pick<LeadScanRequest, "qr_secret"> & Partial<Omit<LeadScanRequest, "qr_secret">>;
 export type LeadUpdate = components["schemas"]["LeadUpdate"];
 export type PrivacyPreferenceOut = components["schemas"]["PrivacyPreferenceOut"];
 export type PrivacyPreferenceUpdate = components["schemas"]["PrivacyPreferenceUpdate"];

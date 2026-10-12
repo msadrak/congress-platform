@@ -44,6 +44,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
         <Route path="/e/:slug" element={<PublicEvent />} />
         <Route path="/e/:slug/booths/:boothId" element={<PublicBooth />} />
         <Route path="/booth/:boothId" element={<ExhibitorPortal />} />
+        <Route path="/booth/:boothId/sign-in" element={<AttendeeSignIn />} />
         <Route path="/my-tickets" element={<MyTickets />} />
         <Route path="/my-network" element={<MyNetwork />} />
         <Route path="/scan/:pointId" element={<GateScanner />} />

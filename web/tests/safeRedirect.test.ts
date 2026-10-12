@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { safeNextPath, signInPath } from "../src/lib/safeRedirect.ts";
+import { boothSignInPath, safeNextPath, signInPath } from "../src/lib/safeRedirect.ts";
 
 const FALLBACK = "/c/spring/my-congress";
 
@@ -10,6 +10,7 @@ test("accepts attendee portal, congress page, booth and legacy routes", () => {
     "/c/spring/details",
     "/e/spring",
     "/e/spring/booths/3f2c9a7e-1111-4222-8333-444455556666",
+    "/booth/3f2c9a7e-1111-4222-8333-444455556666",
     "/my-tickets",
     "/my-network",
   ]) {
@@ -42,7 +43,9 @@ test("rejects routes outside the attendee allow-list and traversal tricks", () =
   for (const unsafe of [
     "/organizer",
     "/scan/abc",
-    "/booth/abc",
+    "/booth/abc/leads",
+    "/booth/abc/sign-in",
+    "/booth/%2e%2e",
     "/c/spring/sign-in",
     "/c/spring/unknown",
     "/c/spring/my-ticket/extra",
@@ -58,4 +61,8 @@ test("rejects routes outside the attendee allow-list and traversal tricks", () =
 test("signInPath encodes the return destination", () => {
   assert.equal(signInPath("spring", "/c/spring/my-ticket"), "/c/spring/sign-in?next=%2Fc%2Fspring%2Fmy-ticket");
   assert.equal(signInPath(undefined, "/my-tickets"), "/sign-in?next=%2Fmy-tickets");
+});
+
+test("boothSignInPath returns to that booth", () => {
+  assert.equal(boothSignInPath("b-1"), "/booth/b-1/sign-in?next=%2Fbooth%2Fb-1");
 });

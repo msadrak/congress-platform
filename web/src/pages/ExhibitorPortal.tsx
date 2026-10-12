@@ -1,11 +1,13 @@
-import React, { useEffect, useRef, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   ATTENDEE_TOKEN_STORAGE,
   createApiClient,
   formatApiError,
   type BoothOut,
   type LeadOut,
+  type LeadScanInput,
+  type LeadScanRequest,
 } from "../api/client";
 import {
   isStoredAttendeeToken,
@@ -18,6 +20,9 @@ import {
   formatLocalizedNumber,
 } from "../lib/i18n";
 import { SkipLink } from "../components/ui/SkipLink";
+import { QrCameraInput } from "../components/booth/QrCameraInput";
+import { boothSignInPath } from "../lib/safeRedirect";
+import { clearOwnerScopedTickets } from "../lib/ticketCache";
 import { Badge } from "../components/ui/Badge";
 import { Button, LinkButton } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
@@ -44,9 +49,20 @@ function ExhibitorPortalContent() {
   const { locale, setLocale, t, isRtl, dir } = useAttendeeLocale();
 
   const [booth, setBooth] = useState<BoothOut | null>(null);
-  const [leads, setLeads] = useState<LeadOut[]>([]);
+  // All of this booth's leads; the search and rating filters below only narrow what is shown, so
+  // the counts always describe the whole booth.
+  const [allLeads, setAllLeads] = useState<LeadOut[]>([]);
   const [loading, setLoading] = useState(true);
   const [authError, setAuthError] = useState<string | null>(null);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [leadsFailed, setLeadsFailed] = useState(false);
+  const [reloadNonce, setReloadNonce] = useState(0);
+  const [eventContext, setEventContext] = useState<{ name: string; slug: string } | null>(null);
+  // Result of the last capture: who was captured, and whether the lead already existed.
+  const [capturedLead, setCapturedLead] = useState<{ lead: LeadOut; existed: boolean } | null>(null);
+  const [touched, setTouched] = useState({ rating: false, tags: false });
+  const captureInFlight = useRef(false);
+  const codeInputRef = useRef<HTMLInputElement>(null);
 
   // Search & filter state
   const [searchFilter, setSearchFilter] = useState("");
@@ -75,6 +91,7 @@ function ExhibitorPortalContent() {
   // CSV Export state
   const [isExporting, setIsExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
+  const [exportNotice, setExportNotice] = useState<string | null>(null);
 
   const token =
     typeof window !== "undefined"
@@ -89,7 +106,9 @@ function ExhibitorPortalContent() {
     if (sessionRef.current !== token) {
       sessionRef.current = token;
       setBooth(null);
-      setLeads([]);
+      setAllLeads([]);
+      setEventContext(null);
+      setCapturedLead(null);
       setEditingLead(null);
       setAuthError(null);
     }
@@ -102,127 +121,170 @@ function ExhibitorPortalContent() {
     const fetchData = async () => {
       setLoading(true);
       setAuthError(null);
-      const client = createApiClient({ kind: "user", token });
+      setLoadFailed(false);
+      setLeadsFailed(false);
+      try {
+        const client = createApiClient({ kind: "user", token });
+        const [boothRes, leadsRes, accessRes] = await Promise.all([
+          client.GET("/api/booths/{booth_id}", { params: { path: { booth_id: boothId } } }),
+          client.GET("/api/booths/{booth_id}/leads", { params: { path: { booth_id: boothId } } }),
+          client.GET("/api/me/access"),
+        ]);
 
-      const [boothRes, leadsRes] = await Promise.all([
-        client.GET("/api/booths/{booth_id}", {
-          params: { path: { booth_id: boothId } },
-        }),
-        client.GET("/api/booths/{booth_id}/leads", {
-          params: {
-            path: { booth_id: boothId },
-            query: {
-              q: searchFilter || undefined,
-              rating: (ratingFilter as "HOT" | "WARM" | "COLD") || undefined,
-            },
-          },
-        }),
-      ]);
+        if (!isMounted) return;
+        // The stored session changed while the request was in flight: ignore this response and
+        // never delete the newer session. The re-render re-reads the current token.
+        if (!isStoredAttendeeToken(token)) {
+          setLoading(false);
+          return;
+        }
+        if (boothRes.response.status === 401 || leadsRes.response.status === 401) {
+          rejectAttendeeToken(token);
+        }
 
-      if (!isMounted) return;
-      // The stored session changed while the request was in flight: ignore this response and
-      // never delete the newer session. The re-render re-reads the current token.
-      if (!isStoredAttendeeToken(token)) {
-        setLoading(false);
-        return;
+        if (boothRes.error) {
+          if (boothRes.response.status >= 500) setLoadFailed(true);
+          else setAuthError(formatApiError(boothRes.error));
+        } else if (boothRes.data) {
+          setBooth(boothRes.data);
+          const mine = accessRes.data?.events.find((e) => e.booth_ids.includes(boothId));
+          setEventContext(mine ? { name: mine.event_name, slug: mine.event_slug } : null);
+        }
+
+        if (leadsRes.data) {
+          setAllLeads(leadsRes.data);
+        } else if (!boothRes.error && leadsRes.response.status !== 401) {
+          // The booth itself is fine; only its lead list is unavailable. Nothing stale is shown.
+          setLeadsFailed(true);
+        }
+      } catch {
+        if (isMounted) setLoadFailed(true);
       }
-      if (boothRes.response.status === 401 || leadsRes.response.status === 401) {
-        rejectAttendeeToken(token);
-      }
-
-      if (boothRes.error) {
-        setAuthError(formatApiError(boothRes.error));
-      } else if (boothRes.data) {
-        setBooth(boothRes.data);
-      }
-
-      if (leadsRes.data) {
-        setLeads(leadsRes.data);
-      }
-
-      setLoading(false);
+      if (isMounted) setLoading(false);
     };
 
     fetchData();
     return () => {
       isMounted = false;
     };
-  }, [boothId, token, searchFilter, ratingFilter]);
+  }, [boothId, token, reloadNonce]);
 
   const refreshLeads = async () => {
     if (!boothId || !token || !isStoredAttendeeToken(token)) return;
-    const client = createApiClient({ kind: "user", token });
-    const { data, response } = await client.GET("/api/booths/{booth_id}/leads", {
-      params: {
-        path: { booth_id: boothId },
-        query: {
-          q: searchFilter || undefined,
-          rating: (ratingFilter as "HOT" | "WARM" | "COLD") || undefined,
-        },
-      },
-    });
-    const stillCurrent = isStoredAttendeeToken(token);
-    if (response.status === 401) rejectAttendeeToken(token);
-    if (data && stillCurrent) setLeads(data);
+    try {
+      const client = createApiClient({ kind: "user", token });
+      const { data, response } = await client.GET("/api/booths/{booth_id}/leads", {
+        params: { path: { booth_id: boothId } },
+      });
+      const stillCurrent = isStoredAttendeeToken(token);
+      if (response.status === 401) rejectAttendeeToken(token);
+      if (data && stillCurrent) setAllLeads(data);
+    } catch {
+      // The list keeps its last confirmed state.
+    }
   };
+
+  const leads = useMemo(() => {
+    const needle = searchFilter.trim().toLowerCase();
+    return allLeads.filter((l) => {
+      if (ratingFilter && l.rating !== ratingFilter) return false;
+      if (!needle) return true;
+      return [l.attendee_name, l.attendee_email, l.organization, l.title, l.notes, ...(l.tags ?? [])].join(" ").toLowerCase().includes(needle);
+    });
+  }, [allLeads, searchFilter, ratingFilter]);
 
   const handleLogout = () => {
     if (typeof window !== "undefined") {
+      clearOwnerScopedTickets(localStorage.getItem(ATTENDEE_TOKEN_STORAGE));
       localStorage.removeItem(ATTENDEE_TOKEN_STORAGE);
     }
-    navigate("/");
+    navigate(boothId ? boothSignInPath(boothId) : "/");
   };
 
   const toggleLocale = () => {
     setLocale(locale === "fa" ? "en" : "fa");
   };
 
+  const resetCapture = () => {
+    setQrSecret("");
+    setCaptureRating("WARM");
+    setCaptureTags([]);
+    setCaptureNotes("");
+    setTouched({ rating: false, tags: false });
+    setCaptureError(null);
+    setCaptureFeedback(null);
+    setCapturedLead(null);
+  };
+
   const handleCaptureLead = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!boothId || !token || !qrSecret.trim()) return;
+    if (!boothId || !token || !qrSecret.trim() || captureInFlight.current) return;
     if (!isStoredAttendeeToken(token)) {
       setCaptureError(SESSION_CHANGED_MESSAGE);
       return;
     }
 
+    captureInFlight.current = true;
     setSubmittingCapture(true);
     setCaptureError(null);
     setCaptureFeedback(null);
-    const client = createApiClient({ kind: "user", token });
-
-    const { data, error: err, response } = await client.POST(
-      "/api/booths/{booth_id}/leads/scan",
-      {
+    try {
+      const client = createApiClient({ kind: "user", token });
+      // Only qualification the operator actually chose is sent, so scanning an attendee who is
+      // already a lead never resets their rating or tags.
+      const input: LeadScanInput = {
+        qr_secret: qrSecret.trim(),
+        ...(touched.rating ? { rating: captureRating } : {}),
+        ...(touched.tags ? { tags: captureTags } : {}),
+        ...(captureNotes.trim() ? { notes: captureNotes.trim() } : {}),
+      };
+      const { data, error: err, response } = await client.POST("/api/booths/{booth_id}/leads/scan", {
         params: { path: { booth_id: boothId } },
-        body: {
-          qr_secret: qrSecret.trim(),
-          rating: captureRating,
-          notes: captureNotes.trim(),
-          tags: captureTags,
-        },
-      }
-    );
+        // Defaulted fields are optional on the wire; the generated type wrongly requires them.
+        body: input as LeadScanRequest,
+      });
 
-    const stillCurrent = isStoredAttendeeToken(token);
-    if (response.status === 401) rejectAttendeeToken(token);
-    setSubmittingCapture(false);
-    if (!stillCurrent) return;
-    if (err) {
-      setCaptureError(formatApiError(err));
-    } else if (data) {
-      // Check status code: 201 Created vs 200 OK (duplicate update)
-      const isDuplicateUpdate = response?.status === 200;
-      setCaptureFeedback(isDuplicateUpdate ? t.leadUpdatedSuccess : t.leadCapturedSuccess);
-      setQrSecret("");
-      setCaptureNotes("");
-      setCaptureTags([]);
-      refreshLeads();
-      setTimeout(() => {
-        setIsCaptureModalOpen(false);
-        setCaptureFeedback(null);
-      }, 1200);
+      const stillCurrent = isStoredAttendeeToken(token);
+      if (response.status === 401) rejectAttendeeToken(token);
+      if (!stillCurrent) return;
+      if (err) {
+        setCaptureError(
+          response.status === 404
+            ? isRtl ? "این کد کارت شرکت‌کننده معتبر نیست." : "That badge code is not valid."
+            : response.status === 400
+              ? isRtl ? "این کارت متعلق به همایش دیگری است." : "That badge belongs to a different congress."
+              : response.status === 403
+                ? isRtl ? "شما اجازهٔ ثبت مشتری برای این غرفه را ندارید." : "You are not authorized to capture leads for this booth."
+                : formatApiError(err)
+        );
+      } else if (data) {
+        // 201 = new lead, 200 = this attendee was already a lead of this booth.
+        const existed = response.status === 200;
+        setCapturedLead({ lead: data, existed });
+        setCaptureFeedback(existed ? t.leadUpdatedSuccess : t.leadCapturedSuccess);
+        setQrSecret("");
+        void refreshLeads();
+      }
+    } catch {
+      // The request may or may not have reached the server. Nothing is retried automatically;
+      // scanning the same badge again is safe (it updates the same lead), but check the list first.
+      setCaptureError(
+        isRtl
+          ? "اتصال قطع شد و مشخص نیست مشتری ثبت شده یا نه. فهرست مشتریان را بررسی کنید؛ اسکن دوباره همین کارت فقط همان مشتری را به‌روز می‌کند."
+          : "The connection dropped, so it is not known whether the lead was saved. Check the lead list; scanning the same badge again only updates the same lead."
+      );
+    } finally {
+      captureInFlight.current = false;
+      setSubmittingCapture(false);
     }
   };
+
+  useEffect(() => {
+    if (!isCaptureModalOpen || capturedLead) return;
+    // A keyboard-wedge (USB/HID) scanner types into the focused field and presses Enter.
+    const timer = setTimeout(() => codeInputRef.current?.focus(), 120);
+    return () => clearTimeout(timer);
+  }, [isCaptureModalOpen, capturedLead]);
 
   const handleOpenEdit = (lead: LeadOut) => {
     setEditingLead(lead);
@@ -247,37 +309,32 @@ function ExhibitorPortalContent() {
     setSavingLead(true);
     setEditError(null);
     setEditFeedback(null);
-    const client = createApiClient({ kind: "user", token });
+    try {
+      const client = createApiClient({ kind: "user", token });
+      const { data, error: err, response } = await client.PATCH("/api/booths/{booth_id}/leads/{lead_id}", {
+        params: { path: { booth_id: boothId, lead_id: editingLead.id } },
+        body: { rating: editRating, tags: editTags, notes: editNotes.trim() },
+      });
 
-    const { data, error: err, response } = await client.PATCH(
-      "/api/booths/{booth_id}/leads/{lead_id}",
-      {
-        params: {
-          path: { booth_id: boothId, lead_id: editingLead.id },
-        },
-        body: {
-          rating: editRating,
-          tags: editTags,
-          notes: editNotes.trim(),
-        },
+      const stillCurrent = isStoredAttendeeToken(token);
+      if (response.status === 401) rejectAttendeeToken(token);
+      if (!stillCurrent) return;
+      if (err) {
+        setEditError(formatApiError(err));
+      } else if (data) {
+        setAllLeads((prev) => prev.map((l) => (l.id === editingLead.id ? data : l)));
+        setCapturedLead((prev) => (prev && prev.lead.id === data.id ? { ...prev, lead: data } : prev));
+        setEditFeedback(t.qualificationSavedSuccess);
+        setTimeout(() => {
+          setEditingLead(null);
+          setEditFeedback(null);
+        }, 1000);
       }
-    );
-
-    const stillCurrent = isStoredAttendeeToken(token);
-    if (response.status === 401) rejectAttendeeToken(token);
-    setSavingLead(false);
-    if (!stillCurrent) return;
-    if (err) {
-      setEditError(formatApiError(err));
-    } else if (data) {
-      setLeads((prev) =>
-        prev.map((l) => (l.id === editingLead.id ? data : l))
-      );
-      setEditFeedback(t.qualificationSavedSuccess);
-      setTimeout(() => {
-        setEditingLead(null);
-        setEditFeedback(null);
-      }, 1000);
+    } catch {
+      // The same values can be saved again safely; the form keeps what was typed.
+      setEditError(isRtl ? "اتصال قطع شد؛ تغییرات ذخیره نشد. اطلاعات واردشده حفظ شده است، دوباره ذخیره کنید." : "The connection dropped; your changes were not confirmed. Your entry is kept, save again.");
+    } finally {
+      setSavingLead(false);
     }
   };
 
@@ -308,6 +365,7 @@ function ExhibitorPortalContent() {
     }
     setIsExporting(true);
     setExportError(null);
+    setExportNotice(null);
     try {
       const client = createApiClient({ kind: "user", token });
       const { data: blob, response } = await client.GET("/api/booths/{booth_id}/leads/export-csv", {
@@ -319,7 +377,7 @@ function ExhibitorPortalContent() {
       // No download or completion feedback for a session that has since changed.
       if (!stillCurrent) return;
       if (!response.ok || !blob) {
-        setExportError("Failed to export leads. Please verify authorization.");
+        setExportError(isRtl ? "دریافت CSV انجام نشد. دسترسی خود را بررسی کنید." : "Failed to export leads. Please verify authorization.");
         return;
       }
       const link = document.createElement("a");
@@ -329,8 +387,9 @@ function ExhibitorPortalContent() {
       link.click();
       document.body.removeChild(link);
       URL.revokeObjectURL(link.href);
+      setExportNotice(isRtl ? `دریافت ${link.download} آغاز شد (همهٔ مشتریان این غرفه).` : `Download of ${link.download} started (all leads of this booth).`);
     } catch {
-      setExportError("Network error while exporting CSV.");
+      setExportError(isRtl ? "خطای شبکه هنگام دریافت CSV." : "Network error while exporting CSV.");
     } finally {
       setIsExporting(false);
     }
@@ -363,9 +422,9 @@ function ExhibitorPortalContent() {
   };
 
   // Counts summary
-  const hotCount = leads.filter((l) => l.rating === "HOT").length;
-  const warmCount = leads.filter((l) => l.rating === "WARM").length;
-  const coldCount = leads.filter((l) => l.rating === "COLD").length;
+  const hotCount = allLeads.filter((l) => l.rating === "HOT").length;
+  const warmCount = allLeads.filter((l) => l.rating === "WARM").length;
+  const coldCount = allLeads.filter((l) => l.rating === "COLD").length;
 
   // Unauthenticated view (fails closed)
   if (!token) {
@@ -384,8 +443,8 @@ function ExhibitorPortalContent() {
             </p>
           </div>
           <div className="pt-2">
-            <LinkButton to="/" variant="primary" size="lg" isFullWidth>
-              {isRtl ? "ورود به سامانه همایش" : "Sign In to Platform"} →
+            <LinkButton to={boothId ? boothSignInPath(boothId) : "/"} variant="primary" size="lg" isFullWidth>
+              {isRtl ? "ورود به حساب غرفه" : "Sign In to Booth Workspace"} →
             </LinkButton>
           </div>
         </Card>
@@ -406,6 +465,25 @@ function ExhibitorPortalContent() {
     );
   }
 
+  if (loadFailed) {
+    return (
+      <div dir={dir} lang={locale} className="min-h-screen bg-surface-page flex items-center justify-center p-4 font-sans">
+        <Card className="max-w-md w-full p-8 text-center space-y-5 border-border-default shadow-xs">
+          <div className="text-3xl" aria-hidden="true">⚠️</div>
+          <h1 className="text-xl font-bold text-text-primary tracking-tight">
+            {isRtl ? "بارگذاری غرفه انجام نشد" : "The booth could not be loaded"}
+          </h1>
+          <p className="text-sm text-text-secondary">
+            {isRtl ? "اتصال یا سرور مشکل دارد. نشست شما حفظ شده است." : "There is a connection or server problem. You are still signed in."}
+          </p>
+          <Button type="button" variant="primary" size="md" onClick={() => setReloadNonce((n) => n + 1)}>
+            {isRtl ? "تلاش مجدد" : "Retry"}
+          </Button>
+        </Card>
+      </div>
+    );
+  }
+
   // Unauthorized (403 Forbidden) or Not Found view
   if (authError || !booth) {
     return (
@@ -422,7 +500,12 @@ function ExhibitorPortalContent() {
               {authError ?? t.unauthorizedExhibitorDesc}
             </p>
           </div>
-          <div className="pt-2">
+          <div className="pt-2 flex flex-col gap-2">
+            {boothId && (
+              <LinkButton to={boothSignInPath(boothId)} variant="primary" size="md">
+                {isRtl ? "ورود با حساب دیگر" : "Sign in with a different account"}
+              </LinkButton>
+            )}
             <LinkButton to="/" variant="secondary" size="md">
               {t.platformHome} →
             </LinkButton>
@@ -446,25 +529,34 @@ function ExhibitorPortalContent() {
 
       {/* 1. Exhibitor Workspace Header */}
       <header className="sticky top-0 z-40 bg-surface-panel/95 backdrop-blur-xs border-b border-border-default">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 min-h-16 py-2 flex items-center justify-between gap-3">
           {/* Booth Brand & Location */}
           <div className="flex items-center gap-3">
             <span className="w-8 h-8 rounded-lg bg-action-primary text-text-inverse flex items-center justify-center font-bold text-base shadow-xs shrink-0">
               🏢
             </span>
-            <div className="flex flex-col">
-              <span className="font-bold text-sm sm:text-base tracking-tight text-text-primary leading-tight">
+            <div className="flex flex-col min-w-0">
+              <span className="font-bold text-sm sm:text-base tracking-tight text-text-primary leading-tight break-words">
                 {booth.name}
               </span>
-              <span className="text-[11px] text-text-muted font-medium leading-none">
+              <span className="text-[11px] text-text-muted font-medium leading-tight">
                 📍 {booth.location || (isRtl ? "سالن اصلی نمایشگاه" : "Exhibition Floor")}
+                {eventContext && <span data-testid="booth-event"> · {eventContext.name}</span>}
               </span>
             </div>
           </div>
 
           {/* Controls: Language, Staff Badge & Logout */}
           <div className="flex items-center gap-2.5">
-            <Badge variant="brand" size="sm" className="hidden sm:inline-flex">
+            {eventContext && boothId && (
+              <Link
+                to={`/e/${encodeURIComponent(eventContext.slug)}/booths/${encodeURIComponent(boothId)}`}
+                className="hidden md:inline-flex text-xs font-semibold text-action-primary hover:underline"
+              >
+                {isRtl ? "پروفایل عمومی غرفه" : "Public booth profile"}
+              </Link>
+            )}
+            <Badge variant="brand" size="sm" className="max-sm:hidden">
               {t.boothAuthorizedBadge}
             </Badge>
 
@@ -491,7 +583,7 @@ function ExhibitorPortalContent() {
       </header>
 
       {/* Main Content Area */}
-      <main id="exhibitor-main-content" tabIndex={-1} className="flex-1 max-w-6xl w-full mx-auto p-4 sm:p-6 lg:p-8 space-y-6 sm:space-y-8 focus:outline-none">
+      <main id="exhibitor-main-content" tabIndex={-1} className="flex-1 max-w-6xl w-full mx-auto p-4 sm:p-6 lg:p-8 pb-28 md:pb-8 space-y-6 sm:space-y-8 focus:outline-none">
         {/* KPI Summary Bar & Capture Trigger */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-6 border-b border-border-default">
           <div className="space-y-1">
@@ -510,8 +602,7 @@ function ExhibitorPortalContent() {
               size="lg"
               onClick={() => {
                 setIsCaptureModalOpen(true);
-                setCaptureError(null);
-                setCaptureFeedback(null);
+                resetCapture();
               }}
               className="gap-2 shadow-xs"
             >
@@ -521,10 +612,25 @@ function ExhibitorPortalContent() {
           </div>
         </div>
 
+        {exportNotice && (
+          <div role="status" className="p-3.5 rounded-xl bg-status-success-bg text-status-success-text border border-status-success-border text-xs leading-relaxed">
+            {exportNotice}
+          </div>
+        )}
+
         {/* Global Feedback Notifications */}
         {exportError && (
           <div role="alert" aria-live="assertive" className="p-3.5 rounded-xl bg-status-danger-bg text-status-danger-text border border-status-danger-border text-xs leading-relaxed">
             {exportError}
+          </div>
+        )}
+
+        {leadsFailed && (
+          <div role="alert" className="p-3.5 rounded-xl bg-status-danger-bg text-status-danger-text border border-status-danger-border text-xs flex items-center justify-between gap-3">
+            <span>{isRtl ? "فهرست مشتریان بارگذاری نشد." : "The lead list could not be loaded."}</span>
+            <Button type="button" size="sm" variant="secondary" onClick={() => setReloadNonce((n) => n + 1)}>
+              {isRtl ? "تلاش مجدد" : "Retry"}
+            </Button>
           </div>
         )}
 
@@ -535,7 +641,7 @@ function ExhibitorPortalContent() {
               {t.leadsCountLabel}
             </span>
             <span className="text-xl sm:text-2xl font-extrabold text-text-primary block">
-              {formatLocalizedNumber(leads.length, locale)}
+              {formatLocalizedNumber(allLeads.length, locale)}
             </span>
           </div>
 
@@ -643,7 +749,7 @@ function ExhibitorPortalContent() {
               type="button"
               variant="outline"
               size="sm"
-              disabled={isExporting || leads.length === 0}
+              disabled={isExporting || allLeads.length === 0}
               onClick={handleExportCsv}
               className="gap-1.5 shrink-0"
             >
@@ -652,6 +758,14 @@ function ExhibitorPortalContent() {
             </Button>
           </div>
         </div>
+
+        {(searchFilter || ratingFilter) && !loading && (
+          <p role="status" className="text-xs text-text-muted">
+            {isRtl
+              ? `نمایش ${formatLocalizedNumber(leads.length, locale)} از ${formatLocalizedNumber(allLeads.length, locale)} مشتری`
+              : `Showing ${leads.length} of ${allLeads.length} leads`}
+          </p>
+        )}
 
         {/* 2. Leads Worklist */}
         {loading ? (
@@ -784,22 +898,64 @@ function ExhibitorPortalContent() {
         onClose={() => {
           if (!submittingCapture) {
             setIsCaptureModalOpen(false);
-            setCaptureError(null);
-            setCaptureFeedback(null);
+            resetCapture();
           }
         }}
         title={t.captureLeadModalTitle}
         description={t.captureLeadModalDesc}
         size="md"
       >
+        {capturedLead && (
+          <div className="space-y-4" data-testid="capture-result">
+            <div role="status" className="p-4 rounded-xl bg-status-success-bg text-status-success-text border border-status-success-border space-y-1">
+              <p className="text-sm font-bold">{captureFeedback}</p>
+              {capturedLead.existed && (
+                <p className="text-xs">
+                  {isRtl ? "این شرکت‌کننده قبلاً مشتری این غرفه بود؛ سطح علاقه و برچسب‌های قبلی حفظ شد." : "This attendee was already a lead of this booth; their rating and tags were kept."}
+                </p>
+              )}
+            </div>
+            <div className="p-4 rounded-xl bg-surface-page border border-border-default space-y-1">
+              <div className="flex items-center gap-2 flex-wrap">{renderRatingBadge(capturedLead.lead.rating)}<Badge variant="neutral" size="sm">{capturedLead.lead.ticket_tier_name}</Badge></div>
+              <p className="text-base font-bold text-text-primary">{capturedLead.lead.attendee_name}</p>
+              {(capturedLead.lead.title || capturedLead.lead.organization) && (
+                <p className="text-xs text-text-secondary">{[capturedLead.lead.title, capturedLead.lead.organization].filter(Boolean).join(" • ")}</p>
+              )}
+            </div>
+            <div className="flex flex-col sm:flex-row gap-2">
+              <Button type="button" variant="secondary" size="lg" className="flex-1" onClick={() => handleOpenEdit(capturedLead.lead)}>
+                <span aria-hidden="true">✏️</span><span>{t.qualifyLeadButton}</span>
+              </Button>
+              <Button type="button" variant="primary" size="lg" className="flex-1" onClick={() => { resetCapture(); setTimeout(() => codeInputRef.current?.focus(), 60); }}>
+                {isRtl ? "شرکت‌کننده بعدی" : "Next attendee"} {isRtl ? "←" : "→"}
+              </Button>
+            </div>
+            <Button type="button" variant="ghost" size="md" isFullWidth onClick={() => { setIsCaptureModalOpen(false); resetCapture(); }}>
+              {isRtl ? "پایان" : "Done"}
+            </Button>
+          </div>
+        )}
+        {!capturedLead && (
         <form onSubmit={handleCaptureLead} className="space-y-4">
+          <QrCameraInput
+            isRtl={isRtl}
+            disabled={submittingCapture}
+            onDecode={(value) => {
+              setQrSecret(value);
+              setCaptureError(null);
+            }}
+          />
           <div>
             <label className="block text-xs font-semibold text-text-primary mb-1">
               {t.badgeCodeLabel} <span className="text-red-500">*</span>
             </label>
             <input
+              ref={codeInputRef}
               type="text"
               required
+              autoComplete="off"
+              autoCapitalize="none"
+              spellCheck={false}
               value={qrSecret}
               onChange={(e) => setQrSecret(e.target.value)}
               placeholder={t.badgeCodePlaceholder}
@@ -817,7 +973,7 @@ function ExhibitorPortalContent() {
             <div className="grid grid-cols-3 gap-2">
               <button
                 type="button"
-                onClick={() => setCaptureRating("HOT")}
+                onClick={() => { setCaptureRating("HOT"); setTouched((p) => ({ ...p, rating: true })); }}
                 className={`py-2 px-3 rounded-xl text-xs font-bold border transition-colors cursor-pointer ${
                   captureRating === "HOT"
                     ? "bg-rose-100 text-rose-800 border-rose-300 shadow-xs"
@@ -828,7 +984,7 @@ function ExhibitorPortalContent() {
               </button>
               <button
                 type="button"
-                onClick={() => setCaptureRating("WARM")}
+                onClick={() => { setCaptureRating("WARM"); setTouched((p) => ({ ...p, rating: true })); }}
                 className={`py-2 px-3 rounded-xl text-xs font-bold border transition-colors cursor-pointer ${
                   captureRating === "WARM"
                     ? "bg-amber-100 text-amber-900 border-amber-300 shadow-xs"
@@ -839,7 +995,7 @@ function ExhibitorPortalContent() {
               </button>
               <button
                 type="button"
-                onClick={() => setCaptureRating("COLD")}
+                onClick={() => { setCaptureRating("COLD"); setTouched((p) => ({ ...p, rating: true })); }}
                 className={`py-2 px-3 rounded-xl text-xs font-bold border transition-colors cursor-pointer ${
                   captureRating === "COLD"
                     ? "bg-slate-200 text-slate-800 border-slate-300 shadow-xs"
@@ -864,7 +1020,7 @@ function ExhibitorPortalContent() {
                   <button
                     key={key}
                     type="button"
-                    onClick={() => handleToggleTag(tagLabel, captureTags, setCaptureTags)}
+                    onClick={() => { handleToggleTag(tagLabel, captureTags, setCaptureTags); setTouched((p) => ({ ...p, tags: true })); }}
                     className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors cursor-pointer ${
                       isSelected
                         ? "bg-action-subtle text-action-primary border-action-subtle-border font-bold"
@@ -892,12 +1048,6 @@ function ExhibitorPortalContent() {
             />
           </div>
 
-          {captureFeedback && (
-            <div role="status" className="p-3 rounded-xl bg-status-success-bg text-status-success-text border border-status-success-border text-xs">
-              {captureFeedback}
-            </div>
-          )}
-
           {captureError && (
             <div role="alert" aria-live="assertive" className="p-3.5 rounded-xl bg-status-danger-bg text-status-danger-text border border-status-danger-border text-xs leading-relaxed">
               {captureError}
@@ -924,6 +1074,7 @@ function ExhibitorPortalContent() {
             </Button>
           </div>
         </form>
+        )}
       </Dialog>
 
       {/* 4. Accessible Qualification Drawer / Modal */}
@@ -1064,6 +1215,23 @@ function ExhibitorPortalContent() {
           </form>
         )}
       </Dialog>
+
+      {/* Phones and tablets at the booth: the primary action stays one tap away. */}
+      <div className="md:hidden fixed inset-x-0 bottom-0 z-30 bg-surface-panel/95 backdrop-blur-xs border-t border-border-default p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+        <Button
+          type="button"
+          variant="primary"
+          size="lg"
+          isFullWidth
+          onClick={() => {
+            setIsCaptureModalOpen(true);
+            resetCapture();
+          }}
+        >
+          <span aria-hidden="true">+</span>
+          <span>{t.captureLeadAction}</span>
+        </Button>
+      </div>
     </div>
   );
 }

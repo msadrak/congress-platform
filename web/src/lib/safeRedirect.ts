@@ -2,11 +2,12 @@ const SLUG = "[A-Za-z0-9_-]+";
 // Mirrors the five approved destinations in congressContext (kept literal: this is a security allow-list).
 const DESTINATIONS = "my-congress|my-network|my-ticket|my-profile|details";
 
-/** The only places an attendee sign-in may return to: attendee-facing routes of this app. */
+/** The only places a User sign-in may return to: attendee and exhibitor-booth routes of this app. */
 const ALLOWED_PATHS: readonly RegExp[] = [
   new RegExp(`^/c/${SLUG}/(?:${DESTINATIONS})$`),
   new RegExp(`^/e/${SLUG}$`),
   new RegExp(`^/e/${SLUG}/booths/[A-Za-z0-9-]+$`),
+  /^\/booth\/[A-Za-z0-9-]+$/,
   /^\/my-tickets$/,
   /^\/my-network$/,
 ];
@@ -43,4 +44,9 @@ export function safeNextPath(raw: string | null | undefined, fallback: string): 
 export function signInPath(slug: string | undefined, next: string): string {
   const base = slug ? `/c/${encodeURIComponent(slug)}/sign-in` : "/sign-in";
   return `${base}?next=${encodeURIComponent(next)}`;
+}
+
+/** Sign-in entry for one exhibitor booth that returns to that booth afterwards. */
+export function boothSignInPath(boothId: string): string {
+  return `/booth/${encodeURIComponent(boothId)}/sign-in?next=${encodeURIComponent(`/booth/${boothId}`)}`;
 }

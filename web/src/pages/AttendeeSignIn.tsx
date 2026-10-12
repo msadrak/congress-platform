@@ -41,6 +41,8 @@ const COPY = {
     congressMissing: "That congress could not be found. After signing in you will see your passes instead.",
     home: "Platform home",
     skip: "Skip to sign-in",
+    boothTitle: "Sign in to your booth workspace",
+    boothSubtitle: "Use the account your organizer assigned to this booth.",
     toggleLabel: "تغییر زبان به فارسی",
     toggle: "فارسی",
   },
@@ -66,6 +68,8 @@ const COPY = {
     congressMissing: "این همایش پیدا نشد. پس از ورود، کارت‌های خودتان نمایش داده می‌شود.",
     home: "صفحه اصلی سامانه",
     skip: "پرش به فرم ورود",
+    boothTitle: "ورود به فضای کاری غرفه",
+    boothSubtitle: "با حسابی وارد شوید که برگزارکننده به این غرفه اختصاص داده است.",
     toggleLabel: "Switch language to English",
     toggle: "English",
   },
@@ -79,7 +83,7 @@ const inputClass =
  * validated return to the intended congress destination. A still-valid session is kept.
  */
 export default function AttendeeSignIn() {
-  const { slug } = useParams<{ slug?: string }>();
+  const { slug, boothId } = useParams<{ slug?: string; boothId?: string }>();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const localeHook = useAttendeeLocale();
@@ -89,7 +93,7 @@ export default function AttendeeSignIn() {
   const congressMissing = Boolean(slug) && congress.status === "missing";
   const knownSlug = slug && !congressMissing ? slug : undefined;
 
-  const fallback = knownSlug ? congressPath(knownSlug, "my-congress") : "/my-tickets";
+  const fallback = boothId ? `/booth/${boothId}` : knownSlug ? congressPath(knownSlug, "my-congress") : "/my-tickets";
   const destination = safeNextPath(searchParams.get("next"), fallback);
 
   const [session, setSession] = useState<SessionCheck>(() =>
@@ -171,7 +175,7 @@ export default function AttendeeSignIn() {
       <header className="bg-surface-panel border-b border-border-default">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-4">
           <Link to="/" className="font-bold text-sm sm:text-base tracking-tight rounded-lg focus-visible:outline-2 focus-visible:outline-focus-ring">
-            {isRtl ? "سامانه شرکت‌کنندگان" : "Attendee Portal"}
+            {boothId ? (isRtl ? "پرتال غرفه" : "Exhibitor Portal") : isRtl ? "سامانه شرکت‌کنندگان" : "Attendee Portal"}
           </Link>
           <button
             type="button"
@@ -187,9 +191,11 @@ export default function AttendeeSignIn() {
       <main id="attendee-sign-in" tabIndex={-1} className="flex-1 w-full max-w-md mx-auto px-4 py-8 sm:py-14 focus:outline-none">
         <Card className="p-6 sm:p-8 border-border-default space-y-6">
           <div className="space-y-2">
-            <h1 className="text-2xl font-extrabold tracking-tight text-text-primary">{copy.title}</h1>
+            <h1 className="text-2xl font-extrabold tracking-tight text-text-primary">{boothId ? copy.boothTitle : copy.title}</h1>
             <p className="text-sm text-text-secondary">
-              {congressName ? (
+              {boothId ? (
+                copy.boothSubtitle
+              ) : congressName ? (
                 <>
                   {copy.subtitleCongress} <span className="font-semibold text-text-primary">{congressName}</span>
                 </>
@@ -281,7 +287,11 @@ export default function AttendeeSignIn() {
           )}
 
           <div className="pt-4 border-t border-border-subtle text-sm text-text-secondary space-y-2">
-            {knownSlug ? (
+            {boothId ? (
+              <p>
+                <Link to="/" className="font-semibold text-action-primary hover:underline">{copy.home}</Link>
+              </p>
+            ) : knownSlug ? (
               <p>
                 {copy.noAccount}{" "}
                 <Link to={`/e/${encodeURIComponent(knownSlug)}`} className="font-semibold text-action-primary hover:underline">
