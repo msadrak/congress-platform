@@ -1,8 +1,9 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   ATTENDEE_TOKEN_STORAGE,
   formatApiError,
+  createApiClient,
   getApiClient,
   type PublicEvent as PublicEventType,
 } from "../api/client";
@@ -38,18 +39,27 @@ export default function PublicEvent() {
 
   const [submitting, setSubmitting] = useState(false);
   const [modalError, setModalError] = useState<string | null>(null);
+  const pageContext = useRef<{ active: boolean } | null>(null);
 
   useEffect(() => {
     if (!slug) return;
-    let isMounted = true;
+    const context = { active: true };
+    pageContext.current = context;
     const loadEvent = async () => {
       setLoading(true);
       setError(null);
-      const client = getApiClient(null);
+      setEvent(null);
+      setSelectedTierId(null);
+      setIsAuthModalOpen(false);
+      setIsSuccessModalOpen(false);
+      setAlreadyHasTicket(false);
+      setModalError(null);
+      setSubmitting(false);
+      const client = createApiClient({ kind: "anonymous" });
       const { data, error: err } = await client.GET("/api/public/events/{slug}", {
         params: { path: { slug } },
       });
-      if (!isMounted) return;
+      if (!context.active) return;
       if (err) {
         setError(formatApiError(err));
       } else if (data) {
@@ -66,7 +76,7 @@ export default function PublicEvent() {
     };
     loadEvent();
     return () => {
-      isMounted = false;
+      context.active = false;
     };
   }, [slug]);
 
@@ -87,6 +97,8 @@ export default function PublicEvent() {
 
   const executeReservation = async (token: string, tierId: string) => {
     if (!event) return;
+    const context = pageContext.current;
+    if (!context?.active) return;
     const client = getApiClient(token);
     const { data, error: err } = await client.POST(
       "/api/events/{event_id}/tickets/reserve",
@@ -95,6 +107,7 @@ export default function PublicEvent() {
         body: { ticket_tier_id: tierId },
       }
     );
+    if (!context.active) return;
 
     if (err) {
       const formatted = formatApiError(err);
@@ -134,11 +147,11 @@ export default function PublicEvent() {
           lower.includes("closed")
         ) {
           // Reload event data to reflect latest tier availability
-          const clientFresh = getApiClient(null);
+          const clientFresh = createApiClient({ kind: "anonymous" });
           clientFresh.GET("/api/public/events/{slug}", {
             params: { path: { slug: event.slug } },
           }).then(({ data: freshData }) => {
-            if (freshData) setEvent(freshData);
+            if (context.active && freshData) setEvent((current) => current?.slug === freshData.slug ? freshData : current);
           });
         }
         setModalError(formatted);
@@ -173,10 +186,12 @@ export default function PublicEvent() {
   const handleAuthAndReserve = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedTier || !event) return;
+    const context = pageContext.current;
+    if (!context?.active) return;
     setModalError(null);
     setSubmitting(true);
 
-    const client = getApiClient(null);
+    const client = createApiClient({ kind: "anonymous" });
 
     // Edge case 1: If account was created on previous attempt but reservation failed,
     // reuse the stored token directly rather than re-registering and triggering a 409 conflict
@@ -205,6 +220,7 @@ export default function PublicEvent() {
           title: title.trim(),
         },
       });
+      if (!context.active) return;
       if (err) {
         setModalError(formatApiError(err));
         setSubmitting(false);
@@ -229,6 +245,7 @@ export default function PublicEvent() {
           password,
         },
       });
+      if (!context.active) return;
 
       if (err) {
         setModalError(formatApiError(err));

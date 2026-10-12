@@ -3,6 +3,7 @@ import QRCode from "react-qr-code";
 import { useOutletContext, useParams } from "react-router-dom";
 import {
   formatApiError,
+  createApiClient,
   getApiClient,
   type AttendeeDetailCard,
   type AttendeeSearchItem,
@@ -146,7 +147,7 @@ export default function OrganizerDesk() {
     }
 
     setLoggingIn(true);
-    const client = getApiClient(null);
+    const client = createApiClient({ kind: "anonymous" });
     const { data, error: err } = await client.POST("/api/events/{event_id}/desk/login", {
       params: { path: { event_id: eventId } },
       body: {

@@ -1,9 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import {
   ATTENDEE_TOKEN_STORAGE,
   formatApiError,
-  getApiClient,
+  createApiClient,
   type PublicBoothOut,
 } from "../api/client";
 import { PublicLayout } from "../layouts/PublicLayout";
@@ -19,6 +19,9 @@ export default function PublicBooth() {
   const [error, setError] = useState<string | null>(null);
   const [bookmarking, setBookmarking] = useState(false);
   const [bookmarkFeedback, setBookmarkFeedback] = useState<string | null>(null);
+  const [isBookmarked, setIsBookmarked] = useState(false);
+  const [bookmarkLoading, setBookmarkLoading] = useState(false);
+  const bookmarkContext = useRef<{ active: boolean } | null>(null);
 
   const token =
     typeof window !== "undefined"
@@ -27,66 +30,95 @@ export default function PublicBooth() {
 
   useEffect(() => {
     if (!slug || !boothId) return;
+    let active = true;
 
     const loadBooth = async () => {
       setLoading(true);
+      setBooth(null);
       setError(null);
-      const client = getApiClient(token);
-      const { data, error: err } = await client.GET(
-        "/api/public/events/{slug}/booths/{booth_id}",
-        {
-          params: { path: { slug, booth_id: boothId } },
-        }
-      );
-
-      if (err) {
-        setError(formatApiError(err));
-      } else if (data) {
-        setBooth(data);
+      setBookmarkFeedback(null);
+      try {
+        const client = createApiClient({ kind: "anonymous" });
+        const { data, error: err } = await client.GET(
+          "/api/public/events/{slug}/booths/{booth_id}",
+          { params: { path: { slug, booth_id: boothId } } }
+        );
+        if (!active) return;
+        if (err) setError(formatApiError(err));
+        else if (data) setBooth(data);
+      } catch {
+        if (active) setError("Unable to load the booth profile. Please try again.");
+      } finally {
+        if (active) setLoading(false);
       }
-      setLoading(false);
     };
+    void loadBooth();
+    return () => { active = false; };
+  }, [slug, boothId]);
 
-    loadBooth();
+  useEffect(() => {
+    const context = { active: true };
+    bookmarkContext.current = context;
+    const loadBookmarks = async () => {
+      setIsBookmarked(false);
+      setBookmarking(false);
+      setBookmarkLoading(Boolean(token));
+      if (!token || !slug || !boothId) return;
+      try {
+        const client = createApiClient({ kind: "user", token });
+        const { data, error: err, response } = await client.GET("/api/attendees/me/bookmarks/booths");
+        if (!context.active || localStorage.getItem(ATTENDEE_TOKEN_STORAGE) !== token) return;
+        if (err) {
+          if (response.status === 401) localStorage.removeItem(ATTENDEE_TOKEN_STORAGE);
+          setBookmarkFeedback(`${response.status}: ${formatApiError(err)}`);
+        } else if (data) {
+          setIsBookmarked(data.some((saved) => saved.booth_id === boothId && saved.event_slug === slug));
+        }
+      } catch {
+        if (context.active && localStorage.getItem(ATTENDEE_TOKEN_STORAGE) === token) setBookmarkFeedback("Unable to load your saved booths. Please try again.");
+      } finally {
+        if (context.active) setBookmarkLoading(false);
+      }
+    };
+    void loadBookmarks();
+    return () => { context.active = false; };
   }, [slug, boothId, token]);
 
   const handleToggleBookmark = async () => {
-    if (!boothId || !booth) return;
+    if (!boothId || !booth || bookmarkLoading || bookmarking) return;
     if (!token) {
       setBookmarkFeedback("Please sign in or register an attendee pass to save bookmarks to your portal.");
       return;
     }
+    // The rendered token can outlive the stored session (e.g. another tab signed in or out).
+    if (localStorage.getItem(ATTENDEE_TOKEN_STORAGE) !== token) {
+      setBookmarkFeedback("Your attendee session changed in another tab. Please reload this page.");
+      return;
+    }
 
+    const context = bookmarkContext.current;
+    if (!context?.active) return;
     setBookmarking(true);
     setBookmarkFeedback(null);
-    const client = getApiClient(token);
-
-    if (booth.is_bookmarked) {
-      // Unbookmark
-      const { data, error: err } = await client.DELETE(
-        "/api/attendees/me/bookmarks/booths/{booth_id}",
-        {
-          params: { path: { booth_id: boothId } },
-        }
-      );
-      if (!err && data) {
-        setBooth((prev) => (prev ? { ...prev, is_bookmarked: false } : null));
-        setBookmarkFeedback("Removed from your saved booths.");
+    try {
+      const client = createApiClient({ kind: "user", token });
+      const options = { params: { path: { booth_id: boothId } } };
+      const { data, error: err, response } = isBookmarked
+        ? await client.DELETE("/api/attendees/me/bookmarks/booths/{booth_id}", options)
+        : await client.POST("/api/attendees/me/bookmarks/booths/{booth_id}", options);
+      if (!context.active || localStorage.getItem(ATTENDEE_TOKEN_STORAGE) !== token) return;
+      if (err) {
+        if (response.status === 401) localStorage.removeItem(ATTENDEE_TOKEN_STORAGE);
+        setBookmarkFeedback(`${response.status}: ${formatApiError(err)}`);
+      } else if (data) {
+        setIsBookmarked(data.bookmarked);
+        setBookmarkFeedback(data.bookmarked ? "✓ Saved to My Bookmarked Booths!" : "Removed from your saved booths.");
       }
-    } else {
-      // Bookmark
-      const { data, error: err } = await client.POST(
-        "/api/attendees/me/bookmarks/booths/{booth_id}",
-        {
-          params: { path: { booth_id: boothId } },
-        }
-      );
-      if (!err && data) {
-        setBooth((prev) => (prev ? { ...prev, is_bookmarked: true } : null));
-        setBookmarkFeedback("✓ Saved to My Bookmarked Booths!");
-      }
+    } catch {
+      if (context.active && localStorage.getItem(ATTENDEE_TOKEN_STORAGE) === token) setBookmarkFeedback("Unable to update your bookmark. Please try again.");
+    } finally {
+      if (context.active) setBookmarking(false);
     }
-    setBookmarking(false);
   };
 
   // Loading skeleton
@@ -182,14 +214,14 @@ export default function PublicBooth() {
               <div className="shrink-0">
                 <Button
                   type="button"
-                  variant={booth.is_bookmarked ? "secondary" : "primary"}
+                  variant={isBookmarked ? "secondary" : "primary"}
                   size="md"
-                  disabled={bookmarking}
+                  disabled={bookmarking || bookmarkLoading}
                   onClick={handleToggleBookmark}
                   className="gap-2"
                 >
-                  <span aria-hidden="true">{booth.is_bookmarked ? "★" : "☆"}</span>
-                  <span>{booth.is_bookmarked ? "Saved in Passes" : "Bookmark Booth"}</span>
+                  <span aria-hidden="true">{isBookmarked ? "★" : "☆"}</span>
+                  <span>{isBookmarked ? "Saved in Passes" : "Bookmark Booth"}</span>
                 </Button>
               </div>
             </div>
