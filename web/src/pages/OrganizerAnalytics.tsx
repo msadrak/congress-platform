@@ -11,7 +11,7 @@ import {
 import { formatLocalizedNumber } from "../lib/i18n";
 import type { OrganizerOutletContext } from "./OrganizerLayout";
 import { Badge } from "../components/ui/Badge";
-import { Button, LinkButton } from "../components/ui/Button";
+import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
 
 // Remount per event so a late response for event A can never write into event B's state.
@@ -22,7 +22,7 @@ export default function OrganizerAnalytics() {
 
 function OrganizerAnalyticsContent() {
   const { eventId } = useParams<{ eventId: string }>();
-  const { apiKey, onKeyRejected, locale, t, isRtl } = useOutletContext<OrganizerOutletContext>();
+  const { apiKey, onKeyRejected, reportEvent, locale, t, isRtl } = useOutletContext<OrganizerOutletContext>();
 
   const [event, setEvent] = useState<EventOut | null>(null);
   const [points, setPoints] = useState<CheckInPointOut[]>([]);
@@ -111,6 +111,10 @@ function OrganizerAnalyticsContent() {
     };
   }, [eventId, apiKey, onKeyRejected, selectedPointId, selectedTierId, autoRefresh, locale]);
 
+  useEffect(() => {
+    if (event) reportEvent(event);
+  }, [event, reportEvent]);
+
   const handleDownloadCsv = async () => {
     if (!eventId || !event || !apiKey) return;
     setIsExporting(true);
@@ -123,7 +127,7 @@ function OrganizerAnalyticsContent() {
       });
       if (response.status === 401) onKeyRejected(apiKey);
       if (!response.ok || !blob) {
-        setExportError("Failed to export attendance CSV.");
+        setExportError(isRtl ? "دریافت فایل CSV انجام نشد." : "Failed to export attendance CSV.");
         setIsExporting(false);
         return;
       }
@@ -135,7 +139,7 @@ function OrganizerAnalyticsContent() {
       document.body.removeChild(link);
       URL.revokeObjectURL(link.href);
     } catch {
-      setExportError("Network error while exporting CSV.");
+      setExportError(isRtl ? "خطای شبکه هنگام دریافت CSV." : "Network error while exporting CSV.");
     } finally {
       setIsExporting(false);
     }
@@ -164,8 +168,8 @@ function OrganizerAnalyticsContent() {
   return (
     <div className="space-y-8">
       {/* 1. Header & Live Telemetry Status Bar */}
-      <div className="p-6 sm:p-8 rounded-3xl bg-surface-panel border border-border-default shadow-xs space-y-6">
-        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
+      <div className="p-5 sm:p-6 rounded-2xl bg-surface-panel border border-border-default shadow-xs space-y-4">
+        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-5">
           <div className="space-y-1.5 max-w-2xl">
             <div className="flex flex-wrap items-center gap-2">
               <Badge variant="brand" size="sm">
@@ -185,7 +189,7 @@ function OrganizerAnalyticsContent() {
               )}
             </div>
 
-            <h1 className="text-2xl sm:text-4xl font-extrabold tracking-tight text-text-primary">
+            <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-text-primary">
               {t.analyticsTitle}
             </h1>
             <p className="text-xs sm:text-sm text-text-secondary leading-relaxed">
@@ -217,20 +221,17 @@ function OrganizerAnalyticsContent() {
               <span>📥</span>
               <span>{isExporting ? t.exportingCsv : t.exportAttendanceCsvAction}</span>
             </Button>
-
-            <LinkButton
-              to={`/organizer/events/${eventId}`}
-              variant="secondary"
-              size="sm"
-            >
-              {isRtl ? "تنظیمات همایش" : "Event Settings"} {isRtl ? "←" : "→"}
-            </LinkButton>
           </div>
         </div>
 
         {/* Honest Offline Synchronization Caveat */}
-        <div className="p-3.5 rounded-xl bg-surface-panel-subtle border border-border-subtle text-xs text-text-muted leading-relaxed">
+        <div className="p-3.5 rounded-xl bg-surface-panel-subtle border border-border-subtle text-xs text-text-muted leading-relaxed space-y-1.5">
           <p>{t.offlineSyncDisclaimer}</p>
+          <p>
+            {isRtl
+              ? "فیلترها فقط نمای روی صفحه را تغییر می‌دهند؛ فایل CSV شامل همهٔ ورودهای این همایش است."
+              : "Filters change this view only; the CSV export always covers every scan for this event."}
+          </p>
         </div>
       </div>
 

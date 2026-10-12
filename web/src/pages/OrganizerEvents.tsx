@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { Link, useOutletContext } from "react-router-dom";
 import { createApiClient, formatApiError, type EventOut } from "../api/client";
 import { formatLocalizedDate } from "../lib/i18n";
+import { eventTimeStatus, type EventTimeStatus } from "../lib/organizerWorkspace";
 import type { OrganizerOutletContext } from "./OrganizerLayout";
 import { Badge } from "../components/ui/Badge";
 import { Button, LinkButton } from "../components/ui/Button";
@@ -11,6 +12,8 @@ import { Dialog } from "../components/ui/Dialog";
 export default function OrganizerEvents() {
   const { apiKey, onKeyRejected, locale, t, isRtl } = useOutletContext<OrganizerOutletContext>();
   const [events, setEvents] = useState<EventOut[]>([]);
+  const [now] = useState(() => Date.now());
+  const [notice, setNotice] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -104,6 +107,7 @@ export default function OrganizerEvents() {
       setFormError(formatApiError(err));
     } else if (data) {
       setEvents((prev) => [...prev, data]);
+      setNotice(isRtl ? `همایش «${data.name}» ایجاد شد.` : `Event “${data.name}” created.`);
       setName("");
       setSlug("");
       setStartsAt("");
@@ -166,8 +170,14 @@ export default function OrganizerEvents() {
       setEditError(formatApiError(err));
     } else if (data) {
       setEvents((prev) => prev.map((item) => (item.id === data.id ? data : item)));
+      setNotice(isRtl ? `همایش «${data.name}» ذخیره شد.` : `Event “${data.name}” saved.`);
       setEditingEvent(null);
     }
+  };
+  const statusLabel: Record<EventTimeStatus, string> = {
+    upcoming: isRtl ? "در پیش‌رو" : "Upcoming",
+    "in-progress": isRtl ? "در حال برگزاری" : "In progress",
+    ended: isRtl ? "پایان‌یافته" : "Ended",
   };
   return (
     <div className="space-y-6 sm:space-y-8">
@@ -212,6 +222,20 @@ export default function OrganizerEvents() {
           className="p-4 rounded-xl bg-status-danger-bg text-status-danger-text border border-status-danger-border text-xs leading-relaxed"
         >
           {error}
+        </div>
+      )}
+
+      {notice && (
+        <div role="status" className="flex items-start justify-between gap-3 p-3.5 rounded-xl bg-action-subtle text-action-primary border border-action-subtle-border text-xs leading-relaxed">
+          <span>{notice}</span>
+          <button
+            type="button"
+            onClick={() => setNotice(null)}
+            aria-label={isRtl ? "بستن پیام" : "Dismiss message"}
+            className="shrink-0 min-h-[24px] min-w-[24px] font-bold cursor-pointer focus-visible:outline-2 focus-visible:outline-focus-ring rounded"
+          >
+            ✕
+          </button>
         </div>
       )}
 
@@ -261,8 +285,8 @@ export default function OrganizerEvents() {
             >
               <div className="space-y-2.5 max-w-2xl">
                 <div className="flex flex-wrap items-center gap-2">
-                  <Badge variant="success" size="sm">
-                    {isRtl ? "همایش فعال" : "Active Congress"}
+                  <Badge variant={eventTimeStatus(ev.starts_at, ev.ends_at, now) === "in-progress" ? "success" : "neutral"} size="sm">
+                    {statusLabel[eventTimeStatus(ev.starts_at, ev.ends_at, now)]}
                   </Badge>
                   <span className="text-xs text-text-muted">•</span>
                   <span className="text-xs font-mono text-text-muted">

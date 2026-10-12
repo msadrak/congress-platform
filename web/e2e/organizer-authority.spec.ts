@@ -170,7 +170,7 @@ for (const tierStatus of [201, 401]) {
     requests.length = 0;
     await page.goto('/organizer/events/event-a');
     await expect(page.getByRole('heading', { name: 'Event A' }).first()).toBeVisible();
-    await page.getByRole('tab', { name: /Ticket Tiers/ }).click();
+    await page.getByRole('navigation', { name: 'Event workspace' }).getByRole('link', { name: /Ticket Tiers/ }).click();
     await page.getByRole('button', { name: 'Add Ticket Tier' }).first().click();
     const dialog = page.getByRole('dialog');
     await dialog.getByPlaceholder('e.g. Faculty Full Delegate').fill('New Tier');

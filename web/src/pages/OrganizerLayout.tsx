@@ -1,15 +1,27 @@
 import React, { useCallback, useState } from "react";
 import { Link, Outlet, useLocation, useNavigate, useParams } from "react-router-dom";
-import { ORGANIZER_KEY_STORAGE } from "../api/client";
-import { useAttendeeLocale, type TranslationDictionary } from "../lib/i18n";
+import { ORGANIZER_KEY_STORAGE, type EventOut } from "../api/client";
+import { formatLocalizedDate, useAttendeeLocale, type TranslationDictionary } from "../lib/i18n";
+import {
+  EVENT_SETUP_SECTIONS,
+  eventSectionFromPath,
+  eventTimeStatus,
+  eventWorkspacePath,
+  type EventTimeStatus,
+} from "../lib/organizerWorkspace";
 import { SkipLink } from "../components/ui/SkipLink";
 import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
+import { Badge } from "../components/ui/Badge";
+
+export type ActiveEvent = Pick<EventOut, "id" | "name" | "slug" | "starts_at" | "ends_at">;
 
 export interface OrganizerOutletContext {
   apiKey: string | null;
   /** Reports a 401 for the exact key that was sent; any other key or failure is left alone. */
   onKeyRejected: (sentKey: string) => void;
+  /** A page reports the event it has successfully loaded so the workspace can name it. */
+  reportEvent: (event: ActiveEvent) => void;
   locale: "fa" | "en";
   t: TranslationDictionary;
   isRtl: boolean;
@@ -31,6 +43,8 @@ export default function OrganizerLayout() {
   const [inputKey, setInputKey] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [keyRejected, setKeyRejected] = useState(false);
+  const [activeEvent, setActiveEvent] = useState<ActiveEvent | null>(null);
+  const [now] = useState(() => Date.now());
 
   const handleSaveKey = (e: React.FormEvent) => {
     e.preventDefault();
@@ -65,14 +79,45 @@ export default function OrganizerLayout() {
     setKeyRejected(true);
   }, []);
 
+  const reportEvent = useCallback((reported: ActiveEvent) => {
+    setActiveEvent({
+      id: reported.id,
+      name: reported.name,
+      slug: reported.slug,
+      starts_at: reported.starts_at,
+      ends_at: reported.ends_at,
+    });
+  }, []);
+
   const toggleLocale = () => {
     setLocale(locale === "fa" ? "en" : "fa");
   };
 
-  // Determine current active section for contextual sub-navigation
-  const isDesk = location.pathname.includes("/desk");
-  const isAnalytics = location.pathname.includes("/analytics");
-  const isSettings = Boolean(eventId) && !isDesk && !isAnalytics;
+  const section = eventSectionFromPath(location.pathname);
+  const isDesk = section === "desk";
+  // A name reported for another event is never shown for this one.
+  const contextEvent = eventId && activeEvent?.id === eventId ? activeEvent : null;
+  const timeStatus: EventTimeStatus | null = contextEvent
+    ? eventTimeStatus(contextEvent.starts_at, contextEvent.ends_at, now)
+    : null;
+  const statusLabel: Record<EventTimeStatus, string> = {
+    upcoming: isRtl ? "در پیش‌رو" : "Upcoming",
+    "in-progress": isRtl ? "در حال برگزاری" : "In progress",
+    ended: isRtl ? "پایان‌یافته" : "Ended",
+  };
+  const setupLabels: Record<(typeof EVENT_SETUP_SECTIONS)[number]["key"], string> = {
+    overview: t.tabOverview,
+    tiers: t.tabTiers,
+    "check-in": t.tabPoints,
+    booths: t.tabBooths,
+    operators: t.tabOperators,
+  };
+  const navLinkClass = (active: boolean) =>
+    `inline-flex items-center min-h-[44px] px-3 rounded-lg text-xs sm:text-[13px] font-semibold whitespace-nowrap shrink-0 border transition-colors focus-visible:outline-2 focus-visible:outline-focus-ring ${
+      active
+        ? "bg-action-subtle text-action-primary border-action-subtle-border"
+        : "border-transparent text-text-secondary hover:text-text-primary hover:bg-surface-panel-subtle"
+    }`;
 
   return (
     <div
@@ -136,7 +181,7 @@ export default function OrganizerLayout() {
               <div className="flex items-center gap-2">
                 <div className="hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-surface-panel-subtle border border-border-subtle text-[11px] font-mono text-text-secondary">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" aria-hidden="true" />
-                  <span>Key: ••••<bdi dir="ltr">{apiKey.slice(-4)}</bdi></span>
+                  <span>{isRtl ? "حالت مدیر" : "Organizer"} ••••<bdi dir="ltr">{apiKey.slice(-4)}</bdi></span>
                 </div>
                 <Button
                   type="button"
@@ -152,84 +197,80 @@ export default function OrganizerLayout() {
           </div>
         </div>
 
-        {/* Contextual Sub-Header Bar (Breadcrumbs & Event Navigation when authenticated) */}
-        {apiKey && (
-          <div className="border-t border-border-subtle bg-surface-panel px-4 sm:px-6 lg:px-8 py-2.5">
-            <div className="max-w-6xl mx-auto flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 text-xs">
-              {/* Breadcrumbs */}
-              <nav aria-label="Organizer Breadcrumbs" className="flex items-center gap-1.5 text-text-muted overflow-x-auto">
+        {/* Active-event context and one workspace navigation for the selected event */}
+        {apiKey && eventId && (
+          <div className="border-t border-border-subtle bg-surface-panel">
+            <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-2.5 space-y-2">
+              <div className="flex items-center gap-x-3 gap-y-1 flex-wrap text-xs min-w-0">
                 <Link
                   to="/organizer"
-                  className="font-medium text-text-secondary hover:text-action-primary transition-colors focus-visible:outline-focus-ring"
+                  className="inline-flex items-center min-h-[36px] font-semibold text-text-secondary hover:text-action-primary focus-visible:outline-2 focus-visible:outline-focus-ring rounded-md"
                 >
-                  {t.breadcrumbEvents}
+                  {isRtl ? "→" : "←"} {t.breadcrumbEvents}
                 </Link>
-
                 {eventId && (
                   <>
                     <span aria-hidden="true" className="text-text-muted">/</span>
-                    <Link
-                      to={`/organizer/events/${eventId}`}
-                      className={`font-medium transition-colors ${
-                        isSettings
-                          ? "text-action-primary font-bold"
-                          : "text-text-secondary hover:text-action-primary"
-                      }`}
-                    >
-                      {t.breadcrumbEventConfig}
-                    </Link>
+                    <span data-testid="active-event" className="font-bold text-text-primary truncate max-w-[60vw]">
+                      {contextEvent ? contextEvent.name : "…"}
+                    </span>
+                    {contextEvent && timeStatus && (
+                      <Badge variant={timeStatus === "in-progress" ? "success" : "neutral"} size="sm">
+                        {statusLabel[timeStatus]}
+                      </Badge>
+                    )}
+                    {contextEvent && (
+                      <span className="hidden sm:inline text-text-muted">
+                        {formatLocalizedDate(contextEvent.starts_at, locale)} – {formatLocalizedDate(contextEvent.ends_at, locale)}
+                      </span>
+                    )}
+                    {contextEvent && (
+                      <a
+                        href={`/e/${encodeURIComponent(contextEvent.slug)}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center min-h-[36px] font-semibold text-action-primary hover:underline"
+                      >
+                        {t.openPublicPageAction} <span aria-hidden="true">↗</span>
+                      </a>
+                    )}
                   </>
                 )}
+              </div>
 
-                {isDesk && (
-                  <>
-                    <span aria-hidden="true" className="text-text-muted">/</span>
-                    <span className="text-action-primary font-bold">{t.breadcrumbDesk}</span>
-                  </>
-                )}
-
-                {isAnalytics && (
-                  <>
-                    <span aria-hidden="true" className="text-text-muted">/</span>
-                    <span className="text-action-primary font-bold">{t.breadcrumbAnalytics}</span>
-                  </>
-                )}
-              </nav>
-
-              {/* Event Quick-Station Links if inside an event */}
               {eventId && (
-                <div className="flex items-center gap-1 self-start sm:self-auto overflow-x-auto">
+                <nav
+                  aria-label={isRtl ? "فضای کاری همایش" : "Event workspace"}
+                  className="flex items-center gap-1 overflow-x-auto -mx-1 px-1"
+                >
+                  {EVENT_SETUP_SECTIONS.map((s) => (
+                    <Link
+                      key={s.key}
+                      to={eventWorkspacePath(eventId, s.path)}
+                      aria-current={section === s.key ? "page" : undefined}
+                      className={navLinkClass(section === s.key)}
+                    >
+                      {setupLabels[s.key]}
+                    </Link>
+                  ))}
+                  <span className="mx-1 h-5 w-px bg-border-default shrink-0" aria-hidden="true" />
                   <Link
-                    to={`/organizer/events/${eventId}`}
-                    className={`px-2.5 py-1 rounded-md font-medium text-[11px] transition-colors ${
-                      isSettings
-                        ? "bg-action-subtle text-action-primary font-bold border border-action-subtle-border"
-                        : "text-text-secondary hover:bg-surface-panel-subtle"
-                    }`}
+                    to={eventWorkspacePath(eventId, "/analytics")}
+                    aria-current={section === "analytics" ? "page" : undefined}
+                    className={navLinkClass(section === "analytics")}
                   >
-                    ⚙️ {t.breadcrumbEventConfig}
+                    📊 {t.breadcrumbAnalytics}
                   </Link>
+                  <span className="mx-1 h-5 w-px bg-border-default shrink-0" aria-hidden="true" />
                   <Link
-                    to={`/organizer/events/${eventId}/desk`}
-                    className={`px-2.5 py-1 rounded-md font-medium text-[11px] transition-colors ${
-                      isDesk
-                        ? "bg-action-subtle text-action-primary font-bold border border-action-subtle-border"
-                        : "text-text-secondary hover:bg-surface-panel-subtle"
-                    }`}
+                    to={eventWorkspacePath(eventId, "/desk")}
+                    aria-current={isDesk ? "page" : undefined}
+                    className={navLinkClass(isDesk)}
+                    title={isRtl ? "میز پذیرش با دسترسی مستقل اپراتور" : "Reception uses its own operator access"}
                   >
-                    🖨️ {t.openDeskAction}
+                    🖨️ {t.breadcrumbDesk}
                   </Link>
-                  <Link
-                    to={`/organizer/events/${eventId}/analytics`}
-                    className={`px-2.5 py-1 rounded-md font-medium text-[11px] transition-colors ${
-                      isAnalytics
-                        ? "bg-action-subtle text-action-primary font-bold border border-action-subtle-border"
-                        : "text-text-secondary hover:bg-surface-panel-subtle"
-                    }`}
-                  >
-                    📊 {t.openAnalyticsAction}
-                  </Link>
-                </div>
+                </nav>
               )}
             </div>
           </div>
@@ -307,7 +348,7 @@ export default function OrganizerLayout() {
             </Card>
           </div>
         ) : (
-          <Outlet context={{ apiKey, onKeyRejected: handleKeyRejected, locale, t, isRtl, dir } satisfies OrganizerOutletContext} />
+          <Outlet context={{ apiKey, onKeyRejected: handleKeyRejected, reportEvent, locale, t, isRtl, dir } satisfies OrganizerOutletContext} />
         )}
       </main>
 

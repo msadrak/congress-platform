@@ -310,7 +310,12 @@ function OrganizerDeskContent() {
 
   // Only offered when an organizer key exists; the choice is explicit and never changes by itself.
   const modeSwitch = apiKey ? (
-    <div role="group" aria-label={isRtl ? "حالت کاری" : "Working mode"} className="flex items-center gap-1.5">
+    <div role="group" aria-label={isRtl ? "حالت کاری" : "Working mode"} className="flex flex-wrap items-center gap-1.5">
+      <span data-testid="desk-active-mode" className="text-[11px] text-text-muted me-1">
+        {mode === "operator"
+          ? isRtl ? "فعال: نشست اپراتور" : "Acting as: reception operator"
+          : isRtl ? "فعال: حالت مدیر" : "Acting as: organizer"}
+      </span>
       <Button
         type="button"
         size="sm"

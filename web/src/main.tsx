@@ -30,6 +30,10 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
         <Route path="/organizer" element={<OrganizerLayout />}>
           <Route index element={<OrganizerEvents />} />
           <Route path="events/:eventId" element={<OrganizerEventDetail />} />
+          <Route path="events/:eventId/tiers" element={<OrganizerEventDetail />} />
+          <Route path="events/:eventId/check-in" element={<OrganizerEventDetail />} />
+          <Route path="events/:eventId/booths" element={<OrganizerEventDetail />} />
+          <Route path="events/:eventId/operators" element={<OrganizerEventDetail />} />
           <Route path="events/:eventId/desk" element={<OrganizerDesk />} />
           <Route path="events/:eventId/analytics" element={<OrganizerAnalytics />} />
         </Route>

@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import QRCode from "react-qr-code";
-import { Link, useOutletContext, useParams } from "react-router-dom";
+import { Link, useLocation, useOutletContext, useParams } from "react-router-dom";
 import {
   createApiClient,
   formatApiError,
@@ -16,7 +16,9 @@ import type { OrganizerOutletContext } from "./OrganizerLayout";
 import { Badge } from "../components/ui/Badge";
 import { Button, LinkButton } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
+import { ConfirmDialog } from "../components/ui/ConfirmDialog";
 import { Dialog } from "../components/ui/Dialog";
+import { eventSectionFromPath, eventWorkspacePath } from "../lib/organizerWorkspace";
 
 type PolicyType =
   | "MULTI_ENTRY"
@@ -32,7 +34,8 @@ export default function OrganizerEventDetail() {
 
 function OrganizerEventDetailContent() {
   const { eventId } = useParams<{ eventId: string }>();
-  const { apiKey, onKeyRejected, locale, t, isRtl } = useOutletContext<OrganizerOutletContext>();
+  const { apiKey, onKeyRejected, reportEvent, locale, t, isRtl } = useOutletContext<OrganizerOutletContext>();
+  const location = useLocation();
 
   const [event, setEvent] = useState<EventOut | null>(null);
   const [tiers, setTiers] = useState<TicketTierOut[]>([]);
@@ -42,7 +45,16 @@ function OrganizerEventDetailContent() {
   const [error, setError] = useState<string | null>(null);
 
   // Active section tab
-  const [activeTab, setActiveTab] = useState<"overview" | "tiers" | "points" | "booths" | "operators">("overview");
+  // The section comes from the route (the workspace navigation lives in the layout).
+  const section = eventSectionFromPath(location.pathname);
+  const activeTab: "overview" | "tiers" | "points" | "booths" | "operators" =
+    section === "check-in" ? "points" : section === "tiers" || section === "booths" || section === "operators" ? section : "overview";
+
+  // Result of the last change, announced politely; errors are announced assertively.
+  const [notice, setNotice] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
+  const [revokeTarget, setRevokeTarget] = useState<DeskOperatorOut | null>(null);
+  const [confirmCloseTier, setConfirmCloseTier] = useState(false);
+  const closeTierConfirmed = useRef(false);
 
   // Front desk operators state
   const [operators, setOperators] = useState<DeskOperatorOut[]>([]);
@@ -174,6 +186,10 @@ function OrganizerEventDetailContent() {
     };
   }, [eventId, apiKey, onKeyRejected]);
 
+  useEffect(() => {
+    if (event) reportEvent(event);
+  }, [event, reportEvent]);
+
   const handleCreateTier = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!eventId) return;
@@ -211,6 +227,7 @@ function OrganizerEventDetailContent() {
       setTierQuota(100);
       setTierIsOpen(true);
       setIsTierModalOpen(false);
+      setNotice({ tone: "ok", text: isRtl ? `رده «${data.name}» ایجاد شد.` : `Ticket tier “${data.name}” created.` });
     }
   };
 
@@ -253,6 +270,7 @@ function OrganizerEventDetailContent() {
       setAllowedTiers([]);
       setMaxCapacity(undefined);
       setIsPointModalOpen(false);
+      setNotice({ tone: "ok", text: isRtl ? `گیت «${data.name}» ایجاد شد.` : `Check-in point “${data.name}” created.` });
     }
   };
 
@@ -297,6 +315,7 @@ function OrganizerEventDetailContent() {
       setBoothWebsite("");
       setBoothBrochure("");
       setIsBoothModalOpen(false);
+      setNotice({ tone: "ok", text: isRtl ? `غرفه «${data.name}» ایجاد شد.` : `Booth “${data.name}” created.` });
     }
   };
 
@@ -399,9 +418,10 @@ function OrganizerEventDetailContent() {
     if (response.status === 401) onKeyRejected(apiKey);
     setRevokingOperatorId(null);
     if (err) {
-      // ignore
+      setNotice({ tone: "error", text: isRtl ? "لغو دسترسی انجام نشد؛ دوباره تلاش کنید." : `Could not revoke access: ${formatApiError(err)}` });
     } else if (data) {
       setOperators((prev) => prev.map((o) => (o.id === data.id ? data : o)));
+      setNotice({ tone: "ok", text: isRtl ? `دسترسی ${data.operator_name} لغو شد.` : `Access revoked for ${data.operator_name}.` });
     }
   };
   const handleUpdateEvent = async (e: React.FormEvent) => {
@@ -438,6 +458,7 @@ function OrganizerEventDetailContent() {
     } else if (data) {
       setEvent(data);
       setIsEditEventModalOpen(false);
+      setNotice({ tone: "ok", text: isRtl ? "تنظیمات همایش ذخیره شد." : "Event settings saved." });
     }
   };
 
@@ -450,14 +471,19 @@ function OrganizerEventDetailContent() {
     setTierEditError(null);
   };
 
-  const handleUpdateTier = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleUpdateTier = async (e?: React.FormEvent) => {
+    e?.preventDefault();
     if (!editingTier || !eventId) return;
     setTierEditError(null);
     if (!editTierName.trim() || editTierQuota < 1) {
       setTierEditError(isRtl ? "لطفاً نام رده و ظرفیت معتبر وارد نمایید." : "Please enter a valid tier name and quota.");
       return;
     }
+    if (editingTier.is_open && !editTierIsOpen && !closeTierConfirmed.current) {
+      setConfirmCloseTier(true);
+      return;
+    }
+    closeTierConfirmed.current = false;
     if (!apiKey) return;
     setSubmittingTierEdit(true);
     const client = createApiClient({ kind: "organizer", token: apiKey });
@@ -480,6 +506,7 @@ function OrganizerEventDetailContent() {
     } else if (data) {
       setTiers((prev) => prev.map((t) => (t.id === data.id ? data : t)));
       setEditingTier(null);
+      setNotice({ tone: "ok", text: isRtl ? `رده «${data.name}» ذخیره شد.` : `Ticket tier “${data.name}” saved.` });
     }
   };
 
@@ -528,6 +555,7 @@ function OrganizerEventDetailContent() {
     } else if (data) {
       setPoints((prev) => prev.map((p) => (p.id === data.id ? data : p)));
       setEditingPoint(null);
+      setNotice({ tone: "ok", text: isRtl ? `گیت «${data.name}» ذخیره شد.` : `Check-in point “${data.name}” saved.` });
     }
   };
   if (loading && !event) {
@@ -557,12 +585,12 @@ function OrganizerEventDetailContent() {
   return (
     <div className="space-y-8">
       {/* 1. Event Master Header & Context */}
-      <div className="p-6 sm:p-8 rounded-3xl bg-surface-panel border border-border-default shadow-xs space-y-6">
-        <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-6">
+      <div className="p-5 sm:p-6 rounded-2xl bg-surface-panel border border-border-default shadow-xs">
+        <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-5">
           <div className="space-y-2.5 max-w-2xl">
             <div className="flex flex-wrap items-center gap-2">
               <Badge variant="brand" size="sm">
-                {t.breadcrumbEventConfig}
+                {section === "overview" || !section ? t.tabOverview : activeTab === "points" ? t.tabPoints : activeTab === "tiers" ? t.tabTiers : activeTab === "booths" ? t.tabBooths : t.tabOperators}
               </Badge>
               <span className="text-xs text-text-muted">•</span>
               <span className="text-xs font-mono text-text-muted">
@@ -570,7 +598,7 @@ function OrganizerEventDetailContent() {
               </span>
             </div>
 
-            <h1 className="text-2xl sm:text-4xl font-extrabold tracking-tight text-text-primary">
+            <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-text-primary">
               {event.name}
             </h1>
 
@@ -582,28 +610,7 @@ function OrganizerEventDetailContent() {
             </div>
           </div>
 
-          {/* Quick Real Links to Operational Stations */}
           <div className="flex flex-wrap items-center gap-2.5 shrink-0">
-            <LinkButton
-              to={`/organizer/events/${event.id}/desk`}
-              variant="primary"
-              size="sm"
-              className="gap-1.5"
-            >
-              <span>🖨️</span>
-              <span>{t.openDeskAction}</span>
-            </LinkButton>
-
-            <LinkButton
-              to={`/organizer/events/${event.id}/analytics`}
-              variant="secondary"
-              size="sm"
-              className="gap-1.5"
-            >
-              <span>📊</span>
-              <span>{t.openAnalyticsAction}</span>
-            </LinkButton>
-
             <Button
               onClick={openEditEventModal}
               variant="secondary"
@@ -613,165 +620,128 @@ function OrganizerEventDetailContent() {
               <span>✏️</span>
               <span>{t.editEventAction || (isRtl ? "ویرایش همایش" : "Edit Event")}</span>
             </Button>
-
-            <a
-              href={`/e/${event.slug}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold text-action-primary hover:bg-action-subtle transition-colors focus-visible:outline-2 focus-visible:outline-focus-ring"
-            >
-              <span>{t.openPublicPageAction}</span>
-              <span aria-hidden="true">↗</span>
-            </a>
           </div>
         </div>
+      </div>
 
-        {/* Task-Oriented Navigation Tabs */}
+      {notice && (
         <div
-          role="tablist"
-          aria-label={t.breadcrumbEventConfig}
-          className="flex border-b border-border-subtle pt-2 overflow-x-auto gap-2"
+          role={notice.tone === "error" ? "alert" : "status"}
+          className={`flex items-start justify-between gap-3 p-3.5 rounded-xl border text-xs leading-relaxed ${
+            notice.tone === "error"
+              ? "bg-status-danger-bg text-status-danger-text border-status-danger-border"
+              : "bg-action-subtle text-action-primary border-action-subtle-border"
+          }`}
         >
+          <span>{notice.text}</span>
           <button
             type="button"
-            role="tab"
-            aria-selected={activeTab === "overview"}
-            onClick={() => setActiveTab("overview")}
-            className={`pb-3 px-3 text-xs sm:text-sm font-bold border-b-2 transition-colors shrink-0 cursor-pointer ${
-              activeTab === "overview"
-                ? "border-action-primary text-action-primary"
-                : "border-transparent text-text-muted hover:text-text-primary"
-            }`}
+            onClick={() => setNotice(null)}
+            aria-label={isRtl ? "بستن پیام" : "Dismiss message"}
+            className="shrink-0 min-h-[24px] min-w-[24px] font-bold cursor-pointer focus-visible:outline-2 focus-visible:outline-focus-ring rounded"
           >
-            📋 {t.tabOverview}
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeTab === "tiers"}
-            onClick={() => setActiveTab("tiers")}
-            className={`pb-3 px-3 text-xs sm:text-sm font-bold border-b-2 transition-colors shrink-0 cursor-pointer ${
-              activeTab === "tiers"
-                ? "border-action-primary text-action-primary"
-                : "border-transparent text-text-muted hover:text-text-primary"
-            }`}
-          >
-            🎫 {t.tabTiers} ({tiers.length})
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeTab === "points"}
-            onClick={() => setActiveTab("points")}
-            className={`pb-3 px-3 text-xs sm:text-sm font-bold border-b-2 transition-colors shrink-0 cursor-pointer ${
-              activeTab === "points"
-                ? "border-action-primary text-action-primary"
-                : "border-transparent text-text-muted hover:text-text-primary"
-            }`}
-          >
-            🚪 {t.tabPoints} ({points.length})
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeTab === "booths"}
-            onClick={() => setActiveTab("booths")}
-            className={`pb-3 px-3 text-xs sm:text-sm font-bold border-b-2 transition-colors shrink-0 cursor-pointer ${
-              activeTab === "booths"
-                ? "border-action-primary text-action-primary"
-                : "border-transparent text-text-muted hover:text-text-primary"
-            }`}
-          >
-            🏢 {t.tabBooths} ({booths.length})
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeTab === "operators"}
-            onClick={() => setActiveTab("operators")}
-            className={`pb-3 px-3 text-xs sm:text-sm font-bold border-b-2 transition-colors shrink-0 cursor-pointer ${
-              activeTab === "operators"
-                ? "border-action-primary text-action-primary"
-                : "border-transparent text-text-muted hover:text-text-primary"
-            }`}
-          >
-            👥 {t.tabOperators} ({operators.filter((o) => !o.is_revoked).length})
+            ✕
           </button>
         </div>
-      </div>
+      )}
 
       {/* 2. Task Section Content */}
 
       {/* TAB A: Overview */}
       {activeTab === "overview" && (
         <div className="space-y-6">
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div className="p-5 rounded-2xl bg-surface-panel border border-border-default shadow-xs space-y-1">
-              <span className="text-xs font-semibold text-text-muted block">{t.tabTiers}</span>
-              <span className="text-2xl font-extrabold text-text-primary block">
-                {formatLocalizedNumber(tiers.length, locale)}
-              </span>
-              <span className="text-[11px] text-text-secondary block">
-                {isRtl ? "رده فعال پذیرش" : "Active ticket tiers"}
-              </span>
-            </div>
-
-            <div className="p-5 rounded-2xl bg-surface-panel border border-border-default shadow-xs space-y-1">
-              <span className="text-xs font-semibold text-text-muted block">{t.tabPoints}</span>
-              <span className="text-2xl font-extrabold text-text-primary block">
-                {formatLocalizedNumber(points.length, locale)}
-              </span>
-              <span className="text-[11px] text-text-secondary block">
-                {isRtl ? "ایستگاه اسکن بارکد" : "Gate scanner stations"}
-              </span>
-            </div>
-
-            <div className="p-5 rounded-2xl bg-surface-panel border border-border-default shadow-xs space-y-1">
-              <span className="text-xs font-semibold text-text-muted block">{t.tabBooths}</span>
-              <span className="text-2xl font-extrabold text-text-primary block">
-                {formatLocalizedNumber(booths.length, locale)}
-              </span>
-              <span className="text-[11px] text-text-secondary block">
-                {isRtl ? "غرفه تجاری ثبت‌شده" : "Exhibitor stands"}
-              </span>
-            </div>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+            {([
+              ["/tiers", t.tabTiers, tiers.length, isRtl ? "رده بلیط" : "Ticket tiers"],
+              ["/check-in", t.tabPoints, points.length, isRtl ? "ایستگاه اسکن بارکد" : "Scanner stations"],
+              ["/booths", t.tabBooths, booths.length, isRtl ? "غرفه ثبت‌شده" : "Registered booths"],
+              ["/operators", t.tabOperators, operators.filter((o) => !o.is_revoked).length, isRtl ? "اپراتور فعال" : "Active operators"],
+            ] as const).map(([path, label, count, caption]) => (
+              <Link
+                key={path}
+                to={eventWorkspacePath(event.id, path)}
+                className="p-4 sm:p-5 rounded-2xl bg-surface-panel border border-border-default shadow-xs space-y-1 hover:border-action-primary transition-colors focus-visible:outline-2 focus-visible:outline-focus-ring"
+              >
+                <span className="text-xs font-semibold text-text-muted block">{label}</span>
+                <span className="text-2xl font-extrabold text-text-primary block">{formatLocalizedNumber(count, locale)}</span>
+                <span className="text-[11px] text-text-secondary block">{caption}</span>
+              </Link>
+            ))}
           </div>
 
-          {/* Operational Stations Card Grid */}
-          <div className="space-y-3">
-            <h2 className="text-base font-bold text-text-primary tracking-tight">
-              {t.fastActionsHeading}
-            </h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="p-5 rounded-2xl bg-surface-panel border border-border-default shadow-xs flex items-start justify-between gap-4">
-                <div className="space-y-1">
-                  <h3 className="font-bold text-sm text-text-primary flex items-center gap-1.5">
-                    <span>🖨️</span>
-                    <span>{t.openDeskAction}</span>
-                  </h3>
-                  <p className="text-xs text-text-secondary leading-relaxed">
-                    {t.deskStationDesc}
-                  </p>
-                </div>
-                <LinkButton to={`/organizer/events/${event.id}/desk`} variant="secondary" size="sm">
-                  {isRtl ? "ورود" : "Open"} →
-                </LinkButton>
-              </div>
+          <section aria-labelledby="capacity-title" className="p-5 sm:p-6 rounded-2xl bg-surface-panel border border-border-default shadow-xs space-y-4">
+            <div className="flex items-center justify-between gap-3">
+              <h2 id="capacity-title" className="text-base font-bold text-text-primary tracking-tight">
+                {isRtl ? "ظرفیت و رزرو بلیط" : "Ticket capacity & reservations"}
+              </h2>
+              <LinkButton to={eventWorkspacePath(event.id, "/tiers")} variant="secondary" size="sm">
+                {t.tabTiers} {isRtl ? "←" : "→"}
+              </LinkButton>
+            </div>
+            {tiers.length === 0 ? (
+              <p className="text-sm text-text-secondary">
+                {isRtl ? "هنوز رده بلیطی تعریف نشده است؛ بدون رده بلیط، شرکت‌کنندگان نمی‌توانند ثبت‌نام کنند." : "No ticket tier is defined yet; attendees cannot reserve a pass until you add one."}
+              </p>
+            ) : (
+              <>
+                <p className="text-sm text-text-secondary">
+                  <span className="font-bold text-text-primary">{formatLocalizedNumber(tiers.reduce((n, x) => n + x.reserved_count, 0), locale)}</span>
+                  {" / "}
+                  {formatLocalizedNumber(tiers.reduce((n, x) => n + x.quota, 0), locale)}{" "}
+                  {isRtl ? "بلیط رزروشده از کل ظرفیت" : "passes reserved of total quota"}
+                </p>
+                <ul className="divide-y divide-border-subtle">
+                  {tiers.map((tier) => {
+                    const pct = tier.quota > 0 ? Math.min(100, Math.round((tier.reserved_count / tier.quota) * 100)) : 0;
+                    return (
+                      <li key={tier.id} className="py-3 space-y-1.5">
+                        <div className="flex items-center justify-between gap-3 text-sm">
+                          <span className="font-semibold text-text-primary break-words min-w-0">{tier.name}</span>
+                          <span className="shrink-0 flex items-center gap-2 text-xs text-text-secondary">
+                            <Badge variant={tier.is_open ? "success" : "neutral"} size="sm">
+                              {tier.is_open ? (isRtl ? "باز" : "Open") : (isRtl ? "بسته" : "Closed")}
+                            </Badge>
+                            <bdi dir="ltr">{tier.reserved_count} / {tier.quota}</bdi>
+                          </span>
+                        </div>
+                        <div
+                          role="progressbar"
+                          aria-label={tier.name}
+                          aria-valuenow={pct}
+                          aria-valuemin={0}
+                          aria-valuemax={100}
+                          className="w-full bg-surface-panel-subtle rounded-full h-2 overflow-hidden border border-border-subtle"
+                        >
+                          <div className="bg-action-primary h-2 rounded-full" style={{ width: `${pct}%` }} />
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </>
+            )}
+          </section>
 
-              <div className="p-5 rounded-2xl bg-surface-panel border border-border-default shadow-xs flex items-start justify-between gap-4">
-                <div className="space-y-1">
-                  <h3 className="font-bold text-sm text-text-primary flex items-center gap-1.5">
-                    <span>📊</span>
-                    <span>{t.openAnalyticsAction}</span>
-                  </h3>
-                  <p className="text-xs text-text-secondary leading-relaxed">
-                    {t.analyticsStationDesc}
-                  </p>
-                </div>
-                <LinkButton to={`/organizer/events/${event.id}/analytics`} variant="secondary" size="sm">
-                  {isRtl ? "مشاهده" : "View"} →
-                </LinkButton>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="p-5 rounded-2xl bg-surface-panel border border-border-default shadow-xs flex items-start justify-between gap-4">
+              <div className="space-y-1">
+                <h3 className="font-bold text-sm text-text-primary">📊 {t.openAnalyticsAction}</h3>
+                <p className="text-xs text-text-secondary leading-relaxed">{t.analyticsStationDesc}</p>
               </div>
+              <LinkButton to={eventWorkspacePath(event.id, "/analytics")} variant="secondary" size="sm">
+                {isRtl ? "مشاهده" : "View"} →
+              </LinkButton>
+            </div>
+            <div className="p-5 rounded-2xl bg-surface-panel border border-border-default shadow-xs flex items-start justify-between gap-4">
+              <div className="space-y-1">
+                <h3 className="font-bold text-sm text-text-primary">🖨️ {t.openDeskAction}</h3>
+                <p className="text-xs text-text-secondary leading-relaxed">
+                  {isRtl ? "میز پذیرش دسترسی جداگانه اپراتور دارد؛ با کلید مدیر هم می‌توان در حالت مدیر وارد شد." : "Reception has its own operator access; you can also enter it in Organizer mode."}
+                </p>
+              </div>
+              <LinkButton to={eventWorkspacePath(event.id, "/desk")} variant="secondary" size="sm">
+                {isRtl ? "ورود" : "Open"} →
+              </LinkButton>
             </div>
           </div>
         </div>
@@ -1131,7 +1101,7 @@ function OrganizerEventDetailContent() {
                         variant="secondary"
                         size="sm"
                         disabled={revokingOperatorId === op.id}
-                        onClick={() => handleRevokeOperator(op.id)}
+                        onClick={() => setRevokeTarget(op)}
                         className="text-xs py-1 px-2.5 text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200"
                       >
                         {revokingOperatorId === op.id ? "..." : t.revokeOperatorAction}
@@ -2011,6 +1981,46 @@ function OrganizerEventDetailContent() {
           </form>
         )}
       </Dialog>
+
+      {/* Confirmations render last so they always stack above any open form dialog. */}
+      <ConfirmDialog
+        isOpen={revokeTarget !== null}
+        tone="danger"
+        title={isRtl ? "لغو دسترسی اپراتور؟" : "Revoke operator access?"}
+        description={
+          revokeTarget
+            ? isRtl
+              ? `${revokeTarget.operator_name} دیگر نمی‌تواند وارد میز پذیرش شود و نشست‌های فعال او بی‌اعتبار می‌شود.`
+              : `${revokeTarget.operator_name} will no longer be able to use the reception desk and any active session stops working.`
+            : ""
+        }
+        confirmLabel={t.revokeOperatorAction}
+        cancelLabel={isRtl ? "انصراف" : "Cancel"}
+        onCancel={() => setRevokeTarget(null)}
+        onConfirm={() => {
+          const target = revokeTarget;
+          setRevokeTarget(null);
+          if (target) void handleRevokeOperator(target.id);
+        }}
+      />
+
+      <ConfirmDialog
+        isOpen={confirmCloseTier}
+        title={isRtl ? "بستن این رده بلیط؟" : "Close this ticket tier?"}
+        description={
+          isRtl
+            ? "پس از بستن، شرکت‌کنندگان جدید نمی‌توانند این رده را رزرو کنند. رزروهای موجود حفظ می‌شود."
+            : "New attendees will no longer be able to reserve this tier. Existing reservations are kept."
+        }
+        confirmLabel={isRtl ? "بستن رده" : "Close tier"}
+        cancelLabel={isRtl ? "انصراف" : "Cancel"}
+        onCancel={() => setConfirmCloseTier(false)}
+        onConfirm={() => {
+          closeTierConfirmed.current = true;
+          setConfirmCloseTier(false);
+          void handleUpdateTier();
+        }}
+      />
     </div>
   );
 }
