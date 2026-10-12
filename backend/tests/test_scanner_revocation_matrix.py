@@ -260,8 +260,8 @@ async def test_revoke_rejects_cross_tenant_token(client: AsyncClient) -> None:
         f"/api/checkin-points/{point_b}/devices/self/revoke",
         headers=_scanner_auth(issued_a["scanner_token"]),
     )
-    # 403 (scope mismatch) or 404 (not found) are both acceptable
-    assert res.status_code in (403, 404)
+    assert res.status_code == 403  # Point scope is checked before resource lookup.
+    assert "WWW-Authenticate" not in res.headers
 
 
 async def test_revoke_rejects_attendee_token(client: AsyncClient) -> None:
@@ -361,8 +361,8 @@ async def test_concurrent_organizer_and_self_revoke(client: AsyncClient) -> None
 # 5. HTTP Error Response Handling
 # ---------------------------------------------------------------------------
 
-async def test_revoke_returns_404_for_nonexistent_point(client: AsyncClient) -> None:
-    """Revoking at a non-existent check-in point returns 404."""
+async def test_revoke_checks_scope_before_nonexistent_point(client: AsyncClient) -> None:
+    """A token for another point fails scope before the missing-point lookup."""
     org = await provision_organizer(client, "404 Org")
     event_id = await _create_event(client, org)
     point_id = await _create_point(client, org, event_id, "Real Gate")
@@ -373,8 +373,8 @@ async def test_revoke_returns_404_for_nonexistent_point(client: AsyncClient) -> 
         f"/api/checkin-points/{fake_point_id}/devices/self/revoke",
         headers=_scanner_auth(issued["scanner_token"]),
     )
-    # 403 (scope check first) or 404 (point not found) are both acceptable
-    assert res.status_code in (403, 404)
+    assert res.status_code == 403
+    assert "WWW-Authenticate" not in res.headers
 
 
 async def test_revoke_returns_401_for_missing_credentials(client: AsyncClient) -> None:

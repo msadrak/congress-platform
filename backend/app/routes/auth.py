@@ -59,19 +59,36 @@ async def current_user(
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer)],
 ) -> User:
     if credentials is None:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Missing authorization token")
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED, "Missing authorization token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     jwt_secret: str = request.app.state.settings.jwt_secret
     payload = decode_access_token(credentials.credentials, jwt_secret)
     if payload is None or "sub" not in payload:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid authorization token")
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED, "Invalid authorization token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    if "type" in payload and payload["type"] != "user":
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED, "Invalid token type for user authentication",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     try:
         user_id = uuid.UUID(payload["sub"])
     except (ValueError, TypeError):
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Malformed token subject")
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED, "Malformed token subject",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
     user = await session.get(User, user_id)
     if user is None:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "User account not found")
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED, "User account not found",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     return user
 
 

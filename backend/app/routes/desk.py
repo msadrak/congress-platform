@@ -184,7 +184,10 @@ async def authorized_desk_operator(
         try:
             operator_uuid = uuid.UUID(str(operator_id_str))
         except (ValueError, TypeError):
-            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid operator token")
+            raise HTTPException(
+                status.HTTP_401_UNAUTHORIZED, "Invalid operator token",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
 
         operator = await session.get(DeskOperator, operator_uuid)
         if operator is None or operator.event_id != event.id:

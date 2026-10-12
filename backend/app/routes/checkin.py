@@ -422,7 +422,8 @@ async def revoke_current_scanner_device(
         device_id = uuid.UUID(str(payload.get("jti", "")))
     except ValueError as exc:
         raise HTTPException(
-            status.HTTP_401_UNAUTHORIZED, "Scanner token has no valid device identity"
+            status.HTTP_401_UNAUTHORIZED, "Scanner token has no valid device identity",
+            headers={"WWW-Authenticate": "Bearer"},
         ) from exc
 
     point = await session.get(CheckInPoint, point_id)

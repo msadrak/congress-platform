@@ -86,6 +86,7 @@ async def test_desk_operator_login_and_me_profile(
         json={"email": "ali.desk@example.com", "password": "wrong-password-123"},
     )
     assert bad_login.status_code == 401
+    assert "WWW-Authenticate" not in bad_login.headers
 
     # Valid login
     login_resp = await client.post(
@@ -255,6 +256,7 @@ async def test_cross_event_operator_isolation_and_revocation_enforcement(
         headers=op1_headers,
     )
     assert cross_search.status_code == 403
+    assert "WWW-Authenticate" not in cross_search.headers
 
     cross_reg = await client.post(
         f"/api/events/{event2}/desk-registrations",
@@ -279,10 +281,12 @@ async def test_cross_event_operator_isolation_and_revocation_enforcement(
         json={"email": "gate1@example.com", "password": temp_pw},
     )
     assert revoked_login.status_code == 403
+    assert "WWW-Authenticate" not in revoked_login.headers
 
     # Existing token cannot be used anymore
     revoked_search = await client.get(
         f"/api/events/{event1}/attendees",
         headers=op1_headers,
     )
-    assert revoked_search.status_code in (401, 403)
+    assert revoked_search.status_code == 401
+    assert revoked_search.headers.get("WWW-Authenticate") == "Bearer"

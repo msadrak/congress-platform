@@ -33,14 +33,20 @@ async def current_organizer(
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer)],
 ) -> Organizer:
     if credentials is None:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Missing API key")
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED, "Missing API key",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     organizer = await session.scalar(
         select(Organizer).where(
             Organizer.api_key_hash == hash_api_key(credentials.credentials)
         )
     )
     if organizer is None:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid API key")
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED, "Invalid API key",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     return organizer
 
 
