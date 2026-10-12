@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { Link, Outlet, useLocation } from "react-router-dom";
 import { SkipLink } from "../components/ui/SkipLink";
 import { LinkButton } from "../components/ui/Button";
+import { signInPath } from "../lib/safeRedirect";
 
 interface PublicLayoutProps {
   children?: React.ReactNode;
@@ -10,6 +11,9 @@ interface PublicLayoutProps {
 export function PublicLayout({ children }: PublicLayoutProps) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const location = useLocation();
+  // Event pages (/e/:slug…) sign in straight back to that congress's portal.
+  const eventSlug = /^\/e\/([A-Za-z0-9_-]+)/.exec(location.pathname)?.[1];
+  const signInTarget = eventSlug ? signInPath(eventSlug, `/c/${eventSlug}/my-congress`) : "/sign-in";
   const [prevPath, setPrevPath] = useState(location.pathname);
   if (prevPath !== location.pathname) {
     setPrevPath(location.pathname);
@@ -102,6 +106,9 @@ export function PublicLayout({ children }: PublicLayoutProps) {
 
           {/* Header Action */}
           <div className="flex items-center gap-2">
+            <LinkButton to={signInTarget} variant="outline" size="sm">
+              Attendee Sign In
+            </LinkButton>
             <LinkButton
               to="/organizer"
               variant="primary"

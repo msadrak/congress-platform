@@ -8,6 +8,7 @@ import { LinkButton } from "../components/ui/Button";
 import { useAttendeeLocale } from "../lib/i18n";
 import { isStoredAttendeeToken, rejectAttendeeToken } from "../lib/attendeeSession";
 import { congressPath } from "../lib/congressContext";
+import { signInPath } from "../lib/safeRedirect";
 import { LoadingBlock, StatusPanel } from "../components/ui/PortalState";
 
 type ProfileState =
@@ -16,13 +17,19 @@ type ProfileState =
   | { status: "signed-out" }
   | { status: "error" };
 
-/** Read-only: profile editing is not part of this portal yet, so no edit controls are shown. */
+/**
+ * Identity fields (name, email, organization, title) are read-only: editing them is an
+ * approval-gated backlog item (P03-T57) because they appear on issued badges. The one
+ * attendee-controlled setting is peer contact sharing, persisted through its own endpoint.
+ */
 export default function MyProfile() {
   const { slug = "" } = useParams<{ slug: string }>();
   const localeHook = useAttendeeLocale();
   const { t, isRtl } = localeHook;
   const token = typeof window !== "undefined" ? localStorage.getItem(ATTENDEE_TOKEN_STORAGE) : null;
   const [state, setState] = useState<ProfileState>({ status: "loading" });
+  const [saving, setSaving] = useState(false);
+  const [privacyMessage, setPrivacyMessage] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
 
   useEffect(() => {
     if (!token) return;
@@ -48,6 +55,45 @@ export default function MyProfile() {
     };
   }, [token]);
 
+  const togglePrivacy = async (current: PrivacyPreferenceOut) => {
+    if (!token || saving) return;
+    if (!isStoredAttendeeToken(token)) {
+      setState({ status: "signed-out" });
+      return;
+    }
+    setSaving(true);
+    setPrivacyMessage(null);
+    try {
+      const { data, response } = await createApiClient({ kind: "user", token }).PATCH("/api/attendees/me/network/privacy", {
+        body: { share_contact_with_peers: !current.share_contact_with_peers },
+      });
+      if (!isStoredAttendeeToken(token)) {
+        setState({ status: "signed-out" });
+        return;
+      }
+      if (response.status === 401) {
+        rejectAttendeeToken(token);
+        setState({ status: "signed-out" });
+      } else if (data) {
+        // The visible value is the one the server persisted, not the one we asked for.
+        setState((prev) => (prev.status === "ready" ? { ...prev, privacy: data } : prev));
+        setPrivacyMessage({ tone: "ok", text: t.privacySavedFeedback });
+      } else {
+        setPrivacyMessage({
+          tone: "error",
+          text: isRtl ? "تنظیم ذخیره نشد؛ مقدار قبلی حفظ شد. دوباره تلاش کنید." : "Your setting was not saved; the previous value is unchanged. Please try again.",
+        });
+      }
+    } catch {
+      setPrivacyMessage({
+        tone: "error",
+        text: isRtl ? "اتصال برقرار نشد؛ تنظیم تغییری نکرد." : "Connection failed; your setting was not changed.",
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const view = !token ? { status: "signed-out" as const } : state;
   let content;
   if (view.status === "loading") {
@@ -55,7 +101,7 @@ export default function MyProfile() {
   } else if (view.status === "signed-out") {
     content = (
       <StatusPanel icon="🔐" title={t.unauthenticatedTitle}>
-        <LinkButton to={`/e/${slug}`} variant="primary" size="md">{t.loginAction} →</LinkButton>
+        <LinkButton to={signInPath(slug, congressPath(slug, "my-profile"))} variant="primary" size="md">{t.loginAction} →</LinkButton>
       </StatusPanel>
     );
   } else if (view.status === "error") {
@@ -76,13 +122,17 @@ export default function MyProfile() {
       <>
         <Card className="p-6 border-border-default space-y-4">
           <div className="flex items-center gap-3">
-            <span aria-hidden="true" className="w-12 h-12 rounded-full bg-action-subtle text-action-primary flex items-center justify-center text-xl font-bold">
+            <span aria-hidden="true" className="w-12 h-12 rounded-full bg-action-subtle text-action-primary flex items-center justify-center text-xl font-bold shrink-0">
               {user.full_name.trim().charAt(0).toUpperCase() || "?"}
             </span>
             <div className="min-w-0">
               <h1 className="text-xl font-bold text-text-primary truncate">{user.full_name}</h1>
               <p className="text-sm text-text-secondary truncate"><bdi>{user.email}</bdi></p>
             </div>
+          </div>
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-sm font-bold text-text-primary">{isRtl ? "اطلاعات هویتی" : "Identity details"}</h2>
+            <Badge variant="neutral" size="sm">🔒 {isRtl ? "فقط خواندنی" : "Read-only"}</Badge>
           </div>
           <dl className="divide-y divide-border-subtle">
             {rows.map(([label, value]) => (
@@ -93,23 +143,66 @@ export default function MyProfile() {
             ))}
           </dl>
           <p className="text-xs text-text-muted">
-            {isRtl ? "ویرایش پروفایل هنوز در این پورتال فعال نیست." : "Profile editing is not available in this portal yet."}
+            {isRtl
+              ? "این اطلاعات هنگام ثبت‌نام ثبت شده و روی کارت ورود شما درج می‌شود؛ از این صفحه قابل ویرایش نیست."
+              : "These details come from your registration and appear on your badge, so they cannot be edited here."}
           </p>
         </Card>
 
-        <Card className="p-6 border-border-default space-y-3">
-          <h2 className="text-sm font-bold text-text-primary">🔒 {t.privacyHeading}</h2>
+        <Card className="p-6 border-border-default space-y-4">
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-sm font-bold text-text-primary">🔒 {t.privacyHeading}</h2>
+            <Badge variant="brand" size="sm">{isRtl ? "قابل تغییر" : "Editable"}</Badge>
+          </div>
           {privacy ? (
-            <Badge variant={privacy.share_contact_with_peers ? "success" : "neutral"} size="sm">
-              {privacy.share_contact_with_peers ? t.emailSharedStatus : t.emailHiddenStatus}
-            </Badge>
+            <>
+              <div className="flex items-start justify-between gap-4">
+                <div className="space-y-1 min-w-0">
+                  <p id="share-email-label" className="text-sm font-semibold text-text-primary">{t.shareEmailToggleLabel}</p>
+                  <p id="share-email-desc" className="text-xs text-text-secondary leading-relaxed">{t.shareEmailToggleDesc}</p>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={privacy.share_contact_with_peers}
+                  aria-labelledby="share-email-label"
+                  aria-describedby="share-email-desc"
+                  disabled={saving}
+                  onClick={() => void togglePrivacy(privacy)}
+                  className={`relative shrink-0 w-14 h-8 mt-0.5 rounded-full border transition-colors motion-reduce:transition-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring disabled:opacity-60 cursor-pointer ${
+                    privacy.share_contact_with_peers ? "bg-action-primary border-transparent" : "bg-surface-panel-subtle border-border-strong"
+                  }`}
+                >
+                  <span
+                    aria-hidden="true"
+                    className={`absolute top-1 start-1 w-6 h-6 rounded-full bg-white shadow-xs transition-transform motion-reduce:transition-none ${
+                      privacy.share_contact_with_peers ? (isRtl ? "-translate-x-6" : "translate-x-6") : ""
+                    }`}
+                  />
+                </button>
+              </div>
+              <Badge variant={privacy.share_contact_with_peers ? "success" : "neutral"} size="sm">
+                {privacy.share_contact_with_peers ? t.emailSharedStatus : t.emailHiddenStatus}
+              </Badge>
+              {privacyMessage && (
+                <p
+                  role={privacyMessage.tone === "error" ? "alert" : "status"}
+                  className={`text-xs rounded-lg border p-3 ${
+                    privacyMessage.tone === "error"
+                      ? "bg-status-danger-bg text-status-danger-text border-status-danger-border"
+                      : "bg-action-subtle text-action-primary border-action-subtle-border"
+                  }`}
+                >
+                  {privacyMessage.text}
+                </p>
+              )}
+            </>
           ) : (
             <p className="text-sm text-text-secondary">{isRtl ? "وضعیت در دسترس نیست." : "Status unavailable."}</p>
           )}
           <p className="text-xs text-text-muted">
-            {isRtl ? "این تنظیم برای همه همایش‌ها اعمال می‌شود و در «شبکه من» قابل تغییر است." : "This setting applies to all congresses and can be changed in My Network."}
+            {isRtl ? "این تنظیم برای همه همایش‌ها اعمال می‌شود." : "This setting applies to all congresses."}
           </p>
-          <LinkButton to={congressPath(slug, "my-network")} variant="secondary" size="sm">{t.navMyNetwork} →</LinkButton>
         </Card>
       </>
     );

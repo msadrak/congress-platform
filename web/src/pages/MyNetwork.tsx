@@ -17,7 +17,8 @@ import {
 } from "../lib/i18n";
 import { useParams } from "react-router-dom";
 import { AttendeeLayout } from "../layouts/AttendeeLayout";
-import { useCongressEvent } from "../lib/congressContext";
+import { congressPath, useCongressEvent } from "../lib/congressContext";
+import { signInPath } from "../lib/safeRedirect";
 import { Badge } from "../components/ui/Badge";
 import { Button, LinkButton } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
@@ -29,7 +30,6 @@ export default function MyNetwork() {
   const { slug } = useParams<{ slug?: string }>();
   const congress = useCongressEvent(slug);
   const [connections, setConnections] = useState<ConnectionOut[]>([]);
-  const [scopeNotice, setScopeNotice] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -150,6 +150,15 @@ export default function MyNetwork() {
       return;
     }
 
+    // Inside a congress portal the scan is bound to that congress: the server refuses a badge
+    // from another congress before writing anything. Without the congress id it cannot be bound.
+    if (slug && !activeEventId) {
+      setConnectModalError(
+        isRtl ? "اطلاعات همایش هنوز بارگذاری نشده است. کمی بعد دوباره تلاش کنید." : "This congress is still loading. Try again in a moment."
+      );
+      return;
+    }
+
     setSubmittingConnect(true);
     setConnectModalError(null);
     const client = createApiClient({ kind: "user", token });
@@ -159,6 +168,7 @@ export default function MyNetwork() {
         body: {
           qr_secret: peerQrSecret.trim(),
           private_notes: initialNotes.trim(),
+          event_id: activeEventId,
         },
       }
     );
@@ -168,18 +178,17 @@ export default function MyNetwork() {
     setSubmittingConnect(false);
     if (!stillCurrent) return;
     if (err) {
-      setConnectModalError(formatApiError(err));
+      setConnectModalError(
+        response.status === 409
+          ? isRtl
+            ? "این کارت متعلق به همایش دیگری است و ذخیره نشد. کارت یکی از شرکت‌کنندگان همین همایش را اسکن کنید."
+            : "This badge belongs to another congress and was not saved. Scan a badge from this congress."
+          : formatApiError(err)
+      );
     } else if (data) {
       setPeerQrSecret("");
       setInitialNotes("");
       setIsConnectModalOpen(false);
-      setScopeNotice(
-        slug && activeEventId && data.event_id !== activeEventId
-          ? isRtl
-            ? "این کارت متعلق به همایش دیگری است؛ ارتباط در همان همایش ذخیره شد و اینجا نمایش داده نمی‌شود."
-            : "This badge belongs to another congress. The contact was saved there and is not shown here."
-          : null
-      );
       loadData();
     }
   };
@@ -269,7 +278,7 @@ export default function MyNetwork() {
             </p>
           </div>
           <div className="pt-2">
-            <LinkButton to="/" variant="primary" size="lg" isFullWidth>
+            <LinkButton to={signInPath(slug, slug ? congressPath(slug, "my-network") : "/my-network")} variant="primary" size="lg" isFullWidth>
               {t.loginAction} →
             </LinkButton>
           </div>
@@ -321,12 +330,6 @@ export default function MyNetwork() {
             className="p-3.5 rounded-xl bg-action-subtle text-action-primary border border-action-subtle-border text-xs leading-relaxed animate-in fade-in"
           >
             {privacyFeedback}
-          </div>
-        )}
-
-        {scopeNotice && (
-          <div role="status" className="p-3 rounded-xl bg-status-warning-bg text-status-warning-text border border-status-warning-border text-xs">
-            {scopeNotice}
           </div>
         )}
 

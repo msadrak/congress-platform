@@ -41,6 +41,7 @@ export type ConnectionOut = components["schemas"]["ConnectionOut"];
 export type ConnectionScanRequest = components["schemas"]["ConnectionScanRequest"];
 export type ConnectionUpdate = components["schemas"]["ConnectionUpdate"];
 export type PublicBoothOut = components["schemas"]["PublicBoothOut"];
+export type PublicBoothSummary = components["schemas"]["PublicBoothSummary"];
 export type BookmarkToggleOut = components["schemas"]["BookmarkToggleOut"];
 export type BookmarkedBoothOut = components["schemas"]["BookmarkedBoothOut"];
 export type LeadOut = components["schemas"]["LeadOut"];

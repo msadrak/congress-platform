@@ -23,6 +23,7 @@ import {
 } from "../lib/i18n";
 import { AttendeeLayout } from "../layouts/AttendeeLayout";
 import { congressPath } from "../lib/congressContext";
+import { signInPath } from "../lib/safeRedirect";
 import { Badge } from "../components/ui/Badge";
 import { LinkButton } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
@@ -179,7 +180,7 @@ export default function MyTickets() {
             </p>
           </div>
           <div className="pt-2">
-            <LinkButton to={slug ? `/e/${slug}` : "/"} variant="primary" size="lg" isFullWidth>
+            <LinkButton to={signInPath(slug, slug ? congressPath(slug, "my-ticket") : "/my-tickets")} variant="primary" size="lg" isFullWidth>
               {t.loginAction} →
             </LinkButton>
           </div>
@@ -231,7 +232,7 @@ export default function MyTickets() {
                 ? "این بلیط از نسخه ذخیره‌شده نمایش داده می‌شود و ممکن است به‌روز نباشد. برای تازه‌سازی دوباره وارد شوید."
                 : "This pass is shown from your saved offline copy and may be out of date. Sign in again to refresh it."}
             </p>
-            <LinkButton to="/" variant="secondary" size="sm">
+            <LinkButton to={signInPath(slug, slug ? congressPath(slug, "my-ticket") : "/my-tickets")} variant="secondary" size="sm">
               {t.loginAction} →
             </LinkButton>
           </div>

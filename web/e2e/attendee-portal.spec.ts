@@ -34,6 +34,7 @@ async function fixture(page: Page, options: { publicStatus?: number; slowEvent?:
       }
       return EVENTS[pub[1]] ? json(200, EVENTS[pub[1]]) : json(404, { detail: 'Event not found' });
     }
+    if (/^\/api\/public\/events\/[^/]+\/booths$/.test(path)) return json(200, []);
     if (path === '/api/attendees/me/tickets') return json(200, [ticketOf('alpha'), ticketOf('beta')]);
     if (path === '/api/attendees/me/network') return json(200, [connectionOf('alpha'), connectionOf('beta')]);
     if (path === '/api/attendees/me/network/privacy') return json(200, { share_contact_with_peers: false });

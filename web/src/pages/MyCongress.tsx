@@ -5,7 +5,6 @@ import {
   createApiClient,
   type AttendeeTicketDetail,
   type AccessEvent,
-  type BookmarkedBoothOut,
 } from "../api/client";
 import { AttendeeLayout } from "../layouts/AttendeeLayout";
 import { Badge } from "../components/ui/Badge";
@@ -15,13 +14,14 @@ import { formatLocalizedDate, formatLocalizedNumber, useAttendeeLocale } from ".
 import { isStoredAttendeeToken, rejectAttendeeToken } from "../lib/attendeeSession";
 import { loadOwnerScopedTickets } from "../lib/ticketCache";
 import { congressPath, useCongressEvent } from "../lib/congressContext";
+import { signInPath } from "../lib/safeRedirect";
 import { LoadingBlock, StatusPanel } from "../components/ui/PortalState";
+import { BoothDirectory } from "../components/BoothDirectory";
 
 interface Overview {
   tickets: AttendeeTicketDetail[];
   fromCache: boolean;
   connectionCount: number | null;
-  savedBooths: BookmarkedBoothOut[];
   otherCongresses: AccessEvent[];
 }
 
@@ -42,14 +42,13 @@ export default function MyCongress() {
     const load = async () => {
       const client = createApiClient({ kind: "user", token });
       try {
-        const [ticketsRes, networkRes, savedRes, accessRes] = await Promise.all([
+        const [ticketsRes, networkRes, accessRes] = await Promise.all([
           client.GET("/api/attendees/me/tickets"),
           client.GET("/api/attendees/me/network"),
-          client.GET("/api/attendees/me/bookmarks/booths"),
           client.GET("/api/me/access"),
         ]);
         if (!active || !isStoredAttendeeToken(token)) return;
-        if ([ticketsRes, networkRes, savedRes, accessRes].some((r) => r.response.status === 401)) {
+        if ([ticketsRes, networkRes, accessRes].some((r) => r.response.status === 401)) {
           rejectAttendeeToken(token);
           setFailed(true);
           return;
@@ -60,7 +59,6 @@ export default function MyCongress() {
           tickets: tickets.filter((tkt) => tkt.event_slug === slug),
           fromCache: !ticketsRes.data,
           connectionCount: networkRes.data ? networkRes.data.filter((c) => c.event_id === eventId).length : null,
-          savedBooths: (savedRes.data ?? []).filter((b) => b.event_slug === slug),
           otherCongresses: (accessRes.data?.events ?? []).filter((e) => e.event_slug !== slug && e.roles.includes("ATTENDEE")),
         });
       } catch {
@@ -75,7 +73,6 @@ export default function MyCongress() {
           tickets: cache.tickets.filter((tkt) => tkt.event_slug === slug),
           fromCache: true,
           connectionCount: null,
-          savedBooths: [],
           otherCongresses: [],
         });
       }
@@ -122,8 +119,9 @@ export default function MyCongress() {
         {hero}
         <StatusPanel icon="🔐" title={t.unauthenticatedTitle}>
           <p>{isRtl ? "برای دیدن بلیط و ارتباطات این همایش وارد شوید." : "Sign in to see your pass and connections for this congress."}</p>
-          <LinkButton to={`/e/${slug}`} variant="primary" size="md">{t.loginAction} →</LinkButton>
+          <LinkButton to={signInPath(slug, congressPath(slug, "my-congress"))} variant="primary" size="md">{t.loginAction} →</LinkButton>
         </StatusPanel>
+        <BoothDirectory slug={slug} token={null} isRtl={isRtl} />
       </>
     );
   }
@@ -176,30 +174,7 @@ export default function MyCongress() {
         </Card>
       </div>
 
-      <Card className="p-5 border-border-default space-y-3">
-        <h2 className="text-sm font-bold text-text-primary">🏢 {isRtl ? "غرفه‌ها و حامیان ذخیره‌شده" : "Saved partners & booths"}</h2>
-        {overview.savedBooths.length === 0 ? (
-          <p className="text-sm text-text-secondary">
-            {isRtl
-              ? "هنوز غرفه‌ای از این همایش ذخیره نکرده‌اید. با اسکن کیوآر غرفه‌ها در محل همایش، آن‌ها را اینجا ببینید."
-              : "You have not saved any booths at this congress. Scan a booth's QR code at the venue to keep it here."}
-          </p>
-        ) : (
-          <ul className="divide-y divide-border-subtle">
-            {overview.savedBooths.map((b) => (
-              <li key={b.booth_id} className="py-2.5 flex items-center justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="text-sm font-semibold text-text-primary truncate">{b.name}</p>
-                  {b.location && <p className="text-xs text-text-muted">📍 {b.location}</p>}
-                </div>
-                <Link to={`/e/${slug}/booths/${b.booth_id}`} className="text-xs font-semibold text-action-primary hover:underline shrink-0 py-2">
-                  {t.viewBoothAction}
-                </Link>
-              </li>
-            ))}
-          </ul>
-        )}
-      </Card>
+      <BoothDirectory slug={slug} token={token} isRtl={isRtl} />
 
       <div className="grid gap-4 sm:grid-cols-2">
         <LinkButton to={congressPath(slug, "details")} variant="secondary" size="md">ℹ️ {t.navCongressDetails}</LinkButton>

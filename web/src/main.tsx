@@ -6,6 +6,7 @@ import "./index.css";
 import "./lib/pwaRegistration";
 import { CongressRoute } from "./components/ui/PortalState";
 import CongressDetails from "./pages/CongressDetails";
+import AttendeeSignIn from "./pages/AttendeeSignIn";
 import ExhibitorPortal from "./pages/ExhibitorPortal";
 import GateScanner from "./pages/GateScanner";
 import Home from "./pages/Home";
@@ -43,6 +44,8 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
         <Route path="/c/:slug/my-network" element={<CongressRoute page={MyNetwork} />} />
         <Route path="/c/:slug/my-ticket" element={<CongressRoute page={MyTickets} />} />
         <Route path="/c/:slug/my-profile" element={<CongressRoute page={MyProfile} />} />
+        <Route path="/sign-in" element={<AttendeeSignIn />} />
+        <Route path="/c/:slug/sign-in" element={<CongressRoute page={AttendeeSignIn} />} />
         <Route path="/c/:slug/details" element={<CongressRoute page={CongressDetails} />} />
       </Routes>
     </BrowserRouter>
