@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useCallback, useState } from "react";
 import { Link, Outlet, useLocation, useNavigate, useParams } from "react-router-dom";
 import { ORGANIZER_KEY_STORAGE } from "../api/client";
 import { useAttendeeLocale, type TranslationDictionary } from "../lib/i18n";
@@ -8,6 +8,8 @@ import { Card } from "../components/ui/Card";
 
 export interface OrganizerOutletContext {
   apiKey: string | null;
+  /** Reports a 401 for the exact key that was sent; any other key or failure is left alone. */
+  onKeyRejected: (sentKey: string) => void;
   locale: "fa" | "en";
   t: TranslationDictionary;
   isRtl: boolean;
@@ -28,6 +30,7 @@ export default function OrganizerLayout() {
   });
   const [inputKey, setInputKey] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [keyRejected, setKeyRejected] = useState(false);
 
   const handleSaveKey = (e: React.FormEvent) => {
     e.preventDefault();
@@ -42,6 +45,7 @@ export default function OrganizerLayout() {
     setApiKey(trimmed);
     setInputKey("");
     setError(null);
+    setKeyRejected(false);
   };
 
   const handleLogout = () => {
@@ -51,6 +55,15 @@ export default function OrganizerLayout() {
     setApiKey(null);
     navigate("/organizer");
   };
+
+  // Stable identity: pages list it as an effect dependency and must not refetch on re-render.
+  const handleKeyRejected = useCallback((sentKey: string) => {
+    // A late 401 for an earlier key must not delete a newer organizer session.
+    if (sessionStorage.getItem(ORGANIZER_KEY_STORAGE) !== sentKey) return;
+    sessionStorage.removeItem(ORGANIZER_KEY_STORAGE);
+    setApiKey((current) => (current === sentKey ? null : current));
+    setKeyRejected(true);
+  }, []);
 
   const toggleLocale = () => {
     setLocale(locale === "fa" ? "en" : "fa");
@@ -260,13 +273,13 @@ export default function OrganizerLayout() {
                     />
                   </div>
 
-                  {error && (
+                  {(error || keyRejected) && (
                     <div
                       role="alert"
                       aria-live="assertive"
                       className="p-3 rounded-xl bg-status-danger-bg text-status-danger-text border border-status-danger-border text-xs leading-relaxed"
                     >
-                      {error}
+                      {error ?? (isRtl ? "کلید API رد شد. لطفاً کلید معتبر وارد کنید." : "Your organizer API key was rejected. Please enter a valid key.")}
                     </div>
                   )}
 
@@ -294,7 +307,7 @@ export default function OrganizerLayout() {
             </Card>
           </div>
         ) : (
-          <Outlet context={{ apiKey, locale, t, isRtl, dir } satisfies OrganizerOutletContext} />
+          <Outlet context={{ apiKey, onKeyRejected: handleKeyRejected, locale, t, isRtl, dir } satisfies OrganizerOutletContext} />
         )}
       </main>
 

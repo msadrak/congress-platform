@@ -2,8 +2,8 @@ import React, { useEffect, useState } from "react";
 import QRCode from "react-qr-code";
 import { Link, useOutletContext, useParams } from "react-router-dom";
 import {
+  createApiClient,
   formatApiError,
-  getApiClient,
   type BoothOut,
   type CheckInPointOut,
   type DeskOperatorCreated,
@@ -24,9 +24,15 @@ type PolicyType =
   | "TIER_RESTRICTED"
   | "CAPACITY_CAPPED";
 
+// Remount per event so a late response for event A can never write into event B's state.
 export default function OrganizerEventDetail() {
   const { eventId } = useParams<{ eventId: string }>();
-  const { apiKey, locale, t, isRtl } = useOutletContext<OrganizerOutletContext>();
+  return <OrganizerEventDetailContent key={eventId} />;
+}
+
+function OrganizerEventDetailContent() {
+  const { eventId } = useParams<{ eventId: string }>();
+  const { apiKey, onKeyRejected, locale, t, isRtl } = useOutletContext<OrganizerOutletContext>();
 
   const [event, setEvent] = useState<EventOut | null>(null);
   const [tiers, setTiers] = useState<TicketTierOut[]>([]);
@@ -115,12 +121,14 @@ export default function OrganizerEventDetail() {
   const [submittingPointEdit, setSubmittingPointEdit] = useState(false);
   const [pointEditError, setPointEditError] = useState<string | null>(null);
   useEffect(() => {
-    if (!eventId) return;
+    // Without an organizer key nothing is dispatched; the layout shows the key gate.
+    if (!eventId || !apiKey) return;
+    let isMounted = true;
 
     const loadData = async () => {
       setLoading(true);
       setError(null);
-      const client = getApiClient(apiKey);
+      const client = createApiClient({ kind: "organizer", token: apiKey });
 
       const [eventRes, tiersRes, pointsRes, boothsRes, operatorsRes] = await Promise.all([
         client.GET("/api/events/{event_id}", {
@@ -140,6 +148,12 @@ export default function OrganizerEventDetail() {
         }),
       ]);
 
+      // 401 invalidates only the key that was sent, even if this page has since unmounted.
+      if ([eventRes, tiersRes, pointsRes, boothsRes, operatorsRes].some((res) => res.response.status === 401)) {
+        onKeyRejected(apiKey);
+      }
+      if (!isMounted) return;
+
       if (eventRes.error) {
         setError(formatApiError(eventRes.error));
       } else if (eventRes.data) {
@@ -155,7 +169,10 @@ export default function OrganizerEventDetail() {
     };
 
     loadData();
-  }, [eventId, apiKey]);
+    return () => {
+      isMounted = false;
+    };
+  }, [eventId, apiKey, onKeyRejected]);
 
   const handleCreateTier = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -167,9 +184,10 @@ export default function OrganizerEventDetail() {
       return;
     }
 
+    if (!apiKey) return;
     setSubmittingTier(true);
-    const client = getApiClient(apiKey);
-    const { data, error: err } = await client.POST(
+    const client = createApiClient({ kind: "organizer", token: apiKey });
+    const { data, error: err, response } = await client.POST(
       "/api/events/{event_id}/ticket-tiers",
       {
         params: { path: { event_id: eventId } },
@@ -182,6 +200,7 @@ export default function OrganizerEventDetail() {
       }
     );
 
+    if (response.status === 401) onKeyRejected(apiKey);
     setSubmittingTier(false);
     if (err) {
       setTierFormError(formatApiError(err));
@@ -205,9 +224,10 @@ export default function OrganizerEventDetail() {
       return;
     }
 
+    if (!apiKey) return;
     setSubmittingPoint(true);
-    const client = getApiClient(apiKey);
-    const { data, error: err } = await client.POST(
+    const client = createApiClient({ kind: "organizer", token: apiKey });
+    const { data, error: err, response } = await client.POST(
       "/api/events/{event_id}/checkin-points",
       {
         params: { path: { event_id: eventId } },
@@ -221,6 +241,7 @@ export default function OrganizerEventDetail() {
       }
     );
 
+    if (response.status === 401) onKeyRejected(apiKey);
     setSubmittingPoint(false);
     if (err) {
       setPointFormError(formatApiError(err));
@@ -245,9 +266,10 @@ export default function OrganizerEventDetail() {
       return;
     }
 
+    if (!apiKey) return;
     setSubmittingBooth(true);
-    const client = getApiClient(apiKey);
-    const { data, error: err } = await client.POST(
+    const client = createApiClient({ kind: "organizer", token: apiKey });
+    const { data, error: err, response } = await client.POST(
       "/api/events/{event_id}/booths",
       {
         params: { path: { event_id: eventId } },
@@ -262,6 +284,7 @@ export default function OrganizerEventDetail() {
       }
     );
 
+    if (response.status === 401) onKeyRejected(apiKey);
     setSubmittingBooth(false);
     if (err) {
       setBoothFormError(formatApiError(err));
@@ -281,12 +304,13 @@ export default function OrganizerEventDetail() {
     e.preventDefault();
     if (!eventId || !assigningBooth || !staffEmail.trim()) return;
 
+    if (!apiKey) return;
     setAssigningStaff(true);
     setStaffError(null);
     setStaffFeedback(null);
-    const client = getApiClient(apiKey);
+    const client = createApiClient({ kind: "organizer", token: apiKey });
 
-    const { data, error: err } = await client.POST(
+    const { data, error: err, response } = await client.POST(
       "/api/events/{event_id}/booths/{booth_id}/staff",
       {
         params: { path: { event_id: eventId, booth_id: assigningBooth.id } },
@@ -294,6 +318,7 @@ export default function OrganizerEventDetail() {
       }
     );
 
+    if (response.status === 401) onKeyRejected(apiKey);
     setAssigningStaff(false);
     if (err) {
       setStaffError(formatApiError(err));
@@ -331,15 +356,17 @@ export default function OrganizerEventDetail() {
       setOperatorFormError(isRtl ? "لطفاً نام و ایمیل اپراتور را وارد نمایید." : "Please enter operator name and email.");
       return;
     }
+    if (!apiKey) return;
     setSubmittingOperator(true);
-    const client = getApiClient(apiKey);
-    const { data, error: err } = await client.POST("/api/events/{event_id}/desk/operators", {
+    const client = createApiClient({ kind: "organizer", token: apiKey });
+    const { data, error: err, response } = await client.POST("/api/events/{event_id}/desk/operators", {
       params: { path: { event_id: eventId } },
       body: {
         operator_name: newOperatorName.trim(),
         email: newOperatorEmail.trim().toLowerCase(),
       },
     });
+    if (response.status === 401) onKeyRejected(apiKey);
     setSubmittingOperator(false);
     if (err) {
       setOperatorFormError(formatApiError(err));
@@ -360,14 +387,16 @@ export default function OrganizerEventDetail() {
 
   const handleRevokeOperator = async (operatorId: string) => {
     if (!eventId) return;
+    if (!apiKey) return;
     setRevokingOperatorId(operatorId);
-    const client = getApiClient(apiKey);
-    const { data, error: err } = await client.POST(
+    const client = createApiClient({ kind: "organizer", token: apiKey });
+    const { data, error: err, response } = await client.POST(
       "/api/events/{event_id}/desk/operators/{operator_id}/revoke",
       {
         params: { path: { event_id: eventId, operator_id: operatorId } },
       }
     );
+    if (response.status === 401) onKeyRejected(apiKey);
     setRevokingOperatorId(null);
     if (err) {
       // ignore
@@ -389,9 +418,10 @@ export default function OrganizerEventDetail() {
       setEventEditError(isRtl ? "زمان پایان همایش باید پس از زمان آغاز باشد." : "End time must be after start time.");
       return;
     }
+    if (!apiKey) return;
     setSubmittingEventEdit(true);
-    const client = getApiClient(apiKey);
-    const { data, error: err } = await client.PATCH("/api/events/{event_id}", {
+    const client = createApiClient({ kind: "organizer", token: apiKey });
+    const { data, error: err, response } = await client.PATCH("/api/events/{event_id}", {
       params: { path: { event_id: eventId } },
       body: {
         name: editEventName.trim(),
@@ -401,6 +431,7 @@ export default function OrganizerEventDetail() {
         description: editEventDescription.trim(),
       },
     });
+    if (response.status === 401) onKeyRejected(apiKey);
     setSubmittingEventEdit(false);
     if (err) {
       setEventEditError(formatApiError(err));
@@ -427,9 +458,10 @@ export default function OrganizerEventDetail() {
       setTierEditError(isRtl ? "لطفاً نام رده و ظرفیت معتبر وارد نمایید." : "Please enter a valid tier name and quota.");
       return;
     }
+    if (!apiKey) return;
     setSubmittingTierEdit(true);
-    const client = getApiClient(apiKey);
-    const { data, error: err } = await client.PATCH(
+    const client = createApiClient({ kind: "organizer", token: apiKey });
+    const { data, error: err, response } = await client.PATCH(
       "/api/events/{event_id}/ticket-tiers/{tier_id}",
       {
         params: { path: { event_id: eventId, tier_id: editingTier.id } },
@@ -441,6 +473,7 @@ export default function OrganizerEventDetail() {
         },
       }
     );
+    if (response.status === 401) onKeyRejected(apiKey);
     setSubmittingTierEdit(false);
     if (err) {
       setTierEditError(formatApiError(err));
@@ -472,9 +505,10 @@ export default function OrganizerEventDetail() {
       setPointEditError(isRtl ? "حداقل یک رده بلیط مجاز برای این گیت انتخاب کنید." : "Select at least one allowed tier.");
       return;
     }
+    if (!apiKey) return;
     setSubmittingPointEdit(true);
-    const client = getApiClient(apiKey);
-    const { data, error: err } = await client.PATCH(
+    const client = createApiClient({ kind: "organizer", token: apiKey });
+    const { data, error: err, response } = await client.PATCH(
       "/api/events/{event_id}/checkin-points/{point_id}",
       {
         params: { path: { event_id: eventId, point_id: editingPoint.id } },
@@ -487,6 +521,7 @@ export default function OrganizerEventDetail() {
         },
       }
     );
+    if (response.status === 401) onKeyRejected(apiKey);
     setSubmittingPointEdit(false);
     if (err) {
       setPointEditError(formatApiError(err));

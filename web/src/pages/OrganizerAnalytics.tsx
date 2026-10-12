@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import { useOutletContext, useParams } from "react-router-dom";
 import {
+  createApiClient,
   formatApiError,
-  getApiClient,
   type AttendanceAnalyticsResponse,
   type CheckInPointOut,
   type EventOut,
@@ -14,9 +14,15 @@ import { Badge } from "../components/ui/Badge";
 import { Button, LinkButton } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
 
+// Remount per event so a late response for event A can never write into event B's state.
 export default function OrganizerAnalytics() {
   const { eventId } = useParams<{ eventId: string }>();
-  const { apiKey, locale, t, isRtl } = useOutletContext<OrganizerOutletContext>();
+  return <OrganizerAnalyticsContent key={eventId} />;
+}
+
+function OrganizerAnalyticsContent() {
+  const { eventId } = useParams<{ eventId: string }>();
+  const { apiKey, onKeyRejected, locale, t, isRtl } = useOutletContext<OrganizerOutletContext>();
 
   const [event, setEvent] = useState<EventOut | null>(null);
   const [points, setPoints] = useState<CheckInPointOut[]>([]);
@@ -40,13 +46,14 @@ export default function OrganizerAnalytics() {
   const [exportError, setExportError] = useState<string | null>(null);
 
   useEffect(() => {
+    // Without an organizer key nothing is dispatched; the layout shows the key gate.
+    if (!eventId || !apiKey) return;
     let isMounted = true;
-    if (!eventId) return;
 
     const loadData = async (silent = false) => {
       if (!silent) setLoading(true);
 
-      const client = getApiClient(apiKey);
+      const client = createApiClient({ kind: "organizer", token: apiKey });
       const [evRes, pointsRes, tiersRes, analyticsRes] = await Promise.all([
         client.GET("/api/events/{event_id}", {
           params: { path: { event_id: eventId } },
@@ -68,6 +75,10 @@ export default function OrganizerAnalytics() {
         }),
       ]);
 
+      // 401 invalidates only the key that was sent, even if this page has since unmounted.
+      if ([evRes, pointsRes, tiersRes, analyticsRes].some((res) => res.response.status === 401)) {
+        onKeyRejected(apiKey);
+      }
       if (!isMounted) return;
 
       if (evRes.data) setEvent(evRes.data);
@@ -98,23 +109,24 @@ export default function OrganizerAnalytics() {
       isMounted = false;
       clearInterval(interval);
     };
-  }, [eventId, apiKey, selectedPointId, selectedTierId, autoRefresh, locale]);
+  }, [eventId, apiKey, onKeyRejected, selectedPointId, selectedTierId, autoRefresh, locale]);
 
   const handleDownloadCsv = async () => {
-    if (!eventId || !event) return;
+    if (!eventId || !event || !apiKey) return;
     setIsExporting(true);
     setExportError(null);
     try {
-      const url = `/api/events/${eventId}/analytics/export-csv`;
-      const res = await fetch(url, {
-        headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : {},
+      const client = createApiClient({ kind: "organizer", token: apiKey });
+      const { data: blob, response } = await client.GET("/api/events/{event_id}/analytics/export-csv", {
+        params: { path: { event_id: eventId } },
+        parseAs: "blob",
       });
-      if (!res.ok) {
+      if (response.status === 401) onKeyRejected(apiKey);
+      if (!response.ok || !blob) {
         setExportError("Failed to export attendance CSV.");
         setIsExporting(false);
         return;
       }
-      const blob = await res.blob();
       const link = document.createElement("a");
       link.href = URL.createObjectURL(blob);
       link.download = `${event.slug}-attendance.csv`;

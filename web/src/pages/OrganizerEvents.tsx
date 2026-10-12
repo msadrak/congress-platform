@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { Link, useOutletContext } from "react-router-dom";
-import { formatApiError, getApiClient, type EventOut } from "../api/client";
+import { createApiClient, formatApiError, type EventOut } from "../api/client";
 import { formatLocalizedDate } from "../lib/i18n";
 import type { OrganizerOutletContext } from "./OrganizerLayout";
 import { Badge } from "../components/ui/Badge";
@@ -9,7 +9,7 @@ import { Card } from "../components/ui/Card";
 import { Dialog } from "../components/ui/Dialog";
 
 export default function OrganizerEvents() {
-  const { apiKey, locale, t, isRtl } = useOutletContext<OrganizerOutletContext>();
+  const { apiKey, onKeyRejected, locale, t, isRtl } = useOutletContext<OrganizerOutletContext>();
   const [events, setEvents] = useState<EventOut[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -35,12 +35,16 @@ export default function OrganizerEvents() {
   const [editSubmitting, setEditSubmitting] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
   useEffect(() => {
+    // Without an organizer key nothing is dispatched; the layout shows the key gate.
+    if (!apiKey) return;
     let isMounted = true;
     const fetchEvents = async () => {
       setLoading(true);
       setError(null);
-      const client = getApiClient(apiKey);
-      const { data, error: err } = await client.GET("/api/events");
+      const client = createApiClient({ kind: "organizer", token: apiKey });
+      const { data, error: err, response } = await client.GET("/api/events");
+      // 401 invalidates only the key that was sent, even if this page has since unmounted.
+      if (response.status === 401) onKeyRejected(apiKey);
       if (!isMounted) return;
       if (err) {
         setError(formatApiError(err));
@@ -53,7 +57,7 @@ export default function OrganizerEvents() {
     return () => {
       isMounted = false;
     };
-  }, [apiKey]);
+  }, [apiKey, onKeyRejected]);
 
   const handleNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const newName = e.target.value;
@@ -80,9 +84,10 @@ export default function OrganizerEvents() {
       return;
     }
 
+    if (!apiKey) return;
     setSubmitting(true);
-    const client = getApiClient(apiKey);
-    const { data, error: err } = await client.POST("/api/events", {
+    const client = createApiClient({ kind: "organizer", token: apiKey });
+    const { data, error: err, response } = await client.POST("/api/events", {
       body: {
         name: name.trim(),
         slug: slug.trim(),
@@ -93,6 +98,7 @@ export default function OrganizerEvents() {
       },
     });
 
+    if (response.status === 401) onKeyRejected(apiKey);
     setSubmitting(false);
     if (err) {
       setFormError(formatApiError(err));
@@ -140,9 +146,10 @@ export default function OrganizerEvents() {
       return;
     }
 
+    if (!apiKey) return;
     setEditSubmitting(true);
-    const client = getApiClient(apiKey);
-    const { data, error: err } = await client.PATCH("/api/events/{event_id}", {
+    const client = createApiClient({ kind: "organizer", token: apiKey });
+    const { data, error: err, response } = await client.PATCH("/api/events/{event_id}", {
       params: { path: { event_id: editingEvent.id } },
       body: {
         name: editName.trim(),
@@ -153,6 +160,7 @@ export default function OrganizerEvents() {
       },
     });
 
+    if (response.status === 401) onKeyRejected(apiKey);
     setEditSubmitting(false);
     if (err) {
       setEditError(formatApiError(err));
