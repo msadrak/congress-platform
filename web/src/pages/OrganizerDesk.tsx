@@ -1,10 +1,11 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import QRCode from "react-qr-code";
 import { useOutletContext, useParams } from "react-router-dom";
 import {
   formatApiError,
   createApiClient,
-  getApiClient,
+  createDeskApiClient,
+  type ApiAuthority,
   type AttendeeDetailCard,
   type AttendeeSearchItem,
   type DeskMeOut,
@@ -19,9 +20,18 @@ import { Button, LinkButton } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
 import { Dialog } from "../components/ui/Dialog";
 
+type DeskAuthority = Extract<ApiAuthority, { kind: "desk" | "organizer" }>;
+type DeskMode = "operator" | "organizer";
+
+// Remount per event so an event A session or response can never act in event B.
 export default function OrganizerDesk() {
   const { eventId } = useParams<{ eventId: string }>();
-  const { apiKey, locale, t, isRtl } = useOutletContext<OrganizerOutletContext>();
+  return <OrganizerDeskContent key={eventId} />;
+}
+
+function OrganizerDeskContent() {
+  const { eventId } = useParams<{ eventId: string }>();
+  const { apiKey, onKeyRejected, locale, t, isRtl } = useOutletContext<OrganizerOutletContext>();
   const nameInputRef = useRef<HTMLInputElement>(null);
 
   const [tiers, setTiers] = useState<TicketTierOut[]>([]);
@@ -35,7 +45,21 @@ export default function OrganizerDesk() {
     }
     return null;
   });
-  const activeAuthToken = apiKey || deskToken;
+  // The selected mode, not storage precedence, decides which credential is sent. It starts as
+  // operator mode, or organizer mode when only an organizer key exists, and is changed only by the user.
+  const [mode, setMode] = useState<DeskMode>(() => (!deskToken && apiKey ? "organizer" : "operator"));
+  const [sessionRejected, setSessionRejected] = useState(false);
+  const [reloadNonce, setReloadNonce] = useState(0);
+  const authority = useMemo<DeskAuthority | null>(() => {
+    if (!eventId) return null;
+    if (mode === "organizer") return apiKey ? { kind: "organizer", token: apiKey } : null;
+    return deskToken ? { kind: "desk", token: deskToken, eventId } : null;
+  }, [mode, apiKey, deskToken, eventId]);
+  const signature = authority ? `${authority.kind}:${authority.token}` : "";
+  const signatureRef = useRef(signature);
+  useEffect(() => {
+    signatureRef.current = signature;
+  }, [signature]);
 
   const [operatorProfile, setOperatorProfile] = useState<DeskMeOut | null>(null);
   const [loginEmail, setLoginEmail] = useState("");
@@ -61,72 +85,95 @@ export default function OrganizerDesk() {
   // Selected attendee detail card (with scan history)
   const [selectedCard, setSelectedCard] = useState<AttendeeDetailCard | null>(null);
 
+  // 401 invalidates only the exact credential that was sent; a newer session or the other mode's
+  // credential is never touched. 403/404/5xx/network failures never reach this function.
+  const rejectAuthority = useCallback((sent: DeskAuthority) => {
+    if (sent.kind === "organizer") {
+      onKeyRejected(sent.token);
+      return;
+    }
+    const storageKey = `congress_desk_token_${eventId}`;
+    if (sessionStorage.getItem(storageKey) !== sent.token) return;
+    sessionStorage.removeItem(storageKey);
+    setDeskToken((current) => (current === sent.token ? null : current));
+    setOperatorProfile(null);
+    setSearchResults([]);
+    setSessionRejected(true);
+  }, [eventId, onKeyRejected]);
+
   useEffect(() => {
     let isMounted = true;
-    if (!eventId) return;
+    // Without the selected mode's credential nothing is dispatched; an entry gate is shown instead.
+    if (!eventId || !authority) {
+      setLoading(false);
+      return;
+    }
 
     const loadEventData = async () => {
-      if (!activeAuthToken) {
-        setLoading(false);
-        return;
-      }
-
       setLoading(true);
-      const client = getApiClient(activeAuthToken);
-      const [meRes, tiersRes] = await Promise.all([
-        client.GET("/api/events/{event_id}/desk/me", {
-          params: { path: { event_id: eventId } },
-        }),
-        client.GET("/api/events/{event_id}/desk/tiers", {
-          params: { path: { event_id: eventId } },
-        }),
-      ]);
+      setPageError(null);
+      try {
+        const client = createDeskApiClient(authority, eventId);
+        const [meRes, tiersRes] = await Promise.all([
+          client.GET("/api/events/{event_id}/desk/me", {
+            params: { path: { event_id: eventId } },
+          }),
+          client.GET("/api/events/{event_id}/desk/tiers", {
+            params: { path: { event_id: eventId } },
+          }),
+        ]);
 
-      if (!isMounted) return;
+        const unauthorized = meRes.response.status === 401 || tiersRes.response.status === 401;
+        if (unauthorized) rejectAuthority(authority);
+        if (!isMounted) return;
+        if (unauthorized) return;
 
-      if (meRes.error) {
-        if (deskToken) {
-          sessionStorage.removeItem(`congress_desk_token_${eventId}`);
-          setDeskToken(null);
-          setLoginError(isRtl ? "دسترسی اپراتور لغو شده یا نشست کاری منقضی گردیده است." : "Operator access revoked or session expired.");
-        } else {
+        if (meRes.error) {
           setPageError(formatApiError(meRes.error));
+        } else if (meRes.data) {
+          setOperatorProfile(meRes.data);
         }
-      } else if (meRes.data) {
-        setOperatorProfile(meRes.data);
-      }
 
-      if (tiersRes.data) {
-        setTiers(tiersRes.data);
-        if (tiersRes.data.length > 0) {
-          const firstOpen = tiersRes.data.find((t) => t.is_open);
-          setSelectedTierId(firstOpen ? firstOpen.id : tiersRes.data[0].id);
+        if (tiersRes.data) {
+          setTiers(tiersRes.data);
+          if (tiersRes.data.length > 0) {
+            const firstOpen = tiersRes.data.find((t) => t.is_open);
+            setSelectedTierId(firstOpen ? firstOpen.id : tiersRes.data[0].id);
+          }
         }
+      } catch {
+        if (isMounted) setPageError("Network error. Please check the connection and retry.");
+      } finally {
+        if (isMounted) setLoading(false);
       }
-      setLoading(false);
     };
 
     loadEventData();
     return () => {
       isMounted = false;
     };
-  }, [eventId, activeAuthToken]);
+  }, [eventId, authority, reloadNonce, rejectAuthority]);
 
   // Search effect with 200ms debounce
   useEffect(() => {
-    if (!eventId || !activeAuthToken) return;
+    if (!eventId || !authority) return;
     let isMounted = true;
     const timer = setTimeout(async () => {
       setSearching(true);
-      const client = getApiClient(activeAuthToken);
-      const { data } = await client.GET("/api/events/{event_id}/attendees", {
-        params: {
-          path: { event_id: eventId },
-          query: { q: searchQuery, limit: 30 },
-        },
-      });
-      if (isMounted && data) {
-        setSearchResults(data);
+      try {
+        const client = createDeskApiClient(authority, eventId);
+        const { data, response } = await client.GET("/api/events/{event_id}/attendees", {
+          params: {
+            path: { event_id: eventId },
+            query: { q: searchQuery, limit: 30 },
+          },
+        });
+        if (response.status === 401) rejectAuthority(authority);
+        if (isMounted && data) {
+          setSearchResults(data);
+        }
+      } catch {
+        // A failed search keeps the previous results; credentials are untouched.
       }
       if (isMounted) setSearching(false);
     }, 200);
@@ -135,7 +182,7 @@ export default function OrganizerDesk() {
       isMounted = false;
       clearTimeout(timer);
     };
-  }, [searchQuery, eventId, activeAuthToken]);
+  }, [searchQuery, eventId, authority, rejectAuthority]);
 
   const handleDeskLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -162,6 +209,8 @@ export default function OrganizerDesk() {
     } else if (data) {
       sessionStorage.setItem(`congress_desk_token_${eventId}`, data.access_token);
       setDeskToken(data.access_token);
+      setMode("operator");
+      setSessionRejected(false);
       setOperatorProfile({
         operator_id: data.operator.id,
         operator_name: data.operator.operator_name,
@@ -186,7 +235,7 @@ export default function OrganizerDesk() {
 
   const handleRegisterWalkIn = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!eventId || !selectedTierId) return;
+    if (!eventId || !selectedTierId || !authority) return;
     setFormError(null);
 
     if (!fullName.trim()) {
@@ -195,8 +244,8 @@ export default function OrganizerDesk() {
     }
 
     setSubmitting(true);
-    const client = getApiClient(activeAuthToken);
-    const { data, error: err } = await client.POST(
+    const client = createDeskApiClient(authority, eventId);
+    const { data, error: err, response } = await client.POST(
       "/api/events/{event_id}/desk-registrations",
       {
         params: { path: { event_id: eventId } },
@@ -210,6 +259,7 @@ export default function OrganizerDesk() {
       }
     );
 
+    if (response.status === 401) rejectAuthority(authority);
     setSubmitting(false);
     if (err) {
       setFormError(formatApiError(err));
@@ -224,15 +274,20 @@ export default function OrganizerDesk() {
   };
 
   const handleViewAttendeeCard = async (ticketId: string) => {
-    if (!eventId) return;
-    const client = getApiClient(activeAuthToken);
-    const { data } = await client.GET(
+    if (!eventId || !authority) return;
+    const client = createDeskApiClient(authority, eventId);
+    const { data, response } = await client.GET(
       "/api/events/{event_id}/attendees/{ticket_id}",
       {
         params: { path: { event_id: eventId, ticket_id: ticketId } },
       }
     );
-    if (data) {
+    if (response.status === 401) {
+      rejectAuthority(authority);
+      return;
+    }
+    // A card fetched under a previously selected mode must not be shown under the current one.
+    if (data && signatureRef.current === signature) {
       setSelectedCard(data);
     }
   };
@@ -243,6 +298,41 @@ export default function OrganizerDesk() {
       nameInputRef.current?.focus();
     }, 50);
   };
+
+  const selectMode = (next: DeskMode) => {
+    if (next === mode) return;
+    setMode(next);
+    setSelectedCard(null);
+    setSearchResults([]);
+    setOperatorProfile(null);
+    setPageError(null);
+  };
+
+  // Only offered when an organizer key exists; the choice is explicit and never changes by itself.
+  const modeSwitch = apiKey ? (
+    <div role="group" aria-label={isRtl ? "حالت کاری" : "Working mode"} className="flex items-center gap-1.5">
+      <Button
+        type="button"
+        size="sm"
+        variant={mode === "operator" ? "primary" : "secondary"}
+        aria-pressed={mode === "operator"}
+        disabled={submitting}
+        onClick={() => selectMode("operator")}
+      >
+        {isRtl ? "نشست اپراتور" : "Operator session"}
+      </Button>
+      <Button
+        type="button"
+        size="sm"
+        variant={mode === "organizer" ? "primary" : "secondary"}
+        aria-pressed={mode === "organizer"}
+        disabled={submitting}
+        onClick={() => selectMode("organizer")}
+      >
+        {isRtl ? "حالت مدیر" : "Organizer mode"}
+      </Button>
+    </div>
+  ) : null;
 
   if (loading) {
     return (
@@ -256,11 +346,31 @@ export default function OrganizerDesk() {
     );
   }
 
-  if (!activeAuthToken) {
+  if (mode === "organizer" && !apiKey) {
+    return (
+      <Card className="max-w-md mx-auto my-10 sm:my-16 p-8 text-center space-y-4 border-border-default">
+        <div className="text-3xl">🔑</div>
+        <h1 className="text-xl font-bold text-text-primary">
+          {isRtl ? "برای حالت مدیر به کلید سازمان نیاز است" : "Organizer mode needs your organizer key"}
+        </h1>
+        <div className="flex flex-col gap-2">
+          <LinkButton to="/organizer" variant="primary" size="md">
+            {isRtl ? "ورود با کلید سازمان" : "Enter organizer key"}
+          </LinkButton>
+          <Button type="button" variant="secondary" size="md" onClick={() => selectMode("operator")}>
+            {isRtl ? "استفاده از نشست اپراتور" : "Use an operator session"}
+          </Button>
+        </div>
+      </Card>
+    );
+  }
+
+  if (!authority) {
     return (
       <div className="max-w-md mx-auto my-10 sm:my-16">
         <Card className="border-border-default shadow-xs overflow-hidden">
           <div className="p-6 sm:p-8 space-y-6">
+            {modeSwitch}
             <div className="space-y-2 text-center sm:text-start">
               <div className="w-12 h-12 rounded-xl bg-action-subtle text-action-primary flex items-center justify-center text-2xl mx-auto sm:mx-0 shadow-xs">
                 🖨️
@@ -302,13 +412,13 @@ export default function OrganizerDesk() {
                 />
               </div>
 
-              {loginError && (
+              {(loginError || sessionRejected) && (
                 <div
                   role="alert"
                   aria-live="assertive"
                   className="p-3 rounded-xl bg-status-danger-bg text-status-danger-text border border-status-danger-border text-xs leading-relaxed"
                 >
-                  {loginError}
+                  {loginError ?? (isRtl ? "دسترسی اپراتور لغو شده یا نشست کاری منقضی گردیده است." : "Operator access revoked or session expired.")}
                 </div>
               )}
 
@@ -346,9 +456,14 @@ export default function OrganizerDesk() {
         <h1 className="text-xl font-bold text-text-primary">
           {pageError}
         </h1>
-        <LinkButton to="/organizer" variant="secondary" size="md">
-          {t.breadcrumbEvents}
-        </LinkButton>
+        <div className="flex flex-col sm:flex-row items-center justify-center gap-2">
+          <Button type="button" variant="primary" size="md" onClick={() => setReloadNonce((n) => n + 1)}>
+            {isRtl ? "تلاش مجدد" : "Retry"}
+          </Button>
+          <LinkButton to="/organizer" variant="secondary" size="md">
+            {t.breadcrumbEvents}
+          </LinkButton>
+        </div>
       </Card>
     );
   }
@@ -384,7 +499,8 @@ export default function OrganizerDesk() {
           </div>
 
           <div className="shrink-0 flex items-center gap-2.5">
-            {deskToken && !apiKey && (
+            {modeSwitch}
+            {mode === "operator" && deskToken && (
               <Button
                 type="button"
                 variant="ghost"
