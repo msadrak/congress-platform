@@ -1,0 +1,238 @@
+{
+  "run": "nbmh2",
+  "total": 45,
+  "failed": 0,
+  "results": [
+    {
+      "stage": "A. Organizer preparation",
+      "name": "A1 credential gate; wrong key rejected and removed, no fallback",
+      "ok": true
+    },
+    {
+      "stage": "A. Organizer preparation",
+      "name": "A2 events created through the UI (two congresses) and stored in PostgreSQL",
+      "ok": true
+    },
+    {
+      "stage": "A. Organizer preparation",
+      "name": "A3 ticket tiers with capacity (Alpha quota 3, Beta quota 5)",
+      "ok": true
+    },
+    {
+      "stage": "A. Organizer preparation",
+      "name": "A4 check-in point (SINGLE_USE gate) created through the UI",
+      "ok": true
+    },
+    {
+      "stage": "A. Organizer preparation",
+      "name": "A5 two booths created and their staff authorized through the UI",
+      "ok": true
+    },
+    {
+      "stage": "A. Organizer preparation",
+      "name": "A6 reception operator provisioned through the UI (one-time password shown)",
+      "ok": true
+    },
+    {
+      "stage": "A. Organizer preparation",
+      "name": "A7 scanner device for the gate issued (supported API, exception) and listed",
+      "ok": true
+    },
+    {
+      "stage": "A. Organizer preparation",
+      "name": "A8 cross-tenant and cross-event isolation (organizer 2 sees nothing of Alpha; wrong credential families refused)",
+      "ok": true
+    },
+    {
+      "stage": "B. Attendee registration",
+      "name": "B1 public page shows the congress and its tier with capacity",
+      "ok": true
+    },
+    {
+      "stage": "B. Attendee registration",
+      "name": "B2 attendee registers and reserves through the real dialog (201), pass shown",
+      "ok": true
+    },
+    {
+      "stage": "B. Attendee registration",
+      "name": "B3 capacity changed in the backend and in the Organizer view (reserved 1 of 3)",
+      "ok": true
+    },
+    {
+      "stage": "B. Attendee registration",
+      "name": "B4 ticket page: correct congress, tier and QR; no pass for another congress",
+      "ok": true
+    },
+    {
+      "stage": "B. Attendee registration",
+      "name": "B5 another User cannot see or use the ticket; the same attendee cannot reserve twice",
+      "ok": true
+    },
+    {
+      "stage": "B. Attendee registration",
+      "name": "B6 changing accounts in the same browser never shows the previous account's ticket",
+      "ok": true
+    },
+    {
+      "stage": "C. Reception",
+      "name": "C1 /reception resolves the congress code and signs the operator in (desk credential only)",
+      "ok": true
+    },
+    {
+      "stage": "C. Reception",
+      "name": "C2 search finds the registered attendee; review shows status, tier and QR",
+      "ok": true
+    },
+    {
+      "stage": "C. Reception",
+      "name": "C3 walk-in ticket issued; ticket, QR, operator attribution and capacity confirmed in PostgreSQL",
+      "ok": true
+    },
+    {
+      "stage": "C. Reception",
+      "name": "C4 duplicate email: backend 409, exact existing pass offered, nothing issued twice",
+      "ok": true
+    },
+    {
+      "stage": "C. Reception",
+      "name": "C4b a walk-in whose response is lost: the UI claims no success, the ticket exists once, retry recovers the existing pass",
+      "ok": true
+    },
+    {
+      "stage": "C. Reception",
+      "name": "C4c capacity is enforced: the tier is full (3 of 3) and a further reservation is refused without changing counts",
+      "ok": true
+    },
+    {
+      "stage": "C. Reception",
+      "name": "C5 the Alpha operator cannot operate Beta (backend 403; browser keeps its session separate)",
+      "ok": true
+    },
+    {
+      "stage": "C. Reception",
+      "name": "C6 wrong credential families on Reception endpoints are refused (organizer/User/scanner tokens as desk)",
+      "ok": true
+    },
+    {
+      "stage": "C. Reception",
+      "name": "C7 organizer revokes the operator in the UI: the open Reception session is cut (401), login is denied, old token stays dead after reactivation",
+      "ok": true
+    },
+    {
+      "stage": "D. Gate scanner (production build, service worker, real API)",
+      "name": "D1 scanner pairs with its device token and loads the authorized gate manifest",
+      "ok": true
+    },
+    {
+      "stage": "D. Gate scanner (production build, service worker, real API)",
+      "name": "D2 valid ticket is admitted; the admission is recorded by the backend after sync",
+      "ok": true
+    },
+    {
+      "stage": "D. Gate scanner (production build, service worker, real API)",
+      "name": "D3 duplicate scan follows the SINGLE_USE policy: rejected, one admission only",
+      "ok": true
+    },
+    {
+      "stage": "D. Gate scanner (production build, service worker, real API)",
+      "name": "D4 ticket from another congress is rejected; no admission anywhere for it",
+      "ok": true
+    },
+    {
+      "stage": "D. Gate scanner (production build, service worker, real API)",
+      "name": "D5 offline admission is queued locally and synchronized after reconnecting (not in PostgreSQL until then)",
+      "ok": true
+    },
+    {
+      "stage": "D. Gate scanner (production build, service worker, real API)",
+      "name": "D6 replaying a stored scan id is idempotent (same result, no new row)",
+      "ok": true
+    },
+    {
+      "stage": "D. Gate scanner (production build, service worker, real API)",
+      "name": "D7 unauthorized devices: other gate scope, garbage, User and organizer tokens are refused",
+      "ok": true
+    },
+    {
+      "stage": "D. Gate scanner (production build, service worker, real API)",
+      "name": "D7b an expired scanner token is refused (401) even though its signature and scope are right",
+      "ok": true
+    },
+    {
+      "stage": "D. Gate scanner (production build, service worker, real API)",
+      "name": "D8 organizer revokes the device: next sync and scan are blocked, the old token is dead, records are kept",
+      "ok": true
+    },
+    {
+      "stage": "E. Exhibitor interaction",
+      "name": "E1 booth staff signs in directly and lands in their booth workspace",
+      "ok": true
+    },
+    {
+      "stage": "E. Exhibitor interaction",
+      "name": "E2 attendee QR captured: a lead for the correct booth and ticket exists in PostgreSQL",
+      "ok": true
+    },
+    {
+      "stage": "E. Exhibitor interaction",
+      "name": "E3 qualification (HOT, tag, private note) saved; a re-scan with only the badge preserves it",
+      "ok": true
+    },
+    {
+      "stage": "E. Exhibitor interaction",
+      "name": "E4 a ticket from another congress is refused (400) and creates no lead",
+      "ok": true
+    },
+    {
+      "stage": "E. Exhibitor interaction",
+      "name": "E5 lead search finds the lead; the CSV matches the backend record exactly",
+      "ok": true
+    },
+    {
+      "stage": "E. Exhibitor interaction",
+      "name": "E6 a lead scan whose response is lost: no success shown, exactly one lead exists, a second scan only updates it",
+      "ok": true
+    },
+    {
+      "stage": "E. Exhibitor interaction",
+      "name": "E7 the other booth's staff cannot read, scan, update or export these leads (403) and a switched account sees none",
+      "ok": true
+    },
+    {
+      "stage": "F. Organizer reporting",
+      "name": "F1 reservations and issued tickets: tiers show reserved 3 of 3 and match PostgreSQL",
+      "ok": true
+    },
+    {
+      "stage": "F. Organizer reporting",
+      "name": "F2 analytics equal the real admissions (tickets, unique admitted, scans) and match PostgreSQL",
+      "ok": true
+    },
+    {
+      "stage": "F. Organizer reporting",
+      "name": "F3 event CSV export matches the check-in records (whole event) and contains no Beta data",
+      "ok": true
+    },
+    {
+      "stage": "F. Organizer reporting",
+      "name": "F4 switching to Beta shows only Beta numbers; Alpha data never leaks; Beta analytics are zero scans",
+      "ok": true
+    },
+    {
+      "stage": "F. Organizer reporting",
+      "name": "F5 the other tenant's organizer cannot see any of this event's reports",
+      "ok": true
+    },
+    {
+      "stage": "F. Organizer reporting",
+      "name": "F6 no request in the whole journey mixed credential families (organizer key only on organizer routes; desk token only on its event)",
+      "ok": true
+    }
+  ],
+  "exceptions": [
+    "Organizer + second tenant provisioning (POST /api/organizers with the platform admin token; no UI)",
+    "Registration of two booth representatives, one unrelated User and a second-congress attendee (POST /api/auth/register; the representatives must exist before the Booths tab can authorize them)",
+    "Scanner device token issuance and revocation (POST /api/checkin-points/{id}/token and /devices/{id}/revoke; no Organizer UI for scanner devices exists)",
+    "Camera decoding: a physical camera / keyboard-wedge reader is not available; codes are typed into the supported manual-entry fields"
+  ]
+}
