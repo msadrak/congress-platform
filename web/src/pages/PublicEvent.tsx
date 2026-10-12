@@ -4,9 +4,9 @@ import {
   ATTENDEE_TOKEN_STORAGE,
   formatApiError,
   createApiClient,
-  getApiClient,
   type PublicEvent as PublicEventType,
 } from "../api/client";
+import { isStoredAttendeeToken, rejectAttendeeToken } from "../lib/attendeeSession";
 import { PublicLayout } from "../layouts/PublicLayout";
 import { useAttendeeLocale, formatLocalizedDate, formatLocalizedNumber } from "../lib/i18n";
 import { Badge } from "../components/ui/Badge";
@@ -99,8 +99,17 @@ export default function PublicEvent() {
     if (!event) return;
     const context = pageContext.current;
     if (!context?.active) return;
-    const client = getApiClient(token);
-    const { data, error: err } = await client.POST(
+    // The token can be stale (another tab changed the stored session): never reserve with it.
+    if (!isStoredAttendeeToken(token)) {
+      setAlreadyHasTicket(false);
+      setAuthMode("login");
+      setModalError("Your session changed. Please sign in again to reserve your pass.");
+      setIsAuthModalOpen(true);
+      setSubmitting(false);
+      return;
+    }
+    const client = createApiClient({ kind: "user", token });
+    const { data, error: err, response } = await client.POST(
       "/api/events/{event_id}/tickets/reserve",
       {
         params: { path: { event_id: event.id } },
@@ -108,21 +117,20 @@ export default function PublicEvent() {
       }
     );
     if (!context.active) return;
+    // A response for a session that has since changed must not show success or error for the new one.
+    if (!isStoredAttendeeToken(token)) {
+      if (response.status === 401) rejectAttendeeToken(token);
+      setSubmitting(false);
+      return;
+    }
 
     if (err) {
       const formatted = formatApiError(err);
       const lower = formatted.toLowerCase();
 
-      // Edge case 2: Expired or invalid token
-      if (
-        lower.includes("could not validate credentials") ||
-        lower.includes("signature has expired") ||
-        lower.includes("not authenticated") ||
-        lower.includes("unauthorized")
-      ) {
-        if (typeof window !== "undefined") {
-          localStorage.removeItem(ATTENDEE_TOKEN_STORAGE);
-        }
+      // Edge case 2: 401 for the exact token that was sent
+      if (response.status === 401) {
+        rejectAttendeeToken(token);
         setAlreadyHasTicket(false);
         setAuthMode("login");
         setModalError("Your session has expired. Please sign in to reserve your pass.");

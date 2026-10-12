@@ -1,12 +1,17 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   ATTENDEE_TOKEN_STORAGE,
+  createApiClient,
   formatApiError,
-  getApiClient,
   type BoothOut,
   type LeadOut,
 } from "../api/client";
+import {
+  isStoredAttendeeToken,
+  rejectAttendeeToken,
+  SESSION_CHANGED_MESSAGE,
+} from "../lib/attendeeSession";
 import {
   useAttendeeLocale,
   formatLocalizedDate,
@@ -27,7 +32,13 @@ const PRESET_TAG_KEYS = [
   "tagUrgentFollowUp",
 ] as const;
 
+// Remount per booth so a late response for booth A can never write into booth B's state.
 export default function ExhibitorPortal() {
+  const { boothId } = useParams<{ boothId: string }>();
+  return <ExhibitorPortalContent key={boothId} />;
+}
+
+function ExhibitorPortalContent() {
   const { boothId } = useParams<{ boothId: string }>();
   const navigate = useNavigate();
   const { locale, setLocale, t, isRtl, dir } = useAttendeeLocale();
@@ -70,8 +81,18 @@ export default function ExhibitorPortal() {
       ? localStorage.getItem(ATTENDEE_TOKEN_STORAGE)
       : null;
 
+  const sessionRef = useRef<string | null>(token);
+
   useEffect(() => {
     let isMounted = true;
+    // Another account must never inherit the previous staff member's booth view or leads.
+    if (sessionRef.current !== token) {
+      sessionRef.current = token;
+      setBooth(null);
+      setLeads([]);
+      setEditingLead(null);
+      setAuthError(null);
+    }
     if (!boothId) return;
     if (!token) {
       setLoading(false);
@@ -81,7 +102,7 @@ export default function ExhibitorPortal() {
     const fetchData = async () => {
       setLoading(true);
       setAuthError(null);
-      const client = getApiClient(token);
+      const client = createApiClient({ kind: "user", token });
 
       const [boothRes, leadsRes] = await Promise.all([
         client.GET("/api/booths/{booth_id}", {
@@ -99,6 +120,15 @@ export default function ExhibitorPortal() {
       ]);
 
       if (!isMounted) return;
+      // The stored session changed while the request was in flight: ignore this response and
+      // never delete the newer session. The re-render re-reads the current token.
+      if (!isStoredAttendeeToken(token)) {
+        setLoading(false);
+        return;
+      }
+      if (boothRes.response.status === 401 || leadsRes.response.status === 401) {
+        rejectAttendeeToken(token);
+      }
 
       if (boothRes.error) {
         setAuthError(formatApiError(boothRes.error));
@@ -120,9 +150,9 @@ export default function ExhibitorPortal() {
   }, [boothId, token, searchFilter, ratingFilter]);
 
   const refreshLeads = async () => {
-    if (!boothId || !token) return;
-    const client = getApiClient(token);
-    const { data } = await client.GET("/api/booths/{booth_id}/leads", {
+    if (!boothId || !token || !isStoredAttendeeToken(token)) return;
+    const client = createApiClient({ kind: "user", token });
+    const { data, response } = await client.GET("/api/booths/{booth_id}/leads", {
       params: {
         path: { booth_id: boothId },
         query: {
@@ -131,7 +161,9 @@ export default function ExhibitorPortal() {
         },
       },
     });
-    if (data) setLeads(data);
+    const stillCurrent = isStoredAttendeeToken(token);
+    if (response.status === 401) rejectAttendeeToken(token);
+    if (data && stillCurrent) setLeads(data);
   };
 
   const handleLogout = () => {
@@ -148,11 +180,15 @@ export default function ExhibitorPortal() {
   const handleCaptureLead = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!boothId || !token || !qrSecret.trim()) return;
+    if (!isStoredAttendeeToken(token)) {
+      setCaptureError(SESSION_CHANGED_MESSAGE);
+      return;
+    }
 
     setSubmittingCapture(true);
     setCaptureError(null);
     setCaptureFeedback(null);
-    const client = getApiClient(token);
+    const client = createApiClient({ kind: "user", token });
 
     const { data, error: err, response } = await client.POST(
       "/api/booths/{booth_id}/leads/scan",
@@ -167,7 +203,10 @@ export default function ExhibitorPortal() {
       }
     );
 
+    const stillCurrent = isStoredAttendeeToken(token);
+    if (response.status === 401) rejectAttendeeToken(token);
     setSubmittingCapture(false);
+    if (!stillCurrent) return;
     if (err) {
       setCaptureError(formatApiError(err));
     } else if (data) {
@@ -200,13 +239,17 @@ export default function ExhibitorPortal() {
   const handleSaveQualification = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!boothId || !token || !editingLead) return;
+    if (!isStoredAttendeeToken(token)) {
+      setEditError(SESSION_CHANGED_MESSAGE);
+      return;
+    }
 
     setSavingLead(true);
     setEditError(null);
     setEditFeedback(null);
-    const client = getApiClient(token);
+    const client = createApiClient({ kind: "user", token });
 
-    const { data, error: err } = await client.PATCH(
+    const { data, error: err, response } = await client.PATCH(
       "/api/booths/{booth_id}/leads/{lead_id}",
       {
         params: {
@@ -220,7 +263,10 @@ export default function ExhibitorPortal() {
       }
     );
 
+    const stillCurrent = isStoredAttendeeToken(token);
+    if (response.status === 401) rejectAttendeeToken(token);
     setSavingLead(false);
+    if (!stillCurrent) return;
     if (err) {
       setEditError(formatApiError(err));
     } else if (data) {
@@ -256,19 +302,26 @@ export default function ExhibitorPortal() {
 
   const handleExportCsv = async () => {
     if (!boothId || !booth || !token) return;
+    if (!isStoredAttendeeToken(token)) {
+      setExportError(SESSION_CHANGED_MESSAGE);
+      return;
+    }
     setIsExporting(true);
     setExportError(null);
     try {
-      const url = `/api/booths/${boothId}/leads/export-csv`;
-      const res = await fetch(url, {
-        headers: { Authorization: `Bearer ${token}` },
+      const client = createApiClient({ kind: "user", token });
+      const { data: blob, response } = await client.GET("/api/booths/{booth_id}/leads/export-csv", {
+        params: { path: { booth_id: boothId } },
+        parseAs: "blob",
       });
-      if (!res.ok) {
+      const stillCurrent = isStoredAttendeeToken(token);
+      if (response.status === 401) rejectAttendeeToken(token);
+      // No download or completion feedback for a session that has since changed.
+      if (!stillCurrent) return;
+      if (!response.ok || !blob) {
         setExportError("Failed to export leads. Please verify authorization.");
-        setIsExporting(false);
         return;
       }
-      const blob = await res.blob();
       const link = document.createElement("a");
       link.href = URL.createObjectURL(blob);
       link.download = `${booth.slug || "booth"}-leads.csv`;

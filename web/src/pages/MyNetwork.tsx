@@ -1,11 +1,16 @@
 import React, { useEffect, useState } from "react";
 import {
   ATTENDEE_TOKEN_STORAGE,
+  createApiClient,
   formatApiError,
-  getApiClient,
   type ConnectionOut,
   type PrivacyPreferenceOut,
 } from "../api/client";
+import {
+  isStoredAttendeeToken,
+  rejectAttendeeToken,
+  SESSION_CHANGED_MESSAGE,
+} from "../lib/attendeeSession";
 import {
   useAttendeeLocale,
   formatLocalizedDate,
@@ -53,12 +58,22 @@ export default function MyNetwork() {
     }
     setLoading(true);
     setError(null);
-    const client = getApiClient(token);
+    const client = createApiClient({ kind: "user", token });
 
     const [connRes, privacyRes] = await Promise.all([
       client.GET("/api/attendees/me/network"),
       client.GET("/api/attendees/me/network/privacy"),
     ]);
+
+    // The stored session changed while the request was in flight: ignore this response and
+    // never delete the newer session. The re-render re-reads the current token.
+    if (!isStoredAttendeeToken(token)) {
+      setLoading(false);
+      return;
+    }
+    if (connRes.response.status === 401 || privacyRes.response.status === 401) {
+      rejectAttendeeToken(token);
+    }
 
     if (connRes.error) {
       setError(formatApiError(connRes.error));
@@ -74,28 +89,42 @@ export default function MyNetwork() {
   };
 
   useEffect(() => {
+    // A different session must never inherit the previous owner's contacts or notes.
+    setConnections([]);
+    setPrivacyPref(null);
+    setEditingId(null);
+    setNoteFeedback(null);
+    setPrivacyFeedback(null);
     loadData();
   }, [token]);
 
   const handleTogglePrivacyConsent = async () => {
     if (!token || !privacyPref) return;
+    if (!isStoredAttendeeToken(token)) {
+      setError(SESSION_CHANGED_MESSAGE);
+      return;
+    }
     setUpdatingPrivacy(true);
     setPrivacyFeedback(null);
     const newConsent = !privacyPref.share_contact_with_peers;
-    const client = getApiClient(token);
+    const client = createApiClient({ kind: "user", token });
 
-    const { data, error: err } = await client.PATCH(
+    const { data, error: err, response } = await client.PATCH(
       "/api/attendees/me/network/privacy",
       {
         body: { share_contact_with_peers: newConsent },
       }
     );
 
-    if (err) {
-      setError(formatApiError(err));
-    } else if (data) {
-      setPrivacyPref(data);
-      setPrivacyFeedback(t.privacySavedFeedback);
+    const stillCurrent = isStoredAttendeeToken(token);
+    if (response.status === 401) rejectAttendeeToken(token);
+    if (stillCurrent) {
+      if (err) {
+        setError(formatApiError(err));
+      } else if (data) {
+        setPrivacyPref(data);
+        setPrivacyFeedback(t.privacySavedFeedback);
+      }
     }
     setUpdatingPrivacy(false);
   };
@@ -103,11 +132,15 @@ export default function MyNetwork() {
   const handleConnectPeer = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!token || !peerQrSecret.trim()) return;
+    if (!isStoredAttendeeToken(token)) {
+      setConnectModalError(SESSION_CHANGED_MESSAGE);
+      return;
+    }
 
     setSubmittingConnect(true);
     setConnectModalError(null);
-    const client = getApiClient(token);
-    const { data, error: err } = await client.POST(
+    const client = createApiClient({ kind: "user", token });
+    const { data, error: err, response } = await client.POST(
       "/api/attendees/me/network/scan",
       {
         body: {
@@ -117,7 +150,10 @@ export default function MyNetwork() {
       }
     );
 
+    const stillCurrent = isStoredAttendeeToken(token);
+    if (response.status === 401) rejectAttendeeToken(token);
     setSubmittingConnect(false);
+    if (!stillCurrent) return;
     if (err) {
       setConnectModalError(formatApiError(err));
     } else if (data) {
@@ -130,17 +166,24 @@ export default function MyNetwork() {
 
   const handleSaveNotes = async (connectionId: string) => {
     if (!token) return;
+    if (!isStoredAttendeeToken(token)) {
+      setError(SESSION_CHANGED_MESSAGE);
+      return;
+    }
     setSavingNote(true);
     setNoteFeedback(null);
-    const client = getApiClient(token);
-    const { data, error: err } = await client.PATCH(
+    const client = createApiClient({ kind: "user", token });
+    const { data, error: err, response } = await client.PATCH(
       "/api/attendees/me/network/{connection_id}",
       {
         params: { path: { connection_id: connectionId } },
         body: { private_notes: editNotesText.trim() },
       }
     );
+    const stillCurrent = isStoredAttendeeToken(token);
+    if (response.status === 401) rejectAttendeeToken(token);
     setSavingNote(false);
+    if (!stillCurrent) return;
     if (err) {
       setError(formatApiError(err));
     } else if (data) {
@@ -154,12 +197,28 @@ export default function MyNetwork() {
 
   const handleDownloadVcard = async (connectionId: string, fullName: string) => {
     if (!token) return;
+    if (!isStoredAttendeeToken(token)) {
+      setError(SESSION_CHANGED_MESSAGE);
+      return;
+    }
     try {
-      const res = await fetch(`/api/attendees/me/network/${connectionId}/vcard`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!res.ok) return;
-      const blob = await res.blob();
+      const client = createApiClient({ kind: "user", token });
+      const { data: blob, response } = await client.GET(
+        "/api/attendees/me/network/{connection_id}/vcard",
+        { params: { path: { connection_id: connectionId } }, parseAs: "blob" }
+      );
+      const stillCurrent = isStoredAttendeeToken(token);
+      if (response.status === 401) rejectAttendeeToken(token);
+      // No completion feedback for a session that has since changed.
+      if (!stillCurrent) return;
+      if (!response.ok || !blob) {
+        setError(
+          response.status === 401
+            ? "Your session is no longer valid. Please sign in again."
+            : "Failed to download the contact card."
+        );
+        return;
+      }
       const link = document.createElement("a");
       link.href = URL.createObjectURL(blob);
       const cleanName = fullName.toLowerCase().replace(/[^a-z0-9]+/g, "-");
@@ -169,7 +228,7 @@ export default function MyNetwork() {
       document.body.removeChild(link);
       URL.revokeObjectURL(link.href);
     } catch {
-      // ignore download error
+      setError("Failed to download the contact card.");
     }
   };
 

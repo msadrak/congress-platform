@@ -3,8 +3,8 @@ import { Link } from "react-router-dom";
 import QRCode from "react-qr-code";
 import {
   ATTENDEE_TOKEN_STORAGE,
+  createApiClient,
   formatApiError,
-  getApiClient,
   type AttendeeTicketDetail,
   type BookmarkedBoothOut,
 } from "../api/client";
@@ -12,6 +12,11 @@ import {
   loadOwnerScopedTickets,
   saveOwnerScopedTickets,
 } from "../lib/ticketCache";
+import {
+  isStoredAttendeeToken,
+  rejectAttendeeToken,
+  SESSION_CHANGED_MESSAGE,
+} from "../lib/attendeeSession";
 import {
   useAttendeeLocale,
   formatLocalizedDate,
@@ -34,6 +39,7 @@ export default function MyTickets() {
   const [isCachedPass, setIsCachedPass] = useState(false);
   const [removingBoothId, setRemovingBoothId] = useState<string | null>(null);
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
+  const [sessionRejected, setSessionRejected] = useState(false);
 
   const token =
     typeof window !== "undefined"
@@ -53,14 +59,20 @@ export default function MyTickets() {
   }, []);
 
   useEffect(() => {
+    let active = true;
+    setSessionRejected(false);
+
     // 1. Stage A: Load owner-scoped cached tickets immediately (fails closed if unauthenticated)
     if (token) {
       const cacheResult = loadOwnerScopedTickets(token);
-      if (cacheResult.status === "valid" && cacheResult.tickets.length > 0) {
-        setTickets(cacheResult.tickets);
-        setIsCachedPass(true);
-        setLoading(false);
-      }
+      const hasCache = cacheResult.status === "valid" && cacheResult.tickets.length > 0;
+      // A different session must never inherit the previous owner's passes or bookmarks.
+      setTickets(hasCache ? cacheResult.tickets : []);
+      setIsCachedPass(hasCache);
+      setBookmarkedBooths([]);
+      setActiveTicketIndex(0);
+      setError(null);
+      setLoading(!hasCache);
     } else {
       setTickets([]);
       setIsCachedPass(false);
@@ -70,15 +82,30 @@ export default function MyTickets() {
 
     // 2. Fetch live data if online
     const fetchData = async () => {
-      const client = getApiClient(token);
+      const client = createApiClient({ kind: "user", token });
       const [ticketsRes, boothsRes] = await Promise.all([
         client.GET("/api/attendees/me/tickets"),
         client.GET("/api/attendees/me/bookmarks/booths"),
       ]);
 
+      if (!active) return;
+      // The stored session changed while the request was in flight: ignore this response and
+      // never delete the newer session. The re-render re-reads the current token.
+      if (!isStoredAttendeeToken(token)) {
+        setLoading(false);
+        return;
+      }
+
       if (ticketsRes.error) {
         const currentCache = loadOwnerScopedTickets(token);
-        if (currentCache.status !== "valid" || currentCache.tickets.length === 0) {
+        const hasCache = currentCache.status === "valid" && currentCache.tickets.length > 0;
+        if (ticketsRes.response.status === 401) {
+          // Keep the owner's cached pass on screen, labelled non-authoritative; with nothing to
+          // show, invalidate exactly this credential and fall back to the sign-in view.
+          if (hasCache) setSessionRejected(true);
+          else rejectAttendeeToken(token);
+        }
+        if (!hasCache) {
           setError(formatApiError(ticketsRes.error));
         }
       } else if (ticketsRes.data) {
@@ -95,18 +122,28 @@ export default function MyTickets() {
     };
 
     fetchData();
+    return () => {
+      active = false;
+    };
   }, [token]);
 
   const handleRemoveBookmark = async (boothId: string) => {
-    if (!token) return;
+    // A rejected session is kept only to present the labelled offline pass; it authorizes nothing.
+    if (!token || sessionRejected) return;
+    if (!isStoredAttendeeToken(token)) {
+      setFeedbackMessage(SESSION_CHANGED_MESSAGE);
+      return;
+    }
     setRemovingBoothId(boothId);
     setFeedbackMessage(null);
-    const client = getApiClient(token);
-    const { error: err } = await client.DELETE(
+    const client = createApiClient({ kind: "user", token });
+    const { error: err, response } = await client.DELETE(
       "/api/attendees/me/bookmarks/booths/{booth_id}",
       { params: { path: { booth_id: boothId } } }
     );
-    if (!err) {
+    const stillCurrent = isStoredAttendeeToken(token);
+    if (response.status === 401) rejectAttendeeToken(token);
+    if (!err && stillCurrent) {
       setBookmarkedBooths((prev) => prev.filter((b) => b.booth_id !== boothId));
       setFeedbackMessage(t.bookmarkRemovedFeedback);
     }
@@ -174,6 +211,23 @@ export default function MyTickets() {
               <span className="font-bold block">{t.offlineNotice}</span>
               <p>{t.offlineNoticeDesc}</p>
             </div>
+          </div>
+        )}
+
+        {sessionRejected && (
+          <div
+            role="alert"
+            className="p-3.5 sm:p-4 rounded-xl bg-status-danger-bg text-status-danger-text border border-status-danger-border text-xs leading-relaxed space-y-1"
+          >
+            <span className="font-bold block">{isRtl ? "نشست شما معتبر نیست" : "Your session is no longer valid"}</span>
+            <p>
+              {isRtl
+                ? "این بلیط از نسخه ذخیره‌شده نمایش داده می‌شود و ممکن است به‌روز نباشد. برای تازه‌سازی دوباره وارد شوید."
+                : "This pass is shown from your saved offline copy and may be out of date. Sign in again to refresh it."}
+            </p>
+            <LinkButton to="/" variant="secondary" size="sm">
+              {t.loginAction} →
+            </LinkButton>
           </div>
         )}
 
