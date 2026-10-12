@@ -83,6 +83,8 @@ test('operator mode with an organizer key and a desk token present sends the des
   await expect(page.getByText('Operator One')).toBeVisible();
   await issueWalkIn(page);
   await expect(page.getByRole('dialog')).toContainText('Walk In');
+  // The attendee search is debounced (200 ms); wait for it instead of racing it.
+  await expect.poll(() => requests.some(r => r.path.endsWith('/attendees'))).toBe(true);
   expect(requests.map(r => `${r.method} ${r.path}`)).toEqual(expect.arrayContaining(['GET /api/events/event-a/desk/me', 'GET /api/events/event-a/desk/tiers', 'GET /api/events/event-a/attendees', 'POST /api/events/event-a/desk-registrations']));
   expect(only(requests, deskA)).toBe(true);
   expect(await store(page)).toEqual({ organizer: organizerKey, eventA: deskA, eventB: deskB, user: userToken });

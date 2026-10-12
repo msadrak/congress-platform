@@ -228,3 +228,13 @@ describe("scanner authority without an event context (opaque device token)", () 
     assert.throws(() => createScannerApiClient({ kind: "scanner", token: "opaque-device", pointId: "point-a", eventId: "  " }, { pointId: "point-a" }, transport.options), ApiContextError);
   });
 });
+
+describe("legacy credential heuristic removal", () => {
+  it("the API module exposes no helper that guesses a credential from storage or pathname", async () => {
+    const clientModule = await import("../src/api/client.ts");
+    assert.equal("getApiClient" in clientModule, false);
+    assert.equal(typeof clientModule.createApiClient, "function");
+    // An omitted authority is rejected instead of being resolved from stored credentials.
+    assert.throws(() => Reflect.apply(clientModule.createApiClient, undefined, [undefined]), ApiContextError);
+  });
+});

@@ -51,8 +51,6 @@ export type PrivacyPreferenceUpdate = components["schemas"]["PrivacyPreferenceUp
 export const ORGANIZER_KEY_STORAGE = "congress_organizer_api_key";
 export const ATTENDEE_TOKEN_STORAGE = "congress_attendee_token";
 
-export type AuthScope = "organizer" | "attendee" | "any";
-
 /** Descriptive request context, never proof of server permission. */
 export type ApiAuthority =
   | { readonly kind: "anonymous" }
@@ -194,37 +192,6 @@ export class ApiResponseError extends Error {
 export function unwrapApiResponse<T>(result: { data?: T; error?: unknown; response: Response }): T | undefined {
   if (!result.response.ok) throw new ApiResponseError(result.response.status, result.error);
   return result.data;
-}
-
-// Staged legacy coexistence only: migrate callers in T04–T08, remove in T09.
-
-export function getApiClient(token?: string | null, scope: AuthScope = "any") {
-  let authToken = token;
-  if (!authToken && typeof window !== "undefined") {
-    if (scope === "organizer") {
-      authToken = sessionStorage.getItem(ORGANIZER_KEY_STORAGE);
-    } else if (scope === "attendee") {
-      authToken = localStorage.getItem(ATTENDEE_TOKEN_STORAGE);
-    } else {
-      // Contextual fallback: prioritize organizer key only when on organizer routes;
-      // on attendee and public routes, prioritize attendee token so organizer keys
-      // never accidentally override attendee JWTs.
-      const isOrganizerRoute = window.location.pathname.startsWith("/organizer");
-      if (isOrganizerRoute) {
-        authToken =
-          sessionStorage.getItem(ORGANIZER_KEY_STORAGE) ||
-          localStorage.getItem(ATTENDEE_TOKEN_STORAGE);
-      } else {
-        authToken =
-          localStorage.getItem(ATTENDEE_TOKEN_STORAGE) ||
-          sessionStorage.getItem(ORGANIZER_KEY_STORAGE);
-      }
-    }
-  }
-  return createClient<paths>({
-    baseUrl: "",
-    headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
-  });
 }
 
 export function formatApiError(err: unknown): string {
