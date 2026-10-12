@@ -84,6 +84,26 @@ class User(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
+class DeskOperator(Base):
+    """An event-scoped operator authorized for reception, attendee lookup, and walk-in ticket minting."""
+
+    __tablename__ = "desk_operators"
+    __table_args__ = (
+        UniqueConstraint("event_id", "user_id", name="uq_desk_operators_event_user"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    event_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("events.id"), index=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), index=True)
+    operator_name: Mapped[str] = mapped_column(String(200))
+    is_revoked: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
 
 class Ticket(Base):
     """A free digital ticket entitlement held by an attendee."""
@@ -103,7 +123,9 @@ class Ticket(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
-
+    issued_by_operator_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("desk_operators.id"), nullable=True, index=True
+    )
 
 class EntityQR(Base):
     """Universal polymorphic QR registry (attendee_ticket, booth, hall, session)."""

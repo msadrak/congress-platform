@@ -61,7 +61,7 @@ async def get_public_event(slug: str, session: SessionDep) -> PublicEvent:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Event not found")
     tiers = await session.scalars(
         select(TicketTier)
-        .where(TicketTier.event_id == event.id, TicketTier.is_open)
+        .where(TicketTier.event_id == event.id)
         .order_by(TicketTier.created_at, TicketTier.id)
     )
     return PublicEvent(

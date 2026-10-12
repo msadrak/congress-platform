@@ -40,6 +40,17 @@ class CheckInPointCreate(BaseModel):
     max_capacity: int | None = None
 
 
+class CheckInPointUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=100)
+    location: str | None = Field(default=None, max_length=200)
+    policy_type: str | None = Field(
+        default=None,
+        description="MULTI_ENTRY, SINGLE_USE, TIER_RESTRICTED, CAPACITY_CAPPED",
+    )
+    allowed_tier_ids: list[str] | None = None
+    max_capacity: int | None = None
+
+
 class CheckInPointOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -150,6 +161,67 @@ async def list_checkin_points(
     )
     return [CheckInPointOut.model_validate(p) for p in points]
 
+
+@router.patch("/api/events/{event_id}/checkin-points/{point_id}")
+async def update_checkin_point(
+    point_id: uuid.UUID,
+    body: CheckInPointUpdate,
+    event: OwnedEventDep,
+    session: SessionDep,
+) -> CheckInPointOut:
+    point = await session.scalar(
+        select(CheckInPoint)
+        .where(CheckInPoint.id == point_id, CheckInPoint.event_id == event.id)
+        .with_for_update()
+    )
+    if point is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Check-in point not found")
+
+    # 1. Validate policy_type change safety
+    if body.policy_type is not None:
+        new_policy = body.policy_type.strip().upper()
+        if new_policy not in ("MULTI_ENTRY", "SINGLE_USE", "TIER_RESTRICTED", "CAPACITY_CAPPED"):
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Invalid policy_type: {new_policy}")
+
+        if new_policy != point.policy_type:
+            # Check if scans have already been recorded at this point
+            existing_scans_count = await session.scalar(
+                select(func.count(CheckIn.id)).where(CheckIn.checkin_point_id == point.id)
+            ) or 0
+            if existing_scans_count > 0:
+                raise HTTPException(
+                    status.HTTP_409_CONFLICT,
+                    "Cannot change admission policy for a check-in point with existing scan history. "
+                    "Create a new check-in point instead to preserve scanner cache and audit integrity.",
+                )
+            point.policy_type = new_policy
+
+    # 2. Validate allowed_tier_ids against event ownership
+    if body.allowed_tier_ids is not None:
+        if body.allowed_tier_ids:
+            valid_tiers = await session.scalars(
+                select(TicketTier.id).where(TicketTier.event_id == event.id)
+            )
+            valid_tier_strs = {str(t_id) for t_id in valid_tiers}
+            for tier_id_str in body.allowed_tier_ids:
+                if tier_id_str not in valid_tier_strs:
+                    raise HTTPException(
+                        status.HTTP_400_BAD_REQUEST,
+                        f"Tier ID '{tier_id_str}' does not belong to this event",
+                    )
+        point.allowed_tier_ids = body.allowed_tier_ids
+
+    # 3. Update metadata
+    if body.name is not None:
+        point.name = body.name.strip()
+    if body.location is not None:
+        point.location = body.location.strip()
+    if body.max_capacity is not None:
+        point.max_capacity = body.max_capacity
+
+    await session.commit()
+    await session.refresh(point)
+    return CheckInPointOut.model_validate(point)
 async def authorized_checkin_point(
     point_id: uuid.UUID,
     request: Request,

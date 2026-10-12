@@ -317,6 +317,92 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/events/{event_id}/desk/login": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Desk Operator Login */
+        post: operations["desk_operator_login_api_events__event_id__desk_login_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/events/{event_id}/desk/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Current Desk Operator */
+        get: operations["get_current_desk_operator_api_events__event_id__desk_me_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/events/{event_id}/desk/tiers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Desk Ticket Tiers */
+        get: operations["list_desk_ticket_tiers_api_events__event_id__desk_tiers_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/events/{event_id}/desk/operators": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Desk Operators */
+        get: operations["list_desk_operators_api_events__event_id__desk_operators_get"];
+        put?: never;
+        /** Add Desk Operator */
+        post: operations["add_desk_operator_api_events__event_id__desk_operators_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/events/{event_id}/desk/operators/{operator_id}/revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Revoke Desk Operator */
+        post: operations["revoke_desk_operator_api_events__event_id__desk_operators__operator_id__revoke_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/events/{event_id}/desk-registrations": {
         parameters: {
             query?: never;
@@ -754,6 +840,8 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+            /** Issued By */
+            issued_by?: string | null;
             /** Scan History */
             scan_history: components["schemas"]["ScanHistoryItem"][];
         };
@@ -790,6 +878,8 @@ export interface components {
             status: string;
             /** Checkin Count */
             checkin_count: number;
+            /** Issued By */
+            issued_by?: string | null;
         };
         /** AttendeeTicketDetail */
         AttendeeTicketDetail: {
@@ -1133,6 +1223,128 @@ export interface components {
             /** Private Notes */
             private_notes: string;
         };
+        /** DeskLoginRequest */
+        DeskLoginRequest: {
+            /**
+             * Email
+             * Format: email
+             */
+            email: string;
+            /** Password */
+            password: string;
+        };
+        /** DeskLoginResponse */
+        DeskLoginResponse: {
+            /** Access Token */
+            access_token: string;
+            /**
+             * Token Type
+             * @default bearer
+             */
+            token_type: string;
+            operator: components["schemas"]["DeskOperatorOut"];
+            /**
+             * Event Id
+             * Format: uuid
+             */
+            event_id: string;
+            /** Event Name */
+            event_name: string;
+            /** Event Slug */
+            event_slug: string;
+        };
+        /** DeskMeOut */
+        DeskMeOut: {
+            /** Operator Id */
+            operator_id: string | null;
+            /** Operator Name */
+            operator_name: string;
+            /**
+             * Event Id
+             * Format: uuid
+             */
+            event_id: string;
+            /** Event Name */
+            event_name: string;
+            /** Event Slug */
+            event_slug: string;
+            /** Is Organizer Admin */
+            is_organizer_admin: boolean;
+        };
+        /** DeskOperatorCreate */
+        DeskOperatorCreate: {
+            /**
+             * Email
+             * Format: email
+             */
+            email: string;
+            /** Operator Name */
+            operator_name: string;
+        };
+        /** DeskOperatorCreated */
+        DeskOperatorCreated: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Event Id
+             * Format: uuid
+             */
+            event_id: string;
+            /**
+             * User Id
+             * Format: uuid
+             */
+            user_id: string;
+            /** Operator Name */
+            operator_name: string;
+            /** Email */
+            email: string;
+            /** Is Revoked */
+            is_revoked: boolean;
+            /** Revoked At */
+            revoked_at: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Temporary Password */
+            temporary_password?: string | null;
+        };
+        /** DeskOperatorOut */
+        DeskOperatorOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Event Id
+             * Format: uuid
+             */
+            event_id: string;
+            /**
+             * User Id
+             * Format: uuid
+             */
+            user_id: string;
+            /** Operator Name */
+            operator_name: string;
+            /** Email */
+            email: string;
+            /** Is Revoked */
+            is_revoked: boolean;
+            /** Revoked At */
+            revoked_at: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
         /** DeskRegistrationCreate */
         DeskRegistrationCreate: {
             /** Full Name */
@@ -1174,6 +1386,8 @@ export interface components {
             ticket_tier_name: string;
             /** Qr Secret */
             qr_secret: string;
+            /** Issued By */
+            issued_by?: string | null;
             /**
              * Created At
              * Format: date-time
@@ -2420,6 +2634,201 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["BatchScanResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    desk_operator_login_api_events__event_id__desk_login_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeskLoginRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeskLoginResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_current_desk_operator_api_events__event_id__desk_me_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeskMeOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_desk_ticket_tiers_api_events__event_id__desk_tiers_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TicketTierOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_desk_operators_api_events__event_id__desk_operators_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeskOperatorOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    add_desk_operator_api_events__event_id__desk_operators_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeskOperatorCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeskOperatorCreated"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    revoke_desk_operator_api_events__event_id__desk_operators__operator_id__revoke_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                operator_id: string;
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeskOperatorOut"];
                 };
             };
             /** @description Validation Error */

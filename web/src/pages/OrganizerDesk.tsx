@@ -6,11 +6,12 @@ import {
   getApiClient,
   type AttendeeDetailCard,
   type AttendeeSearchItem,
+  type DeskMeOut,
   type DeskRegistrationOut,
-  type EventOut,
   type TicketTierOut,
 } from "../api/client";
 import { formatLocalizedDate, formatLocalizedNumber } from "../lib/i18n";
+import { Link } from "react-router-dom";
 import type { OrganizerOutletContext } from "./OrganizerLayout";
 import { Badge } from "../components/ui/Badge";
 import { Button, LinkButton } from "../components/ui/Button";
@@ -22,12 +23,24 @@ export default function OrganizerDesk() {
   const { apiKey, locale, t, isRtl } = useOutletContext<OrganizerOutletContext>();
   const nameInputRef = useRef<HTMLInputElement>(null);
 
-  const [event, setEvent] = useState<EventOut | null>(null);
   const [tiers, setTiers] = useState<TicketTierOut[]>([]);
   const [loading, setLoading] = useState(true);
   const [pageError, setPageError] = useState<string | null>(null);
 
-  // Walk-in form state
+  // Front desk operator authentication state
+  const [deskToken, setDeskToken] = useState<string | null>(() => {
+    if (typeof window !== "undefined" && eventId) {
+      return sessionStorage.getItem(`congress_desk_token_${eventId}`);
+    }
+    return null;
+  });
+  const activeAuthToken = apiKey || deskToken;
+
+  const [operatorProfile, setOperatorProfile] = useState<DeskMeOut | null>(null);
+  const [loginEmail, setLoginEmail] = useState("");
+  const [loginPassword, setLoginPassword] = useState("");
+  const [loggingIn, setLoggingIn] = useState(false);
+  const [loginError, setLoginError] = useState<string | null>(null);
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [organization, setOrganization] = useState("");
@@ -52,29 +65,41 @@ export default function OrganizerDesk() {
     if (!eventId) return;
 
     const loadEventData = async () => {
+      if (!activeAuthToken) {
+        setLoading(false);
+        return;
+      }
+
       setLoading(true);
-      const client = getApiClient(apiKey);
-      const [evRes, tiersRes] = await Promise.all([
-        client.GET("/api/events/{event_id}", {
+      const client = getApiClient(activeAuthToken);
+      const [meRes, tiersRes] = await Promise.all([
+        client.GET("/api/events/{event_id}/desk/me", {
           params: { path: { event_id: eventId } },
         }),
-        client.GET("/api/events/{event_id}/ticket-tiers", {
+        client.GET("/api/events/{event_id}/desk/tiers", {
           params: { path: { event_id: eventId } },
         }),
       ]);
 
       if (!isMounted) return;
 
-      if (evRes.error) {
-        setPageError(formatApiError(evRes.error));
-      } else if (evRes.data) {
-        setEvent(evRes.data);
+      if (meRes.error) {
+        if (deskToken) {
+          sessionStorage.removeItem(`congress_desk_token_${eventId}`);
+          setDeskToken(null);
+          setLoginError(isRtl ? "دسترسی اپراتور لغو شده یا نشست کاری منقضی گردیده است." : "Operator access revoked or session expired.");
+        } else {
+          setPageError(formatApiError(meRes.error));
+        }
+      } else if (meRes.data) {
+        setOperatorProfile(meRes.data);
       }
 
       if (tiersRes.data) {
         setTiers(tiersRes.data);
         if (tiersRes.data.length > 0) {
-          setSelectedTierId(tiersRes.data[0].id);
+          const firstOpen = tiersRes.data.find((t) => t.is_open);
+          setSelectedTierId(firstOpen ? firstOpen.id : tiersRes.data[0].id);
         }
       }
       setLoading(false);
@@ -84,15 +109,15 @@ export default function OrganizerDesk() {
     return () => {
       isMounted = false;
     };
-  }, [eventId, apiKey]);
+  }, [eventId, activeAuthToken]);
 
   // Search effect with 200ms debounce
   useEffect(() => {
-    if (!eventId) return;
+    if (!eventId || !activeAuthToken) return;
     let isMounted = true;
     const timer = setTimeout(async () => {
       setSearching(true);
-      const client = getApiClient(apiKey);
+      const client = getApiClient(activeAuthToken);
       const { data } = await client.GET("/api/events/{event_id}/attendees", {
         params: {
           path: { event_id: eventId },
@@ -109,7 +134,54 @@ export default function OrganizerDesk() {
       isMounted = false;
       clearTimeout(timer);
     };
-  }, [searchQuery, eventId, apiKey]);
+  }, [searchQuery, eventId, activeAuthToken]);
+
+  const handleDeskLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!eventId) return;
+    setLoginError(null);
+    if (!loginEmail.trim() || !loginPassword) {
+      setLoginError(isRtl ? "لطفاً ایمیل و کلمه عبور را وارد نمایید." : "Please enter email and password.");
+      return;
+    }
+
+    setLoggingIn(true);
+    const client = getApiClient(null);
+    const { data, error: err } = await client.POST("/api/events/{event_id}/desk/login", {
+      params: { path: { event_id: eventId } },
+      body: {
+        email: loginEmail.trim().toLowerCase(),
+        password: loginPassword,
+      },
+    });
+
+    setLoggingIn(false);
+    if (err) {
+      setLoginError(formatApiError(err));
+    } else if (data) {
+      sessionStorage.setItem(`congress_desk_token_${eventId}`, data.access_token);
+      setDeskToken(data.access_token);
+      setOperatorProfile({
+        operator_id: data.operator.id,
+        operator_name: data.operator.operator_name,
+        event_id: data.event_id,
+        event_name: data.event_name,
+        event_slug: data.event_slug,
+        is_organizer_admin: false,
+      });
+      setLoginEmail("");
+      setLoginPassword("");
+    }
+  };
+
+  const handleDeskLogout = () => {
+    if (eventId && typeof window !== "undefined") {
+      sessionStorage.removeItem(`congress_desk_token_${eventId}`);
+    }
+    setDeskToken(null);
+    setOperatorProfile(null);
+    setSearchResults([]);
+  };
 
   const handleRegisterWalkIn = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -122,7 +194,7 @@ export default function OrganizerDesk() {
     }
 
     setSubmitting(true);
-    const client = getApiClient(apiKey);
+    const client = getApiClient(activeAuthToken);
     const { data, error: err } = await client.POST(
       "/api/events/{event_id}/desk-registrations",
       {
@@ -152,7 +224,7 @@ export default function OrganizerDesk() {
 
   const handleViewAttendeeCard = async (ticketId: string) => {
     if (!eventId) return;
-    const client = getApiClient(apiKey);
+    const client = getApiClient(activeAuthToken);
     const { data } = await client.GET(
       "/api/events/{event_id}/attendees/{ticket_id}",
       {
@@ -183,12 +255,95 @@ export default function OrganizerDesk() {
     );
   }
 
-  if (pageError || !event) {
+  if (!activeAuthToken) {
+    return (
+      <div className="max-w-md mx-auto my-10 sm:my-16">
+        <Card className="border-border-default shadow-xs overflow-hidden">
+          <div className="p-6 sm:p-8 space-y-6">
+            <div className="space-y-2 text-center sm:text-start">
+              <div className="w-12 h-12 rounded-xl bg-action-subtle text-action-primary flex items-center justify-center text-2xl mx-auto sm:mx-0 shadow-xs">
+                🖨️
+              </div>
+              <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-text-primary">
+                {t.deskLoginTitle}
+              </h1>
+              <p className="text-xs sm:text-sm text-text-secondary leading-relaxed">
+                {t.deskLoginSubtitle}
+              </p>
+            </div>
+
+            <form onSubmit={handleDeskLogin} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-text-primary mb-1">
+                  {t.deskLoginEmailLabel} <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="email"
+                  required
+                  value={loginEmail}
+                  onChange={(e) => setLoginEmail(e.target.value)}
+                  placeholder="operator@example.com"
+                  className="w-full px-3.5 py-2.5 bg-white border border-border-default rounded-xl text-sm font-mono text-text-primary focus:border-action-primary focus:ring-1 focus:ring-action-primary"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-text-primary mb-1">
+                  {t.deskLoginPasswordLabel} <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="password"
+                  required
+                  value={loginPassword}
+                  onChange={(e) => setLoginPassword(e.target.value)}
+                  placeholder="••••••••"
+                  className="w-full px-3.5 py-2.5 bg-white border border-border-default rounded-xl text-sm font-mono text-text-primary focus:border-action-primary focus:ring-1 focus:ring-action-primary"
+                />
+              </div>
+
+              {loginError && (
+                <div
+                  role="alert"
+                  aria-live="assertive"
+                  className="p-3 rounded-xl bg-status-danger-bg text-status-danger-text border border-status-danger-border text-xs leading-relaxed"
+                >
+                  {loginError}
+                </div>
+              )}
+
+              <div className="pt-1">
+                <Button
+                  type="submit"
+                  variant="primary"
+                  size="md"
+                  isFullWidth
+                  disabled={loggingIn}
+                >
+                  {loggingIn ? "..." : t.deskLoginButton}
+                </Button>
+              </div>
+
+              <div className="pt-3 border-t border-border-subtle text-center">
+                <Link
+                  to="/organizer"
+                  className="text-xs text-action-primary hover:underline font-medium"
+                >
+                  {isRtl ? "← ورود با کلید مدیر ارشد" : "← Back to Organizer Console"}
+                </Link>
+              </div>
+            </form>
+          </div>
+        </Card>
+      </div>
+    );
+  }
+
+  if (pageError) {
     return (
       <Card className="p-8 sm:p-12 text-center space-y-4 border-border-default">
         <div className="text-3xl">⚠️</div>
         <h1 className="text-xl font-bold text-text-primary">
-          {pageError ?? (isRtl ? "همایش یافت نشد." : "Event not found.")}
+          {pageError}
         </h1>
         <LinkButton to="/organizer" variant="secondary" size="md">
           {t.breadcrumbEvents}
@@ -196,7 +351,6 @@ export default function OrganizerDesk() {
       </Card>
     );
   }
-
   return (
     <div className="space-y-8">
       {/* 1. Header Banner */}
@@ -206,13 +360,22 @@ export default function OrganizerDesk() {
             <div className="flex items-center gap-2">
               <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" aria-hidden="true" />
               <Badge variant="brand" size="sm">
-                {isRtl ? "ایستگاه پذیرش حضوری فعال" : "Front-Desk Operations Active"}
+                {t.openDeskAction}
               </Badge>
-              <span className="text-xs text-text-muted">•</span>
-              <span className="text-xs text-text-muted font-medium">{event.name}</span>
+              {operatorProfile && (
+                <Badge variant="neutral" size="sm" className="bg-neutral-100 text-neutral-800 font-mono">
+                  <bdi dir="ltr">/e/{operatorProfile.event_slug}</bdi>
+                </Badge>
+              )}
+              {operatorProfile && (
+                <Badge variant="success" size="sm" className="gap-1">
+                  <span>👤</span>
+                  <span>{operatorProfile.operator_name}</span>
+                </Badge>
+              )}
             </div>
             <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-text-primary">
-              {t.deskTitle}
+              {operatorProfile?.event_name || t.deskTitle}
             </h1>
             <p className="text-xs sm:text-sm text-text-secondary">
               {t.deskSubtitle}
@@ -220,6 +383,17 @@ export default function OrganizerDesk() {
           </div>
 
           <div className="shrink-0 flex items-center gap-2.5">
+            {deskToken && !apiKey && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={handleDeskLogout}
+                className="text-xs text-text-muted hover:text-red-600"
+              >
+                {t.deskLogoutAction} ✕
+              </Button>
+            )}
             <LinkButton
               to={`/organizer/events/${eventId}`}
               variant="secondary"
@@ -230,7 +404,6 @@ export default function OrganizerDesk() {
           </div>
         </div>
       </div>
-
       {/* 2. Operational Two-Column Split (Walk-In Form on left 5 cols, Search on right 7 cols) */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
         {/* Left Column: Rapid Walk-In Registration */}
@@ -420,8 +593,12 @@ export default function OrganizerDesk() {
                         </span>
                       )}
                     </div>
+                    {att.issued_by && (
+                      <span className="text-[11px] text-text-muted block">
+                        {t.issuedByLabel} <strong className="text-text-primary">{att.issued_by}</strong>
+                      </span>
+                    )}
                   </div>
-
                   <div className="shrink-0 flex items-center gap-2">
                     <Button
                       type="button"
@@ -532,6 +709,12 @@ export default function OrganizerDesk() {
                 <div className="flex items-center justify-between">
                   <span className="text-text-muted">{isRtl ? "سازمان:" : "Organization:"}</span>
                   <span>{selectedCard.organization}</span>
+                </div>
+              )}
+              {selectedCard.issued_by && (
+                <div className="flex items-center justify-between">
+                  <span className="text-text-muted">{t.issuedByLabel}</span>
+                  <span className="font-semibold text-text-primary">{selectedCard.issued_by}</span>
                 </div>
               )}
             </div>

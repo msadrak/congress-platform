@@ -1,19 +1,84 @@
 import secrets
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Query, status
-from pydantic import BaseModel, ConfigDict, Field
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 from sqlalchemy import func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 
+from app.auth import hash_api_key
 from app.db import SessionDep
-from app.models import CheckIn, CheckInPoint, EntityQR, Ticket, TicketTier, User
+from app.models import (
+    CheckIn,
+    CheckInPoint,
+    DeskOperator,
+    EntityQR,
+    Event,
+    Organizer,
+    Ticket,
+    TicketTier,
+    User,
+)
 from app.routes.events import OwnedEventDep
-from app.security import generate_entity_qr_secret, hash_password
+from app.routes.ticket_tiers import TicketTierOut
+from app.security import (
+    create_desk_operator_token,
+    decode_access_token,
+    generate_entity_qr_secret,
+    hash_password,
+    verify_password,
+)
 
+_bearer = HTTPBearer(auto_error=False)
 router = APIRouter(tags=["desk"])
+
+
+class DeskOperatorCreate(BaseModel):
+    email: EmailStr
+    operator_name: str = Field(min_length=1, max_length=200)
+
+
+class DeskOperatorOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    event_id: uuid.UUID
+    user_id: uuid.UUID
+    operator_name: str
+    email: str
+    is_revoked: bool
+    revoked_at: datetime | None
+    created_at: datetime
+
+
+class DeskOperatorCreated(DeskOperatorOut):
+    temporary_password: str | None = None
+
+
+class DeskLoginRequest(BaseModel):
+    email: EmailStr
+    password: str
+
+
+class DeskLoginResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    operator: DeskOperatorOut
+    event_id: uuid.UUID
+    event_name: str
+    event_slug: str
+
+
+class DeskMeOut(BaseModel):
+    operator_id: uuid.UUID | None
+    operator_name: str
+    event_id: uuid.UUID
+    event_name: str
+    event_slug: str
+    is_organizer_admin: bool
 
 
 class DeskRegistrationCreate(BaseModel):
@@ -34,6 +99,7 @@ class DeskRegistrationOut(BaseModel):
     title: str
     ticket_tier_name: str
     qr_secret: str
+    issued_by: str | None = None
     created_at: datetime
 
 
@@ -49,6 +115,7 @@ class AttendeeSearchItem(BaseModel):
     qr_secret: str
     status: str
     checkin_count: int
+    issued_by: str | None = None
 
 
 class ScanHistoryItem(BaseModel):
@@ -69,18 +136,347 @@ class AttendeeDetailCard(BaseModel):
     qr_secret: str
     status: str
     created_at: datetime
+    issued_by: str | None = None
     scan_history: list[ScanHistoryItem]
 
+
+class AuthorizedDeskContext(BaseModel):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    event: Event
+    operator: DeskOperator | None = None
+    is_organizer_admin: bool = False
+    operator_name: str
+
+
+async def authorized_desk_operator(
+    event_id: uuid.UUID,
+    request: Request,
+    session: SessionDep,
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer)],
+) -> AuthorizedDeskContext:
+    if credentials is None or not credentials.credentials:
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED,
+            "Missing front desk authorization credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    event = await session.get(Event, event_id)
+    if event is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Event not found")
+
+    token = credentials.credentials
+    jwt_secret: str = request.app.state.settings.jwt_secret
+
+    # 1. Attempt validation as Desk Operator JWT
+    payload = decode_access_token(token, jwt_secret)
+    if payload is not None and payload.get("type") == "desk_operator":
+        token_event_id = payload.get("event_id")
+        operator_id_str = payload.get("operator_id")
+
+        if token_event_id != str(event.id):
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN,
+                "Operator token is not authorized for this event",
+            )
+
+        try:
+            operator_uuid = uuid.UUID(str(operator_id_str))
+        except (ValueError, TypeError):
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid operator token")
+
+        operator = await session.get(DeskOperator, operator_uuid)
+        if operator is None or operator.event_id != event.id:
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN,
+                "Operator is not assigned to this event",
+            )
+
+        if operator.is_revoked:
+            raise HTTPException(
+                status.HTTP_401_UNAUTHORIZED,
+                "Front desk operator access has been revoked",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
+        return AuthorizedDeskContext(
+            event=event,
+            operator=operator,
+            is_organizer_admin=False,
+            operator_name=operator.operator_name,
+        )
+
+    # 2. Master Organizer API key fallback
+    token_hash = hash_api_key(token)
+    token_organizer = await session.scalar(
+        select(Organizer).where(Organizer.api_key_hash == token_hash)
+    )
+    if token_organizer is not None:
+        if token_organizer.id != event.organizer_id:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Event not found")
+        return AuthorizedDeskContext(
+            event=event,
+            operator=None,
+            is_organizer_admin=True,
+            operator_name="مدیر ارشد سازمان (Organizer Admin)",
+        )
+
+    raise HTTPException(
+        status.HTTP_401_UNAUTHORIZED,
+        "Invalid front desk operator credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+
+AuthorizedDeskDep = Annotated[AuthorizedDeskContext, Depends(authorized_desk_operator)]
+
+
+# -----------------------------------------------------------------------------
+# Operator Authentication & Management Routes
+# -----------------------------------------------------------------------------
+
+@router.post("/api/events/{event_id}/desk/login")
+async def desk_operator_login(
+    event_id: uuid.UUID,
+    body: DeskLoginRequest,
+    request: Request,
+    session: SessionDep,
+) -> DeskLoginResponse:
+    event = await session.get(Event, event_id)
+    if event is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Event not found")
+
+    email = body.email.strip().lower()
+    user = await session.scalar(select(User).where(User.email == email))
+    if user is None or not verify_password(body.password, user.password_hash):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid email or password")
+
+    operator = await session.scalar(
+        select(DeskOperator).where(
+            DeskOperator.event_id == event.id,
+            DeskOperator.user_id == user.id,
+        )
+    )
+    if operator is None:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "User is not registered as a front desk operator for this event",
+        )
+
+    if operator.is_revoked:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "Front desk operator access has been revoked",
+        )
+
+    jwt_secret: str = request.app.state.settings.jwt_secret
+    access_token = create_desk_operator_token(
+        operator_id=operator.id,
+        event_id=event.id,
+        user_id=user.id,
+        secret=jwt_secret,
+        operator_name=operator.operator_name,
+    )
+
+    op_out = DeskOperatorOut(
+        id=operator.id,
+        event_id=operator.event_id,
+        user_id=operator.user_id,
+        operator_name=operator.operator_name,
+        email=user.email,
+        is_revoked=operator.is_revoked,
+        revoked_at=operator.revoked_at,
+        created_at=operator.created_at,
+    )
+    return DeskLoginResponse(
+        access_token=access_token,
+        token_type="bearer",
+        operator=op_out,
+        event_id=event.id,
+        event_name=event.name,
+        event_slug=event.slug,
+    )
+
+
+@router.get("/api/events/{event_id}/desk/me")
+async def get_current_desk_operator(
+    desk_ctx: AuthorizedDeskDep,
+) -> DeskMeOut:
+    return DeskMeOut(
+        operator_id=desk_ctx.operator.id if desk_ctx.operator else None,
+        operator_name=desk_ctx.operator_name,
+        event_id=desk_ctx.event.id,
+        event_name=desk_ctx.event.name,
+        event_slug=desk_ctx.event.slug,
+        is_organizer_admin=desk_ctx.is_organizer_admin,
+    )
+
+
+@router.get("/api/events/{event_id}/desk/tiers")
+async def list_desk_ticket_tiers(
+    desk_ctx: AuthorizedDeskDep,
+    session: SessionDep,
+) -> list[TicketTierOut]:
+    tiers = await session.scalars(
+        select(TicketTier)
+        .where(TicketTier.event_id == desk_ctx.event.id)
+        .order_by(TicketTier.created_at, TicketTier.id)
+    )
+    return [TicketTierOut.model_validate(tier) for tier in tiers]
+
+@router.get("/api/events/{event_id}/desk/operators")
+async def list_desk_operators(
+    event: OwnedEventDep,
+    session: SessionDep,
+) -> list[DeskOperatorOut]:
+    query = (
+        select(DeskOperator, User.email)
+        .join(User, DeskOperator.user_id == User.id)
+        .where(DeskOperator.event_id == event.id)
+        .order_by(DeskOperator.created_at)
+    )
+    res = await session.execute(query)
+    rows = res.all()
+    return [
+        DeskOperatorOut(
+            id=op.id,
+            event_id=op.event_id,
+            user_id=op.user_id,
+            operator_name=op.operator_name,
+            email=email,
+            is_revoked=op.is_revoked,
+            revoked_at=op.revoked_at,
+            created_at=op.created_at,
+        )
+        for op, email in rows
+    ]
+
+
+@router.post(
+    "/api/events/{event_id}/desk/operators",
+    status_code=status.HTTP_201_CREATED,
+)
+async def add_desk_operator(
+    event: OwnedEventDep,
+    body: DeskOperatorCreate,
+    session: SessionDep,
+) -> DeskOperatorCreated:
+    email = body.email.strip().lower()
+    user = await session.scalar(select(User).where(User.email == email))
+
+    temp_password: str | None = None
+    if user is None:
+        temp_password = f"desk-{secrets.token_urlsafe(8)}"
+        user = User(
+            email=email,
+            password_hash=hash_password(temp_password),
+            full_name=body.operator_name.strip(),
+        )
+        session.add(user)
+        await session.flush()
+
+    existing_op = await session.scalar(
+        select(DeskOperator).where(
+            DeskOperator.event_id == event.id,
+            DeskOperator.user_id == user.id,
+        )
+    )
+    if existing_op is not None:
+        if existing_op.is_revoked:
+            existing_op.is_revoked = False
+            existing_op.revoked_at = None
+            existing_op.operator_name = body.operator_name.strip()
+            await session.commit()
+            return DeskOperatorCreated(
+                id=existing_op.id,
+                event_id=existing_op.event_id,
+                user_id=existing_op.user_id,
+                operator_name=existing_op.operator_name,
+                email=user.email,
+                is_revoked=existing_op.is_revoked,
+                revoked_at=existing_op.revoked_at,
+                created_at=existing_op.created_at,
+                temporary_password=temp_password,
+            )
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "Operator is already assigned to this event",
+        )
+
+    operator = DeskOperator(
+        event_id=event.id,
+        user_id=user.id,
+        operator_name=body.operator_name.strip(),
+        is_revoked=False,
+    )
+    session.add(operator)
+    await session.commit()
+    await session.refresh(operator)
+
+    return DeskOperatorCreated(
+        id=operator.id,
+        event_id=operator.event_id,
+        user_id=operator.user_id,
+        operator_name=operator.operator_name,
+        email=user.email,
+        is_revoked=operator.is_revoked,
+        revoked_at=operator.revoked_at,
+        created_at=operator.created_at,
+        temporary_password=temp_password,
+    )
+
+
+@router.post("/api/events/{event_id}/desk/operators/{operator_id}/revoke")
+@router.delete("/api/events/{event_id}/desk/operators/{operator_id}")
+async def revoke_desk_operator(
+    event: OwnedEventDep,
+    operator_id: uuid.UUID,
+    session: SessionDep,
+) -> DeskOperatorOut:
+    operator = await session.scalar(
+        select(DeskOperator).where(
+            DeskOperator.id == operator_id,
+            DeskOperator.event_id == event.id,
+        )
+    )
+    if operator is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Desk operator not found")
+
+    user = await session.get(User, operator.user_id)
+    email = user.email if user else ""
+
+    operator.is_revoked = True
+    operator.revoked_at = datetime.now(timezone.utc)
+    await session.commit()
+
+    return DeskOperatorOut(
+        id=operator.id,
+        event_id=operator.event_id,
+        user_id=operator.user_id,
+        operator_name=operator.operator_name,
+        email=email,
+        is_revoked=operator.is_revoked,
+        revoked_at=operator.revoked_at,
+        created_at=operator.created_at,
+    )
+
+
+# -----------------------------------------------------------------------------
+# Protected Reception Operations (AuthorizedDeskDep)
+# -----------------------------------------------------------------------------
 
 @router.post(
     "/api/events/{event_id}/desk-registrations",
     status_code=status.HTTP_201_CREATED,
 )
 async def create_desk_registration(
-    event: OwnedEventDep,
+    desk_ctx: AuthorizedDeskDep,
     body: DeskRegistrationCreate,
     session: SessionDep,
 ) -> DeskRegistrationOut:
+    event = desk_ctx.event
+
     # 1. Resolve User (find or create)
     email = body.email.strip().lower() if body.email else None
     user = None
@@ -149,12 +545,14 @@ async def create_desk_registration(
             status.HTTP_410_GONE, "Ticket tier is sold out / quota exhausted"
         )
 
-    # 4. Mint Ticket
+    # 4. Mint Ticket with Operator Attribution
+    operator_id = desk_ctx.operator.id if desk_ctx.operator else None
     ticket = Ticket(
         event_id=event.id,
         ticket_tier_id=body.ticket_tier_id,
         user_id=user.id,
         status="active",
+        issued_by_operator_id=operator_id,
     )
     session.add(ticket)
     await session.flush()
@@ -178,17 +576,19 @@ async def create_desk_registration(
         title=user.title,
         ticket_tier_name=tier_name,
         qr_secret=secret,
+        issued_by=desk_ctx.operator_name,
         created_at=ticket.created_at,
     )
 
 
 @router.get("/api/events/{event_id}/attendees")
 async def search_event_attendees(
-    event: OwnedEventDep,
+    desk_ctx: AuthorizedDeskDep,
     session: SessionDep,
     q: Annotated[str, Query()] = "",
     limit: Annotated[int, Query(ge=1, le=100)] = 50,
 ) -> list[AttendeeSearchItem]:
+    event = desk_ctx.event
     term = q.strip()
 
     # Count check-ins per ticket
@@ -202,9 +602,9 @@ async def search_event_attendees(
         row[0]: row[1] for row in counts_res.all() if row[0] is not None
     }
 
-    # Query tickets joined with user, tier, qr
+    # Query tickets joined with user, tier, qr, and operator attribution
     query = (
-        select(Ticket, User, TicketTier, EntityQR)
+        select(Ticket, User, TicketTier, EntityQR, DeskOperator.operator_name)
         .join(User, Ticket.user_id == User.id)
         .join(TicketTier, Ticket.ticket_tier_id == TicketTier.id)
         .join(
@@ -212,6 +612,7 @@ async def search_event_attendees(
             (EntityQR.entity_id == Ticket.id)
             & (EntityQR.entity_type == "attendee_ticket"),
         )
+        .outerjoin(DeskOperator, Ticket.issued_by_operator_id == DeskOperator.id)
         .where(Ticket.event_id == event.id)
     )
 
@@ -242,19 +643,21 @@ async def search_event_attendees(
             qr_secret=qr.secret,
             status=ticket.status,
             checkin_count=scan_counts.get(ticket.id, 0),
+            issued_by=op_name,
         )
-        for ticket, user, tier, qr in rows
+        for ticket, user, tier, qr, op_name in rows
     ]
 
 
 @router.get("/api/events/{event_id}/attendees/{ticket_id}")
 async def get_attendee_ticket_detail(
-    event: OwnedEventDep,
+    desk_ctx: AuthorizedDeskDep,
     ticket_id: uuid.UUID,
     session: SessionDep,
 ) -> AttendeeDetailCard:
+    event = desk_ctx.event
     query = (
-        select(Ticket, User, TicketTier, EntityQR)
+        select(Ticket, User, TicketTier, EntityQR, DeskOperator.operator_name)
         .join(User, Ticket.user_id == User.id)
         .join(TicketTier, Ticket.ticket_tier_id == TicketTier.id)
         .join(
@@ -262,6 +665,7 @@ async def get_attendee_ticket_detail(
             (EntityQR.entity_id == Ticket.id)
             & (EntityQR.entity_type == "attendee_ticket"),
         )
+        .outerjoin(DeskOperator, Ticket.issued_by_operator_id == DeskOperator.id)
         .where(Ticket.id == ticket_id, Ticket.event_id == event.id)
     )
     res = await session.execute(query)
@@ -269,7 +673,7 @@ async def get_attendee_ticket_detail(
     if row is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Attendee ticket not found")
 
-    ticket, user, tier, qr = row[0], row[1], row[2], row[3]
+    ticket, user, tier, qr, op_name = row[0], row[1], row[2], row[3], row[4]
 
     # Fetch scan history
     history_query = (
@@ -302,5 +706,6 @@ async def get_attendee_ticket_detail(
         qr_secret=qr.secret,
         status=ticket.status,
         created_at=ticket.created_at,
+        issued_by=op_name,
         scan_history=scan_history,
     )

@@ -6,6 +6,8 @@ import {
   getApiClient,
   type BoothOut,
   type CheckInPointOut,
+  type DeskOperatorCreated,
+  type DeskOperatorOut,
   type EventOut,
   type TicketTierOut,
 } from "../api/client";
@@ -34,9 +36,17 @@ export default function OrganizerEventDetail() {
   const [error, setError] = useState<string | null>(null);
 
   // Active section tab
-  const [activeTab, setActiveTab] = useState<"overview" | "tiers" | "points" | "booths">("overview");
+  const [activeTab, setActiveTab] = useState<"overview" | "tiers" | "points" | "booths" | "operators">("overview");
 
-  // New tier form & modal state
+  // Front desk operators state
+  const [operators, setOperators] = useState<DeskOperatorOut[]>([]);
+  const [isOperatorModalOpen, setIsOperatorModalOpen] = useState(false);
+  const [newOperatorName, setNewOperatorName] = useState("");
+  const [newOperatorEmail, setNewOperatorEmail] = useState("");
+  const [submittingOperator, setSubmittingOperator] = useState(false);
+  const [operatorFormError, setOperatorFormError] = useState<string | null>(null);
+  const [createdOperatorResult, setCreatedOperatorResult] = useState<DeskOperatorCreated | null>(null);
+  const [revokingOperatorId, setRevokingOperatorId] = useState<string | null>(null);
   const [isTierModalOpen, setIsTierModalOpen] = useState(false);
   const [tierName, setTierName] = useState("");
   const [tierDescription, setTierDescription] = useState("");
@@ -112,7 +122,7 @@ export default function OrganizerEventDetail() {
       setError(null);
       const client = getApiClient(apiKey);
 
-      const [eventRes, tiersRes, pointsRes, boothsRes] = await Promise.all([
+      const [eventRes, tiersRes, pointsRes, boothsRes, operatorsRes] = await Promise.all([
         client.GET("/api/events/{event_id}", {
           params: { path: { event_id: eventId } },
         }),
@@ -123,6 +133,9 @@ export default function OrganizerEventDetail() {
           params: { path: { event_id: eventId } },
         }),
         client.GET("/api/events/{event_id}/booths", {
+          params: { path: { event_id: eventId } },
+        }),
+        client.GET("/api/events/{event_id}/desk/operators", {
           params: { path: { event_id: eventId } },
         }),
       ]);
@@ -136,6 +149,7 @@ export default function OrganizerEventDetail() {
       if (tiersRes.data) setTiers(tiersRes.data);
       if (pointsRes.data) setPoints(pointsRes.data);
       if (boothsRes.data) setBooths(boothsRes.data);
+      if (operatorsRes.data) setOperators(operatorsRes.data);
 
       setLoading(false);
     };
@@ -309,6 +323,58 @@ export default function OrganizerEventDetail() {
     setIsEditEventModalOpen(true);
   };
 
+  const handleCreateOperator = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!eventId) return;
+    setOperatorFormError(null);
+    if (!newOperatorName.trim() || !newOperatorEmail.trim()) {
+      setOperatorFormError(isRtl ? "لطفاً نام و ایمیل اپراتور را وارد نمایید." : "Please enter operator name and email.");
+      return;
+    }
+    setSubmittingOperator(true);
+    const client = getApiClient(apiKey);
+    const { data, error: err } = await client.POST("/api/events/{event_id}/desk/operators", {
+      params: { path: { event_id: eventId } },
+      body: {
+        operator_name: newOperatorName.trim(),
+        email: newOperatorEmail.trim().toLowerCase(),
+      },
+    });
+    setSubmittingOperator(false);
+    if (err) {
+      setOperatorFormError(formatApiError(err));
+    } else if (data) {
+      setOperators((prev) => {
+        const exists = prev.some((o) => o.id === data.id);
+        return exists ? prev.map((o) => (o.id === data.id ? data : o)) : [...prev, data];
+      });
+      setNewOperatorName("");
+      setNewOperatorEmail("");
+      if (data.temporary_password) {
+        setCreatedOperatorResult(data);
+      } else {
+        setIsOperatorModalOpen(false);
+      }
+    }
+  };
+
+  const handleRevokeOperator = async (operatorId: string) => {
+    if (!eventId) return;
+    setRevokingOperatorId(operatorId);
+    const client = getApiClient(apiKey);
+    const { data, error: err } = await client.POST(
+      "/api/events/{event_id}/desk/operators/{operator_id}/revoke",
+      {
+        params: { path: { event_id: eventId, operator_id: operatorId } },
+      }
+    );
+    setRevokingOperatorId(null);
+    if (err) {
+      // ignore
+    } else if (data) {
+      setOperators((prev) => prev.map((o) => (o.id === data.id ? data : o)));
+    }
+  };
   const handleUpdateEvent = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!event || !eventId) return;
@@ -582,6 +648,19 @@ export default function OrganizerEventDetail() {
             }`}
           >
             🏢 {t.tabBooths} ({booths.length})
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === "operators"}
+            onClick={() => setActiveTab("operators")}
+            className={`pb-3 px-3 text-xs sm:text-sm font-bold border-b-2 transition-colors shrink-0 cursor-pointer ${
+              activeTab === "operators"
+                ? "border-action-primary text-action-primary"
+                : "border-transparent text-text-muted hover:text-text-primary"
+            }`}
+          >
+            👥 {t.tabOperators} ({operators.filter((o) => !o.is_revoked).length})
           </button>
         </div>
       </div>
@@ -939,6 +1018,94 @@ export default function OrganizerEventDetail() {
                     >
                       {t.viewBoothAction} ↗
                     </Link>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* TAB E: Front Desk Operators */}
+      {activeTab === "operators" && (
+        <div className="space-y-6">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div className="space-y-1">
+              <h2 className="text-lg sm:text-xl font-bold tracking-tight text-text-primary">
+                {t.operatorsHeading}
+              </h2>
+              <p className="text-xs sm:text-sm text-text-secondary">
+                {t.operatorsDesc}
+              </p>
+            </div>
+            <Button
+              type="button"
+              variant="primary"
+              size="md"
+              onClick={() => {
+                setCreatedOperatorResult(null);
+                setOperatorFormError(null);
+                setIsOperatorModalOpen(true);
+              }}
+              className="gap-2 shrink-0 shadow-xs"
+            >
+              <span>+</span>
+              <span>{t.addOperatorButton}</span>
+            </Button>
+          </div>
+
+          {operators.length === 0 ? (
+            <Card className="p-8 text-center text-xs text-text-muted border-border-default">
+              {t.noOperatorsTitle}
+            </Card>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {operators.map((op) => (
+                <div
+                  key={op.id}
+                  className={`p-5 rounded-2xl bg-surface-panel border shadow-xs space-y-3.5 transition-all ${
+                    op.is_revoked
+                      ? "border-border-subtle bg-neutral-50/60 opacity-80"
+                      : "border-border-default"
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-lg">👤</span>
+                      <div>
+                        <h3 className="font-bold text-base text-text-primary">
+                          {op.operator_name}
+                        </h3>
+                        <span className="text-xs font-mono text-text-muted">
+                          {op.email}
+                        </span>
+                      </div>
+                    </div>
+                    <Badge variant={op.is_revoked ? "neutral" : "success"} size="sm">
+                      {op.is_revoked ? t.operatorStatusRevoked : t.operatorStatusActive}
+                    </Badge>
+                  </div>
+
+                  <div className="pt-2 border-t border-border-subtle flex items-center justify-between text-xs text-text-muted">
+                    <span>
+                      {isRtl ? "ثبت دسترسی:" : "Assigned:"} {formatLocalizedDate(op.created_at, locale)}
+                    </span>
+                    {!op.is_revoked ? (
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        size="sm"
+                        disabled={revokingOperatorId === op.id}
+                        onClick={() => handleRevokeOperator(op.id)}
+                        className="text-xs py-1 px-2.5 text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200"
+                      >
+                        {revokingOperatorId === op.id ? "..." : t.revokeOperatorAction}
+                      </Button>
+                    ) : (
+                      <span className="text-[11px] text-red-600 font-medium">
+                        {isRtl ? "لغو شده" : "Revoked"}
+                      </span>
+                    )}
                   </div>
                 </div>
               ))}
@@ -1695,6 +1862,115 @@ export default function OrganizerEventDetail() {
                 disabled={submittingPointEdit}
               >
                 {submittingPointEdit ? (t.savingAction || "...") : (t.saveChangesAction || (isRtl ? "ذخیره تغییرات" : "Save Changes"))}
+              </Button>
+            </div>
+          </form>
+        )}
+      </Dialog>
+
+      {/* MODAL: Add Desk Operator */}
+      <Dialog
+        isOpen={isOperatorModalOpen}
+        onClose={() => {
+          if (!submittingOperator) {
+            setIsOperatorModalOpen(false);
+            setOperatorFormError(null);
+            setCreatedOperatorResult(null);
+          }
+        }}
+        title={t.addOperatorModalTitle}
+        description={t.addOperatorModalDesc}
+        size="md"
+      >
+        {createdOperatorResult?.temporary_password ? (
+          <div className="space-y-4 py-2">
+            <div className="p-4 rounded-xl bg-status-success-bg border border-status-success-border text-status-success-text space-y-2">
+              <p className="font-bold text-sm">
+                ✓ {isRtl ? "اپراتور با موفقیت ایجاد گردید." : "Operator created successfully."}
+              </p>
+              <p className="text-xs leading-relaxed">
+                {t.operatorTempPasswordNotice}
+              </p>
+              <div className="p-3 bg-white rounded-lg border border-status-success-border font-mono font-bold text-sm sm:text-base text-text-primary text-center select-all">
+                {createdOperatorResult.temporary_password}
+              </div>
+              <p className="text-[11px] text-text-muted">
+                {isRtl
+                  ? "اپراتور می‌تواند با این ایمیل و کلمه عبور وارد میز پذیرش شود."
+                  : "The operator can use this email and temporary password to log into the Front Desk."}
+              </p>
+            </div>
+            <div className="flex justify-end pt-2">
+              <Button
+                type="button"
+                variant="primary"
+                size="md"
+                onClick={() => {
+                  setCreatedOperatorResult(null);
+                  setIsOperatorModalOpen(false);
+                }}
+              >
+                {isRtl ? "متوجه شدم و بستن" : "Done"}
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <form onSubmit={handleCreateOperator} className="space-y-4">
+            <div>
+              <label className="block text-xs font-semibold text-text-primary mb-1">
+                {t.operatorNameLabel} <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="text"
+                required
+                value={newOperatorName}
+                onChange={(e) => setNewOperatorName(e.target.value)}
+                placeholder={isRtl ? "مثال: مریم باقری (مسئول گیت پذیرش)" : "e.g. Maryam Bagheri"}
+                className="w-full px-3.5 py-2.5 bg-white border border-border-default rounded-xl text-sm text-text-primary focus:border-action-primary focus:ring-1 focus:ring-action-primary"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-text-primary mb-1">
+                {t.operatorEmailLabel} <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="email"
+                required
+                value={newOperatorEmail}
+                onChange={(e) => setNewOperatorEmail(e.target.value)}
+                placeholder="operator@example.com"
+                className="w-full px-3.5 py-2.5 bg-white border border-border-default rounded-xl text-sm font-mono text-text-primary focus:border-action-primary focus:ring-1 focus:ring-action-primary"
+              />
+            </div>
+
+            {operatorFormError && (
+              <div
+                role="alert"
+                aria-live="assertive"
+                className="p-3.5 rounded-xl bg-status-danger-bg text-status-danger-text border border-status-danger-border text-xs leading-relaxed"
+              >
+                {operatorFormError}
+              </div>
+            )}
+
+            <div className="pt-2 flex justify-end gap-2.5">
+              <Button
+                type="button"
+                variant="ghost"
+                size="md"
+                disabled={submittingOperator}
+                onClick={() => setIsOperatorModalOpen(false)}
+              >
+                {isRtl ? "انصراف" : "Cancel"}
+              </Button>
+              <Button
+                type="submit"
+                variant="primary"
+                size="md"
+                disabled={submittingOperator}
+              >
+                {submittingOperator ? "..." : (isRtl ? "صدور دسترسی اپراتور" : "Authorize Operator")}
               </Button>
             </div>
           </form>

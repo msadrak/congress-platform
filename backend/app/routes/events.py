@@ -40,6 +40,13 @@ class EventCreate(BaseModel):
             raise ValueError("ends_at must be after starts_at")
         return self
 
+class EventUpdate(BaseModel):
+    name: Name | None = None
+    starts_at: AwareDatetime | None = None
+    ends_at: AwareDatetime | None = None
+    location: Annotated[str, Field(max_length=300)] | None = None
+    description: Annotated[str, Field(max_length=10_000)] | None = None
+
 
 class EventOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -95,4 +102,31 @@ async def list_events(organizer: OrganizerDep, session: SessionDep) -> list[Even
 
 @router.get("/{event_id}")
 async def get_event(event: OwnedEventDep) -> EventOut:
+    return EventOut.model_validate(event)
+
+
+@router.patch("/{event_id}")
+async def update_event(
+    body: EventUpdate, event: OwnedEventDep, session: SessionDep
+) -> EventOut:
+    new_starts = body.starts_at if body.starts_at is not None else event.starts_at
+    new_ends = body.ends_at if body.ends_at is not None else event.ends_at
+    if new_ends <= new_starts:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, "ends_at must be after starts_at"
+        )
+
+    if body.name is not None:
+        event.name = body.name
+    if body.description is not None:
+        event.description = body.description
+    if body.location is not None:
+        event.location = body.location
+    if body.starts_at is not None:
+        event.starts_at = body.starts_at
+    if body.ends_at is not None:
+        event.ends_at = body.ends_at
+
+    await session.commit()
+    await session.refresh(event)
     return EventOut.model_validate(event)

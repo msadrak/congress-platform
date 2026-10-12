@@ -7,7 +7,7 @@ import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
 
 export interface OrganizerOutletContext {
-  apiKey: string;
+  apiKey: string | null;
   locale: "fa" | "en";
   t: TranslationDictionary;
   isRtl: boolean;
@@ -225,7 +225,7 @@ export default function OrganizerLayout() {
 
       {/* Main Content Area */}
       <main id="organizer-main-content" tabIndex={-1} className="flex-1 max-w-6xl w-full mx-auto p-4 sm:p-6 lg:p-8 focus:outline-none">
-        {!apiKey ? (
+        {!apiKey && !isDesk ? (
           /* High-Contrast Credential Gate Card */
           <div className="max-w-md mx-auto my-12 sm:my-20">
             <Card className="border-border-default shadow-xs overflow-hidden">
