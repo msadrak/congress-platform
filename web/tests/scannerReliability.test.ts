@@ -143,3 +143,42 @@ test("reconstructLocalState: correctly reverts provisional admission when server
   assert.equal(currentAdmittedCount, 0);
   assert.equal(ticketMap["sec_x"].is_admitted, false);
 });
+
+import { applyServerVerdict, type QueuedScan } from "../src/lib/scannerStorage.ts";
+
+const queued = (over: Partial<QueuedScan>): QueuedScan => ({
+  scan_id: "s1", point_id: "p1", qr_secret: "sec_1", scanned_at: "2099-01-01T00:00:00Z",
+  status: "ADMITTED", rejection_reason: null, synced: false, sync_state: "PROVISIONAL", ...over,
+});
+
+test("verdict: a provisional admission the server rejects is a conflict", () => {
+  const scan = queued({});
+  assert.equal(applyServerVerdict(scan, { scan_id: "s1", qr_secret: "sec_1", status: "REJECTED", rejection_reason: "ALREADY_ADMITTED" }, "now"), "conflict");
+  assert.equal(scan.sync_state, "CONFLICT");
+  assert.equal(scan.status, "REJECTED");
+  assert.equal(scan.conflict_acknowledged, false);
+});
+
+test("verdict: a rejection the device already made and the server confirms is not a conflict", () => {
+  const scan = queued({ status: "REJECTED", rejection_reason: "ALREADY_ADMITTED", sync_state: "LOCAL_REJECTED" });
+  assert.equal(applyServerVerdict(scan, { scan_id: "s1", qr_secret: "sec_1", status: "REJECTED", rejection_reason: "ALREADY_ADMITTED" }, "now"), "agreed");
+  assert.equal(scan.sync_state, "LOCAL_REJECTED");
+  assert.equal(scan.synced, true);
+  assert.equal(scan.rejection_reason, "ALREADY_ADMITTED");
+});
+
+test("verdict: a locally rejected scan the server admits (stale manifest) becomes confirmed", () => {
+  const scan = queued({ status: "REJECTED", rejection_reason: "NOT_IN_LOCAL_MANIFEST", sync_state: "LOCAL_REJECTED" });
+  assert.equal(applyServerVerdict(scan, { scan_id: "s1", qr_secret: "sec_1", status: "ADMITTED", attendee_name: "Late Ticket" }, "now"), "confirmed");
+  assert.equal(scan.status, "ADMITTED");
+  assert.equal(scan.rejection_reason, null);
+});
+
+test("a server-confirmed duplicate rejection never makes reconstructLocalState forget the genuine admission", () => {
+  const ticket: LocalTicket = { qr_secret: "sec_1", ticket_id: "t1", attendee_name: "A", ticket_tier_id: "tier", ticket_tier_name: "General", admission_count: 0, is_admitted: false };
+  const first = queued({ scan_id: "a", sync_state: "CONFIRMED" });
+  const duplicate = queued({ scan_id: "b", status: "REJECTED", rejection_reason: "ALREADY_ADMITTED", sync_state: "LOCAL_REJECTED" });
+  applyServerVerdict(duplicate, { scan_id: "b", qr_secret: "sec_1", status: "REJECTED", rejection_reason: "ALREADY_ADMITTED" }, "now");
+  const state = reconstructLocalState([ticket], [first, duplicate]);
+  assert.equal(state.ticketMap["sec_1"].is_admitted, true);
+});

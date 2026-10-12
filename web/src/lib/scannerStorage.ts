@@ -201,6 +201,38 @@ export async function acknowledgeConflict(scanId: string): Promise<void> {
   return promise;
 }
 
+/**
+ * Applies the server's verdict to one queued scan (mutates it).
+ * - server ADMITTED -> confirmed;
+ * - server REJECTED a scan this device had admitted provisionally -> conflict (needs review);
+ * - server REJECTED a scan this device had already rejected -> the two agree, there is nothing to
+ *   review and the record keeps its rejection (it must never be treated as a conflict, which would
+ *   also make a later reload forget the ticket's genuine admission).
+ */
+export function applyServerVerdict(scan: QueuedScan, serverRes: ServerScanResult, now: string): "confirmed" | "conflict" | "agreed" {
+  scan.synced = true;
+  scan.reconciled_at = now;
+  if (serverRes.attendee_name) scan.attendee_name = serverRes.attendee_name;
+  if (serverRes.ticket_tier_name) scan.ticket_tier_name = serverRes.ticket_tier_name;
+
+  if (serverRes.status === "ADMITTED") {
+    scan.status = "ADMITTED";
+    scan.sync_state = "CONFIRMED";
+    scan.rejection_reason = null;
+    return "confirmed";
+  }
+  if (scan.status === "REJECTED" && scan.sync_state !== "CONFLICT") {
+    scan.sync_state = "LOCAL_REJECTED";
+    scan.rejection_reason = scan.rejection_reason || serverRes.rejection_reason || "SERVER_REJECTED";
+    return "agreed";
+  }
+  scan.status = "REJECTED";
+  scan.sync_state = "CONFLICT";
+  scan.rejection_reason = serverRes.rejection_reason || "SERVER_REJECTED";
+  scan.conflict_acknowledged = false;
+  return "conflict";
+}
+
 export async function reconcileBatchOutcomes(
   pointId: string,
   serverResults: ServerScanResult[]
@@ -228,22 +260,9 @@ export async function reconcileBatchOutcomes(
       const serverRes = resultsMap[scan.scan_id];
       if (!serverRes) continue;
 
-      scan.synced = true;
-      scan.reconciled_at = now;
-      if (serverRes.attendee_name) scan.attendee_name = serverRes.attendee_name;
-      if (serverRes.ticket_tier_name) scan.ticket_tier_name = serverRes.ticket_tier_name;
-
-      if (serverRes.status === "ADMITTED") {
-        scan.status = "ADMITTED";
-        scan.sync_state = "CONFIRMED";
-        scan.rejection_reason = null;
-        confirmedCount += 1;
-      } else {
-        // Server rejected this scan (conflict with another device or rule violation)
-        scan.status = "REJECTED";
-        scan.sync_state = "CONFLICT";
-        scan.rejection_reason = serverRes.rejection_reason || "SERVER_REJECTED";
-        scan.conflict_acknowledged = false;
+      const verdict = applyServerVerdict(scan, serverRes, now);
+      if (verdict === "confirmed") confirmedCount += 1;
+      if (verdict === "conflict") {
         conflictCount += 1;
         conflicts.push(scan);
       }

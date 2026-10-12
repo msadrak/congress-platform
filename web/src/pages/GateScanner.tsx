@@ -170,6 +170,9 @@ export default function GateScanner() {
   const hidBufferRef = useRef<string>("");
   const hidLastKeyTimeRef = useRef<number>(0);
   const isScanningRef = useRef<boolean>(false);
+  // The badge whose result is still on screen, and the timer that clears it.
+  const lastProcessedCodeRef = useRef<string | null>(null);
+  const flashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const detectionActiveRef = useRef<boolean>(false);
   const lastScannedCodeRef = useRef<{ code: string; time: number } | null>(null);
   const [trackingIdWarning, setTrackingIdWarning] = useState<string | null>(null);
@@ -428,7 +431,7 @@ export default function GateScanner() {
   // Hard gates: definitively deauthorized devices and expired offline windows
   // stop NEW admissions. Queued history is never mutated here.
   const processScannedCode = async (rawCode: string) => {
-    if (!pointId || !manifest || isScanningRef.current) return;
+    if (!pointId || !manifest) return;
     if (
       !persistedCredential?.token ||
       persistedCredential.deactivation_pending ||
@@ -457,6 +460,10 @@ export default function GateScanner() {
     const cleanSecret = rawCode.trim().toLowerCase();
     if (!cleanSecret) return;
 
+    // The same badge presented again while its own result is still showing (a camera or reader
+    // re-reading it) is ignored; a DIFFERENT badge is always evaluated, never silently dropped.
+    if (isScanningRef.current && lastProcessedCodeRef.current === cleanSecret) return;
+    lastProcessedCodeRef.current = cleanSecret;
     isScanningRef.current = true;
 
     const policy: LocalPolicyConfig = {
@@ -507,9 +514,11 @@ export default function GateScanner() {
     }
 
     // Auto-clear active flash after 1.8 seconds
-    setTimeout(() => {
+    if (flashTimerRef.current) clearTimeout(flashTimerRef.current);
+    flashTimerRef.current = setTimeout(() => {
       setActiveResult(null);
       isScanningRef.current = false;
+      lastProcessedCodeRef.current = null;
     }, 1800);
   };
 
@@ -1173,7 +1182,7 @@ export default function GateScanner() {
           onSubmit={(e) => {
             e.preventDefault();
             const trimmed = manualCode.trim();
-            if (!trimmed || isScanningRef.current) return;
+            if (!trimmed) return;
 
             // Check if user accidentally pasted a Tracking ID format
             if (
