@@ -33,3 +33,6 @@ Thumbs.db
 .obsidian/
 nul
 web/test-results/
+
+# Local demo environment (credentials, logs, ports)
+.demo/

@@ -1,121 +1,43 @@
-# راهنمای اجرای محیط دمو و تست دستی پلتفرم جامع همایش‌ها
-# Congress Platform: Manual Testing & Demo Guide
+# Local demo for manual product review
 
-این راهنما برای تست و بررسی دستی تمامی بخش‌های پلتفرم توسط مدیران و کاربران همایش آماده شده است. تمام داده‌ها، رویدادها، شرکت‌کنندگان و غرفه‌ها واقعی‌نما اما ساختگی (Synthetic) بوده و دیتابیس به صورت کامل آماده به کار است.
+A persistent, localhost-only environment with synthetic data, for clicking through every portal in a browser.
+It is separate from the automated checks (`scripts/check.*`, `scripts/integration`), which create and destroy their own
+environments.
 
----
+## Commands (Windows PowerShell, from the repository root)
 
-## ۱. نحوه اجرا و متوقف‌سازی سرویس‌ها (Start & Stop)
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\demo\start.ps1    # start or restart everything
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\demo\status.ps1   # what is running, and how much data
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\demo\stop.ps1     # stop; the database and its data are KEPT
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\demo\credentials.ps1 -CopyScannerToken main   # clipboard, never printed
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\demo\reset.ps1 -ConfirmDatabase congress_demo  # DESTRUCTIVE, explicit
+```
 
-### اجرای خودکار (یک کلیک):
-کافی است فایل زیر را در ترمینال یا با دو بار کلیک اجرا نمایید:
-- **در CMD / Windows:**
-  ```cmd
-  start-demo.bat
-  ```
-- **در PowerShell:**
-  ```powershell
-  .\start-demo.ps1
-  ```
-*این اسکریپت دیتابیس PostgreSQL را فعال کرده و بک‌اند (پورت ۸۰۰۰) و فرانت‌اند (پورت ۵۱۷۳) را به صورت همزمان باز می‌کند.*
+Prerequisites: Docker Desktop running, `cd backend; uv sync`, `cd web; npm ci`.
 
-### متوقف‌سازی تمیز سرویس‌ها:
-برای خاموش کردن بدون از دست رفتن داده‌ها:
-- **در CMD:**
-  ```cmd
-  stop-demo.bat
-  ```
-- **در PowerShell:**
-  ```powershell
-  .\stop-demo.ps1
-  ```
+## What `start.ps1` does
 
----
+1. Starts (or creates) the Docker container `congress-demo-pg` (PostgreSQL 16, database `congress_demo`) bound to
+   `127.0.0.1`, with the data in the Docker volume `congress-demo-pgdata`. Nothing else in Docker is touched.
+2. Applies Alembic migrations to that database only.
+3. Starts FastAPI and the Vite dev server (`web/vite.demo.config.ts`) as hidden background processes on free
+   `127.0.0.1` ports (preferred: API 8100, web 5190, database 55432; the actual ports are printed). They keep
+   running after the terminal is closed.
+4. Runs `backend/seed_demo.py`, which uses the public HTTP API and does nothing when the demo data already exists.
+5. Waits for health and prints the URLs.
 
-## ۲. آدرس‌های اصلی پلتفرم (URLs)
+`stop.ps1` stops only the processes it started (matched by pid and command line) and the demo container. It never
+removes the volume. `reset.ps1` verifies the container label, the volume and `current_database()` before deleting
+the container, the volume and the local credential files; without `-ConfirmDatabase congress_demo` it only reports.
 
-| بخش / نقش | آدرس مرورگر (URL) | کاربرد و دسترسی |
-|:---|:---|:---|
-| **صفحه اصلی پلتفرم** | http://127.0.0.1:5173/ | معرفی سامانه و دسترسی سراسری |
-| **صفحه رویداد دمو** | http://127.0.0.1:5173/e/ai-health-2026 | معرفی کنگره، رده‌های بلیط و ثبت‌نام رایگان |
-| **غرفه سینا روبوتیک** | http://127.0.0.1:5173/e/ai-health-2026/booths/sina-robotics | پروفایل عمومی غرفه، بوک‌مارک و کاتالوگ |
-| **پرتال کارت ورود** | http://127.0.0.1:5173/my-tickets | نمایش کیوآرکد با کنتراست بالا و ذخیره آفلاین |
-| **شبکه‌سازی همکاران** | http://127.0.0.1:5173/my-network | اسکن نشان همکار، یادداشت خصوصی و خروجی vCard |
-| **کنسول برگزارکننده** | http://127.0.0.1:5173/organizer | مدیریت رویدادها با کلید API |
-| **میز پذیرش حضوری** | http://127.0.0.1:5173/organizer/events/ai-health-2026/desk | جستجوی آنی شرکت‌کننده و صدور کارت حضوری |
-| **آمار و تحلیل لحظه‌ای** | http://127.0.0.1:5173/organizer/events/ai-health-2026/analytics | نمودارهای تردد، آمار پذیرایی و فایل اکسل CSV |
-| **پرتال غرفه‌دار** | http://127.0.0.1:5173/booth/sina-robotics | اسکن لیدهای تجاری و ثبت برچسب‌های HOT/WARM |
-| **ایستگاه اسکن گیت ۱** | http://127.0.0.1:5173/scan/main-gate | اسکن سریع بارکد کارت‌ها با بازخورد صوتی/تصویری |
+## Where the logins and URLs are
 
----
+`.demo/DEMO-GUIDE.md` (generated on every start with the real ports, ids, accounts, test badges and the checklist) and
+`.demo/credentials.json`. The `.demo/` directory is gitignored; scanner tokens are only copied to the clipboard.
+All people, companies and addresses are synthetic (`example.com`).
 
-## ۳. حساب‌های کاربری و اطلاعات ورود آماده (Credentials)
+## Not verified by this environment
 
-تمامی مشخصات ورود به همراه توکن‌های اختصاصی دستگاه‌ها در فایل محلی `demo_credentials.json` ذخیره شده است:
-
-### برگزارکننده (Organizer):
-- **کلید دسترسی (API Key):** `demo-organizer-secret-api-key-2026`
-- **نحوه ورود:** در صفحه `/organizer` کلید فوق را وارد کنید.
-
-### شرکت‌کنندگان نمونه (Attendees):
-1. **دکتر علی کریمی (پزشک عمومی - بلیط آماده اسکن):**
-   - ایمیل: `attendee@demo.ir` | کلمه عبور: `DemoUser123!`
-2. **دکتر سارا علوی (عضو هیئت علمی - رده VIP / وارد شده):**
-   - ایمیل: `faculty@demo.ir` | کلمه عبور: `DemoUser123!`
-3. **امیرحسین رضایی (دانشجو - ناهار ثبت شده):**
-   - ایمیل: `student@demo.ir` | کلمه عبور: `DemoUser123!`
-
-### غرفه‌داران (Exhibitor Staff):
-1. **غرفه سینا روبوتیک:**
-   - ایمیل: `staff@sinarobotics.ir` | کلمه عبور: `DemoStaff123!`
-2. **غرفه پارس بیودارو:**
-   - ایمیل: `staff@parsbio.ir` | کلمه عبور: `DemoStaff123!`
-
----
-
-## ۴. سناریوهای آزمون مرحله به مرحله
-
-### سناریو ۱: ثبت‌نام شرکت‌کننده جدید و دریافت آنی بلیط
-1. به آدرس `http://127.0.0.1:5173/e/ai-health-2026` بروید.
-2. بر روی دکمه **"رزرو رایگان بلیط"** در رده عمومی کلیک کنید.
-3. در فرم باز شده، یک ایمیل و نام جدید وارد کنید (مثلاً `test@example.com` / کلمه عبور: `TestPass123!`).
-4. پس از ثبت‌نام، به پرتال `/my-tickets` منتقل شده و کارت دیجیتال به همراه QR کد با کنتراست بالا نمایش داده می‌شود.
-
-### سناریو ۲: اسکن کارت با بارکدخوان یا دوربین گیت
-1. صفحه گیت اسکنر را باز کنید (آدرس ایستگاه گیت در فایل `demo_credentials.json` موجود است).
-2. در صورتی که توکن درخواست شد، توکن گیت مربوطه را از فایل بردارید یا کلید API برگزارکننده را وارد نمایید.
-3. تب **"ورود دستی بارکد"** را انتخاب کرده و کد مخفی کیوآر (مثلاً کد `sec_attendee` از فایل) را وارد نمایید؛ یا دوربین لپ‌تاپ را فعال کنید.
-4. **مشاهده نتیجه:**
-   - ورود مجاز: صفحه تمام‌سبز، آیکون تایید و صدای زنگ زیر دوگانه.
-   - ورود تکراری در سالن ناهار: صفحه قرمز، آیکون خطا و صدای بوق هشدار.
-
-### سناریو ۳: بررسی عملکرد میز پذیرش (Front Desk)
-1. به آدرس میز پذیرش `/organizer/events/.../desk` بروید.
-2. در کادر جستجو، کلمه `علی` را تایپ کنید؛ ظرف ۲۰۰ میلی‌ثانیه لیست شرکت‌کنندگان هم‌نام فیلتر می‌شود.
-3. در بخش ثبت‌نام حضوری (Walk-In)، نام و رده بلیط یک مهمان حضوری را ثبت کنید و دکمه **"صدور و چاپ کارت ورود"** را بزنید.
-4. پنجره مودال پیش‌نمایش کارت با استایل چاپی `@media print` باز می‌شود؛ دکمه **"پذیرش نفر بعدی"** را بزنید تا فرم پاکسازی شده و فوکوس کیبورد به فیلد نام بازگردد.
-
-### سناریو ۴: مدیریت لیدهای نمایشگاهی توسط غرفه‌دار
-1. به آدرس پرتال غرفه سینا روبوتیک بروید.
-2. با حساب `staff@sinarobotics.ir` و کلمه عبور `DemoStaff123!` لاگین کنید.
-3. لیدهای ثبت‌شده قبلی را مشاهده کنید؛ رتبه آن‌ها را از WARM به HOT تغییر داده و برچسب‌های دلخواه اضافه کنید.
-4. دکمه **"دریافت فایل اکسل لیدها (CSV)"** را بزنید؛ فایل اکسل حاوی هدر استاندارد UTF-8 BOM بدون به‌هم‌ریختگی حروف فارسی دانلود می‌شود.
-
-### سناریو ۵: تحلیل لحظه‌ای ترددها (Real-Time Analytics)
-1. به کنسول آمار همایش بروید.
-2. آمار کلی (۲۵۰ بلیط، ۲۳۸ اسکن ثبت‌شده و تفکیک هر گیت) را به صورت نمودار مشاهده کنید.
-3. دکمه **"دریافت فایل اکسل ترددها (CSV)"** را برای استخراج گزارش کل ترددها با امنیت در برابر Formula Injection کلیک کنید.
-
-### سناریو ۶: شبیه‌سازی تست آفلاین گیت (Offline Mode Drill)
-1. صفحه اسکن گیت را باز کنید و مطمئن شوید مانیفست لود شده است.
-2. اتصال شبکه یا Wi-Fi سیستم خود را موقتاً قطع کنید.
-3. برچسب بالای صفحه به **"آفلاین"** (نقطه زرد) تغییر می‌کند.
-4. کارت دکتر علی کریمی را اسکن کنید؛ صفحه به رنگ **کهربایی (Amber)** درآمده و صدای زنگ ملایم نواخته می‌شود (*پذیرش مشروط آفلاین*).
-5. شبکه را وصل کنید؛ صف اسکن‌های معلق (Offline Buffer) به صورت خودکار با سرور مرکزی همگام‌سازی می‌شود.
-
----
-
-## ۵. محدودیت‌های فعلی در محیط تست محلی
-
-1. **دسترسی به دوربین در سایر دستگاه‌های شبکه (LAN):** مرورگرهای موبایل (Chrome/Safari) برای فعال‌سازی دوربین از طریق شبکه محلی به پروتکل امن HTTPS یا آدرس `localhost` نیاز دارند. برای تست روی موبایل، از شبیه‌ساز کامپیوتر یا پورت فورواردینگ ADB استفاده نمایید.
-2. **نصب PWA در حالت خاموش کامل (Cold-Start):** اپلیکیشن وب برای اولین راه‌اندازی و کش کردن داده‌ها در هر دستگاه نیازمند ارتباط اولیه با سرور محلی است.
+Camera decoding and USB HID reader input (the scanner and badge capture are exercised by typing codes), real e-mail
+delivery (none exists), production build / service-worker behaviour (the dev server is used).

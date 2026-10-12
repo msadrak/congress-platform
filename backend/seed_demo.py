@@ -1,721 +1,540 @@
-"""Idempotent seed script for local manual demo environment.
+"""Seed (and describe) the persistent local manual-review demo environment.
 
-Creates a realistic congress with ~250 attendees, Persian metadata,
-booths, staff, leads, ticket tiers, check-in points, scan logs,
-and scanner device tokens.
+Everything is created through the platform's supported HTTP API, so the data is internally consistent
+with what the product itself would have produced (QR secrets, reserved counts, admissions, attribution).
+Nothing is ever deleted, and an already seeded demo is left exactly as it is.
 
-Credentials are saved locally to demo_credentials.json (gitignored).
+Run by ``scripts/demo/start.ps1`` (never against a shared database):
+
+    CONGRESS_PLATFORM_ADMIN_TOKEN=... uv run python seed_demo.py --api URL --web URL --state-dir DIR
+
+Writes, into --state-dir (gitignored):
+  credentials.json  every demo credential, id and QR secret
+  DEMO-GUIDE.md     portal URLs, accounts and the manual checklist (regenerated on every run)
+
+All people, companies and e-mail addresses are synthetic (example.com).
 """
 
-import asyncio
+from __future__ import annotations
+
+import argparse
+import base64
 import json
 import os
 import random
+import sys
 import uuid
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from typing import Any
 
-from sqlalchemy import delete, select
+import httpx
 
-from app.auth import hash_api_key
-from app.config import Settings
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-from app.models import (
-    Base,
-    Booth,
-    BoothBookmark,
-    BoothStaff,
-    CheckIn,
-    CheckInPoint,
-    Connection,
-    EntityQR,
-    Event,
-    Lead,
-    Organizer,
-    ScannerDevice,
-    Ticket,
-    TicketTier,
-    User,
-)
-from app.security import (
-    create_scanner_token,
-    generate_entity_qr_secret,
-    hash_password,
-)
+PASSWORD = "Demo-Pass-2026!"
+SEED_VERSION = 1
+ORG1_NAME = "Demo Medical Informatics Association"
+ORG2_NAME = "انجمن قلب و عروق (نمونه)"
+SLUG1 = "ai-health-2026"
+SLUG2 = "cardio-forum-1405"
 
-# Configuration constants
-DEMO_ORGANIZER_KEY = "demo-organizer-secret-api-key-2026"
-DEMO_EVENT_SLUG = "ai-health-2026"
-STAFF_PASSWORD = "DemoStaff123!"
-ATTENDEE_PASSWORD = "DemoUser123!"
+FIRST = ["Sara", "Omid", "Leila", "Kian", "Nasrin", "Arash", "Mina", "Farhad", "Tara", "Shayan",
+         "Parisa", "Behnam", "Yasaman", "Kaveh", "Roya", "Sina", "Elham", "Darius", "Niloofar", "Payam"]
+LAST = ["Ahmadi", "Hosseini", "Karimi", "Mousavi", "Jafari", "Rostami", "Ebrahimi", "Sadeghi", "Tavakoli",
+        "Farahani", "Mahdavi", "Zand", "Shirazi", "Pakzad", "Azimi", "Nikbakht"]
+ORGS = ["Tehran Demo University of Medical Sciences", "Demo General Hospital", "Persian Gulf Demo Clinic",
+        "Sharif Demo Institute", "Demo Biotech Park", "Isfahan Demo Medical Center"]
+TITLES = ["Physician", "Researcher", "Resident", "Data Scientist", "Nurse Informatics Lead", "Radiologist"]
 
-PERSIAN_FIRST_NAMES = [
-    "علی", "محمد", "رضا", "امیر", "حسین", "مهدی", "سارا", "مریم", "فاطمه", "زهرا",
-    "نیلوفر", "نگین", "پریسا", "علیرضا", "حمید", "پویا", "دانیال", "سامان", "امید",
-    "احسان", "فرزاد", "بهنام", "سینا", "آرش", "شیرین", "الهام", "رویا", "نرگس",
-    "ساناز", "سپیده", "محسن", "مهرداد", "کیان", "آرمین", "پگاه", "بیتا", "هانیه"
-]
-
-PERSIAN_LAST_NAMES = [
-    "محمدی", "حسینی", "احمدی", "کریمی", "موسوی", "جعفری", "قاسمی", "حیدری", "صادقی",
-    "شفیعی", "رضایی", "مرادی", "رحیمی", "ابراهیمی", "کمالی", "طاهری", "رستمی", "سلیمانی",
-    "نجفی", "کاظمی", "هاشمی", "مرتضوی", "افشار", "علوی", "مقدم", "صبوری", "پارسا",
-    "شریفی", "محبی", "باقری", "مظفری", "فرهادی", "نیک‌زاد", "بهروزی", "دهقان"
-]
-
-ORGANIZATIONS = [
-    "دانشگاه علوم پزشکی تهران",
-    "دانشگاه علوم پزشکی شهید بهشتی",
-    "دانشگاه صنعتی شریف - دانشکده مهندسی پزشکی",
-    "دانشگاه علوم پزشکی ایران",
-    "پژوهشکده علوم اعصاب و داده‌کاوی بالینی",
-    "بیمارستان امام خمینی",
-    "مرکز قلب تهران",
-    "بیمارستان شریعتی",
-    "دانشگاه علوم پزشکی اصفهان",
-    "دانشگاه علوم پزشکی شیراز",
-    "دانشگاه تربیت مدرس",
-    "انستیتو پاستور ایران",
-    "مرکز تحقیقات هوش مصنوعی سلامت",
-]
-
-TITLES = [
-    "متخصص تصویربرداری پزشکی",
-    "دانشیار رادیولوژی و هوش مصنوعی",
-    "رزیدنت سال سوم بیماری‌های داخلی",
-    "فلوشیپ جراحی رباتیک",
-    "پژوهشگر پسادکتری انفورماتیک پزشکی",
-    "دانشجوی دکترای بیوانفورماتیک",
-    "دانشجوی کارشناسی ارشد مهندسی پزشکی",
-    "پزشک عمومی و پژوهشگر هوش مصنوعی",
-    "استاد تمام پاتولوژی بالینی",
-    "مهندس نرم‌افزار تجهیزات پزشکی",
+# (key, full name, org, title, shares contact with peers)
+PERSONAS = [
+    ("alice", "Dr. Alice Rahimi", "Demo General Hospital", "Radiologist", True),
+    ("bob", "Prof. Bahram Nouri", "Tehran Demo University of Medical Sciences", "Professor of Medical Imaging", True),
+    ("carol", "Cyrus Student", "Sharif Demo Institute", "PhD Student", False),
+    ("erin", "Erin Entry", "Demo Biotech Park", "Product Manager", True),
+    ("frank", "Frank Fresh", "Isfahan Demo Medical Center", "Physician", True),
 ]
 
 
-async def seed_demo():
-    print("==================================================")
-    print("Congress Platform: Seeding Realistic Demo Data")
-    print("==================================================")
+class SeedError(RuntimeError):
+    pass
 
-    settings = Settings(
-        platform_admin_token="dev",
-        jwt_secret="provide-a-secure-random-secret-key-at-least-32-chars-long",
-    )
-    engine = create_async_engine(settings.database_url)
-    session_factory = async_sessionmaker(engine, expire_on_commit=False)
 
-    async with session_factory() as session:
-        # 1. Clean previous demo event if exists (idempotency)
-        existing_event = await session.scalar(
-            select(Event).where(Event.slug == DEMO_EVENT_SLUG)
-        )
-        if existing_event:
-            print(f"Cleaning existing demo event '{DEMO_EVENT_SLUG}'...")
-            # Cascade delete event resources
-            evt_id = existing_event.id
-            await session.execute(delete(CheckIn).where(CheckIn.checkin_point_id.in_(
-                select(CheckInPoint.id).where(CheckInPoint.event_id == evt_id)
-            )))
-            await session.execute(delete(ScannerDevice).where(ScannerDevice.event_id == evt_id))
-            await session.execute(delete(CheckInPoint).where(CheckInPoint.event_id == evt_id))
-            await session.execute(delete(Lead).where(Lead.booth_id.in_(
-                select(Booth.id).where(Booth.event_id == evt_id)
-            )))
-            await session.execute(delete(BoothBookmark).where(BoothBookmark.booth_id.in_(
-                select(Booth.id).where(Booth.event_id == evt_id)
-            )))
-            await session.execute(delete(BoothStaff).where(BoothStaff.booth_id.in_(
-                select(Booth.id).where(Booth.event_id == evt_id)
-            )))
-            await session.execute(delete(Booth).where(Booth.event_id == evt_id))
-            await session.execute(delete(Connection).where(Connection.event_id == evt_id))
-            await session.execute(delete(EntityQR).where(EntityQR.entity_id.in_(
-                select(Ticket.id).where(Ticket.event_id == evt_id)
-            )))
-            await session.execute(delete(Ticket).where(Ticket.event_id == evt_id))
-            await session.execute(delete(TicketTier).where(TicketTier.event_id == evt_id))
-            await session.execute(delete(Event).where(Event.id == evt_id))
-            await session.commit()
-            print("Previous demo event cleared cleanly.")
+class Api:
+    def __init__(self, base: str, admin_token: str) -> None:
+        self.http = httpx.Client(base_url=base, timeout=60.0)
+        self.admin_token = admin_token
 
-        # 2. Organizer: Iranian Medical Informatics Association
-        organizer = await session.scalar(
-            select(Organizer).where(Organizer.name == "انجمن انفورماتیک پزشکی ایران")
-        )
-        if not organizer:
-            organizer = Organizer(
-                name="انجمن انفورماتیک پزشکی ایران",
-                api_key_hash=hash_api_key(DEMO_ORGANIZER_KEY),
-            )
-            session.add(organizer)
-            await session.flush()
-            print("Created Organizer: انجمن انفورماتیک پزشکی ایران")
-        else:
-            organizer.api_key_hash = hash_api_key(DEMO_ORGANIZER_KEY)
-            await session.flush()
-            print("Reusing Organizer: انجمن انفورماتیک پزشکی ایران")
+    def call(self, method: str, path: str, *, token: str | None = None, admin: bool = False,
+             body: Any = None, expect: tuple[int, ...] = (200, 201)) -> httpx.Response:
+        headers: dict[str, str] = {}
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+        if admin:
+            headers["X-Admin-Token"] = self.admin_token
+        r = self.http.request(method, path, headers=headers, json=body)
+        if r.status_code not in expect:
+            raise SeedError(f"{method} {path} -> {r.status_code}: {r.text[:300]}")
+        return r
 
-        # 3. Event: Annual AI in Medicine Congress 2026
-        now = datetime.now(timezone.utc)
-        event = Event(
-            organizer_id=organizer.id,
-            name="نخستین کنگره جامع هوش مصنوعی و فناوری‌های نوین سلامت ۱۴۰۵",
-            slug=DEMO_EVENT_SLUG,
-            location="مرکز همایش‌های بین‌المللی برج میلاد تهران - سالن اصلی و تالار مولوی",
-            description=(
-                "بزرگترین گردهمایی سالانه متخصصان هوش مصنوعی، تصویربرداری پزشکی، "
-                "جراحی رباتیک و کلان‌داده‌های سلامت کشور همراه با نمایشگاه جامع تجهیزات "
-                "و کارگاه‌های تخصصی بین‌المللی."
-            ),
-            starts_at=now - timedelta(hours=4),
-            ends_at=now + timedelta(days=2),
-        )
-        session.add(event)
-        await session.flush()
-        print(f"Created Event: {event.name} (slug: {event.slug})")
 
-        # 4. Ticket Tiers (3)
-        tier_general = TicketTier(
-            event_id=event.id,
-            name="ثبت‌نام عمومی (پزشکان و پژوهشگران)",
-            description="دسترسی به تمامی سخنرانی‌های کلیدی سالن اصلی و نمایشگاه تخصصی",
-            quota=200,
-            is_open=True,
-        )
-        tier_faculty = TicketTier(
-            event_id=event.id,
-            name="اعضای هیئت علمی و سخنرانان مدعو",
-            description="دسترسی اختصاصی به جایگاه VIP، سالن سخنرانان و کارگاه‌های فوق تخصصی",
-            quota=50,
-            is_open=True,
-        )
-        tier_student = TicketTier(
-            event_id=event.id,
-            name="دانشجویان و دستیاران تخصصی",
-            description="پذیرش دانشجویی رایگان با ارائه کارت معتبر دانشگاهی",
-            quota=100,
-            is_open=True,
-        )
-        session.add_all([tier_general, tier_faculty, tier_student])
-        await session.flush()
-        print("Created 3 Ticket Tiers (General, Faculty, Student)")
+def jwt_exp(token: str) -> datetime:
+    payload = token.split(".")[1]
+    data = json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)))
+    return datetime.fromtimestamp(int(data["exp"]), tz=timezone.utc)
 
-        # 5. Check-In Points (3)
-        pt_main = CheckInPoint(
-            event_id=event.id,
-            name="ورودی اصلی و گیت‌های کنترل تردد (گیت ۱)",
-            location="لابی ورودی سالن همایش‌ها",
-            policy_type="MULTI_ENTRY",
-            allowed_tier_ids=[],
-            max_capacity=None,
-        )
-        pt_lunch = CheckInPoint(
-            event_id=event.id,
-            name="پذیرایی و ناهار سالن حافظ",
-            location="طبقه همکف - سالن پذیرایی مرکزی",
-            policy_type="SINGLE_USE",
-            allowed_tier_ids=[],
-            max_capacity=None,
-        )
-        pt_workshop = CheckInPoint(
-            event_id=event.id,
-            name="کارگاه تخصصی پردازش تصویر و جراحی رباتیک",
-            location="تالار ۲ - سالن کارگاه‌های بالینی",
-            policy_type="TIER_RESTRICTED",
-            allowed_tier_ids=[str(tier_faculty.id)],
-            max_capacity=60,
-        )
-        session.add_all([pt_main, pt_lunch, pt_workshop])
-        await session.flush()
-        print("Created 3 Check-In Points (Main Gate, Lunch Catering, Workshop)")
 
-        # 6. Scanner Devices & Tokens
-        dev_main = ScannerDevice(
-            checkin_point_id=pt_main.id,
-            event_id=event.id,
-            device_name="تبلت گیت اصلی ۱ (ورودی)",
-        )
-        dev_lunch = ScannerDevice(
-            checkin_point_id=pt_lunch.id,
-            event_id=event.id,
-            device_name="تبلت سالن پذیرایی و ناهار",
-        )
-        dev_work = ScannerDevice(
-            checkin_point_id=pt_workshop.id,
-            event_id=event.id,
-            device_name="اسکنر گیت کارگاه تخصصی",
-        )
-        session.add_all([dev_main, dev_lunch, dev_work])
-        await session.flush()
+def iso(dt: datetime) -> str:
+    return dt.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
 
-        tok_main = create_scanner_token(pt_main.id, event.id, settings.jwt_secret, dev_main.id)
-        tok_lunch = create_scanner_token(pt_lunch.id, event.id, settings.jwt_secret, dev_lunch.id)
-        tok_work = create_scanner_token(pt_workshop.id, event.id, settings.jwt_secret, dev_work.id)
-        print("Minted point-scoped tokens for all 3 check-in gates.")
 
-        # 7. Exhibition Booths (2)
-        booth_sina = Booth(
-            event_id=event.id,
-            name="سینا روبوتیک (سامانه جراحی رباتیک سینا)",
-            slug="sina-robotics",
-            location="غرفه A-101 (سالن همکف نمایشگاه)",
-            description="توسعه‌دهنده پیشرفته‌ترین سامانه‌های جراحی لاپاراسکوپی از راه دور و رباتیک پزشکی ساخت ایران.",
-            website_url="https://sinarobotics.ir",
-            brochure_url="https://sinarobotics.ir/catalog-1405.pdf",
-        )
-        booth_pars = Booth(
-            event_id=event.id,
-            name="پارس بیودارو (فناوری‌های نوین دارویی)",
-            slug="pars-biodrug",
-            location="غرفه B-204 (سالن دوم تجاری)",
-            description="پیشگام در فرمولاسیون زیست‌داروها و هوش مصنوعی در کشف مولکول‌های درمانی.",
-            website_url="https://parsbio.ir",
-            brochure_url="https://parsbio.ir/brochure.pdf",
-        )
-        session.add_all([booth_sina, booth_pars])
-        await session.flush()
+def log(msg: str) -> None:
+    print(f"  {msg}", flush=True)
 
-        # Entity QRs for booths
-        qr_sina = EntityQR(
-            secret=generate_entity_qr_secret(),
-            entity_type="booth",
-            entity_id=booth_sina.id,
-        )
-        qr_pars = EntityQR(
-            secret=generate_entity_qr_secret(),
-            entity_type="booth",
-            entity_id=booth_pars.id,
-        )
-        session.add_all([qr_sina, qr_pars])
-        await session.flush()
-        print("Created 2 Exhibition Booths (Sina Robotics & Pars Biodrug)")
 
-        # 8. Booth Staff Accounts
-        staff_sina_user = await session.scalar(select(User).where(User.email == "staff@sinarobotics.ir"))
-        if not staff_sina_user:
-            staff_sina_user = User(
-                email="staff@sinarobotics.ir",
-                password_hash=hash_password(STAFF_PASSWORD),
-                full_name="مهندس علیرضا صبوری",
-                organization="سینا روبوتیک",
-                title="مدیر بازاریابی بالینی",
-                share_contact_with_peers=True,
-            )
-            session.add(staff_sina_user)
-            await session.flush()
-        staff_sina_link = BoothStaff(booth_id=booth_sina.id, user_id=staff_sina_user.id)
-        session.add(staff_sina_link)
+# ───────────────────────────── ensure-style helpers (never delete, never duplicate) ─────────────────────────────
 
-        staff_pars_user = await session.scalar(select(User).where(User.email == "staff@parsbio.ir"))
-        if not staff_pars_user:
-            staff_pars_user = User(
-                email="staff@parsbio.ir",
-                password_hash=hash_password(STAFF_PASSWORD),
-                full_name="دکتر نیلوفر مهدوی",
-                organization="پارس بیودارو",
-                title="کارشناس توسعه بازار دارو",
-                share_contact_with_peers=True,
-            )
-            session.add(staff_pars_user)
-            await session.flush()
-        staff_pars_link = BoothStaff(booth_id=booth_pars.id, user_id=staff_pars_user.id)
-        session.add(staff_pars_link)
-        await session.flush()
-        print("Created Booth Staff Accounts for both exhibitors.")
+def user_session(api: Api, email: str, name: str, org: str = "", title: str = "") -> tuple[str, str]:
+    r = api.call("POST", "/api/auth/register", expect=(201, 409), body={
+        "email": email, "password": PASSWORD, "full_name": name, "organization": org, "title": title})
+    if r.status_code == 409:
+        r = api.call("POST", "/api/auth/login", body={"email": email, "password": PASSWORD})
+    data = r.json()
+    return data["access_token"], data["user"]["id"]
 
-        # 9. Dedicated Test Personas
-        user_attendee = await session.scalar(select(User).where(User.email == "attendee@demo.ir"))
-        if not user_attendee:
-            user_attendee = User(
-                email="attendee@demo.ir",
-                password_hash=hash_password(ATTENDEE_PASSWORD),
-                full_name="دکتر علی کریمی",
-                organization="بیمارستان شریعتی تهران",
-                title="پزشک عمومی و پژوهشگر هوش مصنوعی",
-                share_contact_with_peers=True,
-            )
-            session.add(user_attendee)
-            await session.flush()
 
-        user_faculty = await session.scalar(select(User).where(User.email == "faculty@demo.ir"))
-        if not user_faculty:
-            user_faculty = User(
-                email="faculty@demo.ir",
-                password_hash=hash_password(ATTENDEE_PASSWORD),
-                full_name="دکتر سارا علوی",
-                organization="دانشگاه علوم پزشکی تهران",
-                title="دانشیار رادیولوژی و هوش مصنوعی",
-                share_contact_with_peers=True,
-            )
-            session.add(user_faculty)
-            await session.flush()
+def ensure_event(api: Api, key: str, spec: dict[str, Any]) -> dict[str, Any]:
+    for ev in api.call("GET", "/api/events", token=key).json():
+        if ev["slug"] == spec["slug"]:
+            return ev  # type: ignore[no-any-return]
+    return api.call("POST", "/api/events", token=key, body=spec).json()  # type: ignore[no-any-return]
 
-        user_student = await session.scalar(select(User).where(User.email == "student@demo.ir"))
-        if not user_student:
-            user_student = User(
-                email="student@demo.ir",
-                password_hash=hash_password(ATTENDEE_PASSWORD),
-                full_name="امیرحسین رضایی",
-                organization="دانشگاه صنعتی شریف",
-                title="دانشجوی دکترای انفورماتیک پزشکی",
-                share_contact_with_peers=True,
-            )
-            session.add(user_student)
-            await session.flush()
 
-        # Dedicated persona tickets
-        t_attendee = Ticket(
-            event_id=event.id,
-            ticket_tier_id=tier_general.id,
-            user_id=user_attendee.id,
-            status="active",
-        )
-        t_faculty = Ticket(
-            event_id=event.id,
-            ticket_tier_id=tier_faculty.id,
-            user_id=user_faculty.id,
-            status="active",
-        )
-        t_student = Ticket(
-            event_id=event.id,
-            ticket_tier_id=tier_student.id,
-            user_id=user_student.id,
-            status="active",
-        )
-        session.add_all([t_attendee, t_faculty, t_student])
-        await session.flush()
+def ensure_tier(api: Api, key: str, event_id: str, spec: dict[str, Any]) -> dict[str, Any]:
+    for t in api.call("GET", f"/api/events/{event_id}/ticket-tiers", token=key).json():
+        if t["name"] == spec["name"]:
+            return t  # type: ignore[no-any-return]
+    return api.call("POST", f"/api/events/{event_id}/ticket-tiers", token=key, body=spec).json()  # type: ignore[no-any-return]
 
-        sec_attendee = generate_entity_qr_secret()
-        sec_faculty = generate_entity_qr_secret()
-        sec_student = generate_entity_qr_secret()
 
-        qr_att = EntityQR(secret=sec_attendee, entity_type="attendee_ticket", entity_id=t_attendee.id)
-        qr_fac = EntityQR(secret=sec_faculty, entity_type="attendee_ticket", entity_id=t_faculty.id)
-        qr_stu = EntityQR(secret=sec_student, entity_type="attendee_ticket", entity_id=t_student.id)
-        session.add_all([qr_att, qr_fac, qr_stu])
-        await session.flush()
-        print("Created 3 dedicated test personas (attendee@demo.ir, faculty@demo.ir, student@demo.ir)")
+def ensure_point(api: Api, key: str, event_id: str, spec: dict[str, Any]) -> dict[str, Any]:
+    for p in api.call("GET", f"/api/events/{event_id}/checkin-points", token=key).json():
+        if p["name"] == spec["name"]:
+            return p  # type: ignore[no-any-return]
+    return api.call("POST", f"/api/events/{event_id}/checkin-points", token=key, body=spec).json()  # type: ignore[no-any-return]
 
-        # 10. Generate 247 Additional Realistic Attendees (~250 total)
-        print("Generating 247 synthetic attendees with realistic Persian names...")
-        total_additional = 247
-        users_batch = []
-        pw_hash = hash_password(ATTENDEE_PASSWORD)
 
-        for i in range(total_additional):
-            fn = random.choice(PERSIAN_FIRST_NAMES)
-            ln = random.choice(PERSIAN_LAST_NAMES)
-            email = f"attendee_{i+1:03d}@aihealth.ir"
-            org = random.choice(ORGANIZATIONS)
-            title = random.choice(TITLES)
-            u = User(
-                email=email,
-                password_hash=pw_hash,
-                full_name=f"{fn} {ln}",
-                organization=org,
-                title=title,
-                share_contact_with_peers=(i % 3 != 0),  # 66% consent
-            )
-            users_batch.append(u)
+def ensure_booth(api: Api, key: str, event_id: str, spec: dict[str, Any], rep_email: str) -> dict[str, Any]:
+    booth = next((b for b in api.call("GET", f"/api/events/{event_id}/booths", token=key).json()
+                  if b["slug"] == spec["slug"]), None)
+    if booth is None:
+        booth = api.call("POST", f"/api/events/{event_id}/booths", token=key, body=spec).json()
+    staff = api.call("GET", f"/api/events/{event_id}/booths/{booth['id']}/staff", token=key).json()
+    if not any(s["email"] == rep_email for s in staff):
+        api.call("POST", f"/api/events/{event_id}/booths/{booth['id']}/staff", token=key, body={"email": rep_email})
+    return booth  # type: ignore[no-any-return]
 
-        session.add_all(users_batch)
-        await session.flush()
 
-        # Distribute tickets across tiers:
-        # Tier 1 (General): 150
-        # Tier 2 (Faculty): 35
-        # Tier 3 (Student): 62
-        tickets_batch = []
-        entity_qrs_batch = []
+def ensure_operator(api: Api, key: str, event_id: str, email: str, name: str) -> None:
+    ops = api.call("GET", f"/api/events/{event_id}/desk/operators", token=key).json()
+    if not any(o["email"] == email and not o["is_revoked"] for o in ops):
+        api.call("POST", f"/api/events/{event_id}/desk/operators", token=key,
+                 body={"email": email, "operator_name": name})
 
-        for idx, u in enumerate(users_batch):
-            if idx < 150:
-                tier = tier_general
-            elif idx < 185:
-                tier = tier_faculty
-            else:
-                tier = tier_student
 
-            t = Ticket(
-                event_id=event.id,
-                ticket_tier_id=tier.id,
-                user_id=u.id,
-                status="active",
-            )
-            tickets_batch.append(t)
+def ensure_ticket(api: Api, token: str, event_id: str, tier_id: str) -> str:
+    """Returns the QR secret of the user's ticket for the event (reserving one if needed)."""
+    for t in api.call("GET", "/api/attendees/me/tickets", token=token).json():
+        if t["event_id"] == event_id:
+            return t["qr_secret"]  # type: ignore[no-any-return]
+    r = api.call("POST", f"/api/events/{event_id}/tickets/reserve", token=token, body={"ticket_tier_id": tier_id})
+    return r.json()["qr_secret"]  # type: ignore[no-any-return]
 
-        session.add_all(tickets_batch)
-        await session.flush()
 
-        # Entity QRs
-        for t in tickets_batch:
-            sec = generate_entity_qr_secret()
-            eq = EntityQR(
-                secret=sec,
-                entity_type="attendee_ticket",
-                entity_id=t.id,
-            )
-            entity_qrs_batch.append(eq)
+def issue_scanner_credential(api: Api, key: str, point: dict[str, Any], device_name: str) -> dict[str, Any]:
+    r = api.call("POST", f"/api/checkin-points/{point['id']}/token", token=key, body={"device_name": device_name}).json()
+    return {"point_id": point["id"], "point_name": point["name"], "policy": point["policy_type"],
+            "device_id": r["device_id"], "device_name": device_name, "token": r["scanner_token"],
+            "expires_at": iso(jwt_exp(r["scanner_token"]))}
 
-        session.add_all(entity_qrs_batch)
-        await session.flush()
-        print(f"Total tickets minted: {len(tickets_batch) + 3}")
 
-        # Update tier reserved counts
-        tier_general.reserved_count = 151
-        tier_faculty.reserved_count = 36
-        tier_student.reserved_count = 63
-        await session.flush()
+def submit_scans(api: Api, key: str, point_id: str, scans: list[tuple[str, str, datetime]]) -> dict[str, int]:
+    """scans: (stable label, qr_secret, scanned_at). Deterministic scan ids make re-submission a no-op."""
+    tally: dict[str, int] = {}
+    payload = [{"scan_id": str(uuid.uuid5(uuid.NAMESPACE_URL, f"congress-demo/{point_id}/{label}")),
+                "qr_secret": qr, "scanned_at": iso(at)} for label, qr, at in scans]
+    for i in range(0, len(payload), 50):
+        res = api.call("POST", f"/api/checkin-points/{point_id}/scans/batch", token=key,
+                       body={"scans": payload[i:i + 50]}).json()["results"]
+        for item in res:
+            k = item["status"] + (f":{item['rejection_reason']}" if item.get("rejection_reason") else "")
+            tally[k] = tally.get(k, 0) + 1
+    return tally
 
-        # 11. Populate Realistic Scan Records & Attendance Curve
-        print("Populating realistic scan check-ins for analytics curve...")
-        all_tickets = [t_attendee, t_faculty, t_student] + tickets_batch
-        all_qrs = [sec_attendee, sec_faculty, sec_student] + [eq.secret for eq in entity_qrs_batch]
 
-        checkins_batch = []
-        base_time = now - timedelta(hours=3)
+# ───────────────────────────── the demo content ─────────────────────────────
 
-        # ~140 scans at Main Gate (MULTI_ENTRY, ADMITTED)
-        admitted_tickets = all_tickets[:140]
-        admitted_qrs = all_qrs[:140]
+def seed_content(api: Api, creds: dict[str, Any]) -> None:
+    rng = random.Random(1405)
+    now = datetime.now(timezone.utc)
+    key1, key2 = creds["organizers"][0]["api_key"], creds["organizers"][1]["api_key"]
 
-        for i, (t, s) in enumerate(zip(admitted_tickets, admitted_qrs)):
-            scan_time = base_time + timedelta(minutes=random.randint(0, 150))
-            c = CheckIn(
-                id=uuid.uuid4(),
-                checkin_point_id=pt_main.id,
-                ticket_id=t.id,
-                qr_secret=s,
-                policy_type="MULTI_ENTRY",
-                status="ADMITTED",
-                rejection_reason=None,
-                scanned_at=scan_time,
-                synced_at=scan_time + timedelta(seconds=1),
-            )
-            checkins_batch.append(c)
+    print("Congress 1 (English, live now) ...")
+    ev1 = ensure_event(api, key1, {
+        "name": "AI in Healthcare Congress 2026", "slug": SLUG1,
+        "starts_at": iso(now - timedelta(hours=5)), "ends_at": iso(now + timedelta(days=14)),
+        "location": "Demo Convention Center, Hall A and Hall B",
+        "description": "Synthetic demo congress: three days on clinical AI, medical imaging, robotic surgery and "
+                       "health data, with an exhibition of demo companies. All people and companies are fictional."})
+    t_general = ensure_tier(api, key1, ev1["id"], {"name": "General Delegate", "quota": 200,
+                            "description": "Full access to the main hall and the exhibition."})
+    t_faculty = ensure_tier(api, key1, ev1["id"], {"name": "Faculty & Speakers", "quota": 40,
+                            "description": "Speaker lounge, workshop rooms and the main hall."})
+    t_student = ensure_tier(api, key1, ev1["id"], {"name": "Student / Resident", "quota": 12,
+                            "description": "Small quota on purpose: this tier is almost full."})
+    ensure_tier(api, key1, ev1["id"], {"name": "Early Bird (closed)", "quota": 50, "is_open": False,
+                "description": "Sales for this tier are closed on purpose."})
+    p_main = ensure_point(api, key1, ev1["id"], {"name": "Main Gate", "location": "Entrance lobby", "policy_type": "MULTI_ENTRY"})
+    p_lunch = ensure_point(api, key1, ev1["id"], {"name": "Lunch Hall", "location": "Ground floor catering", "policy_type": "SINGLE_USE"})
+    p_work = ensure_point(api, key1, ev1["id"], {"name": "Workshop Room B", "location": "Clinical workshops wing",
+                          "policy_type": "TIER_RESTRICTED", "allowed_tier_ids": [t_faculty["id"]]})
+    p_hall = ensure_point(api, key1, ev1["id"], {"name": "Hall A (capacity capped)", "location": "Main hall",
+                          "policy_type": "CAPACITY_CAPPED", "max_capacity": 30})
 
-        # ~80 scans at Lunch Gate (SINGLE_USE, ADMITTED)
-        lunch_tickets = admitted_tickets[:80]
-        lunch_qrs = admitted_qrs[:80]
+    print("Congress 2 (Persian / RTL, upcoming) ...")
+    ev2 = ensure_event(api, key2, {
+        "name": "همایش ملی قلب و عروق ۱۴۰۵", "slug": SLUG2,
+        "starts_at": iso(now + timedelta(days=21)), "ends_at": iso(now + timedelta(days=23)),
+        "location": "مرکز همایش‌های نمونه، تالار اصلی",
+        "description": "همایش نمونهٔ ساختگی برای بررسی رابط راست‌به‌چپ. تمام افراد و شرکت‌ها خیالی هستند."})
+    t2_delegate = ensure_tier(api, key2, ev2["id"], {"name": "شرکت‌کننده عمومی", "quota": 150, "description": "دسترسی به تالار اصلی و نمایشگاه."})
+    ensure_tier(api, key2, ev2["id"], {"name": "دستیار تخصصی", "quota": 50, "description": "ویژهٔ دستیاران و دانشجویان."})
+    p2_main = ensure_point(api, key2, ev2["id"], {"name": "ورودی اصلی", "location": "لابی", "policy_type": "MULTI_ENTRY"})
 
-        for i, (t, s) in enumerate(zip(lunch_tickets, lunch_qrs)):
-            scan_time = base_time + timedelta(minutes=random.randint(120, 180))
-            c = CheckIn(
-                id=uuid.uuid4(),
-                checkin_point_id=pt_lunch.id,
-                ticket_id=t.id,
-                qr_secret=s,
-                policy_type="SINGLE_USE",
-                status="ADMITTED",
-                rejection_reason=None,
-                scanned_at=scan_time,
-                synced_at=scan_time + timedelta(seconds=1),
-            )
-            checkins_batch.append(c)
+    print("Reception operators ...")
+    for email, name in (("reception.ai@example.com", "Maryam Bagheri"), ("reception.cardio@example.com", "Reza Operator")):
+        user_session(api, email, name)
+    ensure_operator(api, key1, ev1["id"], "reception.ai@example.com", "Maryam Bagheri")
+    ensure_operator(api, key2, ev2["id"], "reception.cardio@example.com", "Reza Operator")
 
-        # ~12 duplicate scans at Lunch Gate (REJECTED, ALREADY_ADMITTED)
-        for i, (t, s) in enumerate(zip(lunch_tickets[:12], lunch_qrs[:12])):
-            scan_time = base_time + timedelta(minutes=random.randint(185, 210))
-            c = CheckIn(
-                id=uuid.uuid4(),
-                checkin_point_id=pt_lunch.id,
-                ticket_id=t.id,
-                qr_secret=s,
-                policy_type="SINGLE_USE",
-                status="REJECTED",
-                rejection_reason="ALREADY_ADMITTED",
-                scanned_at=scan_time,
-                synced_at=scan_time + timedelta(seconds=1),
-            )
-            checkins_batch.append(c)
-
-        # ~6 tier-restricted rejections at Workshop (General tickets rejected)
-        for i, (t, s) in enumerate(zip(all_tickets[200:206], all_qrs[200:206])):
-            scan_time = base_time + timedelta(minutes=random.randint(60, 100))
-            c = CheckIn(
-                id=uuid.uuid4(),
-                checkin_point_id=pt_workshop.id,
-                ticket_id=t.id,
-                qr_secret=s,
-                policy_type="TIER_RESTRICTED",
-                status="REJECTED",
-                rejection_reason="TIER_NOT_ALLOWED",
-                scanned_at=scan_time,
-                synced_at=scan_time + timedelta(seconds=1),
-            )
-            checkins_batch.append(c)
-
-        session.add_all(checkins_batch)
-        await session.flush()
-        print(f"Generated {len(checkins_batch)} realistic check-in scans.")
-
-        # 12. Populate Sample Leads for Both Booths
-        print("Populating exhibitor leads for Sina Robotics & Pars Biodrug...")
-        leads_sina = [
-            Lead(
-                booth_id=booth_sina.id,
-                ticket_id=t_faculty.id,
-                captured_by_user_id=staff_sina_user.id,
-                rating="HOT",
-                tags=["جراحی لاپاراسکوپی", "درخواست دمو حضوری", "عضو هیئت علمی"],
-                notes="بسیار علاقه‌مند به برگزاری کارگاه مشترک آموزشی در بیمارستان امام خمینی.",
-            ),
-            Lead(
-                booth_id=booth_sina.id,
-                ticket_id=admitted_tickets[10].id,
-                captured_by_user_id=staff_sina_user.id,
-                rating="WARM",
-                tags=["تجهیزات پزشکی", "ارسال کاتالوگ"],
-                notes="کاتالوگ فنی ارسال شد؛ پیگیری جلسه آنلاین در هفته آینده.",
-            ),
-            Lead(
-                booth_id=booth_sina.id,
-                ticket_id=admitted_tickets[25].id,
-                captured_by_user_id=staff_sina_user.id,
-                rating="COLD",
-                tags=["عمومی"],
-                notes="بروشور دریافت کرد.",
-            ),
-        ]
-        leads_pars = [
-            Lead(
-                booth_id=booth_pars.id,
-                ticket_id=t_attendee.id,
-                captured_by_user_id=staff_pars_user.id,
-                rating="HOT",
-                tags=["دارودرمانی", "هوش مصنوعی"],
-                notes="درخواست مشاوره جهت طراحی مدل یادگیری ماشین در کشف مولکول جدید دارویی.",
-            ),
-            Lead(
-                booth_id=booth_pars.id,
-                ticket_id=admitted_tickets[15].id,
-                captured_by_user_id=staff_pars_user.id,
-                rating="WARM",
-                tags=["همکاری تحقیقاتی"],
-                notes="پیشنهاد پروژه مشترک تحقیقاتی با دانشگاه تهران مطرح گردید.",
-            ),
-        ]
-        session.add_all(leads_sina + leads_pars)
-
-        # 13. Sample Connections & Bookmarks
-        conn1 = Connection(
-            user_id=user_faculty.id,
-            connected_user_id=user_student.id,
-            event_id=event.id,
-            private_notes="ملاقات در افتتاحیه همایش — دانشجوی مستعد جهت کارآموزی آزمایشگاه.",
-        )
-        conn2 = Connection(
-            user_id=user_attendee.id,
-            connected_user_id=user_faculty.id,
-            event_id=event.id,
-            private_notes="استاد مشاور پروژه پایان‌نامه هوش مصنوعی.",
-        )
-        session.add_all([conn1, conn2])
-
-        bm1 = BoothBookmark(user_id=user_attendee.id, booth_id=booth_sina.id)
-        bm2 = BoothBookmark(user_id=user_faculty.id, booth_id=booth_sina.id)
-        bm3 = BoothBookmark(user_id=user_student.id, booth_id=booth_pars.id)
-        session.add_all([bm1, bm2, bm3])
-
-        await session.commit()
-        print("Demo dataset successfully committed to PostgreSQL!")
-
-    # 14. Save local demo credentials to demo_credentials.json (gitignored)
-    demo_credentials = {
-        "event": {
-            "name": "نخستین کنگره جامع هوش مصنوعی و فناوری‌های نوین سلامت ۱۴۰۵",
-            "slug": DEMO_EVENT_SLUG,
-            "url": f"http://127.0.0.1:5180/e/{DEMO_EVENT_SLUG}",
-            "location": "مرکز همایش‌های بین‌المللی برج میلاد تهران",
-        },
-        "organizer": {
-            "name": "انجمن انفورماتیک پزشکی ایران",
-            "api_key": DEMO_ORGANIZER_KEY,
-            "console_url": "http://127.0.0.1:5180/organizer",
-            "desk_url": f"http://127.0.0.1:5180/organizer/events/{event.id}/desk",
-            "analytics_url": f"http://127.0.0.1:5180/organizer/events/{event.id}/analytics",
-        },
-        "test_attendees": [
-            {
-                "email": "attendee@demo.ir",
-                "password": ATTENDEE_PASSWORD,
-                "name": "دکتر علی کریمی",
-                "tier": "ثبت‌نام عمومی (پزشکان و پژوهشگران)",
-                "status": "بلیط فعال / کارت آماده اسکن",
-                "qr_secret": sec_attendee,
-                "portal_url": "http://127.0.0.1:5180/my-tickets",
-            },
-            {
-                "email": "faculty@demo.ir",
-                "password": ATTENDEE_PASSWORD,
-                "name": "دکتر سارا علوی",
-                "tier": "اعضای هیئت علمی و سخنرانان مدعو (VIP)",
-                "status": "پذیرفته شده در گیت اصلی و ناهار",
-                "qr_secret": sec_faculty,
-                "portal_url": "http://127.0.0.1:5180/my-tickets",
-            },
-            {
-                "email": "student@demo.ir",
-                "password": ATTENDEE_PASSWORD,
-                "name": "امیرحسین رضایی",
-                "tier": "دانشجویان و دستیاران تخصصی",
-                "status": "پذیرفته شده در گیت اصلی",
-                "qr_secret": sec_student,
-                "portal_url": "http://127.0.0.1:5180/my-tickets",
-            },
-        ],
-        "exhibitors": [
-            {
-                "booth_name": "سینا روبوتیک (سامانه جراحی رباتیک سینا)",
-                "booth_slug": "sina-robotics",
-                "portal_url": f"http://127.0.0.1:5180/booth/{booth_sina.id}",
-                "staff_email": "staff@sinarobotics.ir",
-                "staff_password": STAFF_PASSWORD,
-                "staff_name": "مهندس علیرضا صبوری",
-            },
-            {
-                "booth_name": "پارس بیودارو (فناوری‌های نوین دارویی)",
-                "booth_slug": "pars-biodrug",
-                "portal_url": f"http://127.0.0.1:5180/booth/{booth_pars.id}",
-                "staff_email": "staff@parsbio.ir",
-                "staff_password": STAFF_PASSWORD,
-                "staff_name": "دکتر نیلوفر مهدوی",
-            },
-        ],
-        "gate_scanners": [
-            {
-                "gate_name": "ورودی اصلی و گیت‌های کنترل تردد (گیت ۱)",
-                "policy": "MULTI_ENTRY",
-                "scanner_url": f"http://127.0.0.1:5180/scan/{pt_main.id}",
-                "scanner_token": tok_main,
-                "point_id": str(pt_main.id),
-            },
-            {
-                "gate_name": "پذیرایی و ناهار سالن حافظ",
-                "policy": "SINGLE_USE",
-                "scanner_url": f"http://127.0.0.1:5180/scan/{pt_lunch.id}",
-                "scanner_token": tok_lunch,
-                "point_id": str(pt_lunch.id),
-            },
-            {
-                "gate_name": "کارگاه تخصصی پردازش تصویر و جراحی رباتیک",
-                "policy": "TIER_RESTRICTED (VIP)",
-                "scanner_url": f"http://127.0.0.1:5180/scan/{pt_workshop.id}",
-                "scanner_token": tok_work,
-                "point_id": str(pt_workshop.id),
-            },
-        ],
+    print("Booths and representatives ...")
+    reps = {"neurolens": "rep.neurolens@example.com", "cardiosense": "rep.cardiosense@example.com",
+            "medbot": "rep.medbot@example.com", "genome": "rep.genome@example.com",
+            "rhythm": "rep.rhythm@example.com", "imaging": "rep.imaging@example.com"}
+    rep_names = {"neurolens": "Rep Neurolens", "cardiosense": "Rep Cardiosense", "medbot": "Rep Medbot",
+                 "genome": "Rep Genome", "rhythm": "نماینده ریتم قلب", "imaging": "نماینده تصویربرداری"}
+    for k, email in reps.items():
+        user_session(api, email, rep_names[k], "Demo exhibitor")
+    url = "https://example.com"
+    booths = {
+        "neurolens": ensure_booth(api, key1, ev1["id"], {"name": "NeuroLens Imaging", "slug": "neurolens-imaging", "location": "A-101",
+                  "description": "AI-assisted MRI reading (fictional company).", "website_url": url, "brochure_url": f"{url}/neurolens.pdf"}, reps["neurolens"]),
+        "cardiosense": ensure_booth(api, key1, ev1["id"], {"name": "CardioSense Wearables", "slug": "cardiosense-wearables", "location": "A-102",
+                  "description": "Continuous ECG patches and analytics (fictional company).", "website_url": url, "brochure_url": f"{url}/cardiosense.pdf"}, reps["cardiosense"]),
+        "medbot": ensure_booth(api, key1, ev1["id"], {"name": "MedBot Surgical", "slug": "medbot-surgical", "location": "B-201",
+                  "description": "Tele-operated laparoscopic platforms (fictional company).", "website_url": url, "brochure_url": f"{url}/medbot.pdf"}, reps["medbot"]),
+        "genome": ensure_booth(api, key1, ev1["id"], {"name": "GenomeCloud Analytics", "slug": "genomecloud-analytics", "location": "B-202",
+                  "description": "Cloud pipelines for clinical genomics (fictional company).", "website_url": url, "brochure_url": ""}, reps["genome"]),
+        "rhythm": ensure_booth(api, key2, ev2["id"], {"name": "ریتم قلب", "slug": "heart-rhythm", "location": "غرفه ۱",
+                  "description": "سامانه‌های پایش ریتم قلب (شرکت خیالی).", "website_url": url, "brochure_url": ""}, reps["rhythm"]),
+        "imaging": ensure_booth(api, key2, ev2["id"], {"name": "تصویربرداری قلب", "slug": "cardio-imaging", "location": "غرفه ۲",
+                  "description": "اکوکاردیوگرافی هوشمند (شرکت خیالی).", "website_url": url, "brochure_url": ""}, reps["imaging"]),
     }
 
-    out_file = os.path.abspath("demo_credentials.json")
-    with open(out_file, "w", encoding="utf-8") as f:
-        json.dump(demo_credentials, f, indent=2, ensure_ascii=False)
+    print("Attendees and tickets ...")
+    people: dict[str, dict[str, Any]] = {}
 
-    print(f"\n✔ Demo credentials securely saved to: {out_file}")
-    print("==================================================")
-    print("DEMO ENVIRONMENT SEEDING COMPLETED SUCCESSFULLY!")
-    print("==================================================")
+    def add_person(key: str, email: str, name: str, org: str, title: str, share: bool,
+                   t1: dict[str, Any] | None, t2: dict[str, Any] | None) -> None:
+        token, uid = user_session(api, email, name, org, title)
+        api.call("PATCH", "/api/attendees/me/network/privacy", token=token, body={"share_contact_with_peers": share})
+        qr1 = ensure_ticket(api, token, ev1["id"], t1["id"]) if t1 else None
+        qr2 = ensure_ticket(api, token, ev2["id"], t2["id"]) if t2 else None
+        people[key] = {"email": email, "name": name, "token": token, "user_id": uid, "qr1": qr1, "qr2": qr2,
+                       "tier1": t1["name"] if t1 else None, "tier2": t2["name"] if t2 else None}
+
+    tiers_for = {"alice": (t_general, t2_delegate), "bob": (t_faculty, t2_delegate), "carol": (t_student, None),
+                 "erin": (t_general, None), "frank": (t_general, None)}
+    emails = {"alice": "alice.rahimi@example.com", "bob": "bahram.nouri@example.com", "carol": "cyrus.student@example.com",
+              "erin": "erin.entry@example.com", "frank": "frank.fresh@example.com"}
+    for key, name, org, title, share in PERSONAS:
+        add_person(key, emails[key], name, org, title, share, *tiers_for[key])
+    for i in range(1, 41):  # 28 General, 4 Faculty, 8 Student; every 4th is also registered for Congress 2
+        tier1 = t_general if i <= 28 else t_faculty if i <= 32 else t_student
+        name = f"{rng.choice(FIRST)} {rng.choice(LAST)}"
+        add_person(f"f{i:02d}", f"attendee{i:02d}@example.com", name, rng.choice(ORGS), rng.choice(TITLES),
+                   i % 3 != 0, tier1, t2_delegate if i % 4 == 0 else None)
+    log(f"{len(people)} attendees, tickets issued for both congresses where applicable")
+
+    print("Leads ...")
+    def lead(booth_key: str, person: str, rating: str, tags: list[str], notes: str, event_no: int = 1) -> None:
+        rep_token, _ = user_session(api, reps[booth_key], rep_names[booth_key])
+        qr = people[person]["qr1" if event_no == 1 else "qr2"]
+        api.call("POST", f"/api/booths/{booths[booth_key]['id']}/leads/scan", token=rep_token, expect=(200, 201),
+                 body={"qr_secret": qr, "rating": rating, "tags": tags, "notes": notes})
+    lead("neurolens", "alice", "HOT", ["demo-request", "radiology"], "Wants an on-site demo for the imaging department.")
+    lead("neurolens", "bob", "WARM", ["research"], "Interested in a joint validation study. Follow up next week.")
+    lead("neurolens", "carol", "COLD", [], "Collected the brochure.")
+    lead("neurolens", "f03", "WARM", ["catalogue"], "Asked for the technical datasheet.")
+    lead("cardiosense", "alice", "WARM", ["wearables"], "Compared two patch models.")
+    lead("cardiosense", "f05", "HOT", ["pilot", "cardiology"], "Pilot with 40 patients requested.")
+    lead("cardiosense", "f06", "COLD", [], "")
+    lead("medbot", "bob", "HOT", ["training", "surgery"], "Faculty training programme enquiry.")
+    lead("genome", "f07", "WARM", ["pipeline"], "Wants pricing for 500 samples per month.")
+    lead("rhythm", "alice", "HOT", ["پایش"], "درخواست نمایش حضوری.", event_no=2)
+    lead("imaging", "bob", "WARM", ["همکاری"], "پیگیری پس از همایش.", event_no=2)
+
+    print("Bookmarks and connections ...")
+    def bookmark(person: str, booth_key: str) -> None:
+        tok = people[person]["token"]
+        have = {b["booth_id"] for b in api.call("GET", "/api/attendees/me/bookmarks/booths", token=tok).json()}
+        if booths[booth_key]["id"] not in have:
+            api.call("POST", f"/api/attendees/me/bookmarks/booths/{booths[booth_key]['id']}", token=tok, expect=(200, 201))
+    for person, booth_key in (("alice", "neurolens"), ("alice", "medbot"), ("bob", "cardiosense"), ("carol", "neurolens"), ("alice", "rhythm")):
+        bookmark(person, booth_key)
+
+    def connect(a: str, b: str, note: str, event_no: int = 1) -> None:
+        api.call("POST", "/api/attendees/me/network/scan", token=people[a]["token"], expect=(200, 201), body={
+            "qr_secret": people[b]["qr1" if event_no == 1 else "qr2"], "private_notes": note,
+            "event_id": (ev1 if event_no == 1 else ev2)["id"]})
+    connect("alice", "bob", "Met after the keynote; possible thesis advisor.")
+    connect("alice", "carol", "Student interested in imaging research.")
+    connect("bob", "carol", "Promising PhD student, invite to the lab.")
+    connect("bob", "alice", "Radiology collaboration.")
+    connect("alice", "bob", "Congress 2: follow up on the cardiac imaging session.", event_no=2)
+
+    print("Gate scans (history for analytics) ...")
+    def at(minutes_ago_lo: int, minutes_ago_hi: int) -> datetime:
+        return now - timedelta(minutes=rng.randint(minutes_ago_lo, minutes_ago_hi))
+
+    admitted = ["alice", "bob", "carol", "frank"] + [f"f{i:02d}" for i in range(1, 27)]
+    main_scans = [(f"main/{p}", people[p]["qr1"], at(60, 290)) for p in admitted]
+    main_scans.append(("main/invalid-1", "not-a-real-demo-badge-0001", at(30, 120)))
+    main_scans.append(("main/other-congress", people["f04"]["qr2"], at(30, 120)))
+    lunch_scans = [(f"lunch/{p}", people[p]["qr1"], at(20, 120)) for p in ["alice"] + [f"f{i:02d}" for i in range(1, 13)]]
+    lunch_scans += [(f"lunch/dup-{p}", people[p]["qr1"], at(5, 19)) for p in ["alice", "f01", "f02", "f03"]]
+    work_scans = [(f"work/{p}", people[p]["qr1"], at(40, 150)) for p in ["bob", "f29", "f30"]]
+    work_scans += [(f"work/denied-{p}", people[p]["qr1"], at(40, 150)) for p in ["carol", "f01", "f02"]]
+    hall_scans = [(f"hall/{p}", people[p]["qr1"], at(10, 200)) for p in ["alice", "bob", "f01", "f02", "f03", "f04"]]
+    for point, scans in ((p_main, main_scans), (p_lunch, lunch_scans), (p_work, work_scans), (p_hall, hall_scans)):
+        log(f"{point['name']}: {submit_scans(api, key1, point['id'], scans)}")
+
+    creds["ids"] = {
+        "events": [{"slug": SLUG1, "id": ev1["id"], "name": ev1["name"]}, {"slug": SLUG2, "id": ev2["id"], "name": ev2["name"]}],
+        "points": {"main": p_main["id"], "lunch": p_lunch["id"], "workshop": p_work["id"], "hall": p_hall["id"], "cardio_main": p2_main["id"]},
+        "point_names": {p["id"]: p["name"] for p in (p_main, p_lunch, p_work, p_hall, p2_main)},
+        "booths": {k: {"id": b["id"], "name": b["name"], "slug": b["slug"], "rep_email": reps[k],
+                       "event_slug": SLUG1 if k in ("neurolens", "cardiosense", "medbot", "genome") else SLUG2}
+                   for k, b in booths.items()},
+        "tiers": {"general": t_general["id"], "faculty": t_faculty["id"], "student": t_student["id"], "delegate2": t2_delegate["id"]},
+    }
+    creds["people"] = {k: {kk: v for kk, v in p.items() if kk not in ("token",)} for k, p in people.items()
+                       if k in {pk for pk, *_ in PERSONAS}}
+    creds["operators"] = [
+        {"event_slug": SLUG1, "email": "reception.ai@example.com", "name": "Maryam Bagheri", "password": PASSWORD},
+        {"event_slug": SLUG2, "email": "reception.cardio@example.com", "name": "Reza Operator", "password": PASSWORD}]
+    creds["scanner_points"] = [p_main, p_lunch, p_work, p_hall]
+    creds["scanner_points_event2"] = [p2_main]
+
+
+def refresh_scanner_credentials(api: Api, creds: dict[str, Any]) -> None:
+    """Scanner device tokens last 7 days. Keep one valid credential per gate; mint a new one when < 48h remain."""
+    keys = [o["api_key"] for o in creds["organizers"]]
+    existing = {c["point_id"]: c for c in creds.get("scanner_credentials", [])}
+    now = datetime.now(timezone.utc)
+    out = []
+    for key, points in ((keys[0], creds["scanner_points"]), (keys[1], creds["scanner_points_event2"])):
+        for p in points:
+            cur = existing.get(p["id"])
+            if cur and datetime.fromisoformat(cur["expires_at"].replace("Z", "+00:00")) - now > timedelta(hours=48):
+                out.append(cur)
+                continue
+            out.append(issue_scanner_credential(api, key, p, f"Demo scanner - {p['name']}"))
+            log(f"scanner credential issued for gate '{p['name']}'")
+    creds["scanner_credentials"] = out
+
+
+def provision(api: Api, creds_path: Path) -> dict[str, Any]:
+    if creds_path.exists():
+        creds: dict[str, Any] = json.loads(creds_path.read_text(encoding="utf-8"))
+        if creds.get("seed_version") == SEED_VERSION and creds.get("seeded_at"):
+            api.call("GET", "/api/events", token=creds["organizers"][0]["api_key"])  # credentials still valid?
+            print("Demo data already present: left untouched.")
+            return creds
+        print("Resuming an interrupted seed ...")
+    else:
+        if api.http.get(f"/api/public/events/{SLUG1}").status_code == 200:
+            raise SeedError(
+                "The demo database already contains the demo congress, but .demo/credentials.json (the only place the "
+                "one-time Organizer API keys exist) is missing. Run scripts\\demo\\reset.ps1 to start over.")
+        creds = {"seed_version": SEED_VERSION, "password": PASSWORD, "organizers": []}
+        for name in (ORG1_NAME, ORG2_NAME):
+            o = api.call("POST", "/api/organizers", admin=True, body={"name": name}).json()
+            creds["organizers"].append({"name": o["name"], "id": o["id"], "api_key": o["api_key"]})
+        creds_path.write_text(json.dumps(creds, indent=2, ensure_ascii=False), encoding="utf-8")  # keys exist only now
+        print("Provisioned 2 organizers.")
+    seed_content(api, creds)
+    creds["seeded_at"] = iso(datetime.now(timezone.utc))
+    return creds
+
+
+# ───────────────────────────── the generated guide ─────────────────────────────
+
+def write_guide(creds: dict[str, Any], web: str, api_url: str, path: Path) -> None:
+    ids = creds["ids"]
+    e1, e2 = ids["events"]
+    org1, org2 = creds["organizers"]
+    p = creds["people"]
+    pw = creds["password"]
+    sc = {c["point_id"]: c for c in creds["scanner_credentials"]}
+    b = ids["booths"]
+    pts = ids["points"]
+    L: list[str] = []
+    add = L.append
+    add("# Congress Platform - local demo guide")
+    add("")
+    add(f"_Generated {creds['seeded_at']}. Contains credentials: local file, gitignored, synthetic data only. Services listen on 127.0.0.1 only._")
+    add("")
+    add(f"- Web: **{web}**   API: {api_url}   (API docs: {api_url}/docs)")
+    add(f"- Synthetic password for every demo user (attendees, representatives, reception operators): `{pw}`")
+    add("- Scanner tokens are not printed here. Copy one to the clipboard with `scripts\\demo\\credentials.ps1 -CopyScannerToken main` "
+        "(names: main, lunch, workshop, hall, cardio). Tokens are valid 7 days; `start.ps1` renews them when < 48 h remain.")
+    add("")
+    add("## Language and layout (read this first)")
+    add("- The attendee, organizer, reception and exhibitor portals **default to Persian (RTL)**; the public congress/booth pages and the gate scanner are English. "
+        "The portal language is stored per browser (`localStorage`) and shared by those portals on this URL. Use the language switch in the page header "
+        "(\"English\" / \"فارسی\") to change it; English (LTR) is what the checklist below quotes.")
+    add("- For a mobile view use the browser dev-tools device toolbar (e.g. 390 x 844); no separate mobile URL exists.")
+    add("")
+    add("## Congresses")
+    add(f"| | Congress 1 (English, live now) | Congress 2 (Persian / RTL, in 3 weeks) |")
+    add("|:--|:--|:--|")
+    add(f"| name | {e1['name']} | {e2['name']} |")
+    add(f"| slug | `{e1['slug']}` | `{e2['slug']}` |")
+    add(f"| event id | `{e1['id']}` | `{e2['id']}` |")
+    add(f"| Organizer | {org1['name']} | {org2['name']} |")
+    add("")
+    add("## Portals (verified URLs)")
+    add("| Portal | URL |")
+    add("|:--|:--|")
+    add(f"| Platform landing | {web}/ |")
+    add(f"| Public congress 1 | {web}/e/{e1['slug']} |")
+    add(f"| Public congress 2 (RTL) | {web}/e/{e2['slug']} |")
+    for k in ("neurolens", "cardiosense", "medbot", "genome"):
+        add(f"| Public booth: {b[k]['name']} | {web}/e/{e1['slug']}/booths/{b[k]['id']} |")
+    for k in ("rhythm", "imaging"):
+        add(f"| Public booth: {b[k]['name']} (RTL) | {web}/e/{e2['slug']}/booths/{b[k]['id']} |")
+    add(f"| Attendee sign-in | {web}/c/{e1['slug']}/sign-in  (generic: {web}/sign-in) |")
+    for page, label in (("my-congress", "Attendee: My Congress"), ("my-ticket", "Attendee: My Ticket"),
+                        ("my-network", "Attendee: My Network"), ("my-profile", "Attendee: My Profile"), ("details", "Attendee: Congress Details")):
+        add(f"| {label} | {web}/c/{e1['slug']}/{page} |")
+    add(f"| Organizer portal (sign in with API key) | {web}/organizer |")
+    add(f"| Organizer event workspace | {web}/organizer/events/{e1['id']} |")
+    add(f"| Organizer analytics | {web}/organizer/events/{e1['id']}/analytics |")
+    add(f"| Organizer front desk (organizer-run desk) | {web}/organizer/events/{e1['id']}/desk |")
+    add(f"| Reception portal entry (enter congress code `{e1['slug']}`) | {web}/reception |")
+    add(f"| Reception, congress 1 direct | {web}/reception/{e1['id']} |")
+    add(f"| Reception, congress 2 direct | {web}/reception/{e2['id']} |")
+    for k in ("neurolens", "cardiosense", "medbot", "genome", "rhythm", "imaging"):
+        add(f"| Exhibitor portal: {b[k]['name']} | {web}/booth/{b[k]['id']} |")
+    for name, pid in (("Main Gate (multi-entry)", pts["main"]), ("Lunch Hall (single-use)", pts["lunch"]),
+                      ("Workshop Room B (Faculty only)", pts["workshop"]), ("Hall A (capacity 30)", pts["hall"]),
+                      ("Congress 2 main entrance", pts["cardio_main"])):
+        add(f"| Gate Scanner: {name} | {web}/scan/{pid} |")
+    add("")
+    add("## Accounts")
+    add("| Role | Sign in with | Notes |")
+    add("|:--|:--|:--|")
+    add(f"| Organizer 1 (congress 1) | API key `{org1['api_key']}` | at {web}/organizer |")
+    add(f"| Organizer 2 (congress 2) | API key `{org2['api_key']}` | sees only congress 2; congress 1 is invisible to it |")
+    for key in ("alice", "bob", "carol", "erin", "frank"):
+        x = p[key]
+        t2 = f", congress 2: {x['tier2']}" if x["tier2"] else ""
+        add(f"| Attendee {x['name']} | `{x['email']}` / `{pw}` | congress 1: {x['tier1']}{t2} |")
+    for op in creds["operators"]:
+        add(f"| Reception operator ({op['event_slug']}) | `{op['email']}` / `{op['password']}` | congress code `{op['event_slug']}` |")
+    for k in ("neurolens", "cardiosense", "medbot", "genome", "rhythm", "imaging"):
+        add(f"| BoothStaff: {b[k]['name']} | `{b[k]['rep_email']}` / `{pw}` | authorized for this booth only (other booths answer 403) |")
+    add("| Scanner | device credential, not a password | see the clipboard command above; paste it into the scanner's credential field |")
+    add("")
+    add("## Controlled test badges (manual entry; secrets are QR payloads)")
+    add("| Purpose | Holder | QR secret |")
+    add("|:--|:--|:--|")
+    add(f"| Fresh badge - never scanned anywhere: admit at Lunch (single-use), then scan again for the duplicate rejection | {p['erin']['name']} | `{p['erin']['qr1']}` |")
+    add(f"| Already admitted at Main Gate and at Lunch: expect ALREADY_ADMITTED at Lunch | {p['alice']['name']} | `{p['alice']['qr1']}` |")
+    add(f"| Faculty: admitted at the Workshop gate | {p['bob']['name']} | `{p['bob']['qr1']}` |")
+    add(f"| Student: refused at the Workshop gate (TIER_NOT_ALLOWED) | {p['carol']['name']} | `{p['carol']['qr1']}` |")
+    add(f"| Congress 2 badge: refused at any congress 1 gate (EVENT_MISMATCH) | {p['alice']['name']} (congress 2 pass) | `{p['alice']['qr2']}` |")
+    add("| Unknown badge: refused INVALID_TICKET | - | `not-a-real-demo-badge-0001` (already used once; type any other random string) |")
+    add("")
+    add("## Manual checklist")
+    add(f"""### Public
+- [ ] Open {web}/e/{e1['slug']}: event info, tiers with capacity (Student / Resident is nearly full, Early Bird is closed).
+- [ ] Reserve a free pass with a brand-new e-mail address; the pass appears with a QR.
+- [ ] Try the same e-mail again: duplicate feedback.
+- [ ] Open the public booth profiles from the table above.
+### Attendee
+- [ ] Sign in at {web}/c/{e1['slug']}/sign-in as `{p['alice']['email']}`; walk the five destinations (My Congress, My Ticket, My Network, My Profile, Details).
+- [ ] My Ticket shows the tier and a QR; switch to congress 2 (Alice holds a pass in both) and check nothing from congress 1 leaks in.
+- [ ] My Network (congress 1): Alice is connected to Bahram and Cyrus; edit a note; Carol hides her contact details (privacy off), Bob shares them.
+- [ ] Bookmark/unbookmark booths; toggle the profile privacy setting.
+### Organizer
+- [ ] Sign in at {web}/organizer with Organizer 1's API key; open the congress; inspect tiers, capacity, booths, check-in points, operators.
+- [ ] Open Analytics (about 30 admissions, rejections, per-gate bars) and download the CSV.
+- [ ] Sign in with Organizer 2's key in a private window: only congress 2 is visible.
+### Reception
+- [ ] Open {web}/reception, enter `{e1['slug']}`, sign in as `reception.ai@example.com`.
+- [ ] Search "Alice", review the pass, print it. Issue a walk-in ticket for a new person.
+- [ ] Register `{p['erin']['email']}` again as a walk-in: duplicate feedback offering the existing pass.
+### Exhibitor
+- [ ] Open the NeuroLens booth URL, sign in as `rep.neurolens@example.com`.
+- [ ] Capture a badge with manual input (use Frank's or Erin's secret from the table); open leads; change rating, tags and notes; export CSV.
+- [ ] Open the CardioSense booth URL while signed in as the NeuroLens rep: expect a refusal.
+### Scanner
+- [ ] Copy the Main Gate token (`credentials.ps1 -CopyScannerToken main`), open the Main Gate scanner URL, paste it into the \"Pair Scanner Device\" field and press \"Authorize This Device\" (the field is masked; never put the token in the URL).
+- [ ] Inspect the manifest; enter a badge secret manually; check admitted / duplicate handling on the Lunch gate (single-use).
+- [ ] This is keyboard simulation. Camera decoding and USB HID reader input are NOT verified by this environment.
+### Languages and viewports
+- [ ] Switch the attendee language to Persian (RTL) or open congress 2 (Persian content); use the browser dev-tools device toolbar for a 390 px mobile viewport.
+
+## Known limitations (intentional or not yet built - not setup failures)
+- No payment or paid tiers; registration is free (ADR 0007).
+- No Organizer UI for scanner devices: tokens are issued through the API (done here by the seed) and pasted into the scanner.
+- Scanner tokens expire after 7 days.
+- The camera and USB HID paths cannot be exercised without hardware; manual entry is the simulated path.
+- No e-mail is ever sent; there is no password-reset flow for attendees or operators.
+- The development server has the PWA service worker disabled, so offline-install behaviour is not representative.
+- Congress 1 started 5 hours before the demo was first created and ends 14 days after that; congress 2 starts in 21 days. Dates are relative to the moment the demo was created.
+- Congress 2 is upcoming: its analytics and gate history are intentionally empty.
+""")
+    path.write_text("\n".join(L), encoding="utf-8")
+
+
+def main() -> int:
+    for stream in (sys.stdout, sys.stderr):
+        stream.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--api", required=True)
+    ap.add_argument("--web", required=True)
+    ap.add_argument("--state-dir", required=True)
+    args = ap.parse_args()
+    admin = os.environ.get("CONGRESS_PLATFORM_ADMIN_TOKEN", "")
+    if not admin:
+        print("CONGRESS_PLATFORM_ADMIN_TOKEN is required", file=sys.stderr)
+        return 2
+    state = Path(args.state_dir)
+    state.mkdir(parents=True, exist_ok=True)
+    api = Api(args.api, admin)
+    try:
+        creds = provision(api, state / "credentials.json")
+        refresh_scanner_credentials(api, creds)
+    except (SeedError, httpx.HTTPError) as exc:
+        print(f"SEED FAILED: {exc}", file=sys.stderr)
+        return 1
+    (state / "credentials.json").write_text(json.dumps(creds, indent=2, ensure_ascii=False), encoding="utf-8")
+    write_guide(creds, args.web.rstrip("/"), args.api.rstrip("/"), state / "DEMO-GUIDE.md")
+    print(f"Guide: {state / 'DEMO-GUIDE.md'}")
+    return 0
 
 
 if __name__ == "__main__":
-    asyncio.run(seed_demo())
+    sys.exit(main())
