@@ -2,8 +2,12 @@ import React from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAttendeeLocale, type AttendeeLocaleContext } from "../lib/i18n";
 import { SkipLink } from "../components/ui/SkipLink";
-import { Button } from "../components/ui/Button";
+import { Icon, type IconName } from "../components/ui/Icon";
+import { AitebAttribution } from "../components/brand/Aiteb";
+import { CongressSignature } from "../components/brand/CongressSignature";
+import { ArcStroke } from "../components/attendee/ArcStroke";
 import { clearOwnerScopedTickets } from "../lib/ticketCache";
+import { eventAccentStyle } from "../lib/eventAccent";
 import { ATTENDEE_TOKEN_STORAGE } from "../api/client";
 import {
   ATTENDEE_DESTINATIONS,
@@ -11,6 +15,7 @@ import {
   useCongressEvent,
   type AttendeeDestination,
 } from "../lib/congressContext";
+import "../styles/attendee.css";
 
 interface AttendeeLayoutProps {
   children?: React.ReactNode;
@@ -21,60 +26,79 @@ interface AttendeeLayoutProps {
   destination?: AttendeeDestination;
 }
 
-const DESTINATION_ICONS: Record<AttendeeDestination, string> = {
-  "my-congress": "🏛️",
-  "my-network": "🤝",
-  "my-ticket": "🎫",
-  "my-profile": "👤",
-  details: "ℹ️",
+const DESTINATION_ICONS: Record<AttendeeDestination, IconName> = {
+  "my-congress": "congress",
+  "my-network": "users",
+  "my-ticket": "ticket",
+  "my-profile": "user",
+  details: "info",
 };
 
-function ShellNav({ slug, active, labels, variant }: {
+const focusRing = "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring";
+
+/** Desktop navigation: quiet text tabs, the active one underlined by a brand arc. */
+function TopNav({ slug, active, labels }: {
   slug: string;
   active?: AttendeeDestination;
   labels: Record<AttendeeDestination, string>;
-  variant: "top" | "bottom";
 }) {
-  if (variant === "top") {
-    return (
-      <nav aria-label={labels["my-congress"]} className="hidden md:flex items-center gap-1 p-1 bg-surface-panel-subtle rounded-xl border border-border-subtle">
-        {ATTENDEE_DESTINATIONS.map((d) => (
-          <Link
-            key={d}
-            to={congressPath(slug, d)}
-            aria-current={active === d ? "page" : undefined}
-            className={`px-3 py-2 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors focus-visible:outline-2 focus-visible:outline-focus-ring ${
-              active === d ? "bg-surface-panel text-action-primary shadow-xs border border-border-subtle" : "text-text-secondary hover:text-text-primary"
-            }`}
-          >
-            {labels[d]}
-          </Link>
-        ))}
-      </nav>
-    );
-  }
   return (
     <nav
       aria-label={labels["my-congress"]}
-      className="md:hidden fixed bottom-0 inset-x-0 z-40 bg-surface-panel/95 backdrop-blur-xs border-t border-border-default pb-[env(safe-area-inset-bottom)]"
+      className="hidden md:flex md:col-span-2 md:row-start-2 items-stretch gap-1 -mx-3"
     >
-      <ul className="grid grid-cols-5">
-        {ATTENDEE_DESTINATIONS.map((d) => (
-          <li key={d} className="min-w-0">
-            <Link
-              to={congressPath(slug, d)}
-              aria-current={active === d ? "page" : undefined}
-              className={`min-h-14 px-0.5 py-1.5 flex flex-col items-center justify-center gap-0.5 text-[10px] leading-tight font-semibold text-center focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-focus-ring ${
-                active === d ? "text-action-primary" : "text-text-secondary"
-              }`}
-            >
-              <span aria-hidden="true" className={`text-lg leading-none rounded-full px-3 py-0.5 ${active === d ? "bg-action-subtle" : ""}`}>
-                {DESTINATION_ICONS[d]}
-              </span>
-              <span className="w-full break-words">{labels[d]}</span>
-            </Link>
-          </li>
-        ))}
+      {ATTENDEE_DESTINATIONS.map((d) => {
+        const isActive = active === d;
+        return (
+          <Link
+            key={d}
+            to={congressPath(slug, d)}
+            aria-current={isActive ? "page" : undefined}
+            className={`group relative inline-flex min-h-12 items-center gap-2 rounded-lg px-3 text-sm font-semibold whitespace-nowrap transition-colors ${focusRing} ${
+              isActive ? "text-text-primary" : "text-text-muted hover:text-text-primary"
+            }`}
+          >
+            <Icon
+              name={DESTINATION_ICONS[d]}
+              size={18}
+              className={isActive ? "text-event-accent" : "text-ink-400 transition-colors group-hover:text-text-secondary"}
+            />
+            {labels[d]}
+            {isActive && <ArcStroke className="pointer-events-none absolute inset-x-2 -bottom-px h-2.5 w-[calc(100%-1rem)]" />}
+          </Link>
+        );
+      })}
+    </nav>
+  );
+}
+
+/** Mobile navigation: a floating ink dock, safe-area aware, with an arc marker over the active destination. */
+function Dock({ slug, active, labels }: {
+  slug: string;
+  active?: AttendeeDestination;
+  labels: Record<AttendeeDestination, string>;
+}) {
+  return (
+    <nav aria-label={labels["my-congress"]} className="at-dock md:hidden fixed inset-x-0 bottom-0 z-40 print:hidden">
+      <ul className="mx-auto grid max-w-md grid-cols-5 gap-0.5 rounded-[24px] bg-surface-ink p-1.5 shadow-pop ring-1 ring-white/10">
+        {ATTENDEE_DESTINATIONS.map((d) => {
+          const isActive = active === d;
+          return (
+            <li key={d} className="min-w-0">
+              <Link
+                to={congressPath(slug, d)}
+                aria-current={isActive ? "page" : undefined}
+                className={`press relative flex min-h-[56px] flex-col items-center justify-center gap-1 rounded-[18px] px-0.5 pt-1.5 pb-1 text-center text-[10.5px] font-semibold leading-[1.15] transition-colors focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-aiteb-orchid ${
+                  isActive ? "bg-white/[0.08] text-white" : "text-ink-300 hover:text-white"
+                }`}
+              >
+                {isActive && <ArcStroke bow="down" className="pointer-events-none absolute top-0.5 left-1/2 h-2 w-8 -translate-x-1/2" />}
+                <Icon name={DESTINATION_ICONS[d]} size={21} strokeWidth={isActive ? 2 : 1.75} />
+                <span className="w-full break-words">{labels[d]}</span>
+              </Link>
+            </li>
+          );
+        })}
       </ul>
     </nav>
   );
@@ -109,156 +133,133 @@ export function AttendeeLayout({ children, activeTab, localeProps, eventSlug, de
     setLocale(locale === "fa" ? "en" : "fa");
   };
 
+  const congressName = eventSlug ? (congress.status === "ready" ? congress.event.name : null) : null;
+  const legacyTabs: { key: "tickets" | "network"; to: string; icon: IconName; label: string }[] = [
+    { key: "tickets", to: "/my-tickets", icon: "ticket", label: t.myPasses },
+    { key: "network", to: "/my-network", icon: "users", label: t.myNetwork },
+  ];
+
   return (
     <div
       dir={dir}
       lang={locale}
-      className={`min-h-screen bg-surface-page text-text-primary flex flex-col font-sans selection:bg-action-subtle selection:text-action-primary ${
-        isRtl ? "text-start font-sans" : "text-start font-sans"
-      }`}
+      style={eventSlug ? eventAccentStyle(eventSlug) : undefined}
+      className="at-shell min-h-screen bg-surface-page text-text-primary flex flex-col font-sans text-start"
     >
       <SkipLink targetId="attendee-main-content">
         {isRtl ? "پرش به محتوای اصلی کارت ورود" : "Skip to main attendee pass content"}
       </SkipLink>
 
-      {/* Attendee Portal Header */}
-      <header className="sticky top-0 z-40 bg-surface-panel/95 backdrop-blur-xs border-b border-border-default">
-        <div className="max-w-4xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-4">
-          {/* Brand & Attendee Portal Identity */}
+      <header className="at-print-collapse sticky top-0 z-40 border-b border-border-default bg-surface-page pt-safe">
+        <div className="mx-auto grid max-w-6xl grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 px-4 sm:px-6">
+          {/* Congress identity */}
           <Link
             to={eventSlug ? congressPath(eventSlug, "my-congress") : "/my-tickets"}
-            className="flex items-center gap-2.5 rounded-lg focus-visible:outline-2 focus-visible:outline-focus-ring"
+            className={`flex h-16 min-w-0 items-center gap-3 rounded-xl ${focusRing}`}
             aria-label={t.digitalPassTitle}
           >
-            <span className="w-8 h-8 rounded-lg bg-action-primary text-text-inverse flex items-center justify-center font-bold text-base shadow-xs shrink-0">
-              <svg
-                className="w-4 h-4 text-white"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden="true"
-              >
-                <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1-2.5-2.5Z" />
-                <path d="M6 6h10" />
-                <path d="M6 10h10" />
-              </svg>
+            <span className="relative size-10 shrink-0 overflow-hidden rounded-xl [border-start-end-radius:18px] bg-surface-ink shadow-soft ring-1 ring-ink-900/10">
+              {eventSlug ? (
+                <CongressSignature seed={eventSlug} tone="ink" className="size-full" />
+              ) : (
+                <span className="grid size-full place-items-center text-white">
+                  <Icon name="ticket" size={20} />
+                </span>
+              )}
             </span>
-            <div className="flex flex-col min-w-0">
-              <span className="font-bold text-sm sm:text-base tracking-tight text-text-primary leading-tight">
-                {t.attendeePortal}
-              </span>
-              <span className={`text-[11px] text-text-muted font-normal leading-tight truncate max-w-[45vw] ${eventSlug ? "" : "hidden sm:inline"}`}>
+            <span className="flex min-w-0 flex-col gap-0.5">
+              <span className="truncate text-[11px] font-semibold leading-tight text-text-muted">{t.attendeePortal}</span>
+              <span dir="auto" className="max-w-full self-start truncate text-sm font-bold leading-tight tracking-[-0.01em] text-text-primary sm:text-[15px]">
                 {eventSlug
-                  ? (congress.status === "ready" ? congress.event.name : "…")
-                  : isRtl ? "سامانه شرکت‌کنندگان" : "Attendee Pass & Network"}
+                  ? (congressName ?? <span className="skeleton inline-block h-3.5 w-36 align-middle" />)
+                  : isRtl ? "کارت‌های ورود و شبکه من" : "Passes & network"}
               </span>
-            </div>
+            </span>
           </Link>
 
-          {/* Desktop Navigation Tabs */}
-          {eventSlug ? <ShellNav slug={eventSlug} active={destination} labels={shellLabels} variant="top" /> : (
-          <nav aria-label={t.attendeePortal} className="hidden sm:flex items-center gap-1.5 p-1 bg-surface-panel-subtle rounded-xl border border-border-subtle">
-            <Link
-              to="/my-tickets"
-              className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all focus-visible:outline-2 focus-visible:outline-focus-ring ${
-                currentTab === "tickets"
-                  ? "bg-surface-panel text-action-primary shadow-xs border border-border-subtle"
-                  : "text-text-secondary hover:text-text-primary"
-              }`}
-            >
-              🎫 {t.myPasses}
-            </Link>
-            <Link
-              to="/my-network"
-              className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all focus-visible:outline-2 focus-visible:outline-focus-ring ${
-                currentTab === "network"
-                  ? "bg-surface-panel text-action-primary shadow-xs border border-border-subtle"
-                  : "text-text-secondary hover:text-text-primary"
-              }`}
-            >
-              🤝 {t.myNetwork}
-            </Link>
-          </nav>
-          )}
+          {eventSlug && <TopNav slug={eventSlug} active={destination} labels={shellLabels} />}
 
-          {/* Controls: Language Switcher & Logout */}
-          <div className="flex items-center gap-2">
+          {/* Controls: language & logout */}
+          <div className="flex items-center justify-end gap-1">
             <button
               type="button"
               onClick={toggleLocale}
-              className="text-xs font-semibold px-2.5 py-1.5 rounded-lg bg-surface-panel-subtle hover:bg-surface-page text-text-secondary border border-border-default transition-colors focus-visible:outline-2 focus-visible:outline-focus-ring cursor-pointer"
+              className={`press inline-flex min-h-11 items-center gap-1.5 rounded-full px-3 text-xs font-semibold text-text-secondary transition-colors hover:bg-surface-panel-subtle hover:text-text-primary cursor-pointer ${focusRing}`}
               aria-label={isRtl ? "Switch language to English" : "تغییر زبان به فارسی"}
             >
-              🌐 {t.languageToggle}
+              <Icon name="globe" size={18} />
+              <span lang={isRtl ? "en" : "fa"} className="max-[379px]:sr-only">{t.languageToggle}</span>
             </button>
-            <Button
+            <span aria-hidden="true" className="h-5 w-px bg-border-default" />
+            <button
               type="button"
-              variant="ghost"
-              size="sm"
               onClick={handleLogout}
-              className="text-xs text-text-muted hover:text-text-primary"
+              className={`press inline-flex min-h-11 min-w-11 items-center justify-center gap-1.5 rounded-full px-2.5 text-xs font-semibold text-text-muted transition-colors hover:bg-surface-panel-subtle hover:text-text-primary cursor-pointer ${focusRing}`}
             >
-              {t.logout}
-            </Button>
+              <Icon name="logout" size={18} />
+              <span className="sr-only sm:not-sr-only">{t.logout}</span>
+            </button>
           </div>
         </div>
 
-        {/* Mobile Sub-Navigation Bar */}
+        {/* Legacy (congress-less) pages: passes & network tabs */}
         {!eventSlug && (
-        <div className="sm:hidden border-t border-border-subtle bg-surface-panel px-4 py-2 flex items-center justify-around gap-2">
-          <Link
-            to="/my-tickets"
-            className={`flex-1 py-2 text-center text-xs font-bold rounded-lg transition-colors ${
-              currentTab === "tickets"
-                ? "bg-action-subtle text-action-primary border border-action-subtle-border"
-                : "text-text-secondary hover:text-text-primary"
-            }`}
-          >
-            🎫 {t.myPasses}
-          </Link>
-          <Link
-            to="/my-network"
-            className={`flex-1 py-2 text-center text-xs font-bold rounded-lg transition-colors ${
-              currentTab === "network"
-                ? "bg-action-subtle text-action-primary border border-action-subtle-border"
-                : "text-text-secondary hover:text-text-primary"
-            }`}
-          >
-            🤝 {t.myNetwork}
-          </Link>
-        </div>
+          <nav aria-label={t.attendeePortal} className="mx-auto flex max-w-6xl gap-1 px-4 sm:px-6">
+            {legacyTabs.map((tab) => {
+              const isActive = currentTab === tab.key;
+              return (
+                <Link
+                  key={tab.key}
+                  to={tab.to}
+                  aria-current={isActive ? "page" : undefined}
+                  className={`group relative inline-flex min-h-12 items-center gap-2 rounded-lg px-3 text-sm font-semibold transition-colors ${focusRing} ${
+                    isActive ? "text-text-primary" : "text-text-muted hover:text-text-primary"
+                  }`}
+                >
+                  <Icon name={tab.icon} size={18} className={isActive ? "text-aiteb-indigo" : "text-ink-400"} />
+                  {tab.label}
+                  {isActive && <ArcStroke className="pointer-events-none absolute inset-x-2 -bottom-px h-2.5 w-[calc(100%-1rem)]" />}
+                </Link>
+              );
+            })}
+          </nav>
         )}
       </header>
 
-      {/* Main Attendee Content Area */}
-      <main id="attendee-main-content" tabIndex={-1} className={`flex-1 focus:outline-none ${eventSlug ? "pb-24 md:pb-0" : ""}`}>
+      <main id="attendee-main-content" tabIndex={-1} className="flex-1 focus:outline-none">
         {children}
       </main>
 
-      {/* Dedicated Attendee Security & Trust Footer */}
-      <footer className={`border-t border-border-default bg-surface-panel text-text-secondary py-8 mt-12 ${eventSlug ? "mb-20 md:mb-0" : ""}`}>
-        <div className="max-w-4xl mx-auto px-4 sm:px-6 space-y-4 text-center sm:text-start">
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-text-muted">
-            <p>
-              {isRtl
-                ? "کارت ورود دیجیتال • نگهداری در حافظه امن دستگاه جهت استفاده آفلاین در گیت‌های بازرسی"
-                : "Digital Pass Portal • Stored under owner-scoped local storage for offline venue access."}
+      <footer className={`at-print-collapse mt-16 border-t border-border-default bg-surface-panel ${eventSlug ? "pb-32 md:pb-0" : ""}`}>
+        <div className="mx-auto grid max-w-6xl gap-6 px-4 py-8 sm:px-6 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
+          <div className="max-w-xl space-y-2">
+            <p className="flex items-start gap-2 text-xs leading-relaxed text-text-secondary">
+              <Icon name="shield" size={16} className="mt-0.5 text-aiteb-slate" />
+              <span>
+                {isRtl
+                  ? "کارت ورود دیجیتال • نگهداری در حافظه امن دستگاه جهت استفاده آفلاین در گیت‌های بازرسی"
+                  : "Digital Pass Portal • Stored under owner-scoped local storage for offline venue access."}
+              </span>
             </p>
-            <Link to="/" className="text-action-primary hover:underline font-medium">
-              {t.platformHome} →
-            </Link>
+            <p className="ps-6 text-[11px] leading-relaxed text-text-muted">
+              {isRtl
+                ? "هشدار امنیتی: حافظه موقت مرورگر شامل شناسه محرمانه کیوآرکد است. از ورود در رایانه‌های عمومی و اشتراکی خودداری فرمایید."
+                : "Privacy Advisory: Browser storage contains your reusable QR credential. Log out when using shared computers."}
+            </p>
           </div>
-          <p className="text-[11px] text-text-muted leading-relaxed">
-            {isRtl
-              ? "هشدار امنیتی: حافظه موقت مرورگر شامل شناسه محرمانه کیوآرکد است. از ورود در رایانه‌های عمومی و اشتراکی خودداری فرمایید."
-              : "Privacy Advisory: Browser storage contains your reusable QR credential. Log out when using shared computers."}
-          </p>
+          <div className="flex flex-col items-start gap-4 md:items-end">
+            <Link
+              to="/"
+              className={`inline-flex min-h-11 items-center gap-1.5 rounded-lg text-sm font-semibold text-action-primary hover:underline ${focusRing}`}
+            >
+              {t.platformHome}
+              <Icon name="arrow-right" size={16} />
+            </Link>
+            <AitebAttribution locale={locale} />
+          </div>
         </div>
       </footer>
-      {eventSlug && <ShellNav slug={eventSlug} active={destination} labels={shellLabels} variant="bottom" />}
+      {eventSlug && <Dock slug={eventSlug} active={destination} labels={shellLabels} />}
     </div>
   );
 }

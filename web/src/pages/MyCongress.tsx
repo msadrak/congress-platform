@@ -7,22 +7,34 @@ import {
   type AccessEvent,
 } from "../api/client";
 import { AttendeeLayout } from "../layouts/AttendeeLayout";
-import { Badge } from "../components/ui/Badge";
-import { Card } from "../components/ui/Card";
 import { LinkButton } from "../components/ui/Button";
-import { formatLocalizedDate, formatLocalizedNumber, useAttendeeLocale } from "../lib/i18n";
+import { Icon, type IconName } from "../components/ui/Icon";
+import { CongressSignature } from "../components/brand/CongressSignature";
+import { formatLocalizedNumber, useAttendeeLocale } from "../lib/i18n";
 import { isStoredAttendeeToken, rejectAttendeeToken } from "../lib/attendeeSession";
 import { loadOwnerScopedTickets } from "../lib/ticketCache";
 import { congressPath, useCongressEvent } from "../lib/congressContext";
 import { signInPath } from "../lib/safeRedirect";
 import { LoadingBlock, StatusPanel } from "../components/ui/PortalState";
 import { BoothDirectory } from "../components/BoothDirectory";
+import { CongressHero } from "../components/attendee/CongressHero";
+import { SectionHeader } from "../components/attendee/SectionHeader";
+import { sectionIndex } from "../components/attendee/congressTime";
 
 interface Overview {
   tickets: AttendeeTicketDetail[];
   fromCache: boolean;
   connectionCount: number | null;
   otherCongresses: AccessEvent[];
+}
+
+function ModuleIndex({ value }: { value: string }) {
+  return (
+    <span aria-hidden="true" className="flex items-center gap-2 font-mono text-xs font-medium text-text-muted tabular">
+      {value}
+      <span className="h-px w-6 bg-border-strong" />
+    </span>
+  );
 }
 
 export default function MyCongress() {
@@ -85,15 +97,16 @@ export default function MyCongress() {
 
   const shell = (content: ReactNode) => (
     <AttendeeLayout localeProps={localeHook} eventSlug={slug} destination="my-congress">
-      <div className="max-w-3xl mx-auto px-4 sm:px-6 py-8 sm:py-10 space-y-6">{content}</div>
+      <div className="mx-auto max-w-6xl space-y-12 px-4 pt-5 sm:space-y-16 sm:px-6 sm:pt-8">{content}</div>
     </AttendeeLayout>
   );
+  const narrow = (content: ReactNode) => shell(<div className="mx-auto max-w-3xl pt-6">{content}</div>);
 
   if (congress.status === "missing") {
-    return shell(<StatusPanel icon="search" title={isRtl ? "همایش پیدا نشد" : "Congress not found"} />);
+    return narrow(<StatusPanel icon="search" title={isRtl ? "همایش پیدا نشد" : "Congress not found"} />);
   }
   if (congress.status === "error") {
-    return shell(
+    return narrow(
       <StatusPanel tone="danger" icon="alert" title={isRtl ? "اطلاعات همایش بارگذاری نشد" : "Could not load this congress"}>
         <p>{isRtl ? "اتصال را بررسی کنید و دوباره تلاش کنید." : "Check your connection and try again."}</p>
       </StatusPanel>
@@ -102,26 +115,23 @@ export default function MyCongress() {
   if (congress.status === "loading") return shell(<LoadingBlock label={t.navMyCongress} />);
 
   const event = congress.event;
-  const hero = (
-    <Card className="p-6 sm:p-8 border-border-default space-y-3">
-      <Badge variant="brand" size="sm">{t.navMyCongress}</Badge>
-      <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-text-primary">{event.name}</h1>
-      <p className="text-sm text-text-secondary">
-        📅 {formatLocalizedDate(event.starts_at, locale)} — {formatLocalizedDate(event.ends_at, locale)}
-      </p>
-      <p className="text-sm text-text-secondary">📍 {event.location}</p>
-    </Card>
-  );
+  const hero = <CongressHero event={event} locale={locale} eyebrow={t.navMyCongress} />;
+  const idx = (n: number) => sectionIndex(n, locale);
 
   if (!token || failed) {
     return shell(
       <>
         {hero}
-        <StatusPanel icon="lock" title={t.unauthenticatedTitle}>
-          <p>{isRtl ? "برای دیدن بلیط و ارتباطات این همایش وارد شوید." : "Sign in to see your pass and connections for this congress."}</p>
-          <LinkButton to={signInPath(slug, congressPath(slug, "my-congress"))} variant="primary" size="md">{t.loginAction} →</LinkButton>
-        </StatusPanel>
-        <BoothDirectory slug={slug} token={null} isRtl={isRtl} />
+        <div className="mx-auto max-w-3xl">
+          <StatusPanel icon="lock" title={t.unauthenticatedTitle}>
+            <p>{isRtl ? "برای دیدن بلیط و ارتباطات این همایش وارد شوید." : "Sign in to see your pass and connections for this congress."}</p>
+            <LinkButton to={signInPath(slug, congressPath(slug, "my-congress"))} variant="primary" size="lg">
+              {t.loginAction}
+              <Icon name="arrow-right" size={18} />
+            </LinkButton>
+          </StatusPanel>
+        </div>
+        <BoothDirectory slug={slug} token={null} isRtl={isRtl} index={idx(1)} />
       </>
     );
   }
@@ -129,72 +139,163 @@ export default function MyCongress() {
   if (!overview) return shell(<>{hero}<LoadingBlock label={t.navMyCongress} /></>);
 
   const pass = overview.tickets[0];
-  const tile = "p-5 border-border-default flex flex-col gap-3";
+  const more: { to: string; icon: IconName; label: string; hint: string }[] = [
+    {
+      to: congressPath(slug, "details"),
+      icon: "info",
+      label: t.navCongressDetails,
+      hint: isRtl ? "زمان، مکان، توضیحات و انواع کارت ورود" : "Dates, venue, description and pass types",
+    },
+    {
+      to: congressPath(slug, "my-profile"),
+      icon: "user",
+      label: t.navMyProfile,
+      hint: isRtl ? "اطلاعات حساب و حریم خصوصی تماس" : "Your account and contact privacy",
+    },
+  ];
+
   return shell(
     <>
       {hero}
 
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Card className={tile}>
-          <h2 className="text-sm font-bold text-text-primary">🎫 {t.navMyTicket}</h2>
+      <div className="grid gap-5 lg:grid-cols-12">
+        {/* 01 · Pass */}
+        <section
+          aria-labelledby="mc-pass-title"
+          className="relative flex flex-col gap-6 overflow-hidden shape-arc border border-border-default bg-surface-panel p-6 shadow-soft sm:p-8 lg:col-span-7 reveal"
+        >
+          <span aria-hidden="true" className="absolute inset-x-0 top-0 h-[3px] bg-[image:var(--grad-aiteb)]" />
+          <div className="flex items-start justify-between gap-4">
+            <div className="space-y-2">
+              <ModuleIndex value={idx(1)} />
+              <h2 id="mc-pass-title" className="text-xl font-semibold tracking-[-0.02em] text-text-primary sm:text-2xl">{t.navMyTicket}</h2>
+            </div>
+            <span aria-hidden="true" className="grid size-14 shrink-0 place-items-center rounded-2xl [border-start-end-radius:22px] bg-surface-ink text-white shadow-lift">
+              <Icon name="qr" size={26} />
+            </span>
+          </div>
+
           {pass ? (
             <>
-              <p className="text-sm text-text-secondary">
-                {pass.ticket_tier_name} · <span className="font-semibold text-text-primary">{pass.attendee_name}</span>
-              </p>
-              {overview.fromCache && <Badge variant="warning" size="sm">{t.offlineNotice}</Badge>}
-              <LinkButton to={congressPath(slug, "my-ticket")} variant="primary" size="md">
+              <dl className="grid grid-cols-2 gap-x-6 gap-y-4 border-t border-border-subtle pt-5 text-sm">
+                <div className="min-w-0 space-y-1">
+                  <dt className="text-xs font-medium text-text-muted">{t.tierLabel}</dt>
+                  <dd className="font-semibold text-text-primary break-words">{pass.ticket_tier_name}</dd>
+                </div>
+                <div className="min-w-0 space-y-1">
+                  <dt className="text-xs font-medium text-text-muted">{isRtl ? "دارنده کارت" : "Pass holder"}</dt>
+                  <dd className="font-semibold text-text-primary break-words">{pass.attendee_name}</dd>
+                </div>
+              </dl>
+              {overview.fromCache && (
+                <p className="flex items-start gap-2 self-start rounded-lg border border-status-warning-border bg-status-warning-bg px-3 py-2 text-xs font-semibold text-status-warning-text">
+                  <Icon name="wifi-off" size={15} className="mt-px" />
+                  {t.offlineNotice}
+                </p>
+              )}
+              <LinkButton to={congressPath(slug, "my-ticket")} variant="ink" size="lg" className="mt-auto self-stretch sm:self-start">
+                <Icon name="qr" size={18} />
                 {isRtl ? "نمایش کارت ورود و کیوآر" : "Show pass & QR"}
+                <Icon name="arrow-right" size={18} />
               </LinkButton>
             </>
           ) : (
             <>
-              <p className="text-sm text-text-secondary">
+              <p className="border-t border-border-subtle pt-5 text-sm leading-relaxed text-text-secondary">
                 {isRtl ? "برای این همایش بلیطی ندارید." : "You have no pass for this congress yet."}
               </p>
-              <LinkButton to={`/e/${slug}`} variant="secondary" size="md">
+              <LinkButton to={`/e/${slug}`} variant="primary" size="lg" className="mt-auto self-stretch sm:self-start">
+                <Icon name="ticket" size={18} />
                 {isRtl ? "رزرو کارت ورود" : "Reserve a pass"}
               </LinkButton>
             </>
           )}
-        </Card>
+        </section>
 
-        <Card className={tile}>
-          <h2 className="text-sm font-bold text-text-primary">🤝 {t.navMyNetwork}</h2>
-          <p className="text-sm text-text-secondary">
-            {overview.connectionCount === null
-              ? (isRtl ? "در حالت آفلاین در دسترس نیست." : "Not available offline.")
-              : isRtl
-                ? `${formatLocalizedNumber(overview.connectionCount, locale)} ارتباط در این همایش`
-                : `${overview.connectionCount} connection${overview.connectionCount === 1 ? "" : "s"} at this congress`}
-          </p>
-          <LinkButton to={congressPath(slug, "my-network")} variant="secondary" size="md">
+        {/* 02 · Network */}
+        <section
+          aria-labelledby="mc-network-title"
+          className="relative flex flex-col gap-6 overflow-hidden rounded-[var(--radius-xl)] border border-action-subtle-border bg-aiteb-lavender p-6 sm:p-8 lg:col-span-5 reveal"
+        >
+          <div aria-hidden="true" className="bg-meridian absolute inset-0 opacity-70" />
+          <div className="relative space-y-2">
+            <ModuleIndex value={idx(2)} />
+            <h2 id="mc-network-title" className="text-xl font-semibold tracking-[-0.02em] text-text-primary sm:text-2xl">{t.navMyNetwork}</h2>
+          </div>
+          <div className="relative">
+            {overview.connectionCount === null ? (
+              <p className="flex items-center gap-2 text-sm text-text-secondary">
+                <Icon name="wifi-off" size={18} className="text-ink-400" />
+                {isRtl ? "در حالت آفلاین در دسترس نیست." : "Not available offline."}
+              </p>
+            ) : (
+              <p className="flex items-end gap-3">
+                <span className="text-6xl font-semibold leading-none tracking-[-0.04em] text-event-accent tabular">
+                  {formatLocalizedNumber(overview.connectionCount, locale)}
+                </span>
+                <span className="pb-1.5 text-sm leading-snug text-text-secondary">
+                  {isRtl
+                    ? "ارتباط در این همایش"
+                    : `connection${overview.connectionCount === 1 ? "" : "s"} at this congress`}
+                </span>
+              </p>
+            )}
+          </div>
+          <LinkButton to={congressPath(slug, "my-network")} variant="secondary" size="lg" className="relative mt-auto self-stretch sm:self-start">
+            <Icon name="users" size={18} />
             {isRtl ? "باز کردن شبکه من" : "Open My Network"}
           </LinkButton>
-        </Card>
+        </section>
       </div>
 
-      <BoothDirectory slug={slug} token={token} isRtl={isRtl} />
+      <BoothDirectory slug={slug} token={token} isRtl={isRtl} index={idx(3)} />
 
-      <div className="grid gap-4 sm:grid-cols-2">
-        <LinkButton to={congressPath(slug, "details")} variant="secondary" size="md">ℹ️ {t.navCongressDetails}</LinkButton>
-        <LinkButton to={congressPath(slug, "my-profile")} variant="secondary" size="md">👤 {t.navMyProfile}</LinkButton>
-      </div>
-
-      {overview.otherCongresses.length > 0 && (
-        <Card className="p-5 border-border-default space-y-2">
-          <h2 className="text-sm font-bold text-text-primary">{isRtl ? "همایش‌های دیگر شما" : "Your other congresses"}</h2>
-          <ul className="space-y-1">
-            {overview.otherCongresses.map((e) => (
-              <li key={e.event_id}>
-                <Link to={congressPath(e.event_slug, "my-congress")} className="inline-flex py-2 text-sm font-semibold text-action-primary hover:underline">
-                  {e.event_name} {isRtl ? "←" : "→"}
+      <section aria-labelledby="mc-more-title" className="space-y-5">
+        <SectionHeader index={idx(4)} id="mc-more-title" title={isRtl ? "بیشتر" : "More"} />
+        <div className="grid gap-x-10 gap-y-8 lg:grid-cols-2">
+          <ul className="divide-y divide-border-default border-y border-border-default">
+            {more.map((item) => (
+              <li key={item.to}>
+                <Link
+                  to={item.to}
+                  className="group flex min-h-[72px] items-center gap-4 py-3 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring rounded-lg"
+                >
+                  <span aria-hidden="true" className="grid size-11 shrink-0 place-items-center rounded-xl bg-surface-panel text-event-accent shadow-soft ring-1 ring-border-default">
+                    <Icon name={item.icon} size={20} />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block font-semibold text-text-primary">{item.label}</span>
+                    <span className="block text-xs text-text-muted">{item.hint}</span>
+                  </span>
+                  <Icon name="arrow-right" size={18} className="text-ink-400 transition-transform group-hover:translate-x-1 rtl:group-hover:-translate-x-1 group-hover:text-text-primary" />
                 </Link>
               </li>
             ))}
           </ul>
-        </Card>
-      )}
+
+          {overview.otherCongresses.length > 0 && (
+            <div className="space-y-3">
+              <h2 className="text-sm font-semibold text-text-secondary">{isRtl ? "همایش‌های دیگر شما" : "Your other congresses"}</h2>
+              <ul className="space-y-2">
+                {overview.otherCongresses.map((e) => (
+                  <li key={e.event_id}>
+                    <Link
+                      to={congressPath(e.event_slug, "my-congress")}
+                      className="group flex min-h-16 items-center gap-3 rounded-2xl border border-border-default bg-surface-panel p-2 pe-4 shadow-soft transition-[border-color,box-shadow] hover:border-border-strong hover:shadow-lift focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
+                    >
+                      <span aria-hidden="true" className="size-12 shrink-0 overflow-hidden rounded-xl [border-start-end-radius:18px]">
+                        <CongressSignature seed={e.event_slug} tone="ink" className="size-full" />
+                      </span>
+                      <span className="min-w-0 flex-1 truncate text-sm font-semibold text-text-primary">{e.event_name}</span>
+                      <Icon name="arrow-right" size={18} className="text-ink-400 transition-transform group-hover:translate-x-1 rtl:group-hover:-translate-x-1" />
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      </section>
     </>
   );
 }
