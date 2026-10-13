@@ -1,0 +1,11 @@
+*
+!web
+!deploy
+web/node_modules
+web/dist
+web/test-results
+web/playwright-report
+web/.tmp
+web/tests
+web/e2e
+deploy/staging/*.env

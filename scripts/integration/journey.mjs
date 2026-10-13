@@ -529,7 +529,7 @@ export async function runJourney(ctx) {
       await codeInput().fill(S.betaQr);
       await X.getByRole('button', { name: 'Record Lead to Booth CRM' }).click();
       await X.getByRole('dialog').getByRole('alert').filter({ hasText: 'different congress' }).waitFor({ timeout: 10000 });
-      eq(q(`select count(*) from leads`), '1', 'leads in database');
+      eq(q(`select count(*) from leads where booth_id in ('${S.booth1}','${S.booth2}')`), '1', 'leads in this congress');
       await X.keyboard.press('Escape');
     });
     await check('E5 lead search finds the lead; the CSV matches the backend record exactly', async () => {

@@ -21,6 +21,7 @@ build/
 .env
 .env.*
 !.env.example
+!.env.staging.example
 demo_credentials.json
 *.local.json
 # IDE & OS
@@ -36,3 +37,6 @@ web/test-results/
 
 # Local demo environment (credentials, logs, ports)
 .demo/
+
+# Local staging (generated secrets, Caddy CA export, backups)
+.staging/

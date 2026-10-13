@@ -235,6 +235,10 @@ test('owner isolation: user B never sees user A cached passes, even when B canno
   await seedCache(page, 'A');
   await page.goto('/my-tickets');
   await expect(page.getByText('Event of A').first()).toBeVisible();
+  // The cached pass renders before A's live data; wait for A's bookmarks so the session switch
+  // happens after that response (a response for A arriving after the switch is correctly ignored,
+  // which would leave no button to click and made this test timing-dependent).
+  await expect(page.getByRole('button', { name: /Remove Bookmark/ }).first()).toBeVisible();
   await switchUser(page, tokenB);
   // Any state change re-renders the page, which re-reads the stored session.
   await page.getByRole('button', { name: 'Remove Bookmark' }).first().click();
