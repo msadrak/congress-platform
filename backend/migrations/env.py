@@ -16,7 +16,12 @@ if config.config_file_name is not None:
 
 target_metadata = Base.metadata
 
-if url_override := os.environ.get("CONGRESS_DATABASE_URL"):
+# URL precedence: a caller that passes `config.attributes["database_url"]` (the test harness) gets exactly
+# that database, so an ambient CONGRESS_DATABASE_URL can never redirect it. The command line uses
+# CONGRESS_DATABASE_URL, then alembic.ini.
+if explicit_url := config.attributes.get("database_url"):
+    config.set_main_option("sqlalchemy.url", explicit_url)
+elif url_override := os.environ.get("CONGRESS_DATABASE_URL"):
     config.set_main_option("sqlalchemy.url", url_override)
 
 
@@ -31,7 +36,15 @@ def run_migrations_offline() -> None:
         context.run_migrations()
 
 
+# Serialises concurrent `alembic upgrade` runs (e.g. two migrate containers): the second waits, then finds
+# nothing left to do. Session-level lock, released when the connection closes.
+MIGRATION_LOCK_KEY = 4_215_000_813
+
+
 def do_run_migrations(connection: Connection) -> None:
+    if connection.dialect.name == "postgresql":
+        connection.exec_driver_sql(f"SELECT pg_advisory_lock({MIGRATION_LOCK_KEY})")
+        connection.commit()
     context.configure(connection=connection, target_metadata=target_metadata)
     with context.begin_transaction():
         context.run_migrations()

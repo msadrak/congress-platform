@@ -23,15 +23,14 @@ class SyncService {
         return 0;
       }
 
-      final success = await api.sendBatchScans(
+      final results = await api.sendBatchScans(
         pointId: pointId,
         scans: pending,
       );
 
-      if (success) {
-        final syncedIds = pending.map((s) => s.scanId).toList();
-        await storage.markScansSynced(syncedIds);
-        return syncedIds.length;
+      if (results != null) {
+        await storage.reconcileBatchOutcomes(pointId, results);
+        return results.length;
       }
     } catch (_) {
       // Sync failed; will retry on next interval

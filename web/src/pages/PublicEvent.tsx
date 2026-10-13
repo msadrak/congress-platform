@@ -1,26 +1,42 @@
-import { useEffect, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import React, { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
 import {
   ATTENDEE_TOKEN_STORAGE,
   formatApiError,
-  getApiClient,
+  createApiClient,
   type PublicEvent as PublicEventType,
-  type TicketTierOut,
 } from "../api/client";
+import { isStoredAttendeeToken, rejectAttendeeToken } from "../lib/attendeeSession";
+import { PublicLayout } from "../layouts/PublicLayout";
+import { normalizeDocument, standardDocument, type PageImages } from "../lib/pageDocument";
+import { usePageMeta } from "../lib/pageMeta";
+import { Button, LinkButton } from "../components/ui/Button";
+import { Dialog } from "../components/ui/Dialog";
+import { Icon } from "../components/ui/Icon";
+import { CongressSignature } from "../components/brand/CongressSignature";
+import { contentLocale, isolateFor, publicCopy, usePublicLocale } from "../components/public/copy";
+import { Bidi } from "../components/public/Bidi";
+import { CongressPage } from "../components/public/page/CongressPage";
+import { PassesPanel } from "../components/public/page/PassesPanel";
 
 export default function PublicEvent() {
   const { slug } = useParams<{ slug: string }>();
   const navigate = useNavigate();
-
+  const formId = useId();
   const [event, setEvent] = useState<PublicEventType | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Reservation modal state
-  const [selectedTier, setSelectedTier] = useState<TicketTierOut | null>(null);
-  const [authMode, setAuthMode] = useState<"register" | "login">("register");
+  // Selected tier for reservation
+  const [selectedTierId, setSelectedTierId] = useState<string | null>(null);
 
-  // Registration form
+  // Modal states
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [authMode, setAuthMode] = useState<"register" | "login">("register");
+  const [isSuccessModalOpen, setIsSuccessModalOpen] = useState(false);
+  const [alreadyHasTicket, setAlreadyHasTicket] = useState(false);
+
+  // Form fields
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -29,71 +45,192 @@ export default function PublicEvent() {
 
   const [submitting, setSubmitting] = useState(false);
   const [modalError, setModalError] = useState<string | null>(null);
+  const pageContext = useRef<{ active: boolean } | null>(null);
 
   useEffect(() => {
     if (!slug) return;
+    const context = { active: true };
+    pageContext.current = context;
     const loadEvent = async () => {
       setLoading(true);
       setError(null);
-      const client = getApiClient(null);
+      setEvent(null);
+      setSelectedTierId(null);
+      setIsAuthModalOpen(false);
+      setIsSuccessModalOpen(false);
+      setAlreadyHasTicket(false);
+      setModalError(null);
+      setSubmitting(false);
+      const client = createApiClient({ kind: "anonymous" });
       const { data, error: err } = await client.GET("/api/public/events/{slug}", {
         params: { path: { slug } },
       });
+      if (!context.active) return;
       if (err) {
         setError(formatApiError(err));
       } else if (data) {
         setEvent(data);
+        if (data.ticket_tiers && data.ticket_tiers.length > 0) {
+          // Select first available tier with open registration and remaining quota
+          const firstAvailable = data.ticket_tiers.find(
+            (t) => t.is_open && (t.reserved_count ?? 0) < t.quota
+          );
+          setSelectedTierId(firstAvailable ? firstAvailable.id : data.ticket_tiers[0].id);
+        }
       }
       setLoading(false);
     };
     loadEvent();
+    return () => {
+      context.active = false;
+    };
   }, [slug]);
+
+  // A payload without a page (older API, test fixtures) renders the standard layout.
+  const doc = useMemo(() => (event?.page ? normalizeDocument(event.page.document) : standardDocument()), [event]);
+  const images = useMemo<PageImages>(
+    () => Object.fromEntries((event?.page?.assets ?? []).map((a) => [a.id, { url: a.url, width: a.width, height: a.height }])),
+    [event],
+  );
+  const contentDefault = !event ? undefined : doc.primary_locale !== "auto" ? doc.primary_locale : contentLocale(event.name);
+  const { locale, setLocale } = usePublicLocale(contentDefault);
+  const c = publicCopy[locale];
+  usePageMeta(event ? { doc, images, locale, eventName: event.name } : null);
+  const selectedTier =
+    event?.ticket_tiers.find((t) => t.id === selectedTierId) ??
+    (event?.ticket_tiers.length ? event.ticket_tiers[0] : null);
+
+  const selectedTierReserved = selectedTier ? (selectedTier.reserved_count ?? 0) : 0;
+  const selectedTierQuota = selectedTier ? selectedTier.quota : 0;
+  const selectedTierState = selectedTier
+    ? selectedTierReserved >= selectedTierQuota
+      ? "SOLD_OUT"
+      : !selectedTier.is_open
+      ? "CLOSED"
+      : "AVAILABLE"
+    : "CLOSED";
+  const isSelectedTierAvailable = selectedTierState === "AVAILABLE";
 
   const executeReservation = async (token: string, tierId: string) => {
     if (!event) return;
-    const client = getApiClient(token);
-    const { data, error: err } = await client.POST(
+    const context = pageContext.current;
+    if (!context?.active) return;
+    // The token can be stale (another tab changed the stored session): never reserve with it.
+    if (!isStoredAttendeeToken(token)) {
+      setAlreadyHasTicket(false);
+      setAuthMode("login");
+      setModalError(c.errSessionChanged);
+      setIsAuthModalOpen(true);
+      setSubmitting(false);
+      return;
+    }
+    const client = createApiClient({ kind: "user", token });
+    const { data, error: err, response } = await client.POST(
       "/api/events/{event_id}/tickets/reserve",
       {
         params: { path: { event_id: event.id } },
         body: { ticket_tier_id: tierId },
       }
     );
+    if (!context.active) return;
+    // A response for a session that has since changed must not show success or error for the new one.
+    if (!isStoredAttendeeToken(token)) {
+      if (response.status === 401) rejectAttendeeToken(token);
+      setSubmitting(false);
+      return;
+    }
 
     if (err) {
-      setModalError(formatApiError(err));
+      const formatted = formatApiError(err);
+      const lower = formatted.toLowerCase();
+
+      // Edge case 2: 401 for the exact token that was sent
+      if (response.status === 401) {
+        rejectAttendeeToken(token);
+        setAlreadyHasTicket(false);
+        setAuthMode("login");
+        setModalError(c.errSessionExpired);
+        setIsAuthModalOpen(true);
+        setSubmitting(false);
+        return;
+      }
+
+      // Edge case 4: Duplicate registration conflict
+      if (
+        lower.includes("already holds a ticket") ||
+        lower.includes("already registered")
+      ) {
+        setAlreadyHasTicket(true);
+        setIsAuthModalOpen(false);
+        setModalError(null);
+      } else {
+        // Edge case 3: Tier became unavailable / sold out / closed
+        if (
+          lower.includes("sold out") ||
+          lower.includes("exhausted") ||
+          lower.includes("closed")
+        ) {
+          // Reload event data to reflect latest tier availability
+          const clientFresh = createApiClient({ kind: "anonymous" });
+          clientFresh.GET("/api/public/events/{slug}", {
+            params: { path: { slug: event.slug } },
+          }).then(({ data: freshData }) => {
+            if (context.active && freshData) setEvent((current) => current?.slug === freshData.slug ? freshData : current);
+          });
+        }
+        setModalError(formatted);
+      }
       setSubmitting(false);
     } else if (data) {
-      setSelectedTier(null);
-      navigate("/my-tickets");
+      setIsAuthModalOpen(false);
+      setSubmitting(false);
+      setIsSuccessModalOpen(true);
     }
   };
 
-  const handleSelectTier = async (tier: TicketTierOut) => {
+  const handleStartReservation = async () => {
+    if (!selectedTier || !event || !isSelectedTierAvailable) return;
     setModalError(null);
-    const existingToken = localStorage.getItem(ATTENDEE_TOKEN_STORAGE);
+
+    const existingToken =
+      typeof window !== "undefined"
+        ? localStorage.getItem(ATTENDEE_TOKEN_STORAGE)
+        : null;
+
     if (existingToken) {
-      // Already logged in: directly reserve
+      // User is already logged in: reserve directly
       setSubmitting(true);
-      await executeReservation(existingToken, tier.id);
-      setSubmitting(false);
+      await executeReservation(existingToken, selectedTier.id);
     } else {
-      // Need to register or log in first
-      setSelectedTier(tier);
+      // Needs authentication: open accessible dialog
+      setIsAuthModalOpen(true);
     }
   };
 
   const handleAuthAndReserve = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedTier || !event) return;
+    const context = pageContext.current;
+    if (!context?.active) return;
     setModalError(null);
     setSubmitting(true);
 
-    const client = getApiClient(null);
+    const client = createApiClient({ kind: "anonymous" });
+
+    // Edge case 1: If account was created on previous attempt but reservation failed,
+    // reuse the stored token directly rather than re-registering and triggering a 409 conflict
+    const existingToken =
+      typeof window !== "undefined"
+        ? localStorage.getItem(ATTENDEE_TOKEN_STORAGE)
+        : null;
+    if (existingToken && authMode === "register") {
+      await executeReservation(existingToken, selectedTier.id);
+      return;
+    }
 
     if (authMode === "register") {
       if (!fullName.trim() || !email.trim() || !password) {
-        setModalError("Please complete all required fields.");
+        setModalError(c.errRequired);
         setSubmitting(false);
         return;
       }
@@ -107,7 +244,7 @@ export default function PublicEvent() {
           title: title.trim(),
         },
       });
-
+      if (!context.active) return;
       if (err) {
         setModalError(formatApiError(err));
         setSubmitting(false);
@@ -121,7 +258,7 @@ export default function PublicEvent() {
     } else {
       // Login mode
       if (!email.trim() || !password) {
-        setModalError("Please provide your email and password.");
+        setModalError(c.errLoginRequired);
         setSubmitting(false);
         return;
       }
@@ -132,6 +269,7 @@ export default function PublicEvent() {
           password,
         },
       });
+      if (!context.active) return;
 
       if (err) {
         setModalError(formatApiError(err));
@@ -146,317 +284,289 @@ export default function PublicEvent() {
     }
   };
 
+  // Loading skeleton state
   if (loading) {
     return (
-      <div className="min-h-screen bg-neutral-50 flex items-center justify-center p-4">
-        <div className="text-sm text-neutral-500 animate-pulse">
-          Loading event information...
-        </div>
-      </div>
-    );
-  }
-
-  if (error || !event) {
-    return (
-      <div className="min-h-screen bg-neutral-50 flex items-center justify-center p-4 font-sans">
-        <div className="max-w-md w-full bg-white p-8 rounded-2xl border border-neutral-200 text-center space-y-4">
-          <div className="text-3xl">🔍</div>
-          <h1 className="text-xl font-bold text-neutral-900">Event Not Found</h1>
-          <p className="text-sm text-neutral-600">
-            {error ?? "The event you are looking for does not exist or has been removed."}
-          </p>
-          <Link
-            to="/"
-            className="inline-block text-xs font-semibold text-emerald-700 hover:text-emerald-800 uppercase tracking-wider"
-          >
-            ← Back to Homepage
-          </Link>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="min-h-screen bg-neutral-50 text-neutral-900 flex flex-col font-sans">
-      <header className="bg-white border-b border-neutral-200 sticky top-0 z-20">
-        <div className="max-w-3xl mx-auto px-4 h-14 flex items-center justify-between">
-          <Link to="/" className="font-bold text-sm tracking-tight text-neutral-800 flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-emerald-600 inline-block" />
-            Congress Platform
-          </Link>
-          <Link
-            to="/my-tickets"
-            className="text-xs font-semibold bg-neutral-100 hover:bg-neutral-200 text-neutral-800 px-3 py-1.5 rounded-lg transition"
-          >
-            My Passes 🎫
-          </Link>
-        </div>
-      </header>
-
-      <main className="flex-1 max-w-3xl w-full mx-auto p-4 sm:p-6 space-y-8">
-        {/* Event Header Banner */}
-        <section className="bg-white rounded-2xl p-6 sm:p-8 border border-neutral-200 shadow-sm space-y-4">
-          <div className="space-y-2">
-            <div className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-600" />
-              Registration Open
+      <PublicLayout locale={locale} onLocaleChange={setLocale}>
+        {/* Fills the viewport so the footer never sits in view and jumps when content arrives (CLS). */}
+        <section role="status" aria-label={c.loading} className="relative min-h-[100svh] overflow-hidden bg-surface-ink">
+          <div aria-hidden="true" className="absolute inset-0 bg-meridian-ink opacity-70" />
+          <div className="relative mx-auto max-w-7xl space-y-10 px-4 pt-12 pb-28 sm:px-6 sm:pt-20 lg:min-h-[640px] lg:px-10 motion-safe:animate-pulse">
+            <div className="flex gap-2">
+              <div className="h-7 w-36 rounded-full bg-white/10" />
+              <div className="h-7 w-28 rounded-full bg-white/[0.06]" />
             </div>
-            <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-neutral-900">
-              {event.name}
-            </h1>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 text-xs text-neutral-600">
-            <div className="flex items-center gap-2 bg-neutral-50 p-3 rounded-lg border border-neutral-100">
-              <span className="text-base">📅</span>
-              <div>
-                <p className="font-semibold text-neutral-800">Date & Time</p>
-                <p>
-                  {new Date(event.starts_at).toLocaleDateString(undefined, {
-                    weekday: "short",
-                    year: "numeric",
-                    month: "short",
-                    day: "numeric",
-                  })}
-                </p>
-              </div>
+            <div className="max-w-4xl space-y-4">
+              <div className="h-3 w-48 rounded-full bg-white/10" />
+              <div className="h-14 w-full rounded-2xl bg-white/10 sm:h-20" />
+              <div className="h-14 w-2/3 rounded-2xl bg-white/10 sm:h-20" />
             </div>
-
-            <div className="flex items-center gap-2 bg-neutral-50 p-3 rounded-lg border border-neutral-100">
-              <span className="text-base">📍</span>
-              <div>
-                <p className="font-semibold text-neutral-800">Venue</p>
-                <p>{event.location}</p>
-              </div>
-            </div>
-          </div>
-
-          {event.description && (
-            <div className="pt-2">
-              <h2 className="text-xs font-bold uppercase tracking-wider text-neutral-500 mb-1">
-                About the Event
-              </h2>
-              <p className="text-sm text-neutral-700 leading-relaxed whitespace-pre-line">
-                {event.description}
-              </p>
-            </div>
-          )}
-        </section>
-
-        {/* Ticket Tiers Section */}
-        <section className="space-y-4">
-          <div>
-            <h2 className="text-xl font-bold tracking-tight text-neutral-900">
-              Available Ticket Tiers
-            </h2>
-            <p className="text-xs text-neutral-500">
-              Select your admission tier below to reserve your personal digital pass.
-            </p>
-          </div>
-
-          {event.ticket_tiers.length === 0 ? (
-            <div className="bg-white p-8 rounded-2xl border border-neutral-200 text-center text-sm text-neutral-500">
-              No ticket tiers are currently open for registration.
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {event.ticket_tiers.map((tier) => (
-                <div
-                  key={tier.id}
-                  className="bg-white p-5 rounded-2xl border border-neutral-200 shadow-sm flex flex-col justify-between space-y-4"
-                >
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between gap-2">
-                      <h3 className="font-bold text-neutral-900 text-lg">
-                        {tier.name}
-                      </h3>
-                      <span className="text-xs font-extrabold px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800">
-                        FREE
-                      </span>
-                    </div>
-                    <p className="text-xs text-neutral-600 leading-relaxed">
-                      {tier.description || "Grants general entry to the congress sessions and exhibition areas."}
-                    </p>
-                  </div>
-
-                  <div className="pt-3 border-t border-neutral-100 flex flex-col gap-3">
-                    <div className="flex items-center justify-between text-xs text-neutral-500 font-medium">
-                      <span>Quota: {tier.quota.toLocaleString()} passes</span>
-                      <span className="text-emerald-700 font-semibold">100% Free</span>
-                    </div>
-                    <button
-                      type="button"
-                      disabled={submitting}
-                      onClick={() => handleSelectTier(tier)}
-                      className="w-full bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-semibold text-xs py-2.5 px-4 rounded-xl transition shadow-sm"
-                    >
-                      Reserve Free Pass →
-                    </button>
-                  </div>
+            <div className="grid grid-cols-2 gap-6 border-t border-white/10 pt-6 lg:grid-cols-4">
+              {[0, 1, 2, 3].map((i) => (
+                <div key={i} className="space-y-2">
+                  <div className="h-3 w-16 rounded bg-white/10" />
+                  <div className="h-5 w-3/4 rounded bg-white/10" />
                 </div>
               ))}
             </div>
-          )}
+          </div>
         </section>
-      </main>
+      </PublicLayout>
+    );
+  }
 
-      {/* Registration / Sign-In Modal */}
-      {selectedTier && (
-        <div className="fixed inset-0 z-50 bg-neutral-900/50 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white max-w-md w-full rounded-2xl p-6 sm:p-8 shadow-xl border border-neutral-200 space-y-5 animate-in fade-in duration-150">
-            <div className="flex items-center justify-between">
+  // Error / Not Found state
+  if (error || !event) {
+    return (
+      <PublicLayout locale={locale} onLocaleChange={setLocale} congressName="">
+        <section className="relative isolate overflow-hidden">
+          <CongressSignature seed={slug ?? "congress"} tone="light" className="absolute inset-0 -z-10 size-full opacity-70" />
+          <div aria-hidden="true" className="absolute inset-0 -z-10 bg-linear-to-b from-surface-page/30 via-surface-page/85 to-surface-page" />
+          <div className="mx-auto max-w-xl space-y-7 px-4 py-24 text-center sm:py-36">
+            <span className="mx-auto grid size-16 place-items-center bg-surface-panel text-aiteb-indigo shadow-lift shape-arc">
+              <Icon name="search" size={28} />
+            </span>
+            <div className="space-y-3">
+              <h1 className="text-3xl font-bold tracking-[-0.03em] text-text-primary sm:text-4xl">{c.notFoundTitle}</h1>
+              <p className="text-base leading-relaxed text-text-secondary">{error ?? c.notFoundBody}</p>
+            </div>
+            <LinkButton to="/" variant="secondary" size="lg">
+              <Icon name="arrow-left" size={18} />
+              {c.returnHome}
+            </LinkButton>
+          </div>
+        </section>
+      </PublicLayout>
+    );
+  }
+
+  const required = (
+    <span aria-hidden="true" className="text-status-danger-text">
+      *
+    </span>
+  );
+  const tabClass = (active: boolean) =>
+    `min-h-[44px] rounded-lg px-3 text-sm font-semibold transition-[background-color,color,box-shadow] cursor-pointer ${
+      active ? "bg-surface-panel text-text-primary shadow-soft" : "text-text-secondary hover:text-text-primary"
+    }`;
+  const logo = doc.branding.logo_asset_id ? images[doc.branding.logo_asset_id] ?? null : null;
+
+  return (
+    <PublicLayout locale={locale} onLocaleChange={setLocale} congressName={event.name} brand={{ accent: doc.branding.accent, logo }}>
+      <CongressPage
+        event={event}
+        doc={doc}
+        images={images}
+        locale={locale}
+        passes={
+          <PassesPanel
+            slug={event.slug}
+            tiers={event.ticket_tiers}
+            locale={locale}
+            accent={doc.branding.accent}
+            selectedTierId={selectedTierId}
+            onSelectTier={setSelectedTierId}
+            onReserve={handleStartReservation}
+            submitting={submitting}
+            alreadyHasTicket={alreadyHasTicket}
+          />
+        }
+      />
+
+      {/* Accessible Registration / Authentication Dialog */}
+      <Dialog
+        isOpen={isAuthModalOpen}
+        onClose={() => {
+          if (!submitting) {
+            setIsAuthModalOpen(false);
+            setModalError(null);
+          }
+        }}
+        title={authMode === "register" ? c.dialogRegisterTitle : c.dialogLoginTitle}
+        description={selectedTier ? c.dialogDescription(isolateFor(selectedTier.name, locale)) : undefined}
+        size="md"
+      >
+        <div className="space-y-6">
+          {/* Auth Mode Toggle Tabs */}
+          <div role="tablist" aria-label={c.modeLabel} className="grid grid-cols-2 gap-1 rounded-xl border border-border-default bg-surface-panel-subtle p-1">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={authMode === "register"}
+              onClick={() => {
+                setAuthMode("register");
+                setModalError(null);
+              }}
+              className={tabClass(authMode === "register")}
+            >
+              {c.modeRegister}
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={authMode === "login"}
+              onClick={() => {
+                setAuthMode("login");
+                setModalError(null);
+              }}
+              className={tabClass(authMode === "login")}
+            >
+              {c.modeLogin}
+            </button>
+          </div>
+
+          <form onSubmit={handleAuthAndReserve} className="space-y-4">
+            {authMode === "register" && (
               <div>
-                <h3 className="text-lg font-bold text-neutral-900">
-                  {authMode === "register" ? "Register Attendee Pass" : "Sign In to Reserve"}
-                </h3>
-                <p className="text-xs text-neutral-500">
-                  Tier: <span className="font-semibold text-emerald-700">{selectedTier.name}</span>
-                </p>
+                <label htmlFor={`${formId}-name`} className="ui-label">
+                  {c.fullName} {required}
+                </label>
+                <input
+                  id={`${formId}-name`}
+                  type="text"
+                  required
+                  autoComplete="name"
+                  value={fullName}
+                  onChange={(e) => setFullName(e.target.value)}
+                  placeholder={c.fullNamePlaceholder}
+                  className="ui-input"
+                />
               </div>
-              <button
-                type="button"
-                onClick={() => setSelectedTier(null)}
-                className="text-neutral-400 hover:text-neutral-600 text-lg p-1"
-              >
-                ✕
-              </button>
+            )}
+
+            <div>
+              <label htmlFor={`${formId}-email`} className="ui-label">
+                {c.email} {required}
+              </label>
+              <input
+                id={`${formId}-email`}
+                type="email"
+                required
+                dir="ltr"
+                autoComplete="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder={c.emailPlaceholder}
+                className="ui-input rtl:text-right"
+              />
             </div>
 
-            {/* Tab switch */}
-            <div className="flex border-b border-neutral-200 text-xs font-semibold">
-              <button
-                type="button"
-                onClick={() => {
-                  setAuthMode("register");
-                  setModalError(null);
-                }}
-                className={`flex-1 py-2 text-center border-b-2 transition ${
-                  authMode === "register"
-                    ? "border-emerald-600 text-emerald-700 font-bold"
-                    : "border-transparent text-neutral-500 hover:text-neutral-700"
-                }`}
-              >
-                New Account
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setAuthMode("login");
-                  setModalError(null);
-                }}
-                className={`flex-1 py-2 text-center border-b-2 transition ${
-                  authMode === "login"
-                    ? "border-emerald-600 text-emerald-700 font-bold"
-                    : "border-transparent text-neutral-500 hover:text-neutral-700"
-                }`}
-              >
-                I have an account
-              </button>
+            <div>
+              <label htmlFor={`${formId}-password`} className="ui-label">
+                {c.password} {required}
+              </label>
+              <input
+                id={`${formId}-password`}
+                type="password"
+                required
+                minLength={8}
+                dir="ltr"
+                autoComplete={authMode === "register" ? "new-password" : "current-password"}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder={c.passwordPlaceholder}
+                className="ui-input rtl:text-right"
+              />
             </div>
 
-            <form onSubmit={handleAuthAndReserve} className="space-y-3.5">
-              {authMode === "register" && (
+            {authMode === "register" && (
+              <div className="grid grid-cols-1 gap-4 border-t border-border-subtle pt-4 sm:grid-cols-2">
+                <p className="-mb-1 text-xs font-medium text-text-muted sm:col-span-2">{c.optional}</p>
                 <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-700 mb-1">
-                    Full Name *
+                  <label htmlFor={`${formId}-org`} className="ui-label">
+                    {c.organization}
                   </label>
                   <input
+                    id={`${formId}-org`}
                     type="text"
-                    required
-                    value={fullName}
-                    onChange={(e) => setFullName(e.target.value)}
-                    placeholder="e.g. Dr. Mohammad Rezaei"
-                    className="w-full px-3 py-2 border border-neutral-300 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 bg-white"
+                    autoComplete="organization"
+                    value={organization}
+                    onChange={(e) => setOrganization(e.target.value)}
+                    placeholder={c.organizationPlaceholder}
+                    className="ui-input"
                   />
                 </div>
-              )}
-
-              <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-700 mb-1">
-                  Email Address *
-                </label>
-                <input
-                  type="email"
-                  required
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="name@organization.com"
-                  className="w-full px-3 py-2 border border-neutral-300 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 bg-white"
-                />
+                <div>
+                  <label htmlFor={`${formId}-title`} className="ui-label">
+                    {c.title}
+                  </label>
+                  <input
+                    id={`${formId}-title`}
+                    type="text"
+                    autoComplete="organization-title"
+                    value={title}
+                    onChange={(e) => setTitle(e.target.value)}
+                    placeholder={c.titlePlaceholder}
+                    className="ui-input"
+                  />
+                </div>
               </div>
+            )}
 
-              <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-700 mb-1">
-                  Password *
-                </label>
-                <input
-                  type="password"
-                  required
-                  minLength={8}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Minimum 8 characters"
-                  className="w-full px-3 py-2 border border-neutral-300 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 bg-white"
-                />
+            {modalError && (
+              <div
+                role="alert"
+                aria-live="assertive"
+                className="flex items-start gap-3 rounded-xl border border-status-danger-border bg-status-danger-bg p-3.5 text-sm leading-relaxed text-status-danger-text"
+              >
+                <Icon name="alert" size={18} className="mt-0.5" />
+                <span>{modalError}</span>
               </div>
+            )}
 
-              {authMode === "register" && (
-                <>
-                  <div>
-                    <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-700 mb-1">
-                      Organization / University
-                    </label>
-                    <input
-                      type="text"
-                      value={organization}
-                      onChange={(e) => setOrganization(e.target.value)}
-                      placeholder="e.g. Tehran University of Medical Sciences"
-                      className="w-full px-3 py-2 border border-neutral-300 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 bg-white"
-                    />
-                  </div>
+            <div className="pt-2">
+              <Button type="submit" variant="primary" size="lg" isFullWidth disabled={submitting}>
+                {submitting ? c.submitting : authMode === "register" ? c.submitRegister : c.submitLogin}
+                {!submitting && <Icon name="arrow-right" size={18} />}
+              </Button>
+            </div>
+          </form>
+        </div>
+      </Dialog>
 
-                  <div>
-                    <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-700 mb-1">
-                      Professional Title
-                    </label>
-                    <input
-                      type="text"
-                      value={title}
-                      onChange={(e) => setTitle(e.target.value)}
-                      placeholder="e.g. Associate Professor, Resident"
-                      className="w-full px-3 py-2 border border-neutral-300 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 bg-white"
-                    />
-                  </div>
-                </>
-              )}
-
-              {modalError && (
-                <p className="text-xs text-red-600 bg-red-50 p-2.5 rounded-lg border border-red-200">
-                  {modalError}
-                </p>
-              )}
-
-              <div className="pt-2">
-                <button
-                  type="submit"
-                  disabled={submitting}
-                  className="w-full bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-semibold text-sm py-2.5 px-4 rounded-xl transition shadow-sm"
-                >
-                  {submitting
-                    ? "Reserving..."
-                    : authMode === "register"
-                    ? "Complete Registration & Get Pass"
-                    : "Sign In & Confirm Pass"}
-                </button>
-              </div>
-            </form>
+      {/* Accessible Success Confirmation Dialog */}
+      <Dialog
+        isOpen={isSuccessModalOpen}
+        onClose={() => {
+          setIsSuccessModalOpen(false);
+          navigate("/my-tickets");
+        }}
+        title={c.successTitle}
+        description={c.successDescription}
+        size="sm"
+      >
+        <div className="space-y-6">
+          <div className="relative isolate overflow-hidden rounded-2xl bg-surface-ink p-5 text-white [border-start-end-radius:var(--radius-arc)]">
+            <CongressSignature seed={event.slug} accent={doc.branding.accent} tone="ink" className="absolute inset-0 -z-10 size-full opacity-80 rtl:-scale-x-100" />
+            <div aria-hidden="true" className="absolute inset-0 -z-10 bg-linear-to-t from-surface-ink via-surface-ink/80 to-surface-ink/20" />
+            <span className="grid size-11 place-items-center rounded-full bg-[#3EE0A1] text-surface-ink motion-safe:animate-pop">
+              <Icon name="check" size={22} strokeWidth={2.4} />
+            </span>
+            <h3 className="mt-6 text-lg font-semibold leading-snug"><Bidi text={event.name} /></h3>
+            <p className="mt-1 text-sm text-ink-200">
+              {c.successTier}: <span className="font-semibold text-white">{selectedTier && <Bidi text={selectedTier.name} />}</span>
+            </p>
+          </div>
+          <p className="text-sm leading-relaxed text-text-secondary">{c.successBody}</p>
+          <div className="flex flex-col gap-2">
+            <Button
+              type="button"
+              variant="primary"
+              size="lg"
+              isFullWidth
+              onClick={() => {
+                setIsSuccessModalOpen(false);
+                navigate("/my-tickets");
+              }}
+            >
+              {c.successOpen}
+            </Button>
+            <Button type="button" variant="ghost" size="md" isFullWidth onClick={() => setIsSuccessModalOpen(false)}>
+              {c.successStay}
+            </Button>
           </div>
         </div>
-      )}
-
-      <footer className="border-t border-neutral-200 bg-white py-6 mt-12 text-center text-xs text-neutral-500">
-        Congress Management Platform • Official Attendee Registration
-      </footer>
-    </div>
+      </Dialog>
+    </PublicLayout>
   );
 }

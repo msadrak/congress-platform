@@ -3,8 +3,8 @@
 ## Project layout & entry points
 
 - **`backend/`**: FastAPI (Python 3.11+) asynchronous ASGI backend with SQLAlchemy 2.0 (asyncpg), Alembic migrations, and PostgreSQL.
-  - Run dev server: `CONGRESS_PLATFORM_ADMIN_TOKEN=dev uv run uvicorn app.main:create_app_from_env --factory --port 8000`
-  - Run tests: `uv run pytest`
+  - Run dev server: `CONGRESS_ENVIRONMENT=development CONGRESS_PLATFORM_ADMIN_TOKEN=dev CONGRESS_JWT_SECRET=<32+ random chars> uv run uvicorn app.main:create_app_from_env --factory --port 8000` (an unset `CONGRESS_ENVIRONMENT` means `production`, which requires explicit `CONGRESS_DATABASE_URL`, `CONGRESS_MEDIA_ROOT` and a generated 32+ character admin token)
+  - Run tests: `uv run pytest` (only ever targets a marked `*_test` database), or on disposable Docker infrastructure: `node scripts/integration/backend-tests.mjs`
   - Run typecheck: `uv run mypy`
 - **`web/`**: React 19 + TypeScript + Vite SPA & PWA frontend with Tailwind CSS.
   - Run dev server: `npm run dev`
@@ -20,7 +20,7 @@
 | Route | Role & Capabilities |
 | :--- | :--- |
 | `/` | Platform landing page |
-| `/e/:slug` | Public event page with free ticket reservation modal |
+| `/e/:slug` | Public event page (published Page Studio document) with free ticket reservation modal; 404 until first publish |
 | `/e/:slug/booths/:boothId` | Public company booth profile, digital brochure download, and bookmarking |
 | `/my-tickets` | Attendee pass portal: high-contrast QR pass, offline cache, saved booths |
 | `/my-network` | Attendee networking hub: peer badge scanner, private notes, `.vcf` vCard download |
@@ -28,6 +28,8 @@
 | `/booth/:boothId` | Exhibitor lead portal: badge scanner, lead qualification drawer, CRM CSV export |
 | `/organizer` | Organizer console: API key gate, events list, and event creation |
 | `/organizer/events/:id` | Event settings: ticket tiers, check-in points, exhibition booths, standee QRs |
+| `/organizer/events/:id/page` | Page Studio: private draft, live preview, publish/unpublish of the public congress page; sections, branding, bilingual content, images |
+| `/organizer/events/:id/page/preview` | Bare preview frame used inside Page Studio (organizer key from the tab session) |
 | `/organizer/events/:id/desk` | Front-desk station: rapid walk-in pass minting and live attendee search |
 | `/organizer/events/:id/analytics` | Real-time analytics: attendance KPIs, gate throughput bars, catering widget, CSV |
 

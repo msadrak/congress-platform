@@ -1,0 +1,92 @@
+# Congress Platform edge. Serves the production SPA, proxies /api to FastAPI, terminates HTTPS.
+#   CONGRESS_SITE_ADDRESS  e.g. https://localhost (local staging) or congress.example.org (real domain)
+#   CONGRESS_TLS           "internal" (Caddy's local CA) or an e-mail address for Let's Encrypt/ZeroSSL
+#   CONGRESS_LOCAL_HTTP    on  = also serve http://localhost (local staging); off = real domain, HTTP→HTTPS
+#   CONGRESS_HSTS          on  = Strict-Transport-Security (real domain with a public certificate)
+#   CONGRESS_ADMIN_ALLOW   client ranges that may reach /api/organizers through the proxy
+#                          (local staging: private_ranges; hosted: 127.0.0.1/32 = nobody, use stack.mjs)
+{
+	admin off
+	servers {
+		protocols h1 h2
+	}
+}
+
+(congress) {
+	encode zstd gzip
+
+	header {
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		Permissions-Policy "camera=(self), microphone=(), geolocation=(), payment=()"
+		?X-Frame-Options SAMEORIGIN
+		?Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; worker-src 'self'; manifest-src 'self'; frame-src 'self'; frame-ancestors 'self'; base-uri 'self'; form-action 'self'; object-src 'none'"
+		-Server
+	}
+	import /etc/caddy/options/hsts-{$CONGRESS_HSTS:off}.caddy
+
+	log {
+		output stdout
+		format filter {
+			wrap json
+			# Scanner pairing links carry a token in the query string.
+			request>uri query {
+				delete token
+			}
+			request>headers>Authorization delete
+			request>headers>X-Admin-Token delete
+		}
+	}
+
+	handle /api/* {
+		# Platform administration (organizer provisioning and key lifecycle) is not for the public internet.
+		@adminBlocked {
+			path /api/organizers /api/organizers/*
+			not remote_ip {$CONGRESS_ADMIN_ALLOW:private_ranges}
+		}
+		respond @adminBlocked 404
+
+		request_body {
+			max_size 8MB
+		}
+		reverse_proxy api:8000 {
+			# While the API restarts (deploys, rebuilds) hold requests briefly instead of failing them.
+			lb_try_duration 15s
+			lb_try_interval 250ms
+		}
+	}
+
+	# Public congress and booth pages: the SPA shell with server-rendered <head> (published content only).
+	@congress path /e/*
+	handle @congress {
+		root * /srv
+		header Cache-Control "no-cache"
+		rewrite * /seo-shell.html
+		templates {
+			mime text/html
+		}
+		file_server
+	}
+
+	handle {
+		root * /srv
+		# Content-hashed bundles never change; everything else (index.html, sw.js, manifest) revalidates
+		# so a new release replaces the application shell and the service worker promptly.
+		@hashed path /assets/*
+		header @hashed Cache-Control "public, max-age=31536000, immutable"
+		@unhashed not path /assets/*
+		header @unhashed Cache-Control "no-cache"
+		try_files {path} /index.html
+		file_server
+	}
+}
+
+{$CONGRESS_SITE_ADDRESS:https://localhost} {
+	tls {$CONGRESS_TLS:internal}
+	import congress
+}
+
+# Local staging only (CONGRESS_LOCAL_HTTP=on): plain HTTP on localhost, a secure context for browsers, for
+# tools and test runners that cannot trust the local CA. Off for a real domain, where Caddy redirects
+# every HTTP request to HTTPS.
+import /etc/caddy/options/local-http-{$CONGRESS_LOCAL_HTTP:on}.caddy

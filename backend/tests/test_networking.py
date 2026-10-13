@@ -314,3 +314,96 @@ async def test_peer_consent_toggle_governs_api_and_vcard_disclosure(
     # Subsequent vCard export immediately omits Bob's email
     vcard_revoked = await client.get(f"/api/attendees/me/network/{conn_id}/vcard", headers=header_a)
     assert "EMAIL" not in vcard_revoked.text
+
+
+async def _second_event_attendee(
+    client: AsyncClient, email: str
+) -> tuple[str, dict[str, str]]:
+    """An attendee holding a ticket in a second congress run by another organizer."""
+    organizer = await provision_organizer(client, "Other Congress Co")
+    created = await client.post(
+        "/api/events",
+        json={**EVENT, "name": "Autumn Congress 2027", "slug": "autumn-congress-2027"},
+        headers=bearer(organizer),
+    )
+    assert created.status_code == 201, created.text
+    other_event_id: str = created.json()["id"]
+    tier_resp = await client.post(
+        f"/api/events/{other_event_id}/ticket-tiers",
+        json=tier(name="General", quota=100),
+        headers=bearer(organizer),
+    )
+    _, token = await register_user(client, email, "Carol Other")
+    ticket = (
+        await client.post(
+            f"/api/events/{other_event_id}/tickets/reserve",
+            json={"ticket_tier_id": tier_resp.json()["id"]},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    ).json()
+    return other_event_id, ticket
+
+
+async def test_event_scoped_scan_of_another_congress_badge_writes_nothing(
+    client: AsyncClient,
+) -> None:
+    event_id, _, token_a, _, _, _ = await setup_event_and_attendees(client)
+    _, carol_ticket = await _second_event_attendee(client, "carol@example.com")
+    header_a = {"Authorization": f"Bearer {token_a}"}
+
+    rejected = await client.post(
+        "/api/attendees/me/network/scan",
+        json={
+            "qr_secret": carol_ticket["qr_secret"],
+            "private_notes": "met at the other congress",
+            "event_id": event_id,
+        },
+        headers=header_a,
+    )
+
+    assert rejected.status_code == 409
+    listed = await client.get("/api/attendees/me/network", headers=header_a)
+    assert listed.json() == []
+
+
+async def test_event_scoped_scan_of_another_congress_badge_leaves_existing_notes_untouched(
+    client: AsyncClient,
+) -> None:
+    other_event_id, carol_ticket = await _second_event_attendee(client, "carol@example.com")
+    event_id, _, token_a, _, _, _ = await setup_event_and_attendees(client)
+    header_a = {"Authorization": f"Bearer {token_a}"}
+    legacy = await client.post(
+        "/api/attendees/me/network/scan",
+        json={"qr_secret": carol_ticket["qr_secret"], "private_notes": "original"},
+        headers=header_a,
+    )
+    assert legacy.status_code == 201
+
+    rejected = await client.post(
+        "/api/attendees/me/network/scan",
+        json={
+            "qr_secret": carol_ticket["qr_secret"],
+            "private_notes": "overwritten",
+            "event_id": event_id,
+        },
+        headers=header_a,
+    )
+
+    assert rejected.status_code == 409
+    notes = (await client.get("/api/attendees/me/network", headers=header_a)).json()
+    assert [(c["event_id"], c["private_notes"]) for c in notes] == [(other_event_id, "original")]
+
+
+async def test_event_scoped_scan_of_same_congress_badge_still_connects(
+    client: AsyncClient,
+) -> None:
+    event_id, _, token_a, _, _, t_b = await setup_event_and_attendees(client)
+
+    accepted = await client.post(
+        "/api/attendees/me/network/scan",
+        json={"qr_secret": t_b["qr_secret"], "event_id": event_id},
+        headers={"Authorization": f"Bearer {token_a}"},
+    )
+
+    assert accepted.status_code == 201
+    assert accepted.json()["event_id"] == event_id

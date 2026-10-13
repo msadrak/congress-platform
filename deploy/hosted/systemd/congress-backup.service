@@ -1,0 +1,12 @@
+[Unit]
+Description=Congress Platform scheduled backup (database + media, off-host copy, retention)
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+User=congress
+WorkingDirectory=/opt/congress-platform
+# Off-host credentials (BACKUP_S3_*), readable by root/congress only.
+EnvironmentFile=-/etc/congress/backup.env
+ExecStart=/usr/bin/node scripts/staging/stack.mjs scheduled-backup

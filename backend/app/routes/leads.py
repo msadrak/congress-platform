@@ -133,9 +133,13 @@ async def scan_attendee_lead(
     )
 
     if existing is not None:
-        # Update existing lead
-        existing.rating = clean_rating
-        existing.tags = body.tags
+        # Re-scanning an attendee updates only the qualification the caller actually sent, so an
+        # accidental or deliberate re-scan with just the badge never resets rating/tags.
+        provided = body.model_fields_set
+        if "rating" in provided:
+            existing.rating = clean_rating
+        if "tags" in provided:
+            existing.tags = body.tags
         if body.notes.strip():
             existing.notes = body.notes.strip()
         existing.updated_at = datetime.now()

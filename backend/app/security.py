@@ -75,8 +75,29 @@ def create_scanner_token(
         "exp": int(exp.timestamp()),
     }
     return jwt.encode(payload, secret, algorithm="HS256")
-
-
+def create_desk_operator_token(
+    operator_id: uuid.UUID,
+    event_id: uuid.UUID,
+    user_id: uuid.UUID,
+    session_version: int,
+    secret: str,
+    operator_name: str = "",
+    expires_delta: timedelta | None = None,
+) -> str:
+    now = datetime.now(timezone.utc)
+    exp = now + (expires_delta or timedelta(days=7))
+    payload = {
+        "sub": f"desk:{operator_id}",
+        "type": "desk_operator",
+        "operator_id": str(operator_id),
+        "event_id": str(event_id),
+        "user_id": str(user_id),
+        "operator_name": operator_name,
+        "session_version": session_version,
+        "iat": int(now.timestamp()),
+        "exp": int(exp.timestamp()),
+    }
+    return jwt.encode(payload, secret, algorithm="HS256")
 def generate_entity_qr_secret() -> str:
     """128-bit CSPRNG secret encoded as lower-case base32 string without padding."""
     random_bytes = secrets.token_bytes(16)  # 128 bits

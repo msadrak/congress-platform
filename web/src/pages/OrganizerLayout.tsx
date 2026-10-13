@@ -1,108 +1,334 @@
-import { useState } from "react";
-import { Link, Outlet, useNavigate } from "react-router-dom";
-import { ORGANIZER_KEY_STORAGE } from "../api/client";
+import React, { useCallback, useState } from "react";
+import { Link, Outlet, useLocation, useNavigate, useParams } from "react-router-dom";
+import { ORGANIZER_KEY_STORAGE, type EventOut } from "../api/client";
+import { formatLocalizedDate, useAttendeeLocale, type TranslationDictionary } from "../lib/i18n";
+import {
+  EVENT_SETUP_SECTIONS,
+  eventSectionFromPath,
+  eventTimeStatus,
+  eventWorkspacePath,
+  type EventTimeStatus,
+} from "../lib/organizerWorkspace";
+import { SkipLink } from "../components/ui/SkipLink";
+import { Icon, type IconName } from "../components/ui/Icon";
+import { AitebAttribution, ArcMotif } from "../components/brand/Aiteb";
+import { CongressSignature } from "../components/brand/CongressSignature";
+import { OrganizerKeyGate } from "../components/organizer/OrganizerKeyGate";
+import { EventStatusBadge } from "../components/organizer/WorkspaceUi";
+import { eventAccentStyle } from "../lib/eventAccent";
+import "../styles/organizer.css";
+
+export type ActiveEvent = Pick<EventOut, "id" | "name" | "slug" | "starts_at" | "ends_at">;
+
+export interface OrganizerOutletContext {
+  apiKey: string | null;
+  /** Reports a 401 for the exact key that was sent; any other key or failure is left alone. */
+  onKeyRejected: (sentKey: string) => void;
+  /** A page reports the event it has successfully loaded so the workspace can name it. */
+  reportEvent: (event: ActiveEvent) => void;
+  locale: "fa" | "en";
+  t: TranslationDictionary;
+  isRtl: boolean;
+  dir: "rtl" | "ltr";
+}
+
+const SECTION_ICONS: Record<(typeof EVENT_SETUP_SECTIONS)[number]["key"], IconName> = {
+  overview: "grid",
+  tiers: "ticket",
+  "check-in": "gate",
+  booths: "booth",
+  operators: "users",
+  page: "web",
+};
 
 export default function OrganizerLayout() {
   const navigate = useNavigate();
-  const [apiKey, setApiKey] = useState<string | null>(() =>
-    sessionStorage.getItem(ORGANIZER_KEY_STORAGE)
-  );
+  const location = useLocation();
+  const { eventId } = useParams<{ eventId?: string }>();
+  const { locale, setLocale, t, isRtl, dir } = useAttendeeLocale();
+
+  const [apiKey, setApiKey] = useState<string | null>(() => {
+    if (typeof window !== "undefined") {
+      return sessionStorage.getItem(ORGANIZER_KEY_STORAGE);
+    }
+    return null;
+  });
   const [inputKey, setInputKey] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [keyRejected, setKeyRejected] = useState(false);
+  const [activeEvent, setActiveEvent] = useState<ActiveEvent | null>(null);
+  const [now] = useState(() => Date.now());
 
   const handleSaveKey = (e: React.FormEvent) => {
     e.preventDefault();
     const trimmed = inputKey.trim();
     if (!trimmed) {
-      setError("Please enter your organizer API key.");
+      setError(t.apiKeyRequired);
       return;
     }
-    sessionStorage.setItem(ORGANIZER_KEY_STORAGE, trimmed);
+    if (typeof window !== "undefined") {
+      sessionStorage.setItem(ORGANIZER_KEY_STORAGE, trimmed);
+    }
     setApiKey(trimmed);
     setInputKey("");
     setError(null);
+    setKeyRejected(false);
   };
 
   const handleLogout = () => {
-    sessionStorage.removeItem(ORGANIZER_KEY_STORAGE);
+    if (typeof window !== "undefined") {
+      sessionStorage.removeItem(ORGANIZER_KEY_STORAGE);
+    }
     setApiKey(null);
     navigate("/organizer");
   };
 
+  // Stable identity: pages list it as an effect dependency and must not refetch on re-render.
+  const handleKeyRejected = useCallback((sentKey: string) => {
+    // A late 401 for an earlier key must not delete a newer organizer session.
+    if (sessionStorage.getItem(ORGANIZER_KEY_STORAGE) !== sentKey) return;
+    sessionStorage.removeItem(ORGANIZER_KEY_STORAGE);
+    setApiKey((current) => (current === sentKey ? null : current));
+    setKeyRejected(true);
+  }, []);
+
+  const reportEvent = useCallback((reported: ActiveEvent) => {
+    setActiveEvent({
+      id: reported.id,
+      name: reported.name,
+      slug: reported.slug,
+      starts_at: reported.starts_at,
+      ends_at: reported.ends_at,
+    });
+  }, []);
+
+  const toggleLocale = () => {
+    setLocale(locale === "fa" ? "en" : "fa");
+  };
+
+  const section = eventSectionFromPath(location.pathname);
+  const isDesk = section === "desk";
+  // A name reported for another event is never shown for this one.
+  const contextEvent = eventId && activeEvent?.id === eventId ? activeEvent : null;
+  const timeStatus: EventTimeStatus | null = contextEvent
+    ? eventTimeStatus(contextEvent.starts_at, contextEvent.ends_at, now)
+    : null;
+  const setupLabels: Record<(typeof EVENT_SETUP_SECTIONS)[number]["key"], string> = {
+    overview: t.tabOverview,
+    tiers: t.tabTiers,
+    "check-in": t.tabPoints,
+    booths: t.tabBooths,
+    operators: t.tabOperators,
+    page: isRtl ? "صفحهٔ عمومی" : "Public page",
+  };
+
+  const showGate = !apiKey && !isDesk;
+  const languageLabel = isRtl ? "Switch language to English" : "تغییر زبان به فارسی";
+
+  if (showGate) {
+    return (
+      <div dir={dir} lang={locale} className="min-h-dvh bg-surface-page font-sans text-text-primary">
+        <SkipLink targetId="organizer-main-content">
+          {isRtl ? "پرش به محتوای اصلی مدیریت" : "Skip to main organizer workspace content"}
+        </SkipLink>
+        <main id="organizer-main-content" tabIndex={-1} className="focus:outline-none">
+          <OrganizerKeyGate
+            locale={locale}
+            t={t}
+            isRtl={isRtl}
+            inputKey={inputKey}
+            onInputKeyChange={setInputKey}
+            error={error}
+            keyRejected={keyRejected}
+            onSubmit={handleSaveKey}
+            onToggleLocale={toggleLocale}
+          />
+        </main>
+      </div>
+    );
+  }
+
+  const navItem = (key: string, to: string, label: string, icon: IconName, index: number, active: boolean, title?: string) => (
+    <Link key={key} to={to} aria-current={active ? "page" : undefined} className="org-nav-link" title={title}>
+      <span className="org-nav-index" aria-hidden="true">
+        {String(index).padStart(2, "0")}
+      </span>
+      <span className="org-nav-icon" aria-hidden="true">
+        <Icon name={icon} size={18} />
+      </span>
+      {label}
+    </Link>
+  );
+
   return (
-    <div className="min-h-screen bg-neutral-50 text-neutral-900 flex flex-col font-sans">
-      <header className="bg-white border-b border-neutral-200 sticky top-0 z-20">
-        <div className="max-w-4xl mx-auto px-4 h-14 flex items-center justify-between">
+    <div dir={dir} lang={locale} className="org-shell bg-surface-page font-sans text-text-primary">
+      <SkipLink targetId="organizer-main-content">
+        {isRtl ? "پرش به محتوای اصلی مدیریت" : "Skip to main organizer workspace content"}
+      </SkipLink>
+
+      {/* Ink rail: compact header below 1024 px, sidebar above. One DOM, two layouts (organizer.css). */}
+      <aside className="org-rail" aria-label={t.organizerConsole} style={eventAccentStyle(contextEvent?.slug)}>
+        <div aria-hidden="true" className="bg-meridian-ink pointer-events-none absolute inset-0 -z-10 opacity-60" />
+
+        {/* Brand */}
+        <div className="org-rail__brand px-4 py-3 sm:px-6 lg:px-5 lg:pb-5 lg:pt-6">
           <Link
             to="/organizer"
-            className="font-bold text-lg tracking-tight text-neutral-900 flex items-center gap-2"
+            className="inline-flex min-h-[44px] max-w-full items-center gap-3 rounded-lg"
+            aria-label={t.organizerConsole}
           >
-            <span className="w-2.5 h-2.5 rounded-full bg-emerald-600 inline-block" />
-            Congress Platform
+            <span className="grid size-9 shrink-0 place-items-center rounded-[10px] bg-white/[0.07] ring-1 ring-white/15">
+              <ArcMotif className="size-[22px]" weight={9} />
+            </span>
+            <span className="min-w-0 leading-tight">
+              <span className="block truncate text-sm font-semibold text-white">{t.organizerConsole}</span>
+              <span className="hidden truncate text-[0.6875rem] text-ink-300 sm:block">
+                {isRtl ? "مدیریت چندمستأجره همایش‌ها" : "Multi-tenant event management"}
+              </span>
+            </span>
           </Link>
+        </div>
+
+        {/* Event context */}
+        {eventId && (
+          <div className="org-rail__context px-4 pb-1 sm:px-6 lg:px-5 lg:pb-4">
+            <Link
+              to="/organizer"
+              className="inline-flex min-h-[36px] items-center gap-1.5 rounded-md text-xs font-semibold text-ink-300 transition-colors hover:text-white"
+            >
+              <Icon name="arrow-left" size={16} />
+              {t.breadcrumbEvents}
+            </Link>
+            <div className="mt-1 flex items-start gap-3 lg:mt-2.5 lg:block">
+              {contextEvent && (
+                <div className="relative hidden h-16 overflow-hidden rounded-xl ring-1 ring-white/10 lg:block lg:[border-start-end-radius:24px]">
+                  <CongressSignature seed={contextEvent.slug} tone="ink" className="h-full w-full" />
+                </div>
+              )}
+              <div className="min-w-0 flex-1 lg:mt-3">
+                <p
+                  data-testid="active-event"
+                  className="truncate text-base font-semibold leading-snug text-white lg:line-clamp-3 lg:whitespace-normal lg:text-[1.0625rem] lg:[overflow-wrap:anywhere]"
+                >
+                  {contextEvent ? <bdi>{contextEvent.name}</bdi> : "…"}
+                </p>
+                {contextEvent && timeStatus && (
+                  <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs text-ink-300 lg:mt-2.5">
+                    <EventStatusBadge status={timeStatus} isRtl={isRtl} />
+                    <span className="hidden items-start gap-1.5 sm:inline-flex lg:flex lg:w-full">
+                      <Icon name="calendar" size={14} className="mt-px shrink-0" />
+                      <span>
+                        {formatLocalizedDate(contextEvent.starts_at, locale)} – {formatLocalizedDate(contextEvent.ends_at, locale)}
+                      </span>
+                    </span>
+                  </div>
+                )}
+              </div>
+              {contextEvent && (
+                <a
+                  href={`/e/${encodeURIComponent(contextEvent.slug)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex min-h-[44px] shrink-0 items-center gap-1.5 rounded-lg px-1 text-xs font-semibold text-aiteb-orchid transition-colors hover:text-white lg:mt-1 lg:min-h-[36px]"
+                >
+                  <span className="sr-only sm:not-sr-only lg:not-sr-only">{t.openPublicPageAction}</span>
+                  <Icon name="arrow-up-right" size={16} />
+                </a>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Section navigation */}
+        <div className="org-rail__nav px-2 pb-1 sm:px-4 lg:px-3 lg:pb-4">
+          {eventId ? (
+            <nav aria-label={isRtl ? "فضای کاری همایش" : "Event workspace"} className="org-nav lg:border-t lg:border-white/10 lg:pt-4">
+              {EVENT_SETUP_SECTIONS.map((s, i) =>
+                navItem(s.key, eventWorkspacePath(eventId, s.path), setupLabels[s.key], SECTION_ICONS[s.key], i + 1, section === s.key),
+              )}
+              <span className="org-nav-divider" aria-hidden="true" />
+              {navItem("analytics", eventWorkspacePath(eventId, "/analytics"), t.breadcrumbAnalytics, "chart", EVENT_SETUP_SECTIONS.length + 1, section === "analytics")}
+              {navItem(
+                "desk",
+                eventWorkspacePath(eventId, "/desk"),
+                t.breadcrumbDesk,
+                "id-card",
+                EVENT_SETUP_SECTIONS.length + 2,
+                isDesk,
+                isRtl ? "میز پذیرش با دسترسی مستقل اپراتور" : "Reception uses its own operator access",
+              )}
+            </nav>
+          ) : (
+            <nav aria-label={isRtl ? "کنسول مدیریت" : "Organizer console"} className="org-nav hidden lg:flex lg:border-t lg:border-white/10 lg:pt-4">
+              {navItem("events", "/organizer", t.breadcrumbEvents, "congress", 1, location.pathname.replace(/\/$/, "") === "/organizer")}
+            </nav>
+          )}
+        </div>
+
+        {/* Session controls */}
+        <div className="org-rail__controls flex items-center gap-1 pe-2 sm:pe-4 lg:flex-col lg:items-stretch lg:gap-2 lg:border-t lg:border-white/10 lg:p-4">
           {apiKey && (
-            <div className="flex items-center gap-3">
-              <Link
-                to="/organizer"
-                className="text-sm font-medium text-neutral-600 hover:text-neutral-900"
-              >
-                Events
-              </Link>
+            <div className="hidden items-center gap-2.5 rounded-lg bg-white/[0.05] px-3 py-2 ring-1 ring-white/10 lg:flex">
+              <span className="relative grid size-7 place-items-center rounded-md bg-white/[0.07] text-aiteb-orchid">
+                <Icon name="key" size={15} />
+              </span>
+              <span className="min-w-0 leading-tight">
+                <span className="block text-[0.6875rem] text-ink-400">{isRtl ? "حالت مدیر" : "Organizer key"}</span>
+                <bdi dir="ltr" className="block font-mono text-xs text-ink-100">
+                  ••••{apiKey.slice(-4)}
+                </bdi>
+              </span>
+              <span aria-hidden="true" className="ms-auto size-1.5 rounded-full bg-status-success-solid" />
+            </div>
+          )}
+          <div className="flex items-center gap-1 lg:flex-col lg:items-stretch lg:gap-1.5">
+            <button
+              type="button"
+              onClick={toggleLocale}
+              aria-label={languageLabel}
+              className="inline-flex min-h-[44px] min-w-[44px] shrink-0 cursor-pointer items-center justify-center gap-2 rounded-lg px-2.5 text-xs font-semibold text-ink-200 transition-colors hover:bg-white/[0.07] hover:text-white lg:justify-start lg:px-3"
+            >
+              <Icon name="globe" size={18} />
+              <span className="hidden sm:inline">{t.languageToggle}</span>
+            </button>
+            {apiKey && (
               <button
                 type="button"
                 onClick={handleLogout}
-                className="text-xs bg-neutral-100 hover:bg-neutral-200 text-neutral-700 px-2.5 py-1.5 rounded-md font-medium transition"
+                className="inline-flex min-h-[44px] min-w-[44px] cursor-pointer items-center justify-center gap-2 whitespace-nowrap rounded-lg px-2.5 text-xs font-semibold text-ink-200 transition-colors hover:bg-white/[0.07] hover:text-white lg:justify-start lg:px-3"
               >
-                Sign out
+                <Icon name="logout" size={18} />
+                <span className="sr-only sm:not-sr-only">{t.clearKeyAction}</span>
               </button>
-            </div>
-          )}
-        </div>
-      </header>
-
-      <main className="flex-1 max-w-4xl w-full mx-auto p-4 sm:p-6">
-        {!apiKey ? (
-          <div className="max-w-md mx-auto mt-12 bg-white p-6 sm:p-8 rounded-xl border border-neutral-200 shadow-sm">
-            <h1 className="text-xl font-bold tracking-tight mb-2">
-              Organizer Console
-            </h1>
-            <p className="text-sm text-neutral-600 mb-6">
-              Enter your organizer API key to manage events and ticket tiers.
-            </p>
-            <form onSubmit={handleSaveKey} className="space-y-4">
-              <div>
-                <label
-                  htmlFor="apiKeyInput"
-                  className="block text-xs font-semibold uppercase tracking-wider text-neutral-700 mb-1"
-                >
-                  API Key
-                </label>
-                <input
-                  id="apiKeyInput"
-                  type="password"
-                  value={inputKey}
-                  onChange={(e) => setInputKey(e.target.value)}
-                  placeholder="Paste your API key here"
-                  className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 bg-white"
-                />
-              </div>
-              {error && (
-                <p className="text-sm text-red-600 bg-red-50 p-2.5 rounded-md">
-                  {error}
-                </p>
-              )}
-              <button
-                type="submit"
-                className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-medium py-2.5 px-4 rounded-lg transition"
-              >
-                Access Organizer Dashboard
-              </button>
-            </form>
+            )}
           </div>
-        ) : (
-          <Outlet context={{ apiKey }} />
-        )}
-      </main>
+        </div>
+      </aside>
+
+      {/* Workspace column */}
+      <div className="flex min-w-0 flex-col">
+        <main
+          id="organizer-main-content"
+          tabIndex={-1}
+          className={`mx-auto w-full flex-1 px-4 focus:outline-none sm:px-6 lg:px-10 ${
+            section === "page" ? "max-w-[112rem] pb-6 sm:pb-8 lg:pb-10" : "max-w-[78rem] py-6 sm:py-8 lg:py-10"
+          }`}
+        >
+          <Outlet context={{ apiKey, onKeyRejected: handleKeyRejected, reportEvent, locale, t, isRtl, dir } satisfies OrganizerOutletContext} />
+        </main>
+
+        <footer className="border-t border-border-default">
+          <div className="mx-auto flex w-full max-w-[78rem] flex-col gap-3 px-4 py-6 text-xs text-text-muted sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:px-10">
+            <AitebAttribution locale={locale} />
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+              <span>{isRtl ? "دسترسی تفکیک‌شده برای هر سازمان برگزارکننده" : "Tenant-isolated access for each organizing body"}</span>
+              <Link to="/" className="inline-flex min-h-[36px] items-center font-semibold text-action-primary hover:underline">
+                {t.platformHome}
+              </Link>
+            </div>
+          </div>
+        </footer>
+      </div>
     </div>
   );
 }

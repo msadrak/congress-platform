@@ -1,0 +1,143 @@
+/*
+ * Attendee Portal — portal-only styles (prefix `at-`).
+ * Personal congress companion: ink dock, crossing-arc credential, monograms, print pass.
+ */
+
+/* ── Mobile dock: floats above content, clears the home indicator ─────────── */
+.at-dock {
+  padding-inline: 0.75rem;
+  padding-block-end: max(env(safe-area-inset-bottom), 0.75rem);
+  pointer-events: none;
+}
+.at-dock > ul {
+  pointer-events: auto;
+}
+
+/* ── Hero scrim: keeps text legible over the generative artwork (mirrors in RTL) ── */
+.at-hero-scrim {
+  background:
+    linear-gradient(to right, rgb(14 12 43 / 0.96) 0%, rgb(14 12 43 / 0.82) 42%, rgb(14 12 43 / 0.15) 100%),
+    linear-gradient(to top, rgb(14 12 43 / 0.7), transparent 55%);
+}
+[dir="rtl"] .at-hero-scrim {
+  background:
+    linear-gradient(to left, rgb(14 12 43 / 0.96) 0%, rgb(14 12 43 / 0.82) 42%, rgb(14 12 43 / 0.15) 100%),
+    linear-gradient(to top, rgb(14 12 43 / 0.7), transparent 55%);
+}
+
+/* ── Monogram: initials disc inside a crossing-arcs gradient ring ───────────── */
+.at-monogram {
+  display: inline-grid;
+  place-items: center;
+  flex-shrink: 0;
+  border-radius: 9999px;
+  padding: 2px;
+  background: conic-gradient(from 210deg, var(--aiteb-orchid), var(--mono-accent, var(--aiteb-indigo)) 55%, var(--mono-glow, var(--aiteb-violet)) 80%, var(--aiteb-orchid));
+}
+.at-monogram-face {
+  display: grid;
+  place-items: center;
+  inline-size: 100%;
+  block-size: 100%;
+  border-radius: 9999px;
+  background: var(--mono-soft, var(--aiteb-lavender));
+  color: var(--mono-accent, var(--aiteb-indigo));
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1;
+  box-shadow: inset 0 0 0 2px #fff;
+}
+
+/* ── Credential (My Ticket) ─────────────────────────────────────────────── */
+.at-pass {
+  position: relative;
+  isolation: isolate;
+  background: var(--surface-ink);
+  color: #fff;
+}
+
+/* Perforation between the pass and its stub: dashed rule with two punched notches. */
+.at-perf {
+  position: relative;
+  block-size: 0;
+  margin-inline: 1.5rem;
+  border-block-start: 2px dashed rgb(255 255 255 / 0.16);
+}
+.at-perf::before,
+.at-perf::after {
+  content: "";
+  position: absolute;
+  inset-block-start: -15px;
+  inline-size: 28px;
+  block-size: 28px;
+  border-radius: 9999px;
+  background: var(--surface-page);
+}
+.at-perf::before {
+  inset-inline-start: calc(-1.5rem - 14px);
+}
+.at-perf::after {
+  inset-inline-end: calc(-1.5rem - 14px);
+}
+
+/* QR plate: pure white with a guaranteed quiet zone; never tinted, never mirrored. */
+.at-qr-plate {
+  background: #fff;
+  border-radius: 20px;
+  box-shadow: 0 0 0 1px rgb(255 255 255 / 0.6), 0 24px 48px -24px rgb(0 0 0 / 0.65);
+}
+.at-qr-plate svg {
+  transform: none !important;
+}
+
+/* ── Print: a clean, legible black-on-white pass ─────────────────────────── */
+@media print {
+  @page {
+    margin: 12mm;
+  }
+  .at-print-collapse,
+  .at-dock {
+    display: none !important;
+  }
+  /* In flow (not fixed) so it prints once, centred, on a single page. */
+  .print-pass.at-pass {
+    position: relative;
+    inset: auto;
+    margin: 0 auto;
+    inline-size: 120mm;
+    max-inline-size: 100%;
+    background: #fff !important;
+    color: #000 !important;
+    border: 1px solid #000 !important;
+    border-radius: 6mm !important;
+    box-shadow: none !important;
+    break-inside: avoid;
+  }
+  .print-pass.at-pass * {
+    color: #000 !important;
+    border-color: #000 !important;
+    box-shadow: none !important;
+    background-color: transparent !important;
+  }
+  .print-pass .at-print-hide {
+    display: none !important;
+  }
+  .print-pass .at-qr-plate {
+    background: #fff !important;
+    box-shadow: none !important;
+    border: 1px solid #000 !important;
+  }
+  .print-pass .at-pass-chip {
+    border: 1px solid #000 !important;
+  }
+  .print-pass .at-pass-chip-dot {
+    background-color: #000 !important;
+  }
+  .print-pass .at-perf {
+    border-block-start: 1px dashed #000 !important;
+  }
+  .print-pass .at-perf::before,
+  .print-pass .at-perf::after {
+    display: none;
+  }
+}

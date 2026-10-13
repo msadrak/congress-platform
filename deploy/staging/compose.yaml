@@ -1,0 +1,113 @@
+# Congress Platform — staging stack (also the template for a single-host production server).
+#
+#   node scripts/staging/stack.mjs init   # generates .staging/staging.env (secrets, outside Git)
+#   node scripts/staging/stack.mjs up     # build, migrate, start, wait for health
+#
+# Volumes hold everything that must survive rebuilds: PostgreSQL data, Page Studio media and Caddy's
+# certificates. Never run `docker compose down -v` on this project.
+name: congress-staging
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+x-backend: &backend
+  image: congress-platform/api:${CONGRESS_IMAGE_TAG:-staging}
+  build:
+    context: ../../backend
+  logging: *logging
+  networks: [backend]
+  environment:
+    CONGRESS_ENVIRONMENT: ${CONGRESS_ENVIRONMENT:?set CONGRESS_ENVIRONMENT (staging or production)}
+    CONGRESS_DATABASE_URL: postgresql+asyncpg://congress:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@db:5432/congress
+    CONGRESS_PLATFORM_ADMIN_TOKEN: ${CONGRESS_PLATFORM_ADMIN_TOKEN:?set CONGRESS_PLATFORM_ADMIN_TOKEN}
+    CONGRESS_JWT_SECRET: ${CONGRESS_JWT_SECRET:?set CONGRESS_JWT_SECRET}
+    CONGRESS_MEDIA_ROOT: /data/media
+    CONGRESS_PUBLIC_ORIGIN: ${CONGRESS_PUBLIC_ORIGIN:?set CONGRESS_PUBLIC_ORIGIN}
+    CONGRESS_CORS_ORIGINS: '["${CONGRESS_PUBLIC_ORIGIN}"]'
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    logging: *logging
+    networks: [backend]
+    environment:
+      POSTGRES_USER: congress
+      POSTGRES_DB: congress
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U congress -d congress"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    stop_grace_period: 30s
+    # No ports: reachable only on the internal network.
+
+  migrate:
+    <<: *backend
+    command: ["alembic", "upgrade", "head"]
+    restart: "no"
+    healthcheck:
+      disable: true
+    depends_on:
+      db:
+        condition: service_healthy
+
+  api:
+    <<: *backend
+    restart: unless-stopped
+    volumes:
+      - media:/data/media
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    stop_grace_period: 30s
+    # No ports: Caddy is the only entry point.
+
+  web:
+    image: congress-platform/web:${CONGRESS_IMAGE_TAG:-staging}
+    build:
+      context: ../..
+      dockerfile: deploy/web/Dockerfile
+    restart: unless-stopped
+    logging: *logging
+    networks: [backend, edge]
+    environment:
+      CONGRESS_SITE_ADDRESS: ${CONGRESS_SITE_ADDRESS:-https://localhost}
+      CONGRESS_TLS: ${CONGRESS_TLS:-internal}
+      CONGRESS_LOCAL_HTTP: ${CONGRESS_LOCAL_HTTP:-on}
+      CONGRESS_HSTS: ${CONGRESS_HSTS:-off}
+      CONGRESS_ADMIN_ALLOW: ${CONGRESS_ADMIN_ALLOW:-private_ranges}
+    ports:
+      - "${CONGRESS_BIND:-127.0.0.1}:${CONGRESS_HTTPS_PORT:-8443}:443"
+      - "${CONGRESS_BIND:-127.0.0.1}:${CONGRESS_HTTP_PORT:-18080}:80"
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null --header 'Host: localhost' http://127.0.0.1/api/ready && wget -q -O /dev/null --header 'Host: localhost' http://127.0.0.1/"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    stop_grace_period: 15s
+
+networks:
+  backend:
+    internal: true
+  edge: {}
+
+volumes:
+  pgdata:
+  media:
+  caddy_data:
+  caddy_config:

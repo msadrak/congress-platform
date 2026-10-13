@@ -36,6 +36,7 @@ def test_missing_jwt_secret_fails_configuration() -> None:
     """Settings must reject missing or empty jwt_secret."""
     with pytest.raises(ValidationError):
         Settings(
+            environment="development",
             database_url="postgresql+asyncpg://user:pass@localhost:5432/db",
             platform_admin_token="admin-token",
             jwt_secret="",
@@ -46,6 +47,7 @@ def test_short_jwt_secret_fails_configuration() -> None:
     """Settings must reject secrets shorter than 32 characters (256 bits)."""
     with pytest.raises(ValidationError) as exc_info:
         Settings(
+            environment="development",
             database_url="postgresql+asyncpg://user:pass@localhost:5432/db",
             platform_admin_token="admin-token",
             jwt_secret="too-short-secret-under-32-chars",
@@ -58,6 +60,7 @@ def test_insecure_default_jwt_secret_fails_configuration(insecure_secret: str) -
     """Settings must strictly reject known development or placeholder secrets."""
     with pytest.raises(ValidationError) as exc_info:
         Settings(
+            environment="development",
             database_url="postgresql+asyncpg://user:pass@localhost:5432/db",
             platform_admin_token="admin-token",
             jwt_secret=insecure_secret,
@@ -69,6 +72,7 @@ def test_valid_secure_jwt_secret_succeeds_configuration() -> None:
     """Settings must accept a compliant, random 32+ character secret."""
     valid_secret = "a" * 32
     settings = Settings(
+        environment="development",
         database_url="postgresql+asyncpg://user:pass@localhost:5432/db",
         platform_admin_token="admin-token",
         jwt_secret=valid_secret,

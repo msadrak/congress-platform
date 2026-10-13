@@ -1,0 +1,405 @@
+/*
+ * Organizer portal — "Crossing Arcs" workspace.
+ * Portal-only layout pieces that Tailwind utilities cannot express cleanly: the ink rail that is a
+ * compact header on small screens and a sidebar from 1024 px, the section navigation, stacked tables,
+ * capacity meters and the analytics instruments. Everything is logical (mirrors in RTL).
+ * Lives in the `components` cascade layer so Tailwind utilities (hidden, lg:flex …) still win.
+ */
+
+@layer components {
+
+/* ── Shell ─────────────────────────────────────────────────────── */
+.org-shell {
+  min-block-size: 100dvh;
+}
+
+@media (min-width: 1024px) {
+  .org-shell {
+    display: grid;
+    grid-template-columns: 18rem minmax(0, 1fr);
+    /* Ink continues under the sticky rail when the page is taller than the viewport. */
+    background-image: linear-gradient(to right, var(--surface-ink) 18rem, transparent 18rem);
+  }
+  [dir="rtl"] .org-shell,
+  .org-shell[dir="rtl"] {
+    background-image: linear-gradient(to left, var(--surface-ink) 18rem, transparent 18rem);
+  }
+}
+
+.org-rail {
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "brand controls"
+    "context context"
+    "nav nav";
+  align-items: center;
+  background: var(--surface-ink);
+  color: #fff;
+}
+.org-rail::after {
+  /* A single gradient hairline closes the rail: bottom on mobile, inline-end on desktop. */
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  inset-block-end: 0;
+  block-size: 1px;
+  background: linear-gradient(90deg, rgb(255 151 255 / 0.55), rgb(61 53 223 / 0.55) 30%, rgb(255 255 255 / 0.06) 60%);
+  pointer-events: none;
+}
+.org-rail__brand {
+  grid-area: brand;
+  min-inline-size: 0;
+}
+.org-rail__controls {
+  grid-area: controls;
+}
+.org-rail__context {
+  grid-area: context;
+  min-inline-size: 0;
+}
+.org-rail__nav {
+  grid-area: nav;
+  min-inline-size: 0;
+}
+
+@media (min-width: 1024px) {
+  .org-rail {
+    position: sticky;
+    inset-block-start: 0;
+    block-size: 100dvh;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto minmax(max-content, 1fr) auto;
+    grid-template-areas:
+      "brand"
+      "context"
+      "nav"
+      "controls";
+    align-items: stretch;
+    scrollbar-width: thin;
+    scrollbar-color: rgb(255 255 255 / 0.18) transparent;
+  }
+  .org-rail::after {
+    inset-inline: auto 0;
+    inset-block: 0;
+    inline-size: 1px;
+    block-size: auto;
+    background: linear-gradient(180deg, rgb(255 151 255 / 0.5), rgb(61 53 223 / 0.45) 22%, rgb(255 255 255 / 0.07) 48%);
+  }
+}
+
+/* Focus on ink surfaces uses the warm end of the mark so it stays visible. */
+.org-rail :focus-visible,
+.org-ink :focus-visible {
+  outline: 2px solid var(--aiteb-orchid);
+  outline-offset: 2px;
+}
+
+/* ── Section navigation ────────────────────────────────────────── */
+.org-nav {
+  display: flex;
+  gap: 0.25rem;
+  overflow-x: auto;
+  scrollbar-width: none;
+  scroll-padding-inline: 1rem;
+}
+.org-nav::-webkit-scrollbar {
+  display: none;
+}
+
+.org-nav-link {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 0.625rem;
+  min-block-size: 44px;
+  padding-inline: 0.75rem;
+  border-radius: 10px;
+  color: rgb(255 255 255 / 0.66);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  white-space: nowrap;
+  transition: color 150ms ease, background-color 150ms ease;
+}
+.org-nav-link:hover {
+  color: #fff;
+  background: rgb(255 255 255 / 0.06);
+}
+.org-nav-link[aria-current="page"] {
+  color: #fff;
+}
+.org-nav-link[aria-current="page"]::after {
+  content: "";
+  position: absolute;
+  inset-inline: 0.75rem;
+  inset-block-end: 0;
+  block-size: 2px;
+  border-radius: 2px;
+  background: var(--grad-aiteb);
+}
+.org-nav-index,
+.org-nav-icon {
+  display: none;
+}
+
+@media (min-width: 1024px) {
+  .org-nav {
+    flex-direction: column;
+    overflow: visible;
+    gap: 0.125rem;
+  }
+  .org-nav-link {
+    display: flex;
+    padding-inline: 0.75rem 0.875rem;
+  }
+  .org-nav-link[aria-current="page"] {
+    background: rgb(255 255 255 / 0.08);
+  }
+  .org-nav-link[aria-current="page"]::after {
+    inset-inline: 0 auto;
+    inset-block: 0.7rem;
+    inline-size: 3px;
+    block-size: auto;
+    background: linear-gradient(180deg, var(--aiteb-orchid), var(--aiteb-violet));
+  }
+  .org-nav-index {
+    display: inline-block;
+    min-inline-size: 1.25rem;
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    font-weight: 500;
+    color: rgb(255 255 255 / 0.38);
+  }
+  .org-nav-link[aria-current="page"] .org-nav-index {
+    color: var(--aiteb-orchid);
+  }
+  .org-nav-icon {
+    display: inline-flex;
+    color: rgb(255 255 255 / 0.5);
+  }
+  .org-nav-link[aria-current="page"] .org-nav-icon,
+  .org-nav-link:hover .org-nav-icon {
+    color: #fff;
+  }
+  .org-nav-divider {
+    margin-block: 0.5rem;
+    block-size: 1px;
+    background: rgb(255 255 255 / 0.08);
+  }
+}
+@media (max-width: 1023.98px) {
+  .org-nav-divider {
+    flex-shrink: 0;
+    align-self: center;
+    inline-size: 1px;
+    block-size: 1.25rem;
+    margin-inline: 0.25rem;
+    background: rgb(255 255 255 / 0.14);
+  }
+}
+
+/* ── Meters ────────────────────────────────────────────────────── */
+.org-meter {
+  position: relative;
+  inline-size: 100%;
+  block-size: 6px;
+  border-radius: 999px;
+  background: var(--surface-panel-inset);
+  overflow: hidden;
+}
+.org-meter > span {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: 0;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--aiteb-violet), var(--aiteb-indigo));
+}
+[dir="rtl"] .org-meter > span {
+  background: linear-gradient(270deg, var(--aiteb-violet), var(--aiteb-indigo));
+}
+.org-meter[data-tone="full"] > span {
+  background: var(--status-warning-solid);
+}
+.org-meter[data-tone="muted"] > span {
+  background: #8c88b0;
+}
+.org-meter[data-size="lg"] {
+  block-size: 10px;
+}
+.org-meter--ink {
+  background: rgb(255 255 255 / 0.12);
+}
+.org-meter--ink > span,
+[dir="rtl"] .org-meter--ink > span {
+  background: var(--grad-aiteb);
+}
+
+/* Gate throughput bar: admitted in the brand gradient, rejected as a hatched danger tail. */
+.org-throughput {
+  display: flex;
+  block-size: 12px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--surface-panel-inset);
+}
+.org-throughput__admit {
+  background: linear-gradient(90deg, var(--aiteb-orchid), var(--aiteb-violet) 55%, var(--aiteb-indigo));
+}
+[dir="rtl"] .org-throughput__admit {
+  background: linear-gradient(270deg, var(--aiteb-orchid), var(--aiteb-violet) 55%, var(--aiteb-indigo));
+}
+.org-throughput__reject {
+  background: repeating-linear-gradient(135deg, var(--status-danger-solid) 0 3px, rgb(222 26 80 / 0.55) 3px 6px);
+}
+
+/* Hourly distribution: vertical columns on a fine baseline grid. */
+.org-columns {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  block-size: 9rem;
+  background-image: linear-gradient(to top, var(--border-default) 1px, transparent 1px);
+  background-size: 100% 25%;
+  background-position: bottom;
+}
+.org-column {
+  min-block-size: 2px;
+  border-radius: 6px 6px 2px 2px;
+  background: linear-gradient(180deg, var(--aiteb-orchid), var(--aiteb-violet) 45%, var(--aiteb-indigo));
+}
+.org-column[data-empty="true"] {
+  background: var(--border-default);
+}
+
+/* Live polling pulse */
+.org-live {
+  position: relative;
+  display: inline-flex;
+  inline-size: 0.5rem;
+  block-size: 0.5rem;
+}
+.org-live > span {
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  background: var(--status-success-solid);
+}
+
+/* ── Tables ────────────────────────────────────────────────────── */
+.org-table {
+  inline-size: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 0.875rem;
+}
+.org-table th {
+  position: sticky;
+  inset-block-start: 0;
+  z-index: 1;
+  padding: 0.75rem 1rem;
+  background: var(--surface-panel-subtle);
+  border-block-end: 1px solid var(--border-default);
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-align: start;
+  white-space: nowrap;
+}
+.org-table td {
+  padding: 1rem;
+  border-block-end: 1px solid var(--border-subtle);
+  vertical-align: middle;
+}
+.org-table tbody tr:last-child td {
+  border-block-end: 0;
+}
+.org-table tbody tr {
+  transition: background-color 150ms ease;
+}
+.org-table tbody tr:hover {
+  background: rgb(242 240 254 / 0.45);
+}
+
+/* Below 768 px each row becomes a labelled card: no horizontal scrolling for wide tables. */
+@media (max-width: 767.98px) {
+  .org-table--stack thead {
+    position: absolute;
+    inline-size: 1px;
+    block-size: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .org-table--stack,
+  .org-table--stack tbody,
+  .org-table--stack tr,
+  .org-table--stack td {
+    display: block;
+  }
+  .org-table--stack tr {
+    padding: 0.875rem 1rem;
+    border-block-end: 1px solid var(--border-subtle);
+  }
+  .org-table--stack tbody tr:last-child {
+    border-block-end: 0;
+  }
+  .org-table--stack td {
+    padding: 0.3rem 0;
+    border: 0;
+  }
+  .org-table--stack td[data-label] {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+  }
+  .org-table--stack td[data-label]::before {
+    content: attr(data-label);
+    flex-shrink: 0;
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    font-weight: 600;
+  }
+  .org-table--stack td[data-label] > * {
+    min-inline-size: 0;
+  }
+  .org-table--stack td.org-cell-wide {
+    display: block;
+  }
+  .org-table--stack td.org-cell-wide::before {
+    display: block;
+    margin-block-end: 0.375rem;
+  }
+}
+
+/* ── Misc ──────────────────────────────────────────────────────── */
+.org-kpi-value {
+  font-variant-numeric: tabular-nums;
+  font-weight: 650;
+  letter-spacing: -0.035em;
+  line-height: 1;
+}
+[dir="rtl"] .org-kpi-value {
+  letter-spacing: 0;
+  font-weight: 700;
+}
+
+.org-plate {
+  /* QR plate: always white, black modules, generous quiet zone. Never mirrored. */
+  background: #fff;
+  direction: ltr;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .org-nav-link,
+  .org-table tbody tr {
+    transition: none;
+  }
+}
+
+} /* @layer components */

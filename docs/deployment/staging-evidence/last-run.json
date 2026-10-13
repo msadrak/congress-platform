@@ -1,0 +1,75 @@
+{
+  "at": "2026-10-13T17:06:04.162Z",
+  "results": [
+    {
+      "ok": true,
+      "name": "00 stack healthy: db, migrate (exit 0), api, web",
+      "note": "alembic 0014; published only web:127.0.0.1:18080, web:127.0.0.1:8443"
+    },
+    {
+      "ok": true,
+      "name": "02 HTTPS through Caddy with a certificate chained to the local CA",
+      "note": "TLS verified against .staging/caddy-root.crt"
+    },
+    {
+      "ok": true,
+      "name": "03 SPA deep links, cache rules and security headers",
+      "note": "CSP + nosniff + referrer + permissions(camera=self) + frame; /assets/index-CzoFnkUb.js immutable"
+    },
+    {
+      "ok": true,
+      "name": "04 bundle and responses carry no privileged credentials",
+      "note": "2 entry scripts and all container logs checked"
+    },
+    {
+      "ok": true,
+      "name": "05 every portal renders through the proxy (HTTPS), scanner runs in a secure context",
+      "note": "7 routes; isSecureContext, serviceWorker and getUserMedia available on HTTPS"
+    },
+    {
+      "ok": true,
+      "name": "06 full congress journey on staging (organizer, Page Studio, registration, reception, scanner + offline, leads, analytics, isolation)",
+      "note": "46/46"
+    },
+    {
+      "ok": true,
+      "name": "07 real-API scanner spec (pairing, manifest, self-revocation) on staging",
+      "note": "1 passed"
+    },
+    {
+      "ok": true,
+      "name": "08 Page Studio on staging: new organizer publishes a branded page; attendee gets a ticket",
+      "note": "event 6d30dc02…, image 3c223271…, 1 ticket"
+    },
+    {
+      "ok": true,
+      "name": "09 crawler view (no JavaScript): published metadata in the HTML of /e/<slug>; drafts never leak",
+      "note": "title, description, og:image (absolute HTTPS, 200), canonical; unpublished == unknown (noindex)"
+    },
+    {
+      "ok": true,
+      "name": "10 browser renders the published page through HTTPS (SPA intact after head injection)",
+      "note": null
+    },
+    {
+      "ok": true,
+      "name": "11 media and data survive an API image rebuild and container re-creation",
+      "note": null
+    },
+    {
+      "ok": true,
+      "name": "12 stop and start the whole stack: event, attendee, ticket, publication and media intact",
+      "note": "events/users/tickets/published/media = 36/58/30/18/6"
+    },
+    {
+      "ok": true,
+      "name": "13 backup (database + media) and restore into a separate disposable stack",
+      "note": "staging-20261013-170530: 16/16 restore checks"
+    },
+    {
+      "ok": true,
+      "name": "14 staging volumes untouched by the restore test",
+      "note": null
+    }
+  ]
+}

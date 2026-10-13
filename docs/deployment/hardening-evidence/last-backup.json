@@ -1,0 +1,12 @@
+{
+  "at": "2026-10-13T17:01:41.366Z",
+  "ok": true,
+  "name": "staging-20261013-170141",
+  "offsite": "s3://(controlled stand-in)/congress-backups/staging/staging-20261013-170141",
+  "pruned_local": [
+    "staging-20261013-154632",
+    "staging-20261013-154256"
+  ],
+  "pruned_remote": [],
+  "error": null
+}

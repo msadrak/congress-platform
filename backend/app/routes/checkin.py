@@ -40,6 +40,17 @@ class CheckInPointCreate(BaseModel):
     max_capacity: int | None = None
 
 
+class CheckInPointUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=100)
+    location: str | None = Field(default=None, max_length=200)
+    policy_type: str | None = Field(
+        default=None,
+        description="MULTI_ENTRY, SINGLE_USE, TIER_RESTRICTED, CAPACITY_CAPPED",
+    )
+    allowed_tier_ids: list[str] | None = None
+    max_capacity: int | None = None
+
+
 class CheckInPointOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -119,6 +130,30 @@ class BatchScanResponse(BaseModel):
     results: list[ScanResult]
 
 
+ADMISSION_POLICIES = ("MULTI_ENTRY", "SINGLE_USE", "TIER_RESTRICTED", "CAPACITY_CAPPED")
+
+
+def _admission_policy(raw: str) -> str:
+    policy = raw.strip().upper()
+    if policy not in ADMISSION_POLICIES:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Invalid policy_type: {policy}")
+    return policy
+
+
+async def _require_event_tiers(session: SessionDep, event: Event, tier_ids: list[str]) -> None:
+    """Every allowed tier must be one of this event's tiers; another event's tier is rejected."""
+    if not tier_ids:
+        return
+    valid_tiers = await session.scalars(select(TicketTier.id).where(TicketTier.event_id == event.id))
+    valid_tier_strs = {str(t_id) for t_id in valid_tiers}
+    for tier_id_str in tier_ids:
+        if tier_id_str not in valid_tier_strs:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                f"Tier ID '{tier_id_str}' does not belong to this event",
+            )
+
+
 @router.post(
     "/api/events/{event_id}/checkin-points",
     status_code=status.HTTP_201_CREATED,
@@ -126,11 +161,13 @@ class BatchScanResponse(BaseModel):
 async def create_checkin_point(
     body: CheckInPointCreate, event: OwnedEventDep, session: SessionDep
 ) -> CheckInPointOut:
+    policy = _admission_policy(body.policy_type)
+    await _require_event_tiers(session, event, body.allowed_tier_ids)
     point = CheckInPoint(
         event_id=event.id,
         name=body.name.strip(),
         location=body.location.strip(),
-        policy_type=body.policy_type.upper(),
+        policy_type=policy,
         allowed_tier_ids=body.allowed_tier_ids,
         max_capacity=body.max_capacity,
     )
@@ -150,6 +187,55 @@ async def list_checkin_points(
     )
     return [CheckInPointOut.model_validate(p) for p in points]
 
+
+@router.patch("/api/events/{event_id}/checkin-points/{point_id}")
+async def update_checkin_point(
+    point_id: uuid.UUID,
+    body: CheckInPointUpdate,
+    event: OwnedEventDep,
+    session: SessionDep,
+) -> CheckInPointOut:
+    point = await session.scalar(
+        select(CheckInPoint)
+        .where(CheckInPoint.id == point_id, CheckInPoint.event_id == event.id)
+        .with_for_update()
+    )
+    if point is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Check-in point not found")
+
+    # 1. Validate policy_type change safety
+    if body.policy_type is not None:
+        new_policy = _admission_policy(body.policy_type)
+
+        if new_policy != point.policy_type:
+            # Check if scans have already been recorded at this point
+            existing_scans_count = await session.scalar(
+                select(func.count(CheckIn.id)).where(CheckIn.checkin_point_id == point.id)
+            ) or 0
+            if existing_scans_count > 0:
+                raise HTTPException(
+                    status.HTTP_409_CONFLICT,
+                    "Cannot change admission policy for a check-in point with existing scan history. "
+                    "Create a new check-in point instead to preserve scanner cache and audit integrity.",
+                )
+            point.policy_type = new_policy
+
+    # 2. Validate allowed_tier_ids against event ownership
+    if body.allowed_tier_ids is not None:
+        await _require_event_tiers(session, event, body.allowed_tier_ids)
+        point.allowed_tier_ids = body.allowed_tier_ids
+
+    # 3. Update metadata
+    if body.name is not None:
+        point.name = body.name.strip()
+    if body.location is not None:
+        point.location = body.location.strip()
+    if body.max_capacity is not None:
+        point.max_capacity = body.max_capacity
+
+    await session.commit()
+    await session.refresh(point)
+    return CheckInPointOut.model_validate(point)
 async def authorized_checkin_point(
     point_id: uuid.UUID,
     request: Request,
@@ -350,7 +436,8 @@ async def revoke_current_scanner_device(
         device_id = uuid.UUID(str(payload.get("jti", "")))
     except ValueError as exc:
         raise HTTPException(
-            status.HTTP_401_UNAUTHORIZED, "Scanner token has no valid device identity"
+            status.HTTP_401_UNAUTHORIZED, "Scanner token has no valid device identity",
+            headers={"WWW-Authenticate": "Bearer"},
         ) from exc
 
     point = await session.get(CheckInPoint, point_id)
@@ -648,11 +735,13 @@ async def ingest_scans_batch(
         ticket, tier, user = ticket_row[0], ticket_row[1], ticket_row[2]
 
         if ticket.event_id != point.event_id:
-            # Ticket is for another event
+            # Ticket is for another event. The rejection is recorded against the gate only: the
+            # foreign ticket is not linked (so this event's reports and exports never join the
+            # other congress's attendee) and its holder's identity is never disclosed.
             checkin = CheckIn(
                 id=scan.scan_id,
                 checkin_point_id=point.id,
-                ticket_id=ticket.id,
+                ticket_id=None,
                 qr_secret=scan.qr_secret,
                 policy_type=point.policy_type,
                 status="REJECTED",
@@ -676,8 +765,6 @@ async def ingest_scans_batch(
                             qr_secret=existing_pk.qr_secret,
                             status=existing_pk.status,
                             rejection_reason=existing_pk.rejection_reason,
-                            attendee_name=user.full_name,
-                            ticket_tier_name=tier.name,
                         )
                     )
                     continue
@@ -698,8 +785,6 @@ async def ingest_scans_batch(
                     qr_secret=scan.qr_secret,
                     status="REJECTED",
                     rejection_reason="EVENT_MISMATCH",
-                    attendee_name=user.full_name,
-                    ticket_tier_name=tier.name,
                 )
             )
             continue

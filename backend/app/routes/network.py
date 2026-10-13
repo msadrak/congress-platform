@@ -16,10 +16,22 @@ router = APIRouter(prefix="/api/attendees/me/network", tags=["networking"])
 class ConnectionScanRequest(BaseModel):
     qr_secret: str
     private_notes: str = ""
+    # Event-scoped callers (the congress portal) name the congress they are scanning in; a badge
+    # from another congress is then rejected before anything is written. Omitted: legacy
+    # all-congress behaviour, the connection is stored in the badge's own congress.
+    event_id: uuid.UUID | None = None
 
 
 class ConnectionUpdate(BaseModel):
     private_notes: str
+
+
+class PrivacyPreferenceUpdate(BaseModel):
+    share_contact_with_peers: bool
+
+
+class PrivacyPreferenceOut(BaseModel):
+    share_contact_with_peers: bool
 
 
 class ConnectionOut(BaseModel):
@@ -28,13 +40,12 @@ class ConnectionOut(BaseModel):
     id: uuid.UUID
     connected_user_id: uuid.UUID
     full_name: str
-    email: str
+    email: str | None = None
     organization: str
     title: str
     event_id: uuid.UUID
     private_notes: str
     created_at: datetime
-
 
 @router.post("/scan")
 async def scan_peer_badge(
@@ -67,6 +78,12 @@ async def scan_peer_badge(
     if peer is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Peer profile not found")
 
+    if body.event_id is not None and ticket.event_id != body.event_id:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "This badge belongs to a different congress",
+        )
+
     # 3. Reject self-connect
     if peer.id == current_user.id:
         raise HTTPException(
@@ -87,11 +104,12 @@ async def scan_peer_badge(
             existing.private_notes = body.private_notes.strip()
             await session.commit()
         response.status_code = status.HTTP_200_OK
+        email = peer.email if peer.share_contact_with_peers else None
         return ConnectionOut(
             id=existing.id,
             connected_user_id=peer.id,
             full_name=peer.full_name,
-            email=peer.email,
+            email=email,
             organization=peer.organization,
             title=peer.title,
             event_id=existing.event_id,
@@ -110,11 +128,12 @@ async def scan_peer_badge(
     await session.commit()
     response.status_code = status.HTTP_201_CREATED
 
+    email = peer.email if peer.share_contact_with_peers else None
     return ConnectionOut(
         id=conn.id,
         connected_user_id=peer.id,
         full_name=peer.full_name,
-        email=peer.email,
+        email=email,
         organization=peer.organization,
         title=peer.title,
         event_id=conn.event_id,
@@ -142,7 +161,7 @@ async def list_my_connections(
             id=conn.id,
             connected_user_id=peer.id,
             full_name=peer.full_name,
-            email=peer.email,
+            email=peer.email if peer.share_contact_with_peers else None,
             organization=peer.organization,
             title=peer.title,
             event_id=conn.event_id,
@@ -151,6 +170,28 @@ async def list_my_connections(
         )
         for conn, peer in rows
     ]
+
+
+@router.get("/privacy")
+async def get_privacy_preference(
+    current_user: CurrentUserDep,
+) -> PrivacyPreferenceOut:
+    return PrivacyPreferenceOut(
+        share_contact_with_peers=current_user.share_contact_with_peers
+    )
+
+
+@router.patch("/privacy")
+async def update_privacy_preference(
+    body: PrivacyPreferenceUpdate,
+    current_user: CurrentUserDep,
+    session: SessionDep,
+) -> PrivacyPreferenceOut:
+    current_user.share_contact_with_peers = body.share_contact_with_peers
+    await session.commit()
+    return PrivacyPreferenceOut(
+        share_contact_with_peers=current_user.share_contact_with_peers
+    )
 
 
 @router.patch("/{connection_id}")
@@ -176,11 +217,12 @@ async def update_connection_notes(
     if peer is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Peer not found")
 
+    email = peer.email if peer.share_contact_with_peers else None
     return ConnectionOut(
         id=conn.id,
         connected_user_id=peer.id,
         full_name=peer.full_name,
-        email=peer.email,
+        email=email,
         organization=peer.organization,
         title=peer.title,
         event_id=conn.event_id,
@@ -215,13 +257,13 @@ async def export_connection_vcard(
         f"FN:{peer.full_name}",
         f"ORG:{peer.organization}",
         f"TITLE:{peer.title}",
-        f"EMAIL;TYPE=INTERNET:{peer.email}",
     ]
+    if peer.share_contact_with_peers:
+        vcard_lines.append(f"EMAIL;TYPE=INTERNET:{peer.email}")
     if conn.private_notes:
         vcard_lines.append(f"NOTE:{conn.private_notes}")
     vcard_lines.append("END:VCARD")
     vcard_lines.append("")
-
     vcard_text = "\r\n".join(vcard_lines)
 
     # Sanitize name for filename

@@ -30,6 +30,7 @@ class MockRequest:
                     (),
                     {
                         "settings": Settings(
+                            environment="development",
                             platform_admin_token="admin-token",
                             jwt_secret=jwt_secret,
                         )

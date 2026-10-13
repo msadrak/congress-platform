@@ -1,0 +1,182 @@
+/*
+ * Reception workstation — portal-only layout and print rules.
+ * The station is a size container so it composes correctly both in the standalone Reception
+ * shell and inside the narrower Organizer frame. Speed over spectacle: no entrance animation.
+ */
+
+.rx-station {
+  container: rx-station / inline-size;
+}
+
+/* ── Work grid: results · selected attendee · walk-in ───────────────────── */
+.rx-grid {
+  display: grid;
+  gap: 1.25rem;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas:
+    "results"
+    "detail"
+    "walkin";
+  align-items: start;
+}
+.rx-area-results { grid-area: results; }
+.rx-area-detail { grid-area: detail; }
+.rx-area-walkin { grid-area: walkin; }
+
+/* The idle "nothing selected" plate only earns its space when panes sit side by side. */
+.rx-detail-idle { display: none; }
+
+.rx-results-scroll {
+  max-block-size: 26rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+
+@container rx-station (min-width: 44rem) {
+  .rx-grid {
+    gap: 1.5rem;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-rows: auto 1fr;
+    grid-template-areas:
+      "results detail"
+      "results walkin";
+  }
+  .rx-detail-idle { display: flex; min-block-size: 15rem; }
+  .rx-results-scroll { max-block-size: min(76vh, 52rem); }
+}
+
+@container rx-station (min-width: 74rem) {
+  .rx-grid {
+    grid-template-columns: minmax(0, 4fr) minmax(0, 5fr) minmax(0, 4fr);
+    grid-template-rows: auto;
+    grid-template-areas: "results detail walkin";
+  }
+  .rx-detail-idle { min-block-size: 26rem; }
+  .rx-results-scroll { max-block-size: min(64vh, 40rem); }
+}
+
+/* ── Keyboard hint keys ─────────────────────────────────────────────────── */
+.rx-kbd {
+  display: inline-grid;
+  place-items: center;
+  min-inline-size: 1.6rem;
+  block-size: 1.5rem;
+  padding-inline: 0.4rem;
+  border-radius: 6px;
+  border: 1px solid var(--border-strong);
+  border-block-end-width: 2px;
+  background: var(--surface-panel);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  font-weight: 600;
+  line-height: 1;
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+
+/* ── Command bar ────────────────────────────────────────────────────────── */
+.rx-command-input {
+  inline-size: 100%;
+  min-block-size: 64px;
+  padding-inline: 3.5rem 3.25rem;
+  border-radius: 18px;
+  border: 1.5px solid var(--border-strong);
+  background: var(--surface-panel);
+  color: var(--text-primary);
+  font-size: 1.125rem;
+  font-weight: 500;
+  box-shadow: 0 1px 0 rgb(14 12 43 / 0.03), 0 12px 28px -18px rgb(32 0 205 / 0.35);
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+.rx-command-input::placeholder { color: #8C88B0; font-weight: 400; }
+.rx-command-input::-webkit-search-cancel-button { appearance: none; }
+.rx-command-input:hover { border-color: #B3ADD0; }
+.rx-command-input:focus {
+  outline: none;
+  border-color: var(--aiteb-indigo);
+  box-shadow: 0 0 0 5px rgb(32 0 205 / 0.12), 0 14px 30px -18px rgb(32 0 205 / 0.45);
+}
+@media (min-width: 640px) {
+  .rx-command-input { min-block-size: 72px; padding-inline-end: 5.5rem; font-size: 1.25rem; }
+}
+
+/* ── Result rows ────────────────────────────────────────────────────────── */
+.rx-row {
+  position: relative;
+  transition: background-color 100ms ease;
+}
+.rx-row::before {
+  content: "";
+  position: absolute;
+  inset-block: 0.6rem;
+  inset-inline-start: 0;
+  inline-size: 3px;
+  border-start-end-radius: 3px;
+  border-end-end-radius: 3px;
+  background: transparent;
+}
+.rx-row[aria-current="true"] { background: var(--aiteb-lavender); }
+.rx-row[aria-current="true"]::before { background: var(--aiteb-indigo); }
+
+/* ── Pass (screen) ──────────────────────────────────────────────────────── */
+.rx-pass {
+  --rx-notch: var(--surface-panel-subtle);
+  print-color-adjust: exact;
+  -webkit-print-color-adjust: exact;
+}
+.rx-pass-perf {
+  position: relative;
+  block-size: 0;
+  border-block-start: 1.5px dashed var(--border-strong);
+  margin-inline: 1.25rem;
+}
+.rx-pass-perf::before,
+.rx-pass-perf::after {
+  content: "";
+  position: absolute;
+  inset-block-start: -10px;
+  inline-size: 20px;
+  block-size: 20px;
+  border-radius: 999px;
+  background: var(--rx-notch);
+  box-shadow: inset 0 0 0 1px var(--border-default);
+}
+.rx-pass-perf::before { inset-inline-start: calc(-1.25rem - 11px); }
+.rx-pass-perf::after { inset-inline-end: calc(-1.25rem - 11px); }
+
+/* ── Print: the pass alone, black on white, legible at badge size ─────────── */
+@media print {
+  @page { margin: 12mm; }
+  .print-pass.rx-pass {
+    inline-size: 78mm;
+    background: #fff !important;
+    color: #000 !important;
+    border: 0.4mm solid #000 !important;
+    border-radius: 4mm !important;
+  }
+  .print-pass.rx-pass * {
+    color: #000 !important;
+  }
+  .rx-pass-accent,
+  .rx-pass-perf::before,
+  .rx-pass-perf::after {
+    display: none !important;
+  }
+  .rx-pass-perf { border-color: #000; }
+}
+
+/* A pass inside the issuance dialog must print whole: neutralise its ancestors' motion, clipping
+   and transforms so the fixed pass is laid out against the page (ancestors stay hidden). */
+@media print {
+  body *:has(.print-pass) {
+    animation: none !important;
+    transform: none !important;
+    opacity: 1 !important;
+    filter: none !important;
+    backdrop-filter: none !important;
+    overflow: visible !important;
+    max-block-size: none !important;
+  }
+}

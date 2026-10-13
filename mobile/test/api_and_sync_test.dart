@@ -11,7 +11,10 @@ void main() {
     test('SyncService sends pending scans and marks them synced upon 200 OK', () async {
       final mockClient = MockClient((request) async {
         if (request.url.path.endsWith('/scans/batch')) {
-          return http.Response('{"results": []}', 200);
+          return http.Response(
+            '{"results": [{"scan_id": "s1", "status": "ADMITTED"}, {"scan_id": "s2", "status": "REJECTED", "rejection_reason": "ALREADY_ADMITTED"}]}',
+            200,
+          );
         }
         return http.Response('Not Found', 404);
       });

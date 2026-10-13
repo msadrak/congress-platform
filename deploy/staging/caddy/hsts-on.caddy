@@ -1,0 +1,2 @@
+# Only with a real, publicly trusted certificate on a final domain.
+header Strict-Transport-Security "max-age=31536000"
