@@ -82,6 +82,9 @@ services:
     environment:
       CONGRESS_SITE_ADDRESS: ${CONGRESS_SITE_ADDRESS:-https://localhost}
       CONGRESS_TLS: ${CONGRESS_TLS:-internal}
+      CONGRESS_LOCAL_HTTP: ${CONGRESS_LOCAL_HTTP:-on}
+      CONGRESS_HSTS: ${CONGRESS_HSTS:-off}
+      CONGRESS_ADMIN_ALLOW: ${CONGRESS_ADMIN_ALLOW:-private_ranges}
     ports:
       - "${CONGRESS_BIND:-127.0.0.1}:${CONGRESS_HTTPS_PORT:-8443}:443"
       - "${CONGRESS_BIND:-127.0.0.1}:${CONGRESS_HTTP_PORT:-18080}:80"

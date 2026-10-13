@@ -1,0 +1,4 @@
+# Plain HTTP on localhost for local staging tools.
+http://localhost {
+	import congress
+}

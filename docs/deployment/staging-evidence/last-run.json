@@ -1,10 +1,10 @@
 {
-  "at": "2026-10-13T16:23:50.345Z",
+  "at": "2026-10-13T17:06:04.162Z",
   "results": [
     {
       "ok": true,
       "name": "00 stack healthy: db, migrate (exit 0), api, web",
-      "note": "alembic 0013; published only web:127.0.0.1:18080, web:127.0.0.1:8443"
+      "note": "alembic 0014; published only web:127.0.0.1:18080, web:127.0.0.1:8443"
     },
     {
       "ok": true,
@@ -39,7 +39,7 @@
     {
       "ok": true,
       "name": "08 Page Studio on staging: new organizer publishes a branded page; attendee gets a ticket",
-      "note": "event c6329da1…, image f427cb2b…, 1 ticket"
+      "note": "event 6d30dc02…, image 3c223271…, 1 ticket"
     },
     {
       "ok": true,
@@ -59,12 +59,12 @@
     {
       "ok": true,
       "name": "12 stop and start the whole stack: event, attendee, ticket, publication and media intact",
-      "note": "events/users/tickets/published/media = 30/45/25/15/5"
+      "note": "events/users/tickets/published/media = 36/58/30/18/6"
     },
     {
       "ok": true,
       "name": "13 backup (database + media) and restore into a separate disposable stack",
-      "note": "staging-20261013-162319: 16/16 restore checks"
+      "note": "staging-20261013-170530: 16/16 restore checks"
     },
     {
       "ok": true,

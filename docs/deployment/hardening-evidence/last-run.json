@@ -1,0 +1,35 @@
+{
+  "at": "2026-10-13T17:02:18.896Z",
+  "results": [
+    {
+      "ok": true,
+      "name": "01 organizer create / rotate / revoke through the operator CLI (key shown once, old key dead at once)",
+      "note": "organizer cc9cfe5e…: create 200, rotate → old 401 / new 200, revoke → 401; no keys in list or logs"
+    },
+    {
+      "ok": true,
+      "name": "02 repeated failed logins through Caddy are throttled (429 + Retry-After); other accounts unaffected",
+      "note": "10×401 then 429 (Retry-After 900 s); another account still signs in"
+    },
+    {
+      "ok": true,
+      "name": "03 hosted-mode edge: HTTP→HTTPS redirect, HSTS, admin API closed to outside, no localhost site",
+      "note": "http 308 → https://congress.example.test/e/x?y=1; HSTS on; /api/organizers 404 from outside; /api/ready 200"
+    },
+    {
+      "ok": true,
+      "name": "04 failed off-host upload is reported (exit 1, last-backup.json ok=false, check CRITICAL)",
+      "note": "error recorded: off-host copy failed: 2026/10/13 17:01:38 NOTICE: Failed to copy: operation erro"
+    },
+    {
+      "ok": true,
+      "name": "05 scheduled backup: consistent dump + media, copied off-host and verified by checksum; check OK",
+      "note": "staging-20261013-170141 → offsite:congress-backups/staging/staging-20261013-170141; check exit 0"
+    },
+    {
+      "ok": true,
+      "name": "06 the backup copied off-host restores in a disposable project (local copy; remote checksums matched in 05)",
+      "note": "restore-verify: 16/16 checks passed"
+    }
+  ]
+}

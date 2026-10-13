@@ -79,10 +79,10 @@ try {
     const by = Object.fromEntries(rows.map((r) => [r.Service, r]));
     for (const s of ['db', 'api', 'web']) eq(by[s]?.Health, 'healthy', `${s} health`);
     eq([by.migrate?.State, by.migrate?.ExitCode], ['exited', 0], 'migrate');
-    eq(q('select version_num from alembic_version'), '0013', 'schema');
+    eq(q('select version_num from alembic_version'), '0014', 'schema');
     const ports = rows.flatMap((r) => (r.Publishers ?? []).filter((p) => p.PublishedPort).map((p) => `${r.Service}:${p.URL}:${p.PublishedPort}`));
     assert(ports.every((p) => p.startsWith('web:127.0.0.1:')), `published ports ${ports}`);
-    return `alembic 0013; published only ${ports.join(', ')}`;
+    return `alembic 0014; published only ${ports.join(', ')}`;
   });
 
   if (fresh) {

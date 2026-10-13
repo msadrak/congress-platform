@@ -1,0 +1,11 @@
+[Unit]
+Description=Congress Platform health check (non-zero exit = needs attention)
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+User=congress
+WorkingDirectory=/opt/congress-platform
+ExecStart=/usr/bin/node scripts/staging/stack.mjs check
+# Hook alerting here, e.g. OnFailure=congress-alert@%n.service sending mail/Telegram/webhook.

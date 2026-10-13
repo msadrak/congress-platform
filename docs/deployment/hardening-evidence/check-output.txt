@@ -1,0 +1,11 @@
+  OK       db running, healthy
+  OK       api running, healthy
+  OK       web running, healthy
+  OK       /api/ready through the proxy: 200
+  OK       HTTP 5xx in the last 15 min: 0 of 78 requests
+  OK       API error lines in the last 15 min: 0
+  OK       docker volume disk 1% used (948 GiB free of 1007 GiB)
+  INFO     volume pgdata: 48 MiB
+  INFO     volume media: 0 MiB
+  OK       last backup staging-20261013-170141, 0.0 h ago, off-host: offsite:congress-backups/staging/staging-20261013-170141
+check: OK

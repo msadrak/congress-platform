@@ -1,0 +1,1 @@
+# No plain-HTTP site: Caddy redirects HTTP to HTTPS for the configured domain.

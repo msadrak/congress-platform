@@ -1,20 +1,20 @@
 {
-  "name": "staging-20261013-162319",
-  "created_at": "2026-10-13T16:23:24.761Z",
-  "alembic_revision": "0013",
+  "name": "staging-20261013-170530",
+  "created_at": "2026-10-13T17:05:38.286Z",
+  "alembic_revision": "0014",
   "counts": {
-    "organizers": 20,
-    "events": 30,
-    "users": 45,
-    "tickets": 25,
-    "entity_qrs": 40,
-    "booths": 15,
-    "leads": 9,
-    "checkins": 25,
-    "desk_operators": 5,
-    "scanner_devices": 10,
-    "media_assets": 5,
-    "published_pages": 15
+    "organizers": 26,
+    "events": 36,
+    "users": 58,
+    "tickets": 30,
+    "entity_qrs": 48,
+    "booths": 18,
+    "leads": 11,
+    "checkins": 30,
+    "desk_operators": 6,
+    "scanner_devices": 12,
+    "media_assets": 6,
+    "published_pages": 18
   },
   "published_slugs": [
     "e2e-alpha-uerz1",
@@ -22,20 +22,24 @@
     "e2e-alpha-upfq8",
     "e2e-alpha-vxfc1",
     "e2e-alpha-w1krs",
+    "e2e-alpha-xj2qc",
     "e2e-beta-uerz1",
     "e2e-beta-ujpx9",
     "e2e-beta-upfq8",
     "e2e-beta-vxfc1",
     "e2e-beta-w1krs",
+    "e2e-beta-xj2qc",
     "staging-uembw",
     "staging-ujlgf",
     "staging-upaxy",
     "staging-vxavg",
-    "staging-w1gp2"
+    "staging-w1gp2",
+    "staging-xiw2g"
   ],
   "files": {
-    "db.dump": "3b03bb45672f609c96c58a20d8fa6e79bf6aee12958cd89402b36667055815e3",
-    "media.tar.gz": "703ceaa19c5aa5cb1f17c40f5f79292f495ae15337d09e7106cbabb8164af359"
+    "db.dump": "851d3d3a8cd3038e87af64d28b0348ef17cca1fc06cacfd91cacb9d4d1b4b54b",
+    "media.tar.gz": "1effbd104bf29a5decbc7148fedbbe3bc2e0eb28a6596e8addb0936435b70bf1"
   },
-  "media_sha256": "5 files"
+  "media_sha256": "6 files",
+  "missing_media": []
 }

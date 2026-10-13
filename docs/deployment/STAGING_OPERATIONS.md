@@ -77,6 +77,19 @@ node scripts/staging/stack.mjs up               # after pulling new code: rebuil
 
 **Never** run `docker compose down -v` on `congress-staging`: it deletes the database, the uploads and the certificates. `stack.mjs` refuses `-v`.
 
+## Health check, scheduled backups, organizer keys
+
+```powershell
+node scripts/staging/stack.mjs check              # exit 0 OK, 1 warning, 2 critical (containers, readiness, 5xx, API errors, disk, backup age)
+node scripts/staging/stack.mjs scheduled-backup   # backup + consistency + optional off-host copy (BACKUP_S3_*) + retention
+node scripts/staging/stack.mjs organizer list
+node scripts/staging/stack.mjs organizer create "Organizer name"   # key shown once
+node scripts/staging/stack.mjs organizer rotate <organizer-id>      # new key once; old key rejected immediately
+node scripts/staging/stack.mjs organizer revoke <organizer-id>
+```
+
+The organizer commands run inside the API container. In hosted mode `/api/organizers` is closed at the proxy (`CONGRESS_ADMIN_ALLOW`). Scheduling, off-host settings and alerting: [`HOSTED_STAGING_READINESS.md`](HOSTED_STAGING_READINESS.md).
+
 ## Migrations
 
 1. Take a backup: `node scripts/staging/stack.mjs backup`. This is **required before every migration**. Downgrades are lossy by design.
@@ -88,7 +101,8 @@ To run migrations alone: `node scripts/staging/stack.mjs migrate`.
 ## Backup and restore
 
 ```powershell
-node scripts/staging/stack.mjs backup                    # .staging\backups\staging-<UTC timestamp>\
+node scripts/staging/stack.mjs backup                    # ad hoc (no retention); scheduled-backup for routine use
+# .staging\backups\staging-<UTC timestamp>\
 node scripts/staging/stack.mjs backups                   # list with revision and row counts
 node scripts/staging/stack.mjs restore-verify staging-<timestamp>   # test restore (non-destructive)
 ```

@@ -13,13 +13,18 @@
  *   node scripts/staging/stack.mjs backups            list backups
  *   node scripts/staging/stack.mjs restore-verify <name> [--keep]
  *                                                     restore a backup into a NEW disposable project and verify it
+ *   node scripts/staging/stack.mjs scheduled-backup   backup + consistency check + off-host copy + retention;
+ *                                                     writes .staging/backups/last-backup.json, exit 1 on failure
+ *   node scripts/staging/stack.mjs check              operator health check (exit 0 ok, 1 warning, 2 critical)
+ *   node scripts/staging/stack.mjs organizer list | create <name> | rotate <id> | revoke <id>
+ *                                                     platform administration from inside the API container
  *
  * Nothing here deletes the staging volumes. The only `down -v` is on the disposable
  * `congress-restore-*` project that restore-verify itself creates.
  */
 import { spawnSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -30,19 +35,26 @@ const BACKUPS = join(STATE, 'backups');
 const COMPOSE_FILE = join(root, 'deploy/staging/compose.yaml');
 const PROJECT = 'congress-staging';
 
-export const run = (cmd, args, { allowFail = false, input, quiet = false, binary = false } = {}) => {
-  const r = spawnSync(cmd, args, { input, encoding: binary ? 'buffer' : 'utf8', stdio: quiet || binary ? 'pipe' : ['pipe', 'pipe', 'pipe'], maxBuffer: 1 << 30 });
-  if (r.status !== 0 && !allowFail) throw new Error(`${cmd} ${args.join(' ')} -> exit ${r.status}\n${(r.stderr ?? '').toString().slice(-2000)}`);
+export const run = (cmd, args, { allowFail = false, input, quiet = false, binary = false, env, redact = false } = {}) => {
+  const r = spawnSync(cmd, args, { input, env: env ? { ...process.env, ...env } : undefined, encoding: binary ? 'buffer' : 'utf8', stdio: quiet || binary ? 'pipe' : ['pipe', 'pipe', 'pipe'], maxBuffer: 1 << 30 });
+  if (r.status !== 0 && !allowFail) {
+    const what = redact ? `${cmd} ${args[0]} (arguments withheld)` : `${cmd} ${args.join(' ')}`;
+    throw new Error(`${what} -> exit ${r.status}\n${redact ? '' : (r.stderr ?? '').toString().slice(-2000)}`);
+  }
   return r;
 };
 export const compose = (project, args, opts) => run('docker', ['compose', '-p', project, '--env-file', ENV_FILE, '-f', COMPOSE_FILE, ...args], opts);
-export const readEnv = () =>
-  Object.fromEntries(
+export const readEnv = () => ({
+  ...Object.fromEntries(
     readFileSync(ENV_FILE, 'utf8')
       .split(/\r?\n/)
       .filter((l) => l && !l.startsWith('#') && l.includes('='))
       .map((l) => [l.slice(0, l.indexOf('=')), l.slice(l.indexOf('=') + 1)]),
-  );
+  ),
+  // Backup settings may also come from the scheduler's environment (e.g. a separate secrets file), so the
+  // off-host credentials need not live next to the application secrets.
+  ...Object.fromEntries(Object.entries(process.env).filter(([k]) => k.startsWith('BACKUP_'))),
+});
 export const psql = (project, sql) =>
   compose(project, ['exec', '-T', 'db', 'psql', '-U', 'congress', '-d', 'congress', '-At', '-v', 'ON_ERROR_STOP=1', '-c', sql]).stdout.trim();
 const say = (s) => console.log(s);
@@ -139,6 +151,11 @@ export function backup(project = PROJECT) {
   } finally {
     run('docker', ['rm', '-f', helper], { allowFail: true });
   }
+  // Consistency: every image the database knows must be in the media archive (the dump is taken first,
+  // so only a deletion during the backup window could break this; such a backup is reported as failed).
+  const keys = psql(project, "select coalesce(string_agg(storage_key, ','), '') from media_assets").split(',').filter(Boolean);
+  const archived = new Set((mediaSums ? mediaSums.split('\n') : []).map((l) => l.split(/\s+/)[1].replace(/^\.\//, '')));
+  const missingMedia = keys.filter((k) => !archived.has(k));
   const counts = Object.fromEntries(
     ['organizers', 'events', 'users', 'tickets', 'entity_qrs', 'booths', 'leads', 'checkins', 'desk_operators', 'scanner_devices', 'media_assets'].map((t) => [t, Number(psql(project, `select count(*) from ${t}`))]),
   );
@@ -151,12 +168,188 @@ export function backup(project = PROJECT) {
     published_slugs: psql(project, "select coalesce(string_agg(e.slug, ',' order by e.slug), '') from events e join event_pages p on p.event_id = e.id where p.published is not null").split(',').filter(Boolean),
     files: Object.fromEntries(['db.dump', 'media.tar.gz'].map((f) => [f, createHash('sha256').update(readFileSync(join(dir, f))).digest('hex')])),
     media_sha256: mediaSums ? mediaSums.split('\n').map((l) => l.split(/\s+/)) : [],
+    missing_media: missingMedia,
   };
   writeFileSync(join(dir, 'manifest.json'), JSON.stringify(manifest, null, 2));
   say(`Backup ${name}: ${dir}`);
   say(`  db.dump ${readFileSync(join(dir, 'db.dump')).length} bytes, media.tar.gz ${readFileSync(join(dir, 'media.tar.gz')).length} bytes, ${manifest.media_sha256.length} media files`);
   say(`  counts ${JSON.stringify(counts)}`);
+  if (missingMedia.length) throw new Error(`Backup ${name} is inconsistent: ${missingMedia.length} database images missing from the media archive`);
   return { name, dir, manifest };
+}
+
+// ── Off-host copy (any S3-compatible store via rclone) and retention ─────────────────────────────────
+
+const BACKUP_NAME = /^staging-\d{8}-\d{6}$/;
+
+/** Keep the newest N backups plus the newest per ISO week (W) and per month (M); everything else is old. */
+export function selectExpired(names, { daily = 7, weekly = 4, monthly = 6 } = {}) {
+  const sorted = names.filter((n) => BACKUP_NAME.test(n)).sort().reverse();
+  const keep = new Set(sorted.slice(0, daily));
+  const take = (keyOf, n) => {
+    const seen = new Set();
+    for (const name of sorted) {
+      const k = keyOf(name);
+      if (seen.size >= n) break;
+      if (!seen.has(k)) { seen.add(k); keep.add(name); }
+    }
+  };
+  const date = (name) => new Date(`${name.slice(8, 12)}-${name.slice(12, 14)}-${name.slice(14, 16)}T00:00:00Z`);
+  take((n) => { const d = date(n); const day = (d.getUTCDay() + 6) % 7; d.setUTCDate(d.getUTCDate() - day); return d.toISOString().slice(0, 10); }, weekly);
+  take((n) => n.slice(8, 14), monthly);
+  return sorted.filter((n) => !keep.has(n));
+}
+
+// Credentials travel as environment variables of the docker client process (`-e NAME` without a value),
+// so they never appear on a command line, in an error message or in the status file.
+function rcloneEnv(env) {
+  return {
+    RCLONE_CONFIG_OFFSITE_TYPE: 's3',
+    RCLONE_CONFIG_OFFSITE_PROVIDER: env.BACKUP_S3_PROVIDER || 'Other',
+    RCLONE_CONFIG_OFFSITE_ENDPOINT: env.BACKUP_S3_ENDPOINT,
+    RCLONE_CONFIG_OFFSITE_REGION: env.BACKUP_S3_REGION || 'us-east-1',
+    RCLONE_CONFIG_OFFSITE_ACCESS_KEY_ID: env.BACKUP_S3_ACCESS_KEY_ID,
+    RCLONE_CONFIG_OFFSITE_SECRET_ACCESS_KEY: env.BACKUP_S3_SECRET_ACCESS_KEY,
+    RCLONE_CONFIG_OFFSITE_FORCE_PATH_STYLE: 'true',
+    RCLONE_S3_NO_CHECK_BUCKET: 'true',
+  };
+}
+const rclone = (env, args) => {
+  const vars = rcloneEnv(env);
+  const r = run('docker', ['run', '--rm', ...(env.BACKUP_RCLONE_NETWORK ? ['--network', env.BACKUP_RCLONE_NETWORK] : []), ...Object.keys(vars).flatMap((k) => ['-e', k]), '-v', `${BACKUPS}:/backups:ro`, env.BACKUP_RCLONE_IMAGE || 'rclone/rclone:1.68', ...args], { env: vars, allowFail: true });
+  if (r.status !== 0) {
+    const reason = (r.stderr || '').split(/\r?\n/).filter((l) => /ERROR|Failed|error/.test(l)).slice(-1)[0] ?? `exit ${r.status}`;
+    throw new Error(`off-host ${args[0]} failed: ${reason.replace(env.BACKUP_S3_SECRET_ACCESS_KEY || '\u0000', '***').slice(0, 300)}`);
+  }
+  return r;
+};
+
+/** Copies one backup off the host and proves the remote copy matches byte-for-byte. */
+function offsite(env, name) {
+  const remote = `offsite:${env.BACKUP_S3_BUCKET}/${(env.BACKUP_S3_PREFIX || 'congress').replace(/\/$/, '')}/${name}`;
+  rclone(env, ['copy', '--checksum', `/backups/${name}`, remote]);
+  rclone(env, ['check', '--one-way', `/backups/${name}`, remote]);
+  return remote;
+}
+
+function pruneRemote(env) {
+  const base = `offsite:${env.BACKUP_S3_BUCKET}/${(env.BACKUP_S3_PREFIX || 'congress').replace(/\/$/, '')}`;
+  const names = rclone(env, ['lsf', '--dirs-only', base]).stdout.split(/\r?\n/).map((l) => l.replace(/\/$/, '')).filter(Boolean);
+  const expired = selectExpired(names, retention(env));
+  for (const name of expired) rclone(env, ['purge', `${base}/${name}`]);
+  return expired;
+}
+
+const retention = (env) => ({ daily: Number(env.BACKUP_KEEP_DAILY || 7), weekly: Number(env.BACKUP_KEEP_WEEKLY || 4), monthly: Number(env.BACKUP_KEEP_MONTHLY || 6) });
+
+function pruneLocal(env) {
+  const expired = selectExpired(existsSync(BACKUPS) ? readdirSync(BACKUPS) : [], retention(env));
+  for (const name of expired) rmSync(join(BACKUPS, name), { recursive: true, force: true });
+  return expired;
+}
+
+/** For schedulers (cron/systemd/Task Scheduler): one backup, verified consistency, off-host copy, retention. */
+export function scheduledBackup() {
+  requireEnv();
+  const env = readEnv();
+  const status = { at: new Date().toISOString(), ok: false, name: null, offsite: 'not-configured', pruned_local: [], pruned_remote: [], error: null };
+  try {
+    const { name } = backup();
+    status.name = name;
+    if (env.BACKUP_S3_ENDPOINT && env.BACKUP_S3_BUCKET) {
+      status.offsite = offsite(env, name);
+      status.pruned_remote = pruneRemote(env);
+    }
+    // Local copies are only pruned after the newest one is safely off the host (or none is configured).
+    status.pruned_local = pruneLocal(env);
+    status.ok = true;
+  } catch (e) {
+    status.error = String(e.message).split('\n')[0];
+  }
+  mkdirSync(BACKUPS, { recursive: true });
+  writeFileSync(join(BACKUPS, 'last-backup.json'), JSON.stringify(status, null, 2));
+  say(JSON.stringify(status, null, 2));
+  if (!status.ok) throw new Error(`Scheduled backup FAILED: ${status.error}`);
+  return status;
+}
+
+// ── Operator health check ────────────────────────────────────────────────────────────────────────
+
+export async function healthCheck() {
+  requireEnv();
+  const env = readEnv();
+  const findings = [];
+  const note = (level, text) => { findings.push({ level, text }); say(`  ${level.padEnd(8)} ${text}`); };
+  const rows = JSON.parse(`[${compose(PROJECT, ['ps', '-a', '--format', 'json']).stdout.trim().split(/\r?\n/).filter(Boolean).join(',')}]`);
+  const by = Object.fromEntries(rows.map((r) => [r.Service, r]));
+  for (const svc of ['db', 'api', 'web']) {
+    const r = by[svc];
+    if (!r || r.State !== 'running') note('CRITICAL', `${svc} is ${r ? r.State : 'missing'}`);
+    else if (r.Health && r.Health !== 'healthy') note('CRITICAL', `${svc} health: ${r.Health}`);
+    else note('OK', `${svc} running${r.Health ? ', healthy' : ''}`);
+  }
+  if (by.migrate && by.migrate.State === 'exited' && by.migrate.ExitCode !== 0) note('CRITICAL', `last migration exited ${by.migrate.ExitCode}`);
+  try {
+    const r = await fetch(`http://localhost:${env.CONGRESS_HTTP_PORT || 18080}/api/ready`);
+    note(r.status === 200 ? 'OK' : 'CRITICAL', `/api/ready through the proxy: ${r.status}`);
+  } catch {
+    // Hosted servers have no plain-HTTP localhost site; ask the API container directly.
+    const r = compose(PROJECT, ['exec', '-T', 'api', 'python', '-c', "import urllib.request;print(urllib.request.urlopen('http://127.0.0.1:8000/api/ready',timeout=5).status)"], { allowFail: true });
+    note(r.stdout.trim() === '200' ? 'OK' : 'CRITICAL', `/api/ready in the API container: ${r.stdout.trim() || 'unreachable'}`);
+  }
+  // Server errors seen by the proxy in the last 15 minutes (Caddy JSON access log).
+  const logs = compose(PROJECT, ['logs', '--since', '15m', '--no-log-prefix', 'web'], { allowFail: true }).stdout.split(/\r?\n/);
+  const errors = logs.filter((l) => /"status":5\d\d/.test(l)).length;
+  const total = logs.filter((l) => /"status":\d{3}/.test(l)).length;
+  note(errors > 20 || (total > 50 && errors / total > 0.05) ? 'WARNING' : 'OK', `HTTP 5xx in the last 15 min: ${errors} of ${total} requests`);
+  const apiErrors = compose(PROJECT, ['logs', '--since', '15m', '--no-log-prefix', 'api'], { allowFail: true }).stdout.split(/\r?\n/).filter((l) => /Traceback|ERROR/.test(l)).length;
+  note(apiErrors ? 'WARNING' : 'OK', `API error lines in the last 15 min: ${apiErrors}`);
+  // Disk: the filesystem holding Docker volumes, plus each persistent volume.
+  const probe = `${PROJECT}-check-${randomBytes(3).toString('hex')}`;
+  const du = run('docker', ['run', '--rm', '--name', probe, '--network', 'none', '-v', `${PROJECT}_pgdata:/v/pgdata:ro`, '-v', `${PROJECT}_media:/v/media:ro`, 'postgres:16-alpine', 'sh', '-c', 'df -Pk /v | tail -1; du -sk /v/pgdata /v/media'], { allowFail: true }).stdout.trim().split('\n');
+  if (du.length >= 3) {
+    const [, sizeK, usedK, availK, pct] = du[0].split(/\s+/);
+    const used = Number(String(pct).replace('%', ''));
+    note(used >= 90 ? 'CRITICAL' : used >= 80 ? 'WARNING' : 'OK', `docker volume disk ${used}% used (${Math.round(availK / 1048576)} GiB free of ${Math.round(sizeK / 1048576)} GiB)`);
+    for (const line of du.slice(1)) { const [k, path] = line.split(/\s+/); note('INFO', `${path.replace('/v/', 'volume ')}: ${Math.round(Number(k) / 1024)} MiB`); }
+  } else note('WARNING', 'could not measure volume disk usage');
+  // Backups: freshness and last result.
+  const statusFile = join(BACKUPS, 'last-backup.json');
+  const maxAge = Number(env.BACKUP_MAX_AGE_HOURS || 26);
+  if (!existsSync(statusFile)) note('WARNING', 'no scheduled backup has run yet');
+  else {
+    const last = JSON.parse(readFileSync(statusFile, 'utf8'));
+    const ageH = (Date.now() - Date.parse(last.at)) / 3_600_000;
+    if (!last.ok) note('CRITICAL', `last scheduled backup FAILED at ${last.at}: ${last.error}`);
+    else if (ageH > maxAge) note('CRITICAL', `last successful backup is ${ageH.toFixed(1)} h old (limit ${maxAge} h)`);
+    else note('OK', `last backup ${last.name}, ${ageH.toFixed(1)} h ago, off-host: ${last.offsite}`);
+  }
+  const level = findings.some((f) => f.level === 'CRITICAL') ? 2 : findings.some((f) => f.level === 'WARNING') ? 1 : 0;
+  say(`check: ${['OK', 'WARNING', 'CRITICAL'][level]}`);
+  return level;
+}
+
+// ── Platform administration (never through the public proxy) ───────────────────────────────────
+
+function organizerAdmin(args) {
+  requireEnv();
+  const [action, arg] = args;
+  const routes = { list: ['GET', '/api/organizers', null], create: ['POST', '/api/organizers', { name: arg }], rotate: ['POST', `/api/organizers/${arg}/rotate-key`, null], revoke: ['POST', `/api/organizers/${arg}/revoke`, null] };
+  if (!routes[action] || (action !== 'list' && !arg)) throw new Error('usage: organizer list | create <name> | rotate <organizer-id> | revoke <organizer-id>');
+  const [method, path, body] = routes[action];
+  // Runs inside the API container: the admin token comes from that container's environment and never
+  // leaves it; the request goes to 127.0.0.1 and does not pass through Caddy.
+  const script = `
+import json, os, sys, urllib.request, urllib.error
+req = urllib.request.Request("http://127.0.0.1:8000" + sys.argv[1], method=sys.argv[2], data=(sys.argv[3].encode() if sys.argv[3] != "null" else None),
+    headers={"X-Admin-Token": os.environ["CONGRESS_PLATFORM_ADMIN_TOKEN"], "Content-Type": "application/json"})
+try:
+    print(json.dumps(json.load(urllib.request.urlopen(req, timeout=10)), indent=2))
+except urllib.error.HTTPError as e:
+    print(e.code, e.read().decode(), file=sys.stderr); sys.exit(1)`;
+  const out = compose(PROJECT, ['exec', '-T', 'api', 'python', '-c', script, path, method, JSON.stringify(body)]).stdout;
+  say(out);
+  if (action === 'create' || action === 'rotate') say('The api_key above is shown once. Hand it to the organizer over a secure channel; it cannot be retrieved again.');
 }
 
 function listBackups() {
@@ -246,6 +439,9 @@ async function main() {
     case 'backup': return backup();
     case 'backups': return listBackups();
     case 'restore-verify': return restoreVerify(rest[0], { keep: rest.includes('--keep') });
+    case 'scheduled-backup': return scheduledBackup();
+    case 'check': process.exitCode = await healthCheck(); return;
+    case 'organizer': return organizerAdmin(rest);
     default: throw new Error(`Unknown command ${cmd}`);
   }
 }

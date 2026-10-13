@@ -12,5 +12,6 @@ RUN npm run build && node /tools/make-seo-shell.mjs dist
 
 FROM caddy:2-alpine
 COPY deploy/staging/Caddyfile /etc/caddy/Caddyfile
+COPY deploy/staging/caddy/ /etc/caddy/options/
 COPY --from=build /web/dist /srv
 RUN caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
