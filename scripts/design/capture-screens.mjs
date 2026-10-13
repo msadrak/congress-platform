@@ -56,55 +56,55 @@ const rep2 = await userToken(booth.rhythm.rep_email);
 const desk1 = await deskToken(EV1.id, 'reception.ai@example.com');
 const desk2 = await deskToken(EV2.id, 'reception.cardio@example.com');
 
-/** name, path, viewport, storage = { local, session }, fullPage */
+/** name, path, viewport, storage = { local, session }, fullPage (true | 'tall' = grow the viewport to the document) */
 const shots = [];
 const add = (name, path, view, storage = {}, fullPage = false) => shots.push({ name, path, view, storage, fullPage });
 const att = (locale) => ({ local: { congress_attendee_token: alice, congress_attendee_locale: locale } });
 const org = (locale) => ({ local: { congress_attendee_locale: locale }, session: { congress_organizer_api_key: organizerKey } });
 
-add('home-desktop', '/', 'desktop', {}, true);
-add('home-phone', '/', 'phone', {}, true);
+add('home-desktop', '/', 'desktop', {}, 'tall');
+add('home-phone', '/', 'phone', {}, 'tall');
 add('public-event-en-desktop', `/e/${EV1.slug}`, 'desktop');
-add('public-event-en-desktop-full', `/e/${EV1.slug}`, 'desktop', {}, true);
-add('public-event-en-phone-full', `/e/${EV1.slug}`, 'phone', {}, true);
+add('public-event-en-desktop-full', `/e/${EV1.slug}`, 'desktop', {}, 'tall');
+add('public-event-en-phone-full', `/e/${EV1.slug}`, 'phone', {}, 'tall');
 add('public-event-en-wide', `/e/${EV1.slug}`, 'wide');
-add('public-event-fa-desktop-full', `/e/${EV2.slug}`, 'desktop', {}, true);
-add('public-event-fa-phone-full', `/e/${EV2.slug}`, 'phone', {}, true);
-add('public-booth-en-desktop', `/e/${EV1.slug}/booths/${booth.neurolens.id}`, 'desktop', {}, true);
-add('public-booth-fa-phone', `/e/${EV2.slug}/booths/${booth.rhythm.id}`, 'phone', {}, true);
+add('public-event-fa-desktop-full', `/e/${EV2.slug}`, 'desktop', {}, 'tall');
+add('public-event-fa-phone-full', `/e/${EV2.slug}`, 'phone', {}, 'tall');
+add('public-booth-en-desktop', `/e/${EV1.slug}/booths/${booth.neurolens.id}`, 'desktop', {}, 'tall');
+add('public-booth-fa-phone', `/e/${EV2.slug}/booths/${booth.rhythm.id}`, 'phone', {}, 'tall');
 add('signin-en-phone', `/c/${EV1.slug}/sign-in`, 'phone', { local: { congress_attendee_locale: 'en' } });
 add('signin-fa-desktop', `/c/${EV2.slug}/sign-in`, 'desktop', { local: { congress_attendee_locale: 'fa' } });
-add('attendee-congress-en-phone', `/c/${EV1.slug}/my-congress`, 'phone', att('en'), true);
-add('attendee-congress-fa-phone', `/c/${EV2.slug}/my-congress`, 'phone', att('fa'), true);
-add('attendee-congress-en-desktop', `/c/${EV1.slug}/my-congress`, 'desktop', att('en'), true);
-add('attendee-ticket-en-phone', `/c/${EV1.slug}/my-ticket`, 'phone', att('en'), true);
-add('attendee-ticket-fa-phone', `/c/${EV2.slug}/my-ticket`, 'phone', att('fa'), true);
-add('attendee-ticket-en-desktop', `/c/${EV1.slug}/my-ticket`, 'desktop', att('en'), true);
-add('attendee-network-en-phone', `/c/${EV1.slug}/my-network`, 'phone', att('en'), true);
-add('attendee-network-fa-phone', `/c/${EV1.slug}/my-network`, 'phone', att('fa'), true);
-add('attendee-profile-en-phone', `/c/${EV1.slug}/my-profile`, 'phone', att('en'), true);
-add('attendee-details-fa-phone', `/c/${EV2.slug}/details`, 'phone', att('fa'), true);
+add('attendee-congress-en-phone', `/c/${EV1.slug}/my-congress`, 'phone', att('en'), 'tall');
+add('attendee-congress-fa-phone', `/c/${EV2.slug}/my-congress`, 'phone', att('fa'), 'tall');
+add('attendee-congress-en-desktop', `/c/${EV1.slug}/my-congress`, 'desktop', att('en'), 'tall');
+add('attendee-ticket-en-phone', `/c/${EV1.slug}/my-ticket`, 'phone', att('en'), 'tall');
+add('attendee-ticket-fa-phone', `/c/${EV2.slug}/my-ticket`, 'phone', att('fa'), 'tall');
+add('attendee-ticket-en-desktop', `/c/${EV1.slug}/my-ticket`, 'desktop', att('en'), 'tall');
+add('attendee-network-en-phone', `/c/${EV1.slug}/my-network`, 'phone', att('en'), 'tall');
+add('attendee-network-fa-phone', `/c/${EV1.slug}/my-network`, 'phone', att('fa'), 'tall');
+add('attendee-profile-en-phone', `/c/${EV1.slug}/my-profile`, 'phone', att('en'), 'tall');
+add('attendee-details-fa-phone', `/c/${EV2.slug}/details`, 'phone', att('fa'), 'tall');
 add('organizer-gate-en-desktop', '/organizer', 'desktop', { local: { congress_attendee_locale: 'en' } });
-add('organizer-events-en-desktop', '/organizer', 'desktop', org('en'), true);
-add('organizer-events-fa-phone', '/organizer', 'phone', org('fa'), true);
-add('organizer-event-en-desktop', `/organizer/events/${EV1.id}`, 'desktop', org('en'), true);
-add('organizer-tiers-en-desktop', `/organizer/events/${EV1.id}/tiers`, 'desktop', org('en'), true);
-add('organizer-booths-fa-desktop', `/organizer/events/${EV1.id}/booths`, 'desktop', org('fa'), true);
-add('organizer-checkin-en-laptop', `/organizer/events/${EV1.id}/check-in`, 'laptop', org('en'), true);
-add('organizer-operators-en-desktop', `/organizer/events/${EV1.id}/operators`, 'desktop', org('en'), true);
-add('organizer-analytics-en-desktop', `/organizer/events/${EV1.id}/analytics`, 'desktop', org('en'), true);
-add('organizer-analytics-fa-phone', `/organizer/events/${EV1.id}/analytics`, 'phone', org('fa'), true);
-add('organizer-desk-en-desktop', `/organizer/events/${EV1.id}/desk`, 'desktop', org('en'), true);
+add('organizer-events-en-desktop', '/organizer', 'desktop', org('en'), 'tall');
+add('organizer-events-fa-phone', '/organizer', 'phone', org('fa'), 'tall');
+add('organizer-event-en-desktop', `/organizer/events/${EV1.id}`, 'desktop', org('en'), 'tall');
+add('organizer-tiers-en-desktop', `/organizer/events/${EV1.id}/tiers`, 'desktop', org('en'), 'tall');
+add('organizer-booths-fa-desktop', `/organizer/events/${EV1.id}/booths`, 'desktop', org('fa'), 'tall');
+add('organizer-checkin-en-laptop', `/organizer/events/${EV1.id}/check-in`, 'laptop', org('en'), 'tall');
+add('organizer-operators-en-desktop', `/organizer/events/${EV1.id}/operators`, 'desktop', org('en'), 'tall');
+add('organizer-analytics-en-desktop', `/organizer/events/${EV1.id}/analytics`, 'desktop', org('en'), 'tall');
+add('organizer-analytics-fa-phone', `/organizer/events/${EV1.id}/analytics`, 'phone', org('fa'), 'tall');
+add('organizer-desk-en-desktop', `/organizer/events/${EV1.id}/desk`, 'desktop', org('en'), 'tall');
 add('reception-entry-en-tablet', '/reception', 'tablet', { local: { congress_attendee_locale: 'en' } });
-add('reception-en-desktop', `/reception/${EV1.id}`, 'desktop', { local: { congress_attendee_locale: 'en' }, session: { [`congress_desk_token_${EV1.id}`]: desk1 } }, true);
-add('reception-fa-tablet', `/reception/${EV2.id}`, 'tablet', { local: { congress_attendee_locale: 'fa' }, session: { [`congress_desk_token_${EV2.id}`]: desk2 } }, true);
-add('reception-en-phone', `/reception/${EV1.id}`, 'phone', { local: { congress_attendee_locale: 'en' }, session: { [`congress_desk_token_${EV1.id}`]: desk1 } }, true);
-add('exhibitor-en-phone', `/booth/${booth.neurolens.id}`, 'phone', { local: { congress_attendee_token: rep, congress_attendee_locale: 'en' } }, true);
-add('exhibitor-fa-phone', `/booth/${booth.rhythm.id}`, 'phone', { local: { congress_attendee_token: rep2, congress_attendee_locale: 'fa' } }, true);
-add('exhibitor-en-desktop', `/booth/${booth.neurolens.id}`, 'desktop', { local: { congress_attendee_token: rep, congress_attendee_locale: 'en' } }, true);
+add('reception-en-desktop', `/reception/${EV1.id}`, 'desktop', { local: { congress_attendee_locale: 'en' }, session: { [`congress_desk_token_${EV1.id}`]: desk1 } }, 'tall');
+add('reception-fa-tablet', `/reception/${EV2.id}`, 'tablet', { local: { congress_attendee_locale: 'fa' }, session: { [`congress_desk_token_${EV2.id}`]: desk2 } }, 'tall');
+add('reception-en-phone', `/reception/${EV1.id}`, 'phone', { local: { congress_attendee_locale: 'en' }, session: { [`congress_desk_token_${EV1.id}`]: desk1 } }, 'tall');
+add('exhibitor-en-phone', `/booth/${booth.neurolens.id}`, 'phone', { local: { congress_attendee_token: rep, congress_attendee_locale: 'en' } }, 'tall');
+add('exhibitor-fa-phone', `/booth/${booth.rhythm.id}`, 'phone', { local: { congress_attendee_token: rep2, congress_attendee_locale: 'fa' } }, 'tall');
+add('exhibitor-en-desktop', `/booth/${booth.neurolens.id}`, 'desktop', { local: { congress_attendee_token: rep, congress_attendee_locale: 'en' } }, 'tall');
 add('exhibitor-signin-en-phone', `/booth/${booth.neurolens.id}/sign-in`, 'phone', { local: { congress_attendee_locale: 'en' } });
 add('scanner-unpaired-phone', `/scan/${points.lunch}`, 'phone');
-add('scanner-ready-phone', `/scan/${points.main}`, 'phone', { session: { [`congress_scanner_token_${points.main}`]: scannerToken(points.main) } }, true);
+add('scanner-ready-phone', `/scan/${points.main}`, 'phone', { session: { [`congress_scanner_token_${points.main}`]: scannerToken(points.main) } }, 'tall');
 add('scanner-ready-tablet', `/scan/${points.main}`, 'tablet', { session: { [`congress_scanner_token_${points.main}`]: scannerToken(points.main) } });
 add('scanner-ready-fa-phone', `/scan/${points.cardio_main}`, 'phone', { session: { [`congress_scanner_token_${points.cardio_main}`]: scannerToken(points.cardio_main) } });
 
@@ -124,7 +124,13 @@ for (const s of shots) {
     await page.goto(`${BASE}${s.path}`, { waitUntil: 'networkidle', timeout: 30000 });
     await page.evaluate(() => document.fonts.ready);
     await page.waitForTimeout(700);
-    await page.screenshot({ path: resolve(outDir, `${s.name}.png`), fullPage: s.fullPage });
+    if (s.fullPage === 'tall') {
+      // Sticky sidebars and docks: grow the viewport to the document so they render in place.
+      const height = await page.evaluate(() => document.documentElement.scrollHeight);
+      await page.setViewportSize({ width: VIEW[s.view].width, height: Math.min(height, 8000) });
+      await page.waitForTimeout(400);
+    }
+    await page.screenshot({ path: resolve(outDir, `${s.name}.png`), fullPage: s.fullPage === true });
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     console.log(`ok   ${s.name}${overflow > 0 ? `  (horizontal overflow ${overflow}px)` : ''}`);
   } catch (e) {
