@@ -36,7 +36,15 @@ def run_migrations_offline() -> None:
         context.run_migrations()
 
 
+# Serialises concurrent `alembic upgrade` runs (e.g. two migrate containers): the second waits, then finds
+# nothing left to do. Session-level lock, released when the connection closes.
+MIGRATION_LOCK_KEY = 4_215_000_813
+
+
 def do_run_migrations(connection: Connection) -> None:
+    if connection.dialect.name == "postgresql":
+        connection.exec_driver_sql(f"SELECT pg_advisory_lock({MIGRATION_LOCK_KEY})")
+        connection.commit()
     context.configure(connection=connection, target_metadata=target_metadata)
     with context.begin_transaction():
         context.run_migrations()

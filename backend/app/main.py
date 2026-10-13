@@ -6,7 +6,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from app.config import Settings, describe_settings_error
+from app.config import STRICT_ENVIRONMENTS, Settings, describe_settings_error
+from app.schema_guard import assert_schema_current
 from app.routes import (
     access,
     analytics,
@@ -29,7 +30,9 @@ from app.routes import (
 def create_app(settings: Settings) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        engine = create_async_engine(settings.database_url)
+        engine = create_async_engine(settings.database_url, pool_pre_ping=True)
+        if settings.environment in STRICT_ENVIRONMENTS:
+            await assert_schema_current(engine)
         app.state.sessionmaker = async_sessionmaker(engine, expire_on_commit=False)
         yield
         await engine.dispose()
@@ -57,6 +60,7 @@ def create_app(settings: Settings) -> FastAPI:
     app.include_router(network.router)
     app.include_router(pages.router)
     app.include_router(public.router)
+    app.include_router(public.seo_router)
     return app
 
 

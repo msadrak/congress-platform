@@ -1,0 +1,11 @@
+.venv
+**/__pycache__
+.mypy_cache
+.pytest_cache
+.ruff_cache
+tests
+var
+.env
+.env.*
+demo_credentials.json
+seed_demo.py

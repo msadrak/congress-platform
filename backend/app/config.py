@@ -25,7 +25,7 @@ DISALLOWED_JWT_SECRETS = {
     "01234567890123456789012345678901",
 }
 # Fragments that only appear in documentation placeholders, never in generated secrets.
-PLACEHOLDER_MARKERS = ("change-me", "changeme", "replace-me", "provide-a-", "your-secret", "placeholder")
+PLACEHOLDER_MARKERS = ("<generate", "change-me", "changeme", "replace-me", "provide-a-", "your-secret", "placeholder")
 
 
 def _is_placeholder(value: str) -> bool:
@@ -46,6 +46,8 @@ class Settings(BaseSettings):
     cors_origins: list[str] = ["http://localhost:5173"]
     # Uploaded Page Studio images. Must be a durable volume (or mount) outside the application image.
     media_root: Path
+    # Absolute origin visitors use (e.g. https://congress.example.org); used for canonical/og URLs.
+    public_origin: str | None = None
     media_max_bytes: int = Field(default=5 * 1024 * 1024, gt=0, le=20 * 1024 * 1024)
 
     @model_validator(mode="before")
