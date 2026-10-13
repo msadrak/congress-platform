@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import jsQR from "jsqr";
 import { Button } from "../ui/Button";
+import { Icon } from "../ui/Icon";
 
 interface BarcodeDetectorInstance {
   detect(source: CanvasImageSource): Promise<{ rawValue?: string }[]>;
@@ -139,28 +140,53 @@ export function QrCameraInput({ onDecode, isRtl, disabled = false }: QrCameraInp
     unavailable: isRtl ? "دوربین در دسترس نیست (یا اتصال امن نیست). کد را دستی وارد کنید." : "No usable camera (or the page is not secure). Enter the code manually.",
   };
 
+  const active = view === "live" || view === "starting";
+  const failed = view === "denied" || view === "unavailable";
+  const toggle = active ? (
+    <Button type="button" variant="light" size="md" onClick={stop} className="min-w-[10rem]">
+      <Icon name="x" size={16} />
+      <span>{isRtl ? "بستن دوربین" : "Stop camera"}</span>
+    </Button>
+  ) : (
+    <Button type="button" variant="light" size="md" disabled={disabled} onClick={() => void start()} className="min-w-[10rem]">
+      <Icon name="camera" size={18} className="text-aiteb-indigo" />
+      <span>{isRtl ? "اسکن با دوربین" : "Scan with camera"}</span>
+    </Button>
+  );
+
   return (
     <div className="space-y-2">
-      {view === "live" || view === "starting" ? (
-        <Button type="button" variant="secondary" size="md" isFullWidth onClick={stop}>
-          {isRtl ? "بستن دوربین" : "Stop camera"}
-        </Button>
-      ) : (
-        <Button type="button" variant="secondary" size="md" isFullWidth disabled={disabled} onClick={() => void start()}>
-          <span aria-hidden="true">📷</span>
-          <span>{isRtl ? "اسکن با دوربین" : "Scan with camera"}</span>
-        </Button>
-      )}
-      <video
-        ref={videoRef}
-        muted
-        playsInline
-        aria-label={isRtl ? "پیش‌نمایش دوربین" : "Camera preview"}
-        className={`w-full max-h-64 rounded-xl bg-black object-cover ${view === "live" ? "" : "hidden"}`}
-      />
+      <div className="booth-viewfinder relative overflow-hidden rounded-2xl bg-surface-ink bg-meridian-ink">
+        <video
+          ref={videoRef}
+          muted
+          playsInline
+          aria-label={isRtl ? "پیش‌نمایش دوربین" : "Camera preview"}
+          className={`block aspect-[4/3] max-h-64 w-full bg-black object-cover ${view === "live" ? "" : "hidden"}`}
+        />
+        {view === "live" ? (
+          <>
+            <span aria-hidden="true" className="booth-viewfinder__sweep pointer-events-none absolute inset-x-8 inset-y-6 motion-safe:animate-sweep" />
+            <div className="absolute inset-x-0 bottom-3 flex justify-center">{toggle}</div>
+          </>
+        ) : (
+          <div className="flex min-h-[156px] flex-col items-center justify-center gap-3.5 px-5 py-6 text-center">
+            <span aria-hidden="true" className="relative grid size-12 place-items-center rounded-full border border-white/15 text-white">
+              {view === "starting" && <span className="absolute inset-0 rounded-full border border-aiteb-orchid/70 motion-safe:animate-pulse-ring" />}
+              <Icon name={failed ? "alert" : "qr"} size={22} className={failed ? "text-status-warning-solid" : ""} />
+            </span>
+            {toggle}
+          </div>
+        )}
+        <span aria-hidden="true" className="booth-viewfinder__corners pointer-events-none absolute inset-3" />
+      </div>
       {message[view] && (
-        <p role={view === "denied" || view === "unavailable" ? "alert" : "status"} className="text-xs text-text-secondary">
-          {message[view]}
+        <p
+          role={failed ? "alert" : "status"}
+          className={`flex items-start gap-2 text-xs leading-relaxed ${failed ? "rounded-lg border border-status-warning-border bg-status-warning-bg px-3 py-2 text-status-warning-text" : "text-text-secondary"}`}
+        >
+          {failed && <Icon name="info" size={15} className="mt-px shrink-0" />}
+          <span>{message[view]}</span>
         </p>
       )}
     </div>
