@@ -6,13 +6,36 @@ import {
   type AttendanceAnalyticsResponse,
   type CheckInPointOut,
   type EventOut,
+  type HourlyScanCount,
   type TicketTierOut,
 } from "../api/client";
 import { formatLocalizedNumber } from "../lib/i18n";
 import type { OrganizerOutletContext } from "./OrganizerLayout";
 import { Badge } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
-import { Card } from "../components/ui/Card";
+import { Icon } from "../components/ui/Icon";
+import { EmptyState, Meter, SectionHeader } from "../components/organizer/WorkspaceUi";
+
+/**
+ * Hourly buckets come back sparse ("HH:00", only hours with scans). For the chart the gaps between
+ * the first and last reported hour are filled with their true value, zero; unknown formats pass through.
+ */
+function hourlySeries(scans: HourlyScanCount[]): HourlyScanCount[] {
+  const byHour = new Map<number, number>();
+  for (const h of scans) {
+    const hour = /^(\d{1,2}):/.exec(h.hour);
+    if (!hour) return scans;
+    byHour.set(Number(hour[1]), (byHour.get(Number(hour[1])) ?? 0) + h.count);
+  }
+  if (byHour.size === 0) return scans;
+  const hours = [...byHour.keys()];
+  const first = Math.min(...hours);
+  const last = Math.max(...hours);
+  return Array.from({ length: last - first + 1 }, (_, i) => ({
+    hour: `${String(first + i).padStart(2, "0")}:00`,
+    count: byHour.get(first + i) ?? 0,
+  }));
+}
 
 // Remount per event so a late response for event A can never write into event B's state.
 export default function OrganizerAnalytics() {
@@ -154,110 +177,80 @@ function OrganizerAnalyticsContent() {
 
   if (loading && !analytics) {
     return (
-      <div className="space-y-6 animate-pulse">
-        <div className="w-64 h-8 bg-surface-panel-subtle rounded-xl" />
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <div className="h-32 bg-surface-panel rounded-2xl border border-border-default" />
-          <div className="h-32 bg-surface-panel rounded-2xl border border-border-default" />
-          <div className="h-32 bg-surface-panel rounded-2xl border border-border-default" />
+      <div className="space-y-6" aria-hidden="true">
+        <div className="skeleton h-24 w-full max-w-xl rounded-2xl" />
+        <div className="skeleton h-20 rounded-2xl" />
+        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+          <div className="skeleton h-36 rounded-2xl" />
+          <div className="skeleton h-36 rounded-2xl" />
+          <div className="skeleton h-36 rounded-2xl" />
+          <div className="skeleton h-36 rounded-2xl" />
         </div>
       </div>
     );
   }
 
+  const fmt = (n: number) => formatLocalizedNumber(n, locale);
+  const policyLabel: Record<string, string> = {
+    SINGLE_USE: t.policySingleUse,
+    MULTI_ENTRY: t.policyMultiEntry,
+    TIER_RESTRICTED: t.policyTierRestricted,
+    CAPACITY_CAPPED: t.policyCapacityCapped,
+  };
+  const maxGateTotal = Math.max(1, ...(analytics?.gate_breakdown ?? []).map((g) => g.total_admitted + g.total_rejected));
+
   return (
-    <div className="space-y-8">
-      {/* 1. Header & Live Telemetry Status Bar */}
-      <div className="p-5 sm:p-6 rounded-2xl bg-surface-panel border border-border-default shadow-xs space-y-4">
-        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-5">
-          <div className="space-y-1.5 max-w-2xl">
-            <div className="flex flex-wrap items-center gap-2">
-              <Badge variant="brand" size="sm">
-                {event?.name || t.organizerConsole}
-              </Badge>
-              <span className="text-xs text-text-muted">•</span>
-              <span className="text-xs text-text-muted font-medium">
-                {autoRefresh ? `🟢 ${t.analyticsPollingActive}` : `⏸️ ${t.analyticsPollingPaused}`}
-              </span>
-              {lastRefreshedAt && (
-                <>
-                  <span className="text-xs text-text-muted">•</span>
-                  <span className="text-xs font-mono text-text-muted">
-                    {t.lastRefreshedLabel}: <bdi dir="ltr">{lastRefreshedAt}</bdi>
-                  </span>
-                </>
-              )}
-            </div>
-
-            <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-text-primary">
-              {t.analyticsTitle}
-            </h1>
-            <p className="text-xs sm:text-sm text-text-secondary leading-relaxed">
-              {t.analyticsSubtitle}
-            </p>
-          </div>
-
-          {/* Action Cluster (Refresh Toggle, CSV Export, Return) */}
-          <div className="flex flex-wrap items-center gap-2.5 shrink-0">
-            <Button
-              type="button"
-              variant={autoRefresh ? "outline" : "secondary"}
-              size="sm"
-              onClick={() => setAutoRefresh((prev) => !prev)}
-              className="gap-1.5"
-            >
-              <span>{autoRefresh ? "⏸️" : "▶️"}</span>
-              <span>{autoRefresh ? (isRtl ? "توقف استعلام" : "Pause") : (isRtl ? "شروع استعلام" : "Resume")}</span>
+    <div className="space-y-8 sm:space-y-10">
+      <SectionHeader
+        index={6}
+        eyebrow={event?.name || t.organizerConsole}
+        title={t.analyticsTitle}
+        description={t.analyticsSubtitle}
+        action={
+          <>
+            <Button type="button" variant={autoRefresh ? "outline" : "secondary"} size="md" onClick={() => setAutoRefresh((prev) => !prev)}>
+              <Icon name={autoRefresh ? "pause" : "play"} size={16} />
+              <span>{autoRefresh ? (isRtl ? "توقف استعلام" : "Pause") : isRtl ? "شروع استعلام" : "Resume"}</span>
             </Button>
-
-            <Button
-              type="button"
-              variant="primary"
-              size="sm"
-              disabled={isExporting}
-              onClick={handleDownloadCsv}
-              className="gap-1.5 shadow-xs"
-            >
-              <span>📥</span>
+            <Button type="button" variant="primary" size="md" disabled={isExporting} onClick={handleDownloadCsv}>
+              <Icon name="download" size={18} />
               <span>{isExporting ? t.exportingCsv : t.exportAttendanceCsvAction}</span>
             </Button>
-          </div>
+          </>
+        }
+      />
+
+      {/* Telemetry status, filters and the honest data caveat */}
+      <div className="overflow-hidden rounded-2xl border border-border-default bg-surface-panel shadow-soft">
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-3 border-b border-border-subtle px-4 py-3 sm:px-6">
+          <span className="inline-flex items-center gap-2.5 text-xs font-semibold text-text-primary">
+            {autoRefresh ? (
+              <span className="org-live" aria-hidden="true">
+                <span className="motion-safe:animate-pulse-ring" />
+                <span />
+              </span>
+            ) : (
+              <Icon name="pause" size={14} className="text-text-muted" />
+            )}
+            {autoRefresh ? t.analyticsPollingActive : t.analyticsPollingPaused}
+          </span>
+          {lastRefreshedAt && (
+            <span className="inline-flex items-center gap-1.5 text-xs text-text-muted">
+              <Icon name="clock" size={14} />
+              {t.lastRefreshedLabel}: <bdi dir="ltr" className="font-mono tabular">{lastRefreshedAt}</bdi>
+            </span>
+          )}
         </div>
 
-        {/* Honest Offline Synchronization Caveat */}
-        <div className="p-3.5 rounded-xl bg-surface-panel-subtle border border-border-subtle text-xs text-text-muted leading-relaxed space-y-1.5">
-          <p>{t.offlineSyncDisclaimer}</p>
-          <p>
-            {isRtl
-              ? "فیلترها فقط نمای روی صفحه را تغییر می‌دهند؛ فایل CSV شامل همهٔ ورودهای این همایش است."
-              : "Filters change this view only; the CSV export always covers every scan for this event."}
-          </p>
-        </div>
-      </div>
-
-      {/* Global Error Banner */}
-      {(error || exportError) && (
-        <div
-          role="alert"
-          aria-live="assertive"
-          className="p-4 rounded-xl bg-status-danger-bg text-status-danger-text border border-status-danger-border text-xs leading-relaxed"
-        >
-          {error ? t.staleDataWarning : exportError}
-        </div>
-      )}
-
-      {/* 2. Filter Bar */}
-      <div className="p-4 sm:p-5 rounded-2xl bg-surface-panel border border-border-default shadow-xs flex flex-wrap items-center gap-4">
-        <div className="text-xs font-bold uppercase tracking-wider text-text-muted shrink-0">
-          {isRtl ? "فیلترها:" : "Filters:"}
-        </div>
-
-        {/* Point Filter */}
-        <div className="flex-1 min-w-[200px] max-w-xs">
+        <div className="flex flex-col gap-3 px-4 py-4 sm:flex-row sm:flex-wrap sm:items-center sm:px-6">
+          <span className="inline-flex shrink-0 items-center gap-2 text-xs font-semibold text-text-muted">
+            <Icon name="filter" size={16} />
+            {isRtl ? "فیلترها:" : "Filters:"}
+          </span>
           <select
             value={selectedPointId}
             onChange={(e) => setSelectedPointId(e.target.value)}
-            className="w-full px-3 py-2 bg-surface-page border border-border-default rounded-xl text-xs text-text-primary focus:border-action-primary focus:ring-1 focus:ring-action-primary"
+            className="ui-select text-sm sm:w-auto sm:min-w-[14rem] sm:flex-1 lg:max-w-xs"
             aria-label={t.filterByPoint}
           >
             <option value="">{t.allPointsFilter}</option>
@@ -267,14 +260,10 @@ function OrganizerAnalyticsContent() {
               </option>
             ))}
           </select>
-        </div>
-
-        {/* Tier Filter */}
-        <div className="flex-1 min-w-[200px] max-w-xs">
           <select
             value={selectedTierId}
             onChange={(e) => setSelectedTierId(e.target.value)}
-            className="w-full px-3 py-2 bg-surface-page border border-border-default rounded-xl text-xs text-text-primary focus:border-action-primary focus:ring-1 focus:ring-action-primary"
+            className="ui-select text-sm sm:w-auto sm:min-w-[14rem] sm:flex-1 lg:max-w-xs"
             aria-label={t.filterByTier}
           >
             <option value="">{t.allTiersFilter}</option>
@@ -284,309 +273,323 @@ function OrganizerAnalyticsContent() {
               </option>
             ))}
           </select>
+          {(selectedPointId || selectedTierId) && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="md"
+              onClick={() => {
+                setSelectedPointId("");
+                setSelectedTierId("");
+              }}
+              className="shrink-0 text-status-danger-text hover:bg-status-danger-bg"
+            >
+              <Icon name="x" size={16} />
+              {t.clearFiltersAction}
+            </Button>
+          )}
         </div>
 
-        {/* Clear Filters Button */}
-        {(selectedPointId || selectedTierId) && (
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            onClick={() => {
-              setSelectedPointId("");
-              setSelectedTierId("");
-            }}
-            className="text-xs text-status-danger-text hover:bg-status-danger-bg shrink-0"
-          >
-            ✕ {t.clearFiltersAction}
-          </Button>
-        )}
+        <div className="flex items-start gap-3 bg-surface-panel-subtle px-4 py-3.5 text-xs leading-relaxed text-text-muted sm:px-6">
+          <Icon name="info" size={16} className="mt-0.5 shrink-0 text-aiteb-slate" />
+          <div className="space-y-1">
+            <p>{t.offlineSyncDisclaimer}</p>
+            <p>
+              {isRtl
+                ? "فیلترها فقط نمای روی صفحه را تغییر می‌دهند؛ فایل CSV شامل همهٔ ورودهای این همایش است."
+                : "Filters change this view only; the CSV export always covers every scan for this event."}
+            </p>
+          </div>
+        </div>
       </div>
+
+      {/* Global Error Banner */}
+      {(error || exportError) && (
+        <div
+          role="alert"
+          aria-live="assertive"
+          className="flex items-start gap-2.5 rounded-xl border border-status-danger-border bg-status-danger-bg px-4 py-3 text-sm leading-relaxed text-status-danger-text"
+        >
+          <Icon name="alert" size={18} className="mt-0.5 shrink-0" />
+          <span>{error ? t.staleDataWarning : exportError}</span>
+        </div>
+      )}
 
       {analytics && (
         <>
-          {/* 3. Primary KPI Cards Grid (4 Cards) */}
-          <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5">
-            {/* KPI 1: Total Registered Passes */}
-            <div className="p-5 sm:p-6 rounded-2xl bg-surface-panel border border-border-default shadow-xs space-y-2">
-              <span className="text-xs font-semibold text-text-muted block">
+          {/* KPI strip */}
+          <section aria-label={isRtl ? "شاخص‌های کلیدی" : "Key figures"} className="grid grid-cols-1 overflow-hidden rounded-2xl border border-border-default bg-surface-panel shadow-soft sm:grid-cols-2 xl:grid-cols-4">
+            <div className="flex flex-col gap-3 p-5 sm:p-6">
+              <span className="flex items-center justify-between gap-2 text-xs font-semibold text-text-muted">
                 {t.totalRegisteredKPI}
+                <Icon name="ticket" size={18} className="text-aiteb-indigo/60" />
               </span>
-              <span className="text-2xl sm:text-3xl font-extrabold text-text-primary block tracking-tight">
-                {formatLocalizedNumber(analytics.total_tickets, locale)}
-              </span>
-              <p className="text-[11px] text-text-secondary leading-normal">
-                {t.totalRegisteredDesc}
-              </p>
+              <span className="org-kpi-value text-[2.75rem] text-text-primary sm:text-[3.25rem]">{fmt(analytics.total_tickets)}</span>
+              <p className="text-xs leading-relaxed text-text-secondary">{t.totalRegisteredDesc}</p>
             </div>
 
-            {/* KPI 2: Unique Admitted Attendees */}
-            <div className="p-5 sm:p-6 rounded-2xl bg-surface-panel border border-border-default shadow-xs space-y-2.5">
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-xs font-semibold text-text-muted block">
-                  {t.uniqueAdmittedKPI}
+            <div className="flex flex-col gap-3 border-t border-border-subtle p-5 sm:border-s sm:border-t-0 sm:p-6">
+              <span className="flex items-center justify-between gap-2 text-xs font-semibold text-text-muted">
+                {t.uniqueAdmittedKPI}
+                <span className="rounded-full border border-action-subtle-border bg-action-subtle px-2 py-0.5 text-[0.6875rem] font-bold text-action-primary">
+                  <bdi dir="ltr" className="tabular">{analytics.checkin_rate.toFixed(1)}%</bdi>
                 </span>
-                <span className="text-[11px] font-bold text-action-primary bg-action-subtle px-2 py-0.5 rounded-full border border-action-subtle-border">
-                  <bdi dir="ltr">{analytics.checkin_rate.toFixed(1)}%</bdi>
-                </span>
-              </div>
-              <span className="text-2xl sm:text-3xl font-extrabold text-text-primary block tracking-tight">
-                {formatLocalizedNumber(analytics.unique_admitted, locale)}
               </span>
-              {/* Semantic Progress Bar */}
-              <div
-                role="progressbar"
-                aria-valuenow={Math.round(analytics.checkin_rate)}
-                aria-valuemin={0}
-                aria-valuemax={100}
-                className="w-full bg-surface-panel-subtle rounded-full h-2 overflow-hidden border border-border-subtle"
-              >
-                <div
-                  className="bg-action-primary h-2 rounded-full transition-all duration-300"
-                  style={{ width: `${Math.min(analytics.checkin_rate, 100)}%` }}
-                />
-              </div>
+              <span className="org-kpi-value text-[2.75rem] text-text-primary sm:text-[3.25rem]">{fmt(analytics.unique_admitted)}</span>
+              <Meter value={analytics.checkin_rate} label={t.checkinRateKPI} className="mt-auto" />
             </div>
 
-            {/* KPI 3: Total Scan Operations */}
-            <div className="p-5 sm:p-6 rounded-2xl bg-surface-panel border border-border-default shadow-xs space-y-2">
-              <span className="text-xs font-semibold text-text-muted block">
+            <div className="flex flex-col gap-3 border-t border-border-subtle p-5 sm:p-6 xl:border-s xl:border-t-0">
+              <span className="flex items-center justify-between gap-2 text-xs font-semibold text-text-muted">
                 {t.totalScansKPI}
+                <Icon name="scan" size={18} className="text-aiteb-indigo/60" />
               </span>
-              <span className="text-2xl sm:text-3xl font-extrabold text-text-primary block tracking-tight">
-                {formatLocalizedNumber(analytics.total_scans, locale)}
-              </span>
-              <div className="flex items-center gap-3 text-xs pt-0.5">
-                <span className="font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded">
-                  ✓ {formatLocalizedNumber(analytics.total_admitted, locale)} {t.admittedLabel}
+              <span className="org-kpi-value text-[2.75rem] text-text-primary sm:text-[3.25rem]">{fmt(analytics.total_scans)}</span>
+              <div className="mt-auto flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
+                <span className="inline-flex items-center gap-1.5 font-semibold text-status-success-text">
+                  <span aria-hidden="true" className="size-2 rounded-full bg-status-success-solid" />
+                  {fmt(analytics.total_admitted)} {t.admittedLabel}
                 </span>
-                <span className="font-semibold text-rose-700 bg-rose-50 px-2 py-0.5 rounded">
-                  ✕ {formatLocalizedNumber(analytics.total_rejected, locale)} {t.rejectedLabel}
+                <span className="inline-flex items-center gap-1.5 font-semibold text-status-danger-text">
+                  <span aria-hidden="true" className="size-2 rounded-full bg-status-danger-solid" />
+                  {fmt(analytics.total_rejected)} {t.rejectedLabel}
                 </span>
               </div>
             </div>
 
-            {/* KPI 4: Cumulative Admissions (Factually Labeled, Never Live Occupancy) */}
-            <div className="p-5 sm:p-6 rounded-2xl bg-surface-panel border border-border-default shadow-xs space-y-2">
-              <span className="text-xs font-semibold text-text-muted block">
+            <div className="flex flex-col gap-3 border-t border-border-subtle p-5 sm:border-s sm:p-6 xl:border-t-0">
+              <span className="flex items-center justify-between gap-2 text-xs font-semibold text-text-muted">
                 {t.cumulativeAdmittedLabel}
+                <Icon name="check-circle" size={18} className="text-aiteb-indigo/60" />
               </span>
-              <span className="text-2xl sm:text-3xl font-extrabold text-text-primary block tracking-tight">
-                {formatLocalizedNumber(analytics.total_admitted, locale)}
-              </span>
-              <p className="text-[11px] text-text-secondary leading-normal">
-                {isRtl
-                  ? "مجموع اسکن‌های معتبر ثبت‌شده در تمامی گیت‌ها (بدون احتساب خروج)"
-                  : "Sum of valid entries across all points (exits not tracked)"}
+              <span className="org-kpi-value text-[2.75rem] text-text-primary sm:text-[3.25rem]">{fmt(analytics.total_admitted)}</span>
+              <p className="text-xs leading-relaxed text-text-secondary">
+                {isRtl ? "مجموع اسکن‌های معتبر ثبت‌شده در تمامی گیت‌ها (بدون احتساب خروج)" : "Sum of valid entries across all points (exits not tracked)"}
               </p>
             </div>
           </section>
 
-          {/* 4. Catering & Meal Redemption Section */}
+          {/* Catering & Meal Redemption */}
           {analytics.catering_metrics.length > 0 && (
             <section aria-labelledby="catering-section-title" className="space-y-4">
-              <div className="space-y-1">
-                <div className="flex items-center gap-2">
-                  <Badge variant="brand" size="sm">
-                    SINGLE_USE
-                  </Badge>
-                  <h2 id="catering-section-title" className="text-lg sm:text-xl font-bold tracking-tight text-text-primary">
-                    🍽️ {t.cateringSectionTitle}
+              <div className="flex items-start gap-3">
+                <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-status-warning-bg text-status-warning-text">
+                  <Icon name="utensils" size={20} />
+                </span>
+                <div className="space-y-1">
+                  <h2 id="catering-section-title" className="text-xl font-[660] tracking-[-0.02em] text-text-primary">
+                    {t.cateringSectionTitle}
                   </h2>
+                  <p className="text-sm text-text-secondary">{t.cateringSectionDesc}</p>
                 </div>
-                <p className="text-xs sm:text-sm text-text-secondary">
-                  {t.cateringSectionDesc}
-                </p>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid gap-4 md:grid-cols-2">
                 {analytics.catering_metrics.map((cat) => (
-                  <div
-                    key={cat.point_id}
-                    className="p-5 sm:p-6 rounded-2xl bg-surface-panel border border-border-default shadow-xs space-y-3"
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <h3 className="font-bold text-base text-text-primary">
-                        {cat.point_name}
+                  <div key={cat.point_id} className="space-y-4 shape-arc border border-border-default bg-surface-panel p-5 shadow-soft sm:p-6">
+                    <div className="flex items-start justify-between gap-3">
+                      <h3 className="min-w-0 break-words text-base font-bold text-text-primary">
+                        <bdi>{cat.point_name}</bdi>
                       </h3>
-                      <span className="text-xs font-bold text-amber-800 bg-amber-50 px-2.5 py-0.5 rounded-full border border-amber-200">
-                        <bdi dir="ltr">{cat.redemption_rate.toFixed(1)}%</bdi> {t.cateringRedemptionRate}
-                      </span>
+                      <Badge variant="warning" size="sm">
+                        <bdi dir="ltr" className="tabular">{cat.redemption_rate.toFixed(1)}%</bdi> {t.cateringRedemptionRate}
+                      </Badge>
                     </div>
-
-                    <div className="flex items-baseline gap-2">
-                      <span className="text-2xl font-extrabold text-text-primary">
-                        {formatLocalizedNumber(cat.meals_served, locale)}
+                    <p className="flex flex-wrap items-baseline gap-x-2">
+                      <span className="org-kpi-value text-[2.5rem] text-text-primary">{fmt(cat.meals_served)}</span>
+                      <span className="text-sm text-text-muted">
+                        / {fmt(cat.total_attendees)} {t.cateringMealsServed}
                       </span>
-                      <span className="text-xs text-text-muted">
-                        / {formatLocalizedNumber(cat.total_attendees, locale)} {t.cateringMealsServed}
-                      </span>
-                    </div>
-
-                    {/* Progress Bar */}
-                    <div
-                      role="progressbar"
-                      aria-valuenow={Math.round(cat.redemption_rate)}
-                      aria-valuemin={0}
-                      aria-valuemax={100}
-                      className="w-full bg-surface-panel-subtle rounded-full h-2 overflow-hidden border border-border-subtle"
-                    >
-                      <div
-                        className="bg-amber-500 h-2 rounded-full transition-all duration-300"
-                        style={{ width: `${Math.min(cat.redemption_rate, 100)}%` }}
-                      />
-                    </div>
+                    </p>
+                    <Meter value={cat.redemption_rate} label={`${cat.point_name} ${t.cateringRedemptionRate}`} size="lg" tone={cat.redemption_rate >= 100 ? "full" : "default"} />
                   </div>
                 ))}
               </div>
             </section>
           )}
 
-          {/* 5. Gate-by-Gate Throughput & Hourly Activity */}
-          <section aria-labelledby="gate-throughput-title" className="space-y-4">
-            <div className="space-y-1">
-              <h2 id="gate-throughput-title" className="text-lg sm:text-xl font-bold tracking-tight text-text-primary">
-                🚪 {t.gateThroughputSectionTitle}
+          {/* Gate-by-Gate Throughput & Hourly Activity */}
+          <section aria-labelledby="gate-throughput-title" className="space-y-5">
+            <div className="flex items-start gap-3">
+              <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-aiteb-lavender text-aiteb-indigo">
+                <Icon name="gate" size={20} />
+              </span>
+              <h2 id="gate-throughput-title" className="pt-1.5 text-xl font-[660] tracking-[-0.02em] text-text-primary">
+                {t.gateThroughputSectionTitle}
               </h2>
             </div>
 
             {analytics.gate_breakdown.length === 0 ? (
-              <Card className="p-8 text-center text-xs text-text-muted border-border-default">
-                {t.noGatesMatchFilter}
-              </Card>
+              <EmptyState icon="gate" title={t.noGatesMatchFilter} />
             ) : (
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                {analytics.gate_breakdown.map((gate) => (
-                  <article
-                    key={gate.point_id}
-                    aria-labelledby={`gate-heading-${gate.point_id}`}
-                    className="p-5 sm:p-6 rounded-2xl bg-surface-panel border border-border-default shadow-xs flex flex-col justify-between space-y-5"
-                  >
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between gap-2">
-                        <h3 id={`gate-heading-${gate.point_id}`} className="font-bold text-base text-text-primary">
-                          {gate.point_name}
-                        </h3>
-                        <Badge variant="neutral" size="sm">
-                          {gate.policy_type}
-                        </Badge>
-                      </div>
-
-                      <p className="text-xs text-text-secondary">
-                        📍 {gate.location || (isRtl ? "موقعیت نامشخص" : "General Venue Area")}
-                      </p>
-
-                      {/* Triple Metrics Breakdown */}
-                      <div className="grid grid-cols-3 gap-2 text-center pt-1">
-                        <div className="p-2.5 rounded-xl bg-surface-page border border-border-subtle">
-                          <span className="text-[10px] font-bold text-text-muted uppercase block">
-                            {t.admittedLabel}
+              <>
+                {/* Gate comparison: each bar is the gate's scans relative to the busiest gate */}
+                <div className="space-y-5 rounded-2xl border border-border-default bg-surface-panel p-5 shadow-soft sm:p-6">
+                  <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-text-muted">
+                    <span className="inline-flex items-center gap-2">
+                      <span aria-hidden="true" className="org-throughput__admit h-2.5 w-6 rounded-full" />
+                      {t.admittedLabel}
+                    </span>
+                    <span className="inline-flex items-center gap-2">
+                      <span aria-hidden="true" className="org-throughput__reject h-2.5 w-6 rounded-full" />
+                      {t.rejectedLabel}
+                    </span>
+                  </div>
+                  <ul className="space-y-4">
+                    {analytics.gate_breakdown.map((gate) => {
+                      const total = gate.total_admitted + gate.total_rejected;
+                      return (
+                        <li key={gate.point_id} className="grid gap-2 sm:grid-cols-[minmax(0,13rem)_minmax(0,1fr)_auto] sm:items-center sm:gap-4">
+                          <bdi className="min-w-0 truncate text-sm font-semibold text-text-primary">{gate.point_name}</bdi>
+                          <div className="org-throughput" aria-hidden="true">
+                            <span className="org-throughput__admit" style={{ inlineSize: `${(gate.total_admitted / maxGateTotal) * 100}%` }} />
+                            <span className="org-throughput__reject" style={{ inlineSize: `${(gate.total_rejected / maxGateTotal) * 100}%` }} />
+                          </div>
+                          <span className="text-xs text-text-secondary sm:text-end">
+                            <span className="tabular font-semibold text-status-success-text">{fmt(gate.total_admitted)}</span>
+                            <span className="text-text-muted"> / </span>
+                            <span className="tabular font-semibold text-status-danger-text">{fmt(gate.total_rejected)}</span>
+                            <span className="sr-only">
+                              {" "}
+                              ({t.admittedLabel} / {t.rejectedLabel}, {fmt(total)})
+                            </span>
                           </span>
-                          <span className="text-base font-extrabold text-emerald-700 block">
-                            {formatLocalizedNumber(gate.total_admitted, locale)}
-                          </span>
-                        </div>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
 
-                        <div className="p-2.5 rounded-xl bg-surface-page border border-border-subtle">
-                          <span className="text-[10px] font-bold text-text-muted uppercase block">
-                            {t.rejectedLabel}
-                          </span>
-                          <span className="text-base font-extrabold text-rose-700 block">
-                            {formatLocalizedNumber(gate.total_rejected, locale)}
-                          </span>
-                        </div>
+                <div className="grid gap-5 lg:grid-cols-2">
+                  {analytics.gate_breakdown.map((gate) => {
+                    const series = hourlySeries(gate.hourly_scans);
+                    const peak = Math.max(1, ...series.map((item) => item.count));
+                    const peakHour = series.find((item) => item.count === peak);
+                    const labelStep = Math.max(1, Math.ceil(series.length / 8));
+                    return (
+                      <article
+                        key={gate.point_id}
+                        aria-labelledby={`gate-heading-${gate.point_id}`}
+                        className="flex flex-col overflow-hidden rounded-2xl border border-border-default bg-surface-panel shadow-soft"
+                      >
+                        <div className="space-y-4 p-5 sm:p-6">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0 space-y-1">
+                              <h3 id={`gate-heading-${gate.point_id}`} className="break-words text-base font-bold text-text-primary">
+                                <bdi>{gate.point_name}</bdi>
+                              </h3>
+                              <p className="flex items-center gap-1.5 text-xs text-text-secondary">
+                                <Icon name="pin" size={14} className="shrink-0 text-text-muted" />
+                                <bdi>{gate.location || (isRtl ? "موقعیت نامشخص" : "General Venue Area")}</bdi>
+                              </p>
+                            </div>
+                            <Badge variant="neutral" size="sm">
+                              {policyLabel[gate.policy_type] ?? gate.policy_type}
+                            </Badge>
+                          </div>
 
-                        <div className="p-2.5 rounded-xl bg-surface-page border border-border-subtle">
-                          <span className="text-[10px] font-bold text-text-muted uppercase block">
-                            {t.cumulativeAdmittedLabel}
-                          </span>
-                          <span className="text-base font-extrabold text-text-primary block">
-                            {formatLocalizedNumber(gate.current_occupancy, locale)}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Hourly Activity Visualization & Accessible Data Table */}
-                    <div className="pt-3 border-t border-border-subtle space-y-3">
-                      <div className="flex items-center justify-between text-xs">
-                        <span className="font-bold text-text-muted uppercase tracking-wider text-[11px]">
-                          {t.hourlyDistributionLabel}
-                        </span>
-                        {gate.hourly_scans.length > 0 && (
-                          <button
-                            type="button"
-                            onClick={() => toggleHourlyTable(gate.point_id)}
-                            className="text-action-primary hover:underline font-medium text-[11px] cursor-pointer"
-                          >
-                            {showHourlyTable[gate.point_id]
-                              ? (isRtl ? "نمایش نمودار" : "View Bar Chart")
-                              : t.hourlyTableToggle}
-                          </button>
-                        )}
-                      </div>
-
-                      {gate.hourly_scans.length === 0 ? (
-                        <p className="text-xs text-text-muted py-2 text-center">
-                          {t.noHourlyScansLogged}
-                        </p>
-                      ) : showHourlyTable[gate.point_id] ? (
-                        /* Accessible Data Table Alternative */
-                        <div className="overflow-x-auto rounded-xl border border-border-subtle">
-                          <table className="w-full text-xs text-start">
-                            <thead className="bg-surface-panel-subtle text-text-muted font-bold">
-                              <tr>
-                                <th scope="col" className="p-2 text-start">{t.hourColumn}</th>
-                                <th scope="col" className="p-2 text-end">{t.scansCountColumn}</th>
-                              </tr>
-                            </thead>
-                            <tbody className="divide-y divide-border-subtle">
-                              {gate.hourly_scans.map((h) => (
-                                <tr key={h.hour} className="hover:bg-surface-page">
-                                  <td className="p-2 font-mono"><bdi dir="ltr">{h.hour}</bdi></td>
-                                  <td className="p-2 text-end font-bold font-mono">
-                                    {formatLocalizedNumber(h.count, locale)}
-                                  </td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      ) : (
-                        /* Semantic SVG/HTML Bar Chart */
-                        <div className="space-y-1.5 pt-1">
-                          {gate.hourly_scans.map((h) => {
-                            const maxInGate = Math.max(
-                              ...gate.hourly_scans.map((item) => item.count),
-                              1
-                            );
-                            const pct = (h.count / maxInGate) * 100;
-                            return (
-                              <div
-                                key={h.hour}
-                                className="flex items-center gap-2.5 text-xs"
-                              >
-                                <span className="font-mono text-text-muted w-14 shrink-0 text-start text-[11px]">
-                                  <bdi dir="ltr">{h.hour}</bdi>
-                                </span>
-                                <div className="flex-1 bg-surface-panel-subtle rounded-full h-2.5 overflow-hidden border border-border-subtle">
-                                  <div
-                                    className="bg-action-primary h-2.5 rounded-full transition-all duration-300"
-                                    style={{ width: `${Math.max(pct, 4)}%` }}
-                                  />
-                                </div>
-                                <span className="font-bold text-text-primary w-10 text-end text-[11px] font-mono">
-                                  {formatLocalizedNumber(h.count, locale)}
-                                </span>
+                          <dl className="grid grid-cols-3 divide-x divide-border-subtle rounded-xl border border-border-subtle bg-surface-page">
+                            {([
+                              [t.admittedLabel, gate.total_admitted, "text-status-success-text"],
+                              [t.rejectedLabel, gate.total_rejected, "text-status-danger-text"],
+                              [t.cumulativeAdmittedLabel, gate.current_occupancy, "text-text-primary"],
+                            ] as const).map(([label, value, tone]) => (
+                              <div key={label} className="min-w-0 px-3 py-2.5">
+                                <dt className="truncate text-[0.6875rem] font-semibold text-text-muted" title={label}>
+                                  {label}
+                                </dt>
+                                <dd className={`org-kpi-value mt-1.5 text-xl ${tone}`}>{fmt(value)}</dd>
                               </div>
-                            );
-                          })}
+                            ))}
+                          </dl>
                         </div>
-                      )}
-                    </div>
-                  </article>
-                ))}
-              </div>
+
+                        {/* Hourly Activity Visualization & Accessible Data Table */}
+                        <div className="mt-auto space-y-4 border-t border-border-subtle px-5 py-5 sm:px-6">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <span className="text-xs font-semibold text-text-muted">{t.hourlyDistributionLabel}</span>
+                            {gate.hourly_scans.length > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => toggleHourlyTable(gate.point_id)}
+                                aria-pressed={Boolean(showHourlyTable[gate.point_id])}
+                                className="inline-flex min-h-[36px] cursor-pointer items-center gap-1.5 rounded-lg px-2 text-xs font-semibold text-action-primary transition-colors hover:bg-action-subtle focus-visible:outline-2 focus-visible:outline-focus-ring"
+                              >
+                                <Icon name={showHourlyTable[gate.point_id] ? "chart" : "grid"} size={14} />
+                                {showHourlyTable[gate.point_id] ? (isRtl ? "نمایش نمودار" : "View Bar Chart") : t.hourlyTableToggle}
+                              </button>
+                            )}
+                          </div>
+
+                          {gate.hourly_scans.length === 0 ? (
+                            <p className="py-6 text-center text-xs text-text-muted">{t.noHourlyScansLogged}</p>
+                          ) : showHourlyTable[gate.point_id] ? (
+                            /* Accessible Data Table Alternative */
+                            <div className="max-h-72 overflow-y-auto rounded-xl border border-border-subtle">
+                              <table className="org-table text-xs">
+                                <thead>
+                                  <tr>
+                                    <th scope="col">{t.hourColumn}</th>
+                                    <th scope="col" className="text-end">
+                                      {t.scansCountColumn}
+                                    </th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {gate.hourly_scans.map((h) => (
+                                    <tr key={h.hour}>
+                                      <td className="!py-2.5 font-mono">
+                                        <bdi dir="ltr">{h.hour}</bdi>
+                                      </td>
+                                      <td className="!py-2.5 text-end font-mono font-semibold tabular">{fmt(h.count)}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          ) : (
+                            /* Column chart; the data table above is its accessible equivalent */
+                            <figure className="space-y-2">
+                              <div className="org-columns" dir="ltr" aria-hidden="true">
+                                {series.map((h) => (
+                                  <div key={h.hour} className="flex h-full min-w-0 flex-1 flex-col items-center justify-end gap-1" title={`${h.hour} · ${h.count}`}>
+                                    {series.length <= 12 && h.count > 0 && (
+                                      <span className="font-mono text-[0.625rem] font-semibold text-text-secondary">{fmt(h.count)}</span>
+                                    )}
+                                    <div
+                                      className="org-column w-full max-w-7"
+                                      data-empty={h.count === 0 ? "true" : undefined}
+                                      style={{ blockSize: h.count === 0 ? "2px" : `${Math.max(4, (h.count / peak) * 82)}%` }}
+                                    />
+                                  </div>
+                                ))}
+                              </div>
+                              <div dir="ltr" className="flex gap-1" aria-hidden="true">
+                                {series.map((h, i) => (
+                                  <span key={h.hour} className="min-w-0 flex-1 text-center font-mono text-[0.625rem] text-text-muted">
+                                    {i % labelStep === 0 ? h.hour.slice(0, 2) : ""}
+                                  </span>
+                                ))}
+                              </div>
+                              <figcaption className="flex flex-wrap items-center justify-between gap-2 pt-1 text-xs text-text-muted">
+                                <span>
+                                  {isRtl ? "ساعت" : "Hour of day"} <bdi dir="ltr" className="font-mono">({series[0]?.hour} – {series[series.length - 1]?.hour})</bdi>
+                                </span>
+                                {peakHour && (
+                                  <span>
+                                    {isRtl ? "اوج:" : "Peak:"} <bdi dir="ltr" className="font-mono font-semibold text-text-primary">{peakHour.hour}</bdi> ·{" "}
+                                    <span className="tabular font-semibold text-text-primary">{fmt(peakHour.count)}</span>
+                                  </span>
+                                )}
+                              </figcaption>
+                            </figure>
+                          )}
+                        </div>
+                      </article>
+                    );
+                  })}
+                </div>
+              </>
             )}
           </section>
         </>

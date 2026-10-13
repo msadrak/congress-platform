@@ -10,9 +10,13 @@ import {
   type EventTimeStatus,
 } from "../lib/organizerWorkspace";
 import { SkipLink } from "../components/ui/SkipLink";
-import { Button } from "../components/ui/Button";
-import { Card } from "../components/ui/Card";
-import { Badge } from "../components/ui/Badge";
+import { Icon, type IconName } from "../components/ui/Icon";
+import { AitebAttribution, ArcMotif } from "../components/brand/Aiteb";
+import { CongressSignature } from "../components/brand/CongressSignature";
+import { OrganizerKeyGate } from "../components/organizer/OrganizerKeyGate";
+import { EventStatusBadge } from "../components/organizer/WorkspaceUi";
+import { eventAccentStyle } from "../lib/eventAccent";
+import "../styles/organizer.css";
 
 export type ActiveEvent = Pick<EventOut, "id" | "name" | "slug" | "starts_at" | "ends_at">;
 
@@ -27,6 +31,14 @@ export interface OrganizerOutletContext {
   isRtl: boolean;
   dir: "rtl" | "ltr";
 }
+
+const SECTION_ICONS: Record<(typeof EVENT_SETUP_SECTIONS)[number]["key"], IconName> = {
+  overview: "grid",
+  tiers: "ticket",
+  "check-in": "gate",
+  booths: "booth",
+  operators: "users",
+};
 
 export default function OrganizerLayout() {
   const navigate = useNavigate();
@@ -100,11 +112,6 @@ export default function OrganizerLayout() {
   const timeStatus: EventTimeStatus | null = contextEvent
     ? eventTimeStatus(contextEvent.starts_at, contextEvent.ends_at, now)
     : null;
-  const statusLabel: Record<EventTimeStatus, string> = {
-    upcoming: isRtl ? "در پیش‌رو" : "Upcoming",
-    "in-progress": isRtl ? "در حال برگزاری" : "In progress",
-    ended: isRtl ? "پایان‌یافته" : "Ended",
-  };
   const setupLabels: Record<(typeof EVENT_SETUP_SECTIONS)[number]["key"], string> = {
     overview: t.tabOverview,
     tiers: t.tabTiers,
@@ -112,261 +119,212 @@ export default function OrganizerLayout() {
     booths: t.tabBooths,
     operators: t.tabOperators,
   };
-  const navLinkClass = (active: boolean) =>
-    `inline-flex items-center min-h-[44px] px-3 rounded-lg text-xs sm:text-[13px] font-semibold whitespace-nowrap shrink-0 border transition-colors focus-visible:outline-2 focus-visible:outline-focus-ring ${
-      active
-        ? "bg-action-subtle text-action-primary border-action-subtle-border"
-        : "border-transparent text-text-secondary hover:text-text-primary hover:bg-surface-panel-subtle"
-    }`;
+
+  const showGate = !apiKey && !isDesk;
+  const languageLabel = isRtl ? "Switch language to English" : "تغییر زبان به فارسی";
+
+  if (showGate) {
+    return (
+      <div dir={dir} lang={locale} className="min-h-dvh bg-surface-page font-sans text-text-primary">
+        <SkipLink targetId="organizer-main-content">
+          {isRtl ? "پرش به محتوای اصلی مدیریت" : "Skip to main organizer workspace content"}
+        </SkipLink>
+        <main id="organizer-main-content" tabIndex={-1} className="focus:outline-none">
+          <OrganizerKeyGate
+            locale={locale}
+            t={t}
+            isRtl={isRtl}
+            inputKey={inputKey}
+            onInputKeyChange={setInputKey}
+            error={error}
+            keyRejected={keyRejected}
+            onSubmit={handleSaveKey}
+            onToggleLocale={toggleLocale}
+          />
+        </main>
+      </div>
+    );
+  }
+
+  const navItem = (key: string, to: string, label: string, icon: IconName, index: number, active: boolean, title?: string) => (
+    <Link key={key} to={to} aria-current={active ? "page" : undefined} className="org-nav-link" title={title}>
+      <span className="org-nav-index" aria-hidden="true">
+        {String(index).padStart(2, "0")}
+      </span>
+      <span className="org-nav-icon" aria-hidden="true">
+        <Icon name={icon} size={18} />
+      </span>
+      {label}
+    </Link>
+  );
 
   return (
-    <div
-      dir={dir}
-      lang={locale}
-      className={`min-h-screen bg-surface-page text-text-primary flex flex-col font-sans selection:bg-action-subtle selection:text-action-primary ${
-        isRtl ? "text-start font-sans" : "text-start font-sans"
-      }`}
-    >
+    <div dir={dir} lang={locale} className="org-shell bg-surface-page font-sans text-text-primary">
       <SkipLink targetId="organizer-main-content">
         {isRtl ? "پرش به محتوای اصلی مدیریت" : "Skip to main organizer workspace content"}
       </SkipLink>
 
-      {/* Sticky Workspace Header */}
-      <header className="sticky top-0 z-40 bg-surface-panel/95 backdrop-blur-xs border-b border-border-default">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4">
-          {/* Brand & Console Title */}
+      {/* Ink rail: compact header below 1024 px, sidebar above. One DOM, two layouts (organizer.css). */}
+      <aside className="org-rail" aria-label={t.organizerConsole} style={eventAccentStyle(contextEvent?.slug)}>
+        <div aria-hidden="true" className="bg-meridian-ink pointer-events-none absolute inset-0 -z-10 opacity-60" />
+
+        {/* Brand */}
+        <div className="org-rail__brand px-4 py-3 sm:px-6 lg:px-5 lg:pb-5 lg:pt-6">
           <Link
             to="/organizer"
-            className="flex items-center gap-2.5 rounded-lg focus-visible:outline-2 focus-visible:outline-focus-ring"
+            className="inline-flex min-h-[44px] max-w-full items-center gap-3 rounded-lg"
             aria-label={t.organizerConsole}
           >
-            <span className="w-8 h-8 rounded-lg bg-action-primary text-text-inverse flex items-center justify-center font-bold text-base shadow-xs shrink-0">
-              <svg
-                className="w-4 h-4 text-white"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden="true"
-              >
-                <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1-2.5-2.5Z" />
-                <path d="M6 6h10" />
-                <path d="M6 10h10" />
-              </svg>
+            <span className="grid size-9 shrink-0 place-items-center rounded-[10px] bg-white/[0.07] ring-1 ring-white/15">
+              <ArcMotif className="size-[22px]" weight={9} />
             </span>
-            <div className="flex flex-col">
-              <span className="font-bold text-sm sm:text-base tracking-tight text-text-primary leading-tight">
-                {t.organizerConsole}
+            <span className="min-w-0 leading-tight">
+              <span className="block truncate text-sm font-semibold text-white">{t.organizerConsole}</span>
+              <span className="hidden truncate text-[0.6875rem] text-ink-300 sm:block">
+                {isRtl ? "مدیریت چندمستأجره همایش‌ها" : "Multi-tenant event management"}
               </span>
-              <span className="text-[11px] text-text-muted font-normal leading-none hidden sm:inline">
-                {isRtl ? "مدیریت چندمستأجره همایش‌ها" : "Multi-Tenant Event Management"}
-              </span>
-            </div>
+            </span>
           </Link>
-
-          {/* Controls: Language Switcher, Active Session & Logout */}
-          <div className="flex items-center gap-2.5">
-            <button
-              type="button"
-              onClick={toggleLocale}
-              className="text-xs font-semibold px-2.5 py-1.5 rounded-lg bg-surface-panel-subtle hover:bg-surface-page text-text-secondary border border-border-default transition-colors focus-visible:outline-2 focus-visible:outline-focus-ring cursor-pointer"
-              aria-label={isRtl ? "Switch language to English" : "تغییر زبان به فارسی"}
-            >
-              🌐 {t.languageToggle}
-            </button>
-
-            {apiKey && (
-              <div className="flex items-center gap-2">
-                <div className="hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-surface-panel-subtle border border-border-subtle text-[11px] font-mono text-text-secondary">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" aria-hidden="true" />
-                  <span>{isRtl ? "حالت مدیر" : "Organizer"} ••••<bdi dir="ltr">{apiKey.slice(-4)}</bdi></span>
-                </div>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={handleLogout}
-                  className="text-xs text-text-muted hover:text-text-primary"
-                >
-                  {t.clearKeyAction}
-                </Button>
-              </div>
-            )}
-          </div>
         </div>
 
-        {/* Active-event context and one workspace navigation for the selected event */}
-        {apiKey && eventId && (
-          <div className="border-t border-border-subtle bg-surface-panel">
-            <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-2.5 space-y-2">
-              <div className="flex items-center gap-x-3 gap-y-1 flex-wrap text-xs min-w-0">
-                <Link
-                  to="/organizer"
-                  className="inline-flex items-center min-h-[36px] font-semibold text-text-secondary hover:text-action-primary focus-visible:outline-2 focus-visible:outline-focus-ring rounded-md"
+        {/* Event context */}
+        {eventId && (
+          <div className="org-rail__context px-4 pb-1 sm:px-6 lg:px-5 lg:pb-4">
+            <Link
+              to="/organizer"
+              className="inline-flex min-h-[36px] items-center gap-1.5 rounded-md text-xs font-semibold text-ink-300 transition-colors hover:text-white"
+            >
+              <Icon name="arrow-left" size={16} />
+              {t.breadcrumbEvents}
+            </Link>
+            <div className="mt-1 flex items-start gap-3 lg:mt-2.5 lg:block">
+              {contextEvent && (
+                <div className="relative hidden h-16 overflow-hidden rounded-xl ring-1 ring-white/10 lg:block lg:[border-start-end-radius:24px]">
+                  <CongressSignature seed={contextEvent.slug} tone="ink" className="h-full w-full" />
+                </div>
+              )}
+              <div className="min-w-0 flex-1 lg:mt-3">
+                <p
+                  data-testid="active-event"
+                  className="truncate text-base font-semibold leading-snug text-white lg:line-clamp-3 lg:whitespace-normal lg:text-[1.0625rem] lg:[overflow-wrap:anywhere]"
                 >
-                  {isRtl ? "→" : "←"} {t.breadcrumbEvents}
-                </Link>
-                {eventId && (
-                  <>
-                    <span aria-hidden="true" className="text-text-muted">/</span>
-                    <span data-testid="active-event" className="font-bold text-text-primary truncate max-w-[60vw]">
-                      {contextEvent ? contextEvent.name : "…"}
-                    </span>
-                    {contextEvent && timeStatus && (
-                      <Badge variant={timeStatus === "in-progress" ? "success" : "neutral"} size="sm">
-                        {statusLabel[timeStatus]}
-                      </Badge>
-                    )}
-                    {contextEvent && (
-                      <span className="hidden sm:inline text-text-muted">
+                  {contextEvent ? <bdi>{contextEvent.name}</bdi> : "…"}
+                </p>
+                {contextEvent && timeStatus && (
+                  <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs text-ink-300 lg:mt-2.5">
+                    <EventStatusBadge status={timeStatus} isRtl={isRtl} />
+                    <span className="hidden items-start gap-1.5 sm:inline-flex lg:flex lg:w-full">
+                      <Icon name="calendar" size={14} className="mt-px shrink-0" />
+                      <span>
                         {formatLocalizedDate(contextEvent.starts_at, locale)} – {formatLocalizedDate(contextEvent.ends_at, locale)}
                       </span>
-                    )}
-                    {contextEvent && (
-                      <a
-                        href={`/e/${encodeURIComponent(contextEvent.slug)}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center min-h-[36px] font-semibold text-action-primary hover:underline"
-                      >
-                        {t.openPublicPageAction} <span aria-hidden="true">↗</span>
-                      </a>
-                    )}
-                  </>
+                    </span>
+                  </div>
                 )}
               </div>
-
-              {eventId && (
-                <nav
-                  aria-label={isRtl ? "فضای کاری همایش" : "Event workspace"}
-                  className="flex items-center gap-1 overflow-x-auto -mx-1 px-1"
+              {contextEvent && (
+                <a
+                  href={`/e/${encodeURIComponent(contextEvent.slug)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex min-h-[44px] shrink-0 items-center gap-1.5 rounded-lg px-1 text-xs font-semibold text-aiteb-orchid transition-colors hover:text-white lg:mt-1 lg:min-h-[36px]"
                 >
-                  {EVENT_SETUP_SECTIONS.map((s) => (
-                    <Link
-                      key={s.key}
-                      to={eventWorkspacePath(eventId, s.path)}
-                      aria-current={section === s.key ? "page" : undefined}
-                      className={navLinkClass(section === s.key)}
-                    >
-                      {setupLabels[s.key]}
-                    </Link>
-                  ))}
-                  <span className="mx-1 h-5 w-px bg-border-default shrink-0" aria-hidden="true" />
-                  <Link
-                    to={eventWorkspacePath(eventId, "/analytics")}
-                    aria-current={section === "analytics" ? "page" : undefined}
-                    className={navLinkClass(section === "analytics")}
-                  >
-                    📊 {t.breadcrumbAnalytics}
-                  </Link>
-                  <span className="mx-1 h-5 w-px bg-border-default shrink-0" aria-hidden="true" />
-                  <Link
-                    to={eventWorkspacePath(eventId, "/desk")}
-                    aria-current={isDesk ? "page" : undefined}
-                    className={navLinkClass(isDesk)}
-                    title={isRtl ? "میز پذیرش با دسترسی مستقل اپراتور" : "Reception uses its own operator access"}
-                  >
-                    🖨️ {t.breadcrumbDesk}
-                  </Link>
-                </nav>
+                  <span className="sr-only sm:not-sr-only lg:not-sr-only">{t.openPublicPageAction}</span>
+                  <Icon name="arrow-up-right" size={16} />
+                </a>
               )}
             </div>
           </div>
         )}
-      </header>
 
-      {/* Main Content Area */}
-      <main id="organizer-main-content" tabIndex={-1} className="flex-1 max-w-6xl w-full mx-auto p-4 sm:p-6 lg:p-8 focus:outline-none">
-        {!apiKey && !isDesk ? (
-          /* High-Contrast Credential Gate Card */
-          <div className="max-w-md mx-auto my-12 sm:my-20">
-            <Card className="border-border-default shadow-xs overflow-hidden">
-              <div className="p-6 sm:p-8 space-y-6">
-                <div className="space-y-2 text-center sm:text-start">
-                  <div className="w-12 h-12 rounded-xl bg-action-subtle text-action-primary flex items-center justify-center text-2xl mx-auto sm:mx-0 shadow-xs">
-                    🔑
-                  </div>
-                  <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-text-primary">
-                    {t.apiKeyGateTitle}
-                  </h1>
-                  <p className="text-xs sm:text-sm text-text-secondary leading-relaxed">
-                    {t.apiKeyGateDesc}
-                  </p>
-                </div>
+        {/* Section navigation */}
+        <div className="org-rail__nav px-2 pb-1 sm:px-4 lg:px-3 lg:pb-4">
+          {eventId ? (
+            <nav aria-label={isRtl ? "فضای کاری همایش" : "Event workspace"} className="org-nav lg:border-t lg:border-white/10 lg:pt-4">
+              {EVENT_SETUP_SECTIONS.map((s, i) =>
+                navItem(s.key, eventWorkspacePath(eventId, s.path), setupLabels[s.key], SECTION_ICONS[s.key], i + 1, section === s.key),
+              )}
+              <span className="org-nav-divider" aria-hidden="true" />
+              {navItem("analytics", eventWorkspacePath(eventId, "/analytics"), t.breadcrumbAnalytics, "chart", 6, section === "analytics")}
+              {navItem(
+                "desk",
+                eventWorkspacePath(eventId, "/desk"),
+                t.breadcrumbDesk,
+                "id-card",
+                7,
+                isDesk,
+                isRtl ? "میز پذیرش با دسترسی مستقل اپراتور" : "Reception uses its own operator access",
+              )}
+            </nav>
+          ) : (
+            <nav aria-label={isRtl ? "کنسول مدیریت" : "Organizer console"} className="org-nav hidden lg:flex lg:border-t lg:border-white/10 lg:pt-4">
+              {navItem("events", "/organizer", t.breadcrumbEvents, "congress", 1, location.pathname.replace(/\/$/, "") === "/organizer")}
+            </nav>
+          )}
+        </div>
 
-                <form onSubmit={handleSaveKey} className="space-y-4">
-                  <div>
-                    <label
-                      htmlFor="apiKeyInput"
-                      className="block text-xs font-semibold text-text-primary mb-1"
-                    >
-                      {t.apiKeyLabel} <span className="text-red-500">*</span>
-                    </label>
-                    <input
-                      id="apiKeyInput"
-                      type="password"
-                      value={inputKey}
-                      onChange={(e) => setInputKey(e.target.value)}
-                      placeholder={t.apiKeyPlaceholder}
-                      className="w-full px-3.5 py-2.5 bg-white border border-border-default rounded-xl text-sm font-mono text-text-primary focus:border-action-primary focus:ring-1 focus:ring-action-primary"
-                    />
-                  </div>
-
-                  {(error || keyRejected) && (
-                    <div
-                      role="alert"
-                      aria-live="assertive"
-                      className="p-3 rounded-xl bg-status-danger-bg text-status-danger-text border border-status-danger-border text-xs leading-relaxed"
-                    >
-                      {error ?? (isRtl ? "کلید API رد شد. لطفاً کلید معتبر وارد کنید." : "Your organizer API key was rejected. Please enter a valid key.")}
-                    </div>
-                  )}
-
-                  <div className="pt-1">
-                    <Button
-                      type="submit"
-                      variant="primary"
-                      size="lg"
-                      isFullWidth
-                    >
-                      {t.apiKeySubmit} →
-                    </Button>
-                  </div>
-                </form>
-
-                {/* Session Storage Security Disclosure */}
-                <div className="pt-4 border-t border-border-subtle text-[11px] text-text-muted leading-relaxed">
-                  <p>
-                    {isRtl
-                      ? "نکته امنیتی: کلید دسترسی فقط در حافظه نشست موقت مرورگر (SessionStorage) ذخیره می‌شود و با بستن تب مرورگر پاک می‌گردد."
-                      : "Security notice: Your API key is stored strictly within browser sessionStorage and automatically clears when the tab is closed."}
-                  </p>
-                </div>
-              </div>
-            </Card>
-          </div>
-        ) : (
-          <Outlet context={{ apiKey, onKeyRejected: handleKeyRejected, reportEvent, locale, t, isRtl, dir } satisfies OrganizerOutletContext} />
-        )}
-      </main>
-
-      {/* Organizer Workspace Footer */}
-      <footer className="border-t border-border-default bg-surface-panel text-text-secondary py-6 mt-12">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-text-muted">
-          <p>
-            {isRtl
-              ? "کنسول مدیریت همایش • معماری چندمستأجره با امنیت تفکیک سازمان‌ها"
-              : "Congress Organizer Console • Multi-tenant event management with tenant-isolated database access."}
-          </p>
-          <div className="flex items-center gap-4">
-            <Link to="/" className="text-action-primary hover:underline font-medium">
-              {t.platformHome}
-            </Link>
+        {/* Session controls */}
+        <div className="org-rail__controls flex items-center gap-1 pe-2 sm:pe-4 lg:flex-col lg:items-stretch lg:gap-2 lg:border-t lg:border-white/10 lg:p-4">
+          {apiKey && (
+            <div className="hidden items-center gap-2.5 rounded-lg bg-white/[0.05] px-3 py-2 ring-1 ring-white/10 lg:flex">
+              <span className="relative grid size-7 place-items-center rounded-md bg-white/[0.07] text-aiteb-orchid">
+                <Icon name="key" size={15} />
+              </span>
+              <span className="min-w-0 leading-tight">
+                <span className="block text-[0.6875rem] text-ink-400">{isRtl ? "حالت مدیر" : "Organizer key"}</span>
+                <bdi dir="ltr" className="block font-mono text-xs text-ink-100">
+                  ••••{apiKey.slice(-4)}
+                </bdi>
+              </span>
+              <span aria-hidden="true" className="ms-auto size-1.5 rounded-full bg-status-success-solid" />
+            </div>
+          )}
+          <div className="flex items-center gap-1 lg:flex-col lg:items-stretch lg:gap-1.5">
+            <button
+              type="button"
+              onClick={toggleLocale}
+              aria-label={languageLabel}
+              className="inline-flex min-h-[44px] min-w-[44px] shrink-0 cursor-pointer items-center justify-center gap-2 rounded-lg px-2.5 text-xs font-semibold text-ink-200 transition-colors hover:bg-white/[0.07] hover:text-white lg:justify-start lg:px-3"
+            >
+              <Icon name="globe" size={18} />
+              <span className="hidden sm:inline">{t.languageToggle}</span>
+            </button>
+            {apiKey && (
+              <button
+                type="button"
+                onClick={handleLogout}
+                className="inline-flex min-h-[44px] min-w-[44px] cursor-pointer items-center justify-center gap-2 whitespace-nowrap rounded-lg px-2.5 text-xs font-semibold text-ink-200 transition-colors hover:bg-white/[0.07] hover:text-white lg:justify-start lg:px-3"
+              >
+                <Icon name="logout" size={18} />
+                <span className="sr-only sm:not-sr-only">{t.clearKeyAction}</span>
+              </button>
+            )}
           </div>
         </div>
-      </footer>
+      </aside>
+
+      {/* Workspace column */}
+      <div className="flex min-w-0 flex-col">
+        <main
+          id="organizer-main-content"
+          tabIndex={-1}
+          className="mx-auto w-full max-w-[78rem] flex-1 px-4 py-6 focus:outline-none sm:px-6 sm:py-8 lg:px-10 lg:py-10"
+        >
+          <Outlet context={{ apiKey, onKeyRejected: handleKeyRejected, reportEvent, locale, t, isRtl, dir } satisfies OrganizerOutletContext} />
+        </main>
+
+        <footer className="border-t border-border-default">
+          <div className="mx-auto flex w-full max-w-[78rem] flex-col gap-3 px-4 py-6 text-xs text-text-muted sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:px-10">
+            <AitebAttribution locale={locale} />
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+              <span>{isRtl ? "دسترسی تفکیک‌شده برای هر سازمان برگزارکننده" : "Tenant-isolated access for each organizing body"}</span>
+              <Link to="/" className="inline-flex min-h-[36px] items-center font-semibold text-action-primary hover:underline">
+                {t.platformHome}
+              </Link>
+            </div>
+          </div>
+        </footer>
+      </div>
     </div>
   );
 }

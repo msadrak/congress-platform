@@ -1,13 +1,24 @@
 import React, { useEffect, useState } from "react";
 import { Link, useOutletContext } from "react-router-dom";
 import { createApiClient, formatApiError, type EventOut } from "../api/client";
-import { formatLocalizedDate } from "../lib/i18n";
-import { eventTimeStatus, type EventTimeStatus } from "../lib/organizerWorkspace";
+import { formatLocalizedDate, formatLocalizedNumber } from "../lib/i18n";
+import { eventTimeStatus } from "../lib/organizerWorkspace";
+import { eventAccentStyle } from "../lib/eventAccent";
 import type { OrganizerOutletContext } from "./OrganizerLayout";
-import { Badge } from "../components/ui/Badge";
 import { Button, LinkButton } from "../components/ui/Button";
-import { Card } from "../components/ui/Card";
 import { Dialog } from "../components/ui/Dialog";
+import { Icon } from "../components/ui/Icon";
+import { CongressSignature } from "../components/brand/CongressSignature";
+import {
+  DialogActions,
+  EmptyState,
+  EventStatusBadge,
+  Field,
+  FormAlert,
+  Notice,
+  SectionHeader,
+} from "../components/organizer/WorkspaceUi";
+import { eventTiming } from "../components/organizer/eventTiming";
 
 export default function OrganizerEvents() {
   const { apiKey, onKeyRejected, locale, t, isRtl } = useOutletContext<OrganizerOutletContext>();
@@ -174,210 +185,178 @@ export default function OrganizerEvents() {
       setEditingEvent(null);
     }
   };
-  const statusLabel: Record<EventTimeStatus, string> = {
-    upcoming: isRtl ? "در پیش‌رو" : "Upcoming",
-    "in-progress": isRtl ? "در حال برگزاری" : "In progress",
-    ended: isRtl ? "پایان‌یافته" : "Ended",
-  };
-  return (
-    <div className="space-y-6 sm:space-y-8">
-      {/* Page Title & Primary Action Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-6 border-b border-border-default">
-        <div className="space-y-1">
-          <div className="flex items-center gap-2">
-            <Badge variant="brand" size="md">
-              {t.activeOrganizer}
-            </Badge>
-            <span className="text-xs text-text-muted">
-              ({events.length} {isRtl ? "همایش" : "events"})
-            </span>
-          </div>
-          <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-text-primary">
-            {t.eventsListHeading}
-          </h1>
-          <p className="text-xs sm:text-sm text-text-secondary">
-            {t.eventsListSubheading}
-          </p>
-        </div>
 
-        <div className="shrink-0">
-          <Button
-            type="button"
-            variant="primary"
-            size="md"
-            onClick={() => setIsCreateModalOpen(true)}
-            className="gap-2 shadow-xs"
-          >
-            <span>+</span>
+  const liveCount = events.filter((ev) => eventTimeStatus(ev.starts_at, ev.ends_at, now) === "in-progress").length;
+  const upcomingCount = events.filter((ev) => eventTimeStatus(ev.starts_at, ev.ends_at, now) === "upcoming").length;
+
+  return (
+    <div className="space-y-8 sm:space-y-10">
+      <SectionHeader
+        eyebrow={
+          <>
+            {t.activeOrganizer}
+            <span className="mx-2 text-border-strong" aria-hidden="true">
+              /
+            </span>
+            <span className="tabular">
+              {formatLocalizedNumber(events.length, locale)} {isRtl ? "همایش" : events.length === 1 ? "event" : "events"}
+            </span>
+          </>
+        }
+        title={t.eventsListHeading}
+        description={t.eventsListSubheading}
+        action={
+          <Button type="button" variant="primary" size="md" onClick={() => setIsCreateModalOpen(true)}>
+            <Icon name="plus" size={18} />
             <span>{t.createEventButton}</span>
           </Button>
-        </div>
-      </div>
+        }
+      />
 
-      {/* Global Error Banner */}
-      {error && (
-        <div
-          role="alert"
-          aria-live="assertive"
-          className="p-4 rounded-xl bg-status-danger-bg text-status-danger-text border border-status-danger-border text-xs leading-relaxed"
-        >
-          {error}
-        </div>
+      {/* Portfolio summary: counts derived from the listed events' own dates */}
+      {!loading && events.length > 0 && (
+        <dl className="grid grid-cols-3 divide-x divide-border-default overflow-hidden rounded-2xl border border-border-default bg-surface-panel shadow-soft">
+          {([
+            [isRtl ? "کل همایش‌ها" : "Congresses", events.length],
+            [isRtl ? "در حال برگزاری" : "Live now", liveCount],
+            [isRtl ? "پیش‌رو" : "Scheduled", upcomingCount],
+          ] as const).map(([label, value]) => (
+            <div key={label} className="flex flex-col gap-1 px-4 py-3.5 sm:flex-row sm:items-baseline sm:justify-between sm:gap-3 sm:px-6">
+              <dt className="text-xs font-semibold text-text-muted">{label}</dt>
+              <dd className="org-kpi-value text-[1.5rem] text-text-primary sm:text-[1.75rem]">{formatLocalizedNumber(value, locale)}</dd>
+            </div>
+          ))}
+        </dl>
       )}
 
+      {/* Global Error Banner */}
+      {error && <FormAlert>{error}</FormAlert>}
+
       {notice && (
-        <div role="status" className="flex items-start justify-between gap-3 p-3.5 rounded-xl bg-action-subtle text-action-primary border border-action-subtle-border text-xs leading-relaxed">
-          <span>{notice}</span>
-          <button
-            type="button"
-            onClick={() => setNotice(null)}
-            aria-label={isRtl ? "بستن پیام" : "Dismiss message"}
-            className="shrink-0 min-h-[24px] min-w-[24px] font-bold cursor-pointer focus-visible:outline-2 focus-visible:outline-focus-ring rounded"
-          >
-            ✕
-          </button>
-        </div>
+        <Notice tone="ok" onDismiss={() => setNotice(null)} dismissLabel={isRtl ? "بستن پیام" : "Dismiss message"}>
+          {notice}
+        </Notice>
       )}
 
       {/* Loading Skeleton */}
       {loading && events.length === 0 && (
-        <div className="space-y-4 animate-pulse">
-          <div className="h-32 bg-surface-panel rounded-2xl border border-border-default" />
-          <div className="h-32 bg-surface-panel rounded-2xl border border-border-default" />
+        <div className="space-y-4" aria-hidden="true">
+          <div className="skeleton h-44 shape-arc" />
+          <div className="skeleton h-44 rounded-2xl" />
         </div>
       )}
 
       {/* Empty State */}
       {!loading && !error && events.length === 0 && (
-        <Card className="p-8 sm:p-14 text-center space-y-4 border-border-default">
-          <div className="w-14 h-14 rounded-2xl bg-action-subtle text-action-primary mx-auto flex items-center justify-center text-2xl font-bold shadow-xs">
-            📅
-          </div>
-          <div className="space-y-1.5 max-w-md mx-auto">
-            <h2 className="text-lg font-bold text-text-primary">
-              {t.noEventsFoundTitle}
-            </h2>
-            <p className="text-xs sm:text-sm text-text-secondary leading-relaxed">
-              {t.noEventsFoundDesc}
-            </p>
-          </div>
-          <div className="pt-2">
-            <Button
-              type="button"
-              variant="primary"
-              size="md"
-              onClick={() => setIsCreateModalOpen(true)}
-            >
-              + {t.createEventButton}
+        <EmptyState
+          icon="calendar"
+          title={t.noEventsFoundTitle}
+          action={
+            <Button type="button" variant="primary" size="md" onClick={() => setIsCreateModalOpen(true)}>
+              <Icon name="plus" size={18} />
+              {t.createEventButton}
             </Button>
-          </div>
-        </Card>
+          }
+        >
+          {t.noEventsFoundDesc}
+        </EmptyState>
       )}
 
       {/* Populated Events List */}
       {!loading && events.length > 0 && (
-        <div className="grid grid-cols-1 gap-4 sm:gap-5">
-          {events.map((ev) => (
-            <article
-              key={ev.id}
-              aria-labelledby={`event-title-${ev.id}`}
-              className="p-5 sm:p-6 rounded-2xl bg-surface-panel border border-border-default shadow-xs flex flex-col lg:flex-row lg:items-center lg:justify-between gap-5 transition-all hover:border-border-strong"
-            >
-              <div className="space-y-2.5 max-w-2xl">
-                <div className="flex flex-wrap items-center gap-2">
-                  <Badge variant={eventTimeStatus(ev.starts_at, ev.ends_at, now) === "in-progress" ? "success" : "neutral"} size="sm">
-                    {statusLabel[eventTimeStatus(ev.starts_at, ev.ends_at, now)]}
-                  </Badge>
-                  <span className="text-xs text-text-muted">•</span>
-                  <span className="text-xs font-mono text-text-muted">
-                    <bdi dir="ltr">/e/{ev.slug}</bdi>
+        <div className="space-y-5">
+          {events.map((ev, index) => {
+            const status = eventTimeStatus(ev.starts_at, ev.ends_at, now);
+            return (
+              <article
+                key={ev.id}
+                aria-labelledby={`event-title-${ev.id}`}
+                style={eventAccentStyle(ev.slug)}
+                className="group grid overflow-hidden border border-border-default bg-surface-panel shadow-soft transition-[border-color,box-shadow] duration-300 shape-arc-lg hover:border-border-strong hover:shadow-lift motion-reduce:transition-none md:grid-cols-[minmax(0,15rem)_minmax(0,1fr)] xl:grid-cols-[minmax(0,17rem)_minmax(0,1fr)_auto]"
+              >
+                {/* Congress signature */}
+                <div className="relative h-32 overflow-hidden md:h-auto md:min-h-[12rem]">
+                  <CongressSignature seed={ev.slug} tone="ink" className="absolute inset-0 h-full w-full" />
+                  <span aria-hidden="true" className="absolute start-4 top-4 font-mono text-[0.6875rem] text-white/60">
+                    {String(index + 1).padStart(2, "0")}
                   </span>
                 </div>
 
-                <h2 id={`event-title-${ev.id}`} className="text-lg sm:text-xl font-bold text-text-primary tracking-tight">
-                  <Link
-                    to={`/organizer/events/${ev.id}`}
-                    className="hover:text-action-primary transition-colors focus-visible:outline-focus-ring"
+                {/* Identity + metadata */}
+                <div className="min-w-0 space-y-4 p-5 sm:p-6">
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+                    <EventStatusBadge status={status} isRtl={isRtl} />
+                    <span className="text-xs text-text-muted">{eventTiming(ev.starts_at, ev.ends_at, now, locale)}</span>
+                  </div>
+                  <div className="space-y-1.5">
+                    <h2 id={`event-title-${ev.id}`} className="font-display text-xl font-[660] leading-snug tracking-[-0.02em] text-text-primary sm:text-2xl">
+                      <Link
+                        to={`/organizer/events/${ev.id}`}
+                        className="rounded-sm transition-colors hover:text-event-accent focus-visible:outline-2 focus-visible:outline-focus-ring"
+                      >
+                        {ev.name}
+                      </Link>
+                    </h2>
+                    <p className="font-mono text-xs text-event-accent">
+                      <bdi dir="ltr">/e/{ev.slug}</bdi>
+                    </p>
+                  </div>
+                  <dl className="grid gap-x-6 gap-y-3 border-t border-border-subtle pt-4 text-sm sm:grid-cols-2">
+                    <div className="min-w-0">
+                      <dt className="flex items-center gap-1.5 text-xs font-semibold text-text-muted">
+                        <Icon name="calendar" size={14} />
+                        {isRtl ? "زمان برگزاری" : "Dates"}
+                      </dt>
+                      <dd className="mt-1 text-text-primary">
+                        {formatLocalizedDate(ev.starts_at, locale)} – {formatLocalizedDate(ev.ends_at, locale)}
+                      </dd>
+                    </div>
+                    <div className="min-w-0">
+                      <dt className="flex items-center gap-1.5 text-xs font-semibold text-text-muted">
+                        <Icon name="pin" size={14} />
+                        {isRtl ? "محل برگزاری" : "Venue"}
+                      </dt>
+                      <dd className="mt-1 break-words text-text-primary">{ev.location}</dd>
+                    </div>
+                  </dl>
+                  {ev.description && (
+                    <p className="line-clamp-2 text-sm leading-relaxed text-text-secondary">
+                      <bdi>{ev.description}</bdi>
+                    </p>
+                  )}
+                </div>
+
+                {/* Actions */}
+                <div className="flex flex-wrap items-center gap-2 border-t border-border-subtle bg-surface-panel-subtle/60 p-4 sm:px-6 md:col-span-2 xl:col-span-1 xl:w-56 xl:flex-col xl:items-stretch xl:justify-center xl:border-s xl:border-t-0 xl:bg-transparent">
+                  <LinkButton to={`/organizer/events/${ev.id}`} variant="primary" size="sm" className="xl:justify-between">
+                    <Icon name="sliders" size={16} />
+                    <span className="xl:flex-1 xl:text-start">{t.manageEventAction}</span>
+                  </LinkButton>
+                  <Button onClick={() => openEditModal(ev)} variant="secondary" size="sm" className="xl:justify-start">
+                    <Icon name="note" size={16} />
+                    <span>{t.editEventAction || (isRtl ? "ویرایش" : "Edit")}</span>
+                  </Button>
+                  <LinkButton to={`/organizer/events/${ev.id}/desk`} variant="secondary" size="sm" className="xl:justify-start">
+                    <Icon name="id-card" size={16} />
+                    <span>{t.openDeskAction}</span>
+                  </LinkButton>
+                  <LinkButton to={`/organizer/events/${ev.id}/analytics`} variant="secondary" size="sm" className="xl:justify-start">
+                    <Icon name="chart" size={16} />
+                    <span>{t.openAnalyticsAction}</span>
+                  </LinkButton>
+                  <a
+                    href={`/e/${ev.slug}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex min-h-[36px] items-center gap-1.5 rounded-lg px-3 text-[13px] font-semibold text-event-accent transition-colors hover:bg-event-accent-soft focus-visible:outline-2 focus-visible:outline-focus-ring"
                   >
-                    {ev.name}
-                  </Link>
-                </h2>
-
-                {/* Metadata Details */}
-                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-text-secondary font-medium">
-                  <span className="flex items-center gap-1">
-                    <span>📍</span>
-                    <span>{ev.location}</span>
-                  </span>
-                  <span className="flex items-center gap-1">
-                    <span>📅</span>
-                    <span>
-                      {formatLocalizedDate(ev.starts_at, locale)} – {formatLocalizedDate(ev.ends_at, locale)}
-                    </span>
-                  </span>
+                    <span>{t.openPublicPageAction}</span>
+                    <Icon name="arrow-up-right" size={16} />
+                  </a>
                 </div>
-
-                {ev.description && (
-                  <p className="text-xs text-text-muted line-clamp-2 leading-relaxed pt-0.5">
-                    {ev.description}
-                  </p>
-                )}
-              </div>
-
-              {/* Action Cluster (Configuration, Desk, Analytics, Public Page) */}
-              <div className="flex flex-wrap items-center gap-2 shrink-0 pt-2 lg:pt-0 border-t lg:border-t-0 border-border-subtle">
-                <LinkButton
-                  to={`/organizer/events/${ev.id}`}
-                  variant="primary"
-                  size="sm"
-                  className="gap-1.5"
-                >
-                  <span>⚙️</span>
-                  <span>{t.manageEventAction}</span>
-                </LinkButton>
-
-                <Button
-                  onClick={() => openEditModal(ev)}
-                  variant="secondary"
-                  size="sm"
-                  className="gap-1.5"
-                >
-                  <span>✏️</span>
-                  <span>{t.editEventAction || (isRtl ? "ویرایش" : "Edit")}</span>
-                </Button>
-
-                <LinkButton
-                  to={`/organizer/events/${ev.id}/desk`}
-                  variant="secondary"
-                  size="sm"
-                  className="gap-1.5"
-                >
-                  <span>🖨️</span>
-                  <span>{t.openDeskAction}</span>
-                </LinkButton>
-
-                <LinkButton
-                  to={`/organizer/events/${ev.id}/analytics`}
-                  variant="secondary"
-                  size="sm"
-                  className="gap-1.5"
-                >
-                  <span>📊</span>
-                  <span>{t.openAnalyticsAction}</span>
-                </LinkButton>
-
-                <a
-                  href={`/e/${ev.slug}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 px-3 py-2 rounded-lg text-xs font-semibold text-action-primary hover:bg-action-subtle transition-colors focus-visible:outline-2 focus-visible:outline-focus-ring"
-                >
-                  <span>{t.openPublicPageAction}</span>
-                  <span aria-hidden="true">↗</span>
-                </a>
-              </div>
-            </article>
-          ))}
+              </article>
+            );
+          })}
         </div>
       )}
 
@@ -394,122 +373,75 @@ export default function OrganizerEvents() {
         description={t.createEventModalDesc}
         size="lg"
       >
-        <form onSubmit={handleCreateEvent} className="space-y-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="sm:col-span-2">
-              <label className="block text-xs font-semibold text-text-primary mb-1">
-                {t.eventNameLabel} <span className="text-red-500">*</span>
-              </label>
+        <form onSubmit={handleCreateEvent} className="space-y-5">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <Field label={t.eventNameLabel} required className="sm:col-span-2">
               <input
                 type="text"
                 required
                 value={name}
                 onChange={handleNameChange}
                 placeholder={isRtl ? "مثال: هجدهمین کنگره سالانه بیوتکنولوژی" : "e.g. 18th Annual Congress of Biotechnology"}
-                className="w-full px-3.5 py-2.5 bg-white border border-border-default rounded-xl text-sm text-text-primary focus:border-action-primary focus:ring-1 focus:ring-action-primary"
+                className="ui-input"
               />
-            </div>
+            </Field>
 
-            <div className="sm:col-span-2">
-              <label className="block text-xs font-semibold text-text-primary mb-1">
-                {t.eventSlugLabel} <span className="text-red-500">*</span>
-              </label>
-              <input
-                type="text"
-                required
-                value={slug}
-                onChange={(e) => setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""))}
-                placeholder="biotech-congress-2027"
-                className="w-full px-3.5 py-2.5 bg-white border border-border-default rounded-xl text-sm font-mono text-text-primary focus:border-action-primary focus:ring-1 focus:ring-action-primary"
-              />
-              <span className="text-[11px] text-text-muted mt-1 block">
-                {t.eventSlugHint}
-              </span>
-            </div>
+            <Field label={t.eventSlugLabel} required hint={t.eventSlugHint} className="sm:col-span-2">
+              <div className="flex items-stretch overflow-hidden rounded-[10px]" dir="ltr">
+                <span className="inline-flex items-center border border-e-0 border-border-default bg-surface-panel-subtle px-3 font-mono text-sm text-text-muted [border-start-start-radius:10px] [border-end-start-radius:10px]">
+                  /e/
+                </span>
+                <input
+                  type="text"
+                  required
+                  value={slug}
+                  onChange={(e) => setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""))}
+                  placeholder="biotech-congress-2027"
+                  className="ui-input min-w-0 rounded-s-none font-mono"
+                />
+              </div>
+            </Field>
 
-            <div>
-              <label className="block text-xs font-semibold text-text-primary mb-1">
-                {t.startsAtLabel} <span className="text-red-500">*</span>
-              </label>
-              <input
-                type="datetime-local"
-                required
-                value={startsAt}
-                onChange={(e) => setStartsAt(e.target.value)}
-                className="w-full px-3.5 py-2.5 bg-white border border-border-default rounded-xl text-sm font-mono text-text-primary focus:border-action-primary focus:ring-1 focus:ring-action-primary"
-              />
-            </div>
+            <Field label={t.startsAtLabel} required>
+              <input type="datetime-local" required value={startsAt} onChange={(e) => setStartsAt(e.target.value)} className="ui-input font-mono" />
+            </Field>
 
-            <div>
-              <label className="block text-xs font-semibold text-text-primary mb-1">
-                {t.endsAtLabel} <span className="text-red-500">*</span>
-              </label>
-              <input
-                type="datetime-local"
-                required
-                value={endsAt}
-                onChange={(e) => setEndsAt(e.target.value)}
-                className="w-full px-3.5 py-2.5 bg-white border border-border-default rounded-xl text-sm font-mono text-text-primary focus:border-action-primary focus:ring-1 focus:ring-action-primary"
-              />
-            </div>
+            <Field label={t.endsAtLabel} required>
+              <input type="datetime-local" required value={endsAt} onChange={(e) => setEndsAt(e.target.value)} className="ui-input font-mono" />
+            </Field>
 
-            <div className="sm:col-span-2">
-              <label className="block text-xs font-semibold text-text-primary mb-1">
-                {t.locationLabel} <span className="text-red-500">*</span>
-              </label>
+            <Field label={t.locationLabel} required className="sm:col-span-2">
               <input
                 type="text"
                 required
                 value={location}
                 onChange={(e) => setLocation(e.target.value)}
                 placeholder={isRtl ? "مثال: مرکز همایش‌های بین‌المللی برج میلاد" : "e.g. International Convention Center, Hall A"}
-                className="w-full px-3.5 py-2.5 bg-white border border-border-default rounded-xl text-sm text-text-primary focus:border-action-primary focus:ring-1 focus:ring-action-primary"
+                className="ui-input"
               />
-            </div>
+            </Field>
 
-            <div className="sm:col-span-2">
-              <label className="block text-xs font-semibold text-text-primary mb-1">
-                {t.descriptionLabel}
-              </label>
+            <Field label={t.descriptionLabel} className="sm:col-span-2">
               <textarea
                 rows={3}
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 placeholder={isRtl ? "توضیحات و اهداف همایش علمی..." : "Summary and objectives of the conference..."}
-                className="w-full p-3 bg-white border border-border-default rounded-xl text-sm text-text-primary focus:border-action-primary focus:ring-1 focus:ring-action-primary"
+                className="ui-textarea"
               />
-            </div>
+            </Field>
           </div>
 
-          {formError && (
-            <div
-              role="alert"
-              aria-live="assertive"
-              className="p-3.5 rounded-xl bg-status-danger-bg text-status-danger-text border border-status-danger-border text-xs leading-relaxed"
-            >
-              {formError}
-            </div>
-          )}
+          {formError && <FormAlert>{formError}</FormAlert>}
 
-          <div className="pt-2 flex justify-end gap-2.5">
-            <Button
-              type="button"
-              variant="ghost"
-              size="md"
-              disabled={submitting}
-              onClick={() => setIsCreateModalOpen(false)}
-            >
+          <DialogActions>
+            <Button type="button" variant="ghost" size="md" disabled={submitting} onClick={() => setIsCreateModalOpen(false)}>
               {isRtl ? "انصراف" : "Cancel"}
             </Button>
-            <Button
-              type="submit"
-              variant="primary"
-              size="md"
-              disabled={submitting}
-            >
+            <Button type="submit" variant="primary" size="md" disabled={submitting}>
               {submitting ? "..." : t.saveEventAction}
             </Button>
-          </div>
+          </DialogActions>
         </form>
       </Dialog>
 
@@ -527,119 +459,51 @@ export default function OrganizerEvents() {
         size="lg"
       >
         {editingEvent && (
-          <form onSubmit={handleUpdateEvent} className="space-y-4">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="sm:col-span-2">
-                <label className="block text-xs font-semibold text-text-primary mb-1">
-                  {t.eventNameLabel} <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={editName}
-                  onChange={(e) => setEditName(e.target.value)}
-                  className="w-full px-3.5 py-2.5 bg-white border border-border-default rounded-xl text-sm text-text-primary focus:border-action-primary focus:ring-1 focus:ring-action-primary"
-                />
-              </div>
+          <form onSubmit={handleUpdateEvent} className="space-y-5">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <Field label={t.eventNameLabel} required className="sm:col-span-2">
+                <input type="text" required value={editName} onChange={(e) => setEditName(e.target.value)} className="ui-input" />
+              </Field>
 
-              <div className="sm:col-span-2">
-                <label className="block text-xs font-semibold text-text-primary mb-1">
-                  {t.eventSlugLabel}
-                </label>
-                <input
-                  type="text"
-                  disabled
-                  value={editingEvent.slug}
-                  className="w-full px-3.5 py-2.5 bg-neutral-100 border border-border-subtle rounded-xl text-sm font-mono text-text-muted cursor-not-allowed opacity-75"
-                />
-                <span className="text-[11px] text-text-muted mt-1 block">
-                  {isRtl
+              <Field
+                label={t.eventSlugLabel}
+                className="sm:col-span-2"
+                hint={
+                  isRtl
                     ? "شناسه اختصاصی اینترنتی (اسلاگ) جهت حفظ پیوند کارت‌ها و آدرس‌های عمومی ثابت می‌ماند."
-                    : "The public URL slug is preserved to protect published links and attendee passes."}
-                </span>
-              </div>
+                    : "The public URL slug is preserved to protect published links and attendee passes."
+                }
+              >
+                <input type="text" disabled value={editingEvent.slug} dir="ltr" className="ui-input font-mono" />
+              </Field>
 
-              <div>
-                <label className="block text-xs font-semibold text-text-primary mb-1">
-                  {t.startsAtLabel} <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="datetime-local"
-                  required
-                  value={editStartsAt}
-                  onChange={(e) => setEditStartsAt(e.target.value)}
-                  className="w-full px-3.5 py-2.5 bg-white border border-border-default rounded-xl text-sm font-mono text-text-primary focus:border-action-primary focus:ring-1 focus:ring-action-primary"
-                />
-              </div>
+              <Field label={t.startsAtLabel} required>
+                <input type="datetime-local" required value={editStartsAt} onChange={(e) => setEditStartsAt(e.target.value)} className="ui-input font-mono" />
+              </Field>
 
-              <div>
-                <label className="block text-xs font-semibold text-text-primary mb-1">
-                  {t.endsAtLabel} <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="datetime-local"
-                  required
-                  value={editEndsAt}
-                  onChange={(e) => setEditEndsAt(e.target.value)}
-                  className="w-full px-3.5 py-2.5 bg-white border border-border-default rounded-xl text-sm font-mono text-text-primary focus:border-action-primary focus:ring-1 focus:ring-action-primary"
-                />
-              </div>
+              <Field label={t.endsAtLabel} required>
+                <input type="datetime-local" required value={editEndsAt} onChange={(e) => setEditEndsAt(e.target.value)} className="ui-input font-mono" />
+              </Field>
 
-              <div className="sm:col-span-2">
-                <label className="block text-xs font-semibold text-text-primary mb-1">
-                  {t.locationLabel} <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={editLocation}
-                  onChange={(e) => setEditLocation(e.target.value)}
-                  className="w-full px-3.5 py-2.5 bg-white border border-border-default rounded-xl text-sm text-text-primary focus:border-action-primary focus:ring-1 focus:ring-action-primary"
-                />
-              </div>
+              <Field label={t.locationLabel} required className="sm:col-span-2">
+                <input type="text" required value={editLocation} onChange={(e) => setEditLocation(e.target.value)} className="ui-input" />
+              </Field>
 
-              <div className="sm:col-span-2">
-                <label className="block text-xs font-semibold text-text-primary mb-1">
-                  {t.descriptionLabel}
-                </label>
-                <textarea
-                  rows={3}
-                  value={editDescription}
-                  onChange={(e) => setEditDescription(e.target.value)}
-                  className="w-full p-3 bg-white border border-border-default rounded-xl text-sm text-text-primary focus:border-action-primary focus:ring-1 focus:ring-action-primary"
-                />
-              </div>
+              <Field label={t.descriptionLabel} className="sm:col-span-2">
+                <textarea rows={3} value={editDescription} onChange={(e) => setEditDescription(e.target.value)} className="ui-textarea" />
+              </Field>
             </div>
 
-            {editError && (
-              <div
-                role="alert"
-                aria-live="assertive"
-                className="p-3.5 rounded-xl bg-status-danger-bg text-status-danger-text border border-status-danger-border text-xs leading-relaxed"
-              >
-                {editError}
-              </div>
-            )}
+            {editError && <FormAlert>{editError}</FormAlert>}
 
-            <div className="pt-2 flex justify-end gap-2.5">
-              <Button
-                type="button"
-                variant="ghost"
-                size="md"
-                disabled={editSubmitting}
-                onClick={() => setEditingEvent(null)}
-              >
+            <DialogActions>
+              <Button type="button" variant="ghost" size="md" disabled={editSubmitting} onClick={() => setEditingEvent(null)}>
                 {t.cancelAction || (isRtl ? "انصراف" : "Cancel")}
               </Button>
-              <Button
-                type="submit"
-                variant="primary"
-                size="md"
-                disabled={editSubmitting}
-              >
-                {editSubmitting ? (t.savingAction || "...") : (t.saveChangesAction || (isRtl ? "ذخیره تغییرات" : "Save Changes"))}
+              <Button type="submit" variant="primary" size="md" disabled={editSubmitting}>
+                {editSubmitting ? t.savingAction || "..." : t.saveChangesAction || (isRtl ? "ذخیره تغییرات" : "Save Changes")}
               </Button>
-            </div>
+            </DialogActions>
           </form>
         )}
       </Dialog>
