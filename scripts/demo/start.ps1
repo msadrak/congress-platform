@@ -76,7 +76,11 @@ Write-Ok "database '$DbName' is accepting connections"
 $urls = Get-DemoUrls $cfg
 $saved = @{}
 $envVars = @{
+    # Explicit local mode: production defaults would refuse the short demo admin token.
+    CONGRESS_ENVIRONMENT = 'development'
     CONGRESS_DATABASE_URL = (Get-DatabaseUrl $cfg)
+    # Page Studio uploads live beside the other demo state (git-ignored, never deleted by start/stop).
+    CONGRESS_MEDIA_ROOT = (Join-Path $DemoDir 'media')
     CONGRESS_PLATFORM_ADMIN_TOKEN = $cfg.admin_token
     CONGRESS_JWT_SECRET = $cfg.jwt_secret
     CONGRESS_CORS_ORIGINS = "[`"$($urls.Web)`"]"
@@ -108,7 +112,7 @@ try {
         $apiPid = Start-Detached (New-RunScript 'run-api' $BackendDir "`"$venvPython`" -m uvicorn app.main:create_app_from_env --factory --host 127.0.0.1 --port $($cfg.api_port)") $BackendDir
     }
     Save-Pids $apiPid $(if ($webAlive) { $pids.web } else { 0 })
-    Wait-Http "$($urls.Api)/openapi.json" 60 'FastAPI'
+    Wait-Http "$($urls.Api)/api/ready" 60 'FastAPI'
     Write-Ok "API healthy at $($urls.Api) (pid $apiPid)"
 
     # ---- 7. seed only when empty -------------------------------------------------------------------------

@@ -1,6 +1,6 @@
 {
-  "run": "lux3f",
-  "total": 45,
+  "run": "shxmc",
+  "total": 46,
   "failed": 0,
   "results": [
     {
@@ -41,6 +41,11 @@
     {
       "stage": "A. Organizer preparation",
       "name": "A8 cross-tenant and cross-event isolation (organizer 2 sees nothing of Alpha; wrong credential families refused)",
+      "ok": true
+    },
+    {
+      "stage": "A. Organizer preparation",
+      "name": "A9 new congresses stay private until published in Page Studio (UI), then go public",
       "ok": true
     },
     {

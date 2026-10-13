@@ -74,8 +74,8 @@ try {
     '(python3 /diagnostics/clockmon.py 3600 &)',
     `.venv/bin/pytest -q -p jwtdiag ${pytestArgs.map((a) => `'${a.replace(/'/g, "'\\''")}'`).join(' ')}`,
     'code=$?',
-    'echo "--- clock steps (>50 ms) during the run:"; (cat /tmp/clockmon.log 2>/dev/null || true) | wc -l',
-    'echo "--- JWT decode failures by reason:"; grep -o \'"reason": "[A-Za-z]*\' /tmp/jwtdiag.log | sort | uniq -c || true',
+    'echo "--- clock steps (>50 ms) during the run: $(cat /tmp/clockmon.log 2>/dev/null | wc -l)"',
+    'echo "--- JWT decode failures: $(cat /tmp/jwtdiag.log 2>/dev/null | grep -c reason) (intentional negative cases included); ImmatureSignatureError (clock skew): $(cat /tmp/jwtdiag.log 2>/dev/null | grep -c ImmatureSignatureError)"',
     'exit $code',
   ].join('; ');
   const pytest = sh('docker', ['exec', ...env, '-w', '/app', RUNNER, 'sh', '-c', script], { allowFail: true, inherit: true });

@@ -1,0 +1,70 @@
+{
+  "at": "2026-10-13T14:40:51.820Z",
+  "results": [
+    {
+      "ok": true,
+      "name": "01 organizer signs in and creates a congress in the UI",
+      "note": "event e948d8d7…, page draft only"
+    },
+    {
+      "ok": true,
+      "name": "02 the unpublished congress is invisible to anonymous visitors (API 404)"
+    },
+    {
+      "ok": true,
+      "name": "03 Page Studio opens from the workspace navigation"
+    },
+    {
+      "ok": true,
+      "name": "04 logo and cover uploaded; hero layout, accent and bilingual hero text configured",
+      "note": "assets 3b069cc2, 5eb3409a"
+    },
+    {
+      "ok": true,
+      "name": "05 custom text block added (fa + en), FAQ added, blocks reordered and a section hidden"
+    },
+    {
+      "ok": true,
+      "name": "06 draft saved: new revision in PostgreSQL, still unpublished",
+      "note": "draft_revision=2"
+    },
+    {
+      "ok": true,
+      "name": "07 draft does not leak: public API, page, booth directory and images all answer 404"
+    },
+    {
+      "ok": true,
+      "name": "08 authenticated preview renders the draft in Persian and English, desktop and mobile"
+    },
+    {
+      "ok": true,
+      "name": "09 publish through the UI: snapshot stored atomically with its image list"
+    },
+    {
+      "ok": true,
+      "name": "10 anonymous visitor sees the published content, order, branding and images",
+      "note": "4 images loaded from /api/public/media"
+    },
+    {
+      "ok": true,
+      "name": "11 later edits stay in the draft until published again"
+    },
+    {
+      "ok": true,
+      "name": "12 publishing the update replaces the live page"
+    },
+    {
+      "ok": true,
+      "name": "13 page, media and publication survive a PostgreSQL re-creation and an API restart",
+      "note": "pg volume + media volume reused"
+    },
+    {
+      "ok": true,
+      "name": "14 another organizer can neither read, preview, edit, publish nor touch the images"
+    },
+    {
+      "ok": true,
+      "name": "15 the studio shows the live state after reload (persistence through the UI)"
+    }
+  ]
+}

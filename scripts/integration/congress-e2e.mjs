@@ -31,7 +31,7 @@ const API = 'congress-e2e-api';
 const DB = 'congress_e2e';
 const PG_USER = 'congress_e2e';
 const PG_PASSWORD = randomBytes(18).toString('hex');
-const ADMIN_TOKEN = randomBytes(12).toString('hex');
+const ADMIN_TOKEN = randomBytes(24).toString('hex');
 const JWT_SECRET = randomBytes(24).toString('hex');
 const BASE = 'http://127.0.0.1:4175';
 const API_URL = 'http://127.0.0.1:8000';
@@ -80,11 +80,14 @@ async function up() {
     docker('exec', API, 'rm', '-rf', `/app/${d}`);
     docker('cp', resolve(root, 'backend', d), `${API}:/app/${d}`);
   }
-  docker('cp', resolve(root, 'backend/alembic.ini'), `${API}:/app/alembic.ini`);
-  const env = ['-e', `CONGRESS_DATABASE_URL=${dbUrl}`, '-e', `CONGRESS_PLATFORM_ADMIN_TOKEN=${ADMIN_TOKEN}`, '-e', `CONGRESS_JWT_SECRET=${JWT_SECRET}`, '-e', 'CONGRESS_CORS_ORIGINS=["http://127.0.0.1:4175"]'];
+  for (const f of ['alembic.ini', 'pyproject.toml', 'uv.lock']) docker('cp', resolve(root, 'backend', f), `${API}:/app/${f}`);
+  // The image predates some dependencies (Pillow): sync the venv to the lock file while the container is still online.
+  docker('exec', '-e', 'UV_PROJECT_ENVIRONMENT=/app/.venv', '-w', '/app', API, 'uv', 'sync', '--frozen', '--no-dev', '--quiet');
+  // Production mode: the hardened configuration (explicit database, media volume, generated secrets) must hold.
+  const env = ['-e', 'CONGRESS_ENVIRONMENT=production', '-e', `CONGRESS_DATABASE_URL=${dbUrl}`, '-e', 'CONGRESS_MEDIA_ROOT=/tmp/congress-media', '-e', `CONGRESS_PLATFORM_ADMIN_TOKEN=${ADMIN_TOKEN}`, '-e', `CONGRESS_JWT_SECRET=${JWT_SECRET}`, '-e', 'CONGRESS_CORS_ORIGINS=["http://127.0.0.1:4175"]'];
   docker('exec', ...env, API, 'sh', '-c', 'cd /app && .venv/bin/alembic upgrade head');
   docker('exec', '-d', ...env, API, 'sh', '-c', 'cd /app && .venv/bin/uvicorn app.main:create_app_from_env --factory --host 0.0.0.0 --port 8000 > /tmp/api.log 2>&1');
-  await waitFor('API', async () => (await fetch(`${API_URL}/api/public/events/none`)).status === 404);
+  await waitFor('API', async () => (await fetch(`${API_URL}/api/ready`)).status === 200);
 
   // Effective-connection check before anything destructive: the API's own settings and the
   // database the fixtures will use must be the dedicated one in the private container.

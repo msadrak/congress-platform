@@ -183,6 +183,18 @@ export async function runJourney(ctx) {
       const list = (await http('GET', '/api/events', { key: S.key2 })).json;
       eq(list.map((e) => e.slug), [`other-${RUN}`], 'org2 list');
     });
+    await check('A9 new congresses stay private until published in Page Studio (UI), then go public', async () => {
+      eq((await http('GET', `/api/public/events/${S.slug}`)).status, 404, 'alpha before publishing');
+      for (const id of [S.alphaId, S.betaId]) {
+        await openEvent(id, '/page');
+        await O.getByTestId('page-studio').waitFor({ timeout: 15000 });
+        await O.getByRole('button', { name: 'Publish', exact: true }).first().click();
+        await O.getByRole('dialog').getByRole('button', { name: 'Publish', exact: true }).click();
+        await O.getByRole('status').filter({ hasText: 'Published.' }).waitFor({ timeout: 10000 });
+      }
+      eq(q(`select count(*) from event_pages where event_id in ('${S.alphaId}','${S.betaId}') and published is not null`), '2', 'published pages');
+      eq((await http('GET', `/api/public/events/${S.slug}`)).status, 200, 'alpha after publishing');
+    });
     await O.goto(`${BASE}/organizer/events/${S.alphaId}`);
     await O.getByTestId('active-event').filter({ hasText: 'E2E Congress Alpha' }).waitFor();
     await shot(O, 'A-organizer-event-workspace');

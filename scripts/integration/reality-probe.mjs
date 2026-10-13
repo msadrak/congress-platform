@@ -17,7 +17,7 @@ const { chromium } = require('playwright');
 const IMAGE = process.env.CONGRESS_E2E_BACKEND_IMAGE ?? 'congress-t0-backend:2c0085137f';
 const NET = 'congress-reality-net', PG = 'congress-reality-pg', API = 'congress-reality-api', VOL = 'congress-reality-pgdata';
 const DB = 'congress_reality', PGU = 'congress_reality', PGPW = randomBytes(18).toString('hex');
-const ADMIN = randomBytes(16).toString('hex'), JWTS = randomBytes(32).toString('hex');
+const ADMIN = randomBytes(24).toString('hex'), JWTS = randomBytes(32).toString('hex');
 const BASE = 'http://127.0.0.1:4176', API_URL = 'http://127.0.0.1:8000';
 const RUN = Date.now().toString(36).slice(-5);
 const PW = `Synth-${randomBytes(6).toString('hex')}!`;
@@ -31,7 +31,7 @@ const sh = (cmd, args, allowFail = false) => {
 const docker = (...a) => sh('docker', a);
 const psql = (sql) => docker('exec', PG, 'psql', '-U', PGU, '-d', DB, '-At', '-c', sql).stdout.trim();
 const wait = async (label, probe, ms = 60000) => { const end = Date.now() + ms; while (Date.now() < end) { try { if (await probe()) return; } catch {} await new Promise((r) => setTimeout(r, 700)); } throw new Error('timeout ' + label); };
-const env = () => ['-e', `CONGRESS_DATABASE_URL=postgresql+asyncpg://${PGU}:${PGPW}@${PG}:5432/${DB}`, '-e', `CONGRESS_PLATFORM_ADMIN_TOKEN=${ADMIN}`, '-e', `CONGRESS_JWT_SECRET=${JWTS}`, '-e', 'CONGRESS_CORS_ORIGINS=["http://127.0.0.1:4176"]'];
+const env = () => ['-e', 'CONGRESS_ENVIRONMENT=production', '-e', 'CONGRESS_MEDIA_ROOT=/tmp/congress-media', '-e', `CONGRESS_DATABASE_URL=postgresql+asyncpg://${PGU}:${PGPW}@${PG}:5432/${DB}`, '-e', `CONGRESS_PLATFORM_ADMIN_TOKEN=${ADMIN}`, '-e', `CONGRESS_JWT_SECRET=${JWTS}`, '-e', 'CONGRESS_CORS_ORIGINS=["http://127.0.0.1:4176"]'];
 const http = async (m, p, { token, key, admin, body } = {}) => {
   const h = { 'Content-Type': 'application/json' };
   if (token) h.Authorization = `Bearer ${token}`;
@@ -53,7 +53,7 @@ async function startPg() {
 }
 async function startUvicorn() {
   docker('exec', '-d', ...env(), API, 'sh', '-c', 'cd /app && .venv/bin/uvicorn app.main:create_app_from_env --factory --host 0.0.0.0 --port 8000 > /tmp/api.log 2>&1');
-  await wait('api', async () => (await fetch(`${API_URL}/api/public/events/none`)).status === 404);
+  await wait('api', async () => (await fetch(`${API_URL}/api/ready`)).status === 200);
 }
 
 let preview, browser;
@@ -64,7 +64,8 @@ try {
   docker('run', '-d', '--name', API, '-p', '127.0.0.1:8000:8000', '--entrypoint', 'sleep', IMAGE, 'infinity');
   docker('network', 'connect', NET, API);
   for (const d of ['app', 'migrations']) { docker('exec', API, 'rm', '-rf', `/app/${d}`); docker('cp', resolve(root, 'backend', d), `${API}:/app/${d}`); }
-  docker('cp', resolve(root, 'backend/alembic.ini'), `${API}:/app/alembic.ini`);
+  for (const f of ['alembic.ini', 'pyproject.toml', 'uv.lock']) docker('cp', resolve(root, 'backend', f), `${API}:/app/${f}`);
+  docker('exec', '-e', 'UV_PROJECT_ENVIRONMENT=/app/.venv', '-w', '/app', API, 'uv', 'sync', '--frozen', '--no-dev', '--quiet');
   docker('exec', ...env(), API, 'sh', '-c', 'cd /app && .venv/bin/alembic upgrade head');
   await startUvicorn();
   if (docker('port', PG).stdout.trim()) throw new Error('PostgreSQL publishes a port');
@@ -120,7 +121,13 @@ try {
   // ── Public page + registration ──
   const A = await page({ width: 390, height: 844 });
   let ticketId, secret;
-  await check('New congress is publicly reachable at /e/<slug> without code changes', 'UI', async () => {
+  await check('New congress stays private until the organizer publishes it in Page Studio, then is reachable at /e/<slug>', 'UI', async () => {
+    eq((await http('GET', `/api/public/events/${slug}`)).status, 404, 'before publishing');
+    await O.goto(`${BASE}/organizer/events/${eventId}/page`);
+    await O.getByTestId('page-studio').waitFor({ timeout: 15000 });
+    await O.getByRole('button', { name: 'Publish', exact: true }).first().click();
+    await O.getByRole('dialog').getByRole('button', { name: 'Publish', exact: true }).click();
+    await O.getByRole('status').filter({ hasText: 'Published.' }).waitFor({ timeout: 10000 });
     await A.goto(`${BASE}/e/${slug}`);
     await A.getByRole('heading', { name: new RegExp(`Reality Congress ${RUN}`) }).first().waitFor({ timeout: 10000 });
     await A.getByText(`Delegate ${RUN}`).first().waitFor();

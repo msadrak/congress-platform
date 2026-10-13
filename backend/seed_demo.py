@@ -103,10 +103,15 @@ def user_session(api: Api, email: str, name: str, org: str = "", title: str = ""
 
 
 def ensure_event(api: Api, key: str, spec: dict[str, Any]) -> dict[str, Any]:
+    """The demo congress exists. A congress created here is published right away (new events start as
+    private drafts); an existing one is left exactly as its organizer set it."""
     for ev in api.call("GET", "/api/events", token=key).json():
         if ev["slug"] == spec["slug"]:
             return ev  # type: ignore[no-any-return]
-    return api.call("POST", "/api/events", token=key, body=spec).json()  # type: ignore[no-any-return]
+    event: dict[str, Any] = api.call("POST", "/api/events", token=key, body=spec).json()
+    page = api.call("GET", f"/api/events/{event['id']}/page", token=key).json()
+    api.call("POST", f"/api/events/{event['id']}/page/publish", token=key, body={"revision": page["draft_revision"]})
+    return event
 
 
 def ensure_tier(api: Api, key: str, event_id: str, spec: dict[str, Any]) -> dict[str, Any]:
