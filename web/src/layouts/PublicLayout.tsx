@@ -2,13 +2,29 @@ import React, { useState, useEffect } from "react";
 import { Link, Outlet, useLocation } from "react-router-dom";
 import { SkipLink } from "../components/ui/SkipLink";
 import { LinkButton } from "../components/ui/Button";
+import { Icon } from "../components/ui/Icon";
+import { AitebAttribution, AitebLogo } from "../components/brand/Aiteb";
+import { CongressSignature } from "../components/brand/CongressSignature";
+import { eventAccentStyle } from "../lib/eventAccent";
 import { signInPath } from "../lib/safeRedirect";
+import { publicCopy, type PublicLocale } from "../components/public/copy";
+import "../styles/public.css";
 
 interface PublicLayoutProps {
   children?: React.ReactNode;
+  /** Page language; congress pages follow the language of the congress content. */
+  locale?: PublicLocale;
+  /** Congress name once known; congress pages (/e/:slug…) show the congress identity in the shell. */
+  congressName?: string;
 }
 
-export function PublicLayout({ children }: PublicLayoutProps) {
+const navLinkLight =
+  "inline-flex items-center min-h-[40px] px-3 rounded-lg text-sm font-medium text-text-secondary hover:text-text-primary hover:bg-surface-panel-subtle transition-colors";
+const navLinkInk =
+  "inline-flex items-center min-h-[40px] px-3 rounded-lg text-sm font-medium text-ink-200 hover:text-white hover:bg-white/8 transition-colors focus-visible:outline-aiteb-orchid";
+const footerLink = "inline-flex min-h-[32px] items-center text-sm text-ink-300 hover:text-white transition-colors focus-visible:outline-aiteb-orchid";
+
+export function PublicLayout({ children, locale = "en", congressName }: PublicLayoutProps) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const location = useLocation();
   // Event pages (/e/:slug…) sign in straight back to that congress's portal.
@@ -30,179 +46,202 @@ export function PublicLayout({ children }: PublicLayoutProps) {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [mobileMenuOpen]);
 
+  const c = publicCopy[locale];
+  const isRtl = locale === "fa";
+  const congress = Boolean(eventSlug);
+  const closeMenu = () => setMobileMenuOpen(false);
+
   return (
-    <div className="min-h-screen bg-surface-page text-text-primary flex flex-col font-sans selection:bg-action-subtle selection:text-action-primary">
-      <SkipLink targetId="main-content" />
+    <div
+      dir={isRtl ? "rtl" : "ltr"}
+      lang={locale}
+      style={congress ? eventAccentStyle(eventSlug) : undefined}
+      className="min-h-screen bg-surface-page text-text-primary flex flex-col font-sans"
+    >
+      <SkipLink targetId="main-content">{isRtl ? "رفتن به محتوای اصلی" : "Skip to main content"}</SkipLink>
 
-      {/* Header */}
-      <header className="sticky top-0 z-40 bg-surface-panel/95 backdrop-blur-xs border-b border-border-default">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4">
-          {/* Brand */}
-          <Link
-            to="/"
-            className="flex items-center gap-2.5 group rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
-            aria-label="Congress Platform Home"
-          >
-            <span className="w-8 h-8 rounded-lg bg-action-primary text-text-inverse flex items-center justify-center font-bold text-base shadow-xs group-hover:bg-action-hover transition-colors">
-              <svg
-                className="w-4 h-4 text-white"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden="true"
-              >
-                <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1-2.5-2.5Z" />
-                <path d="M6 6h10" />
-                <path d="M6 10h10" />
-              </svg>
-            </span>
-            <div className="flex flex-col">
-              <span className="font-bold text-base tracking-tight text-text-primary leading-tight">
-                Congress Platform
+      {congress ? (
+        /* ── Congress shell: the congress identity leads; the platform stays in the background. ── */
+        <header className="sticky top-0 z-40 bg-surface-ink/95 text-white backdrop-blur-md border-b border-white/8 pt-safe">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-10 h-16 flex items-center justify-between gap-3">
+            <Link
+              to={`/e/${eventSlug}`}
+              className="group flex min-w-0 items-center gap-3 rounded-xl focus-visible:outline-aiteb-orchid"
+              aria-label={congressName ? c.congressHomeLabel(congressName) : undefined}
+            >
+              <span aria-hidden="true" className="relative size-9 shrink-0 overflow-hidden rounded-[10px] [border-start-end-radius:16px] ring-1 ring-white/15">
+                <CongressSignature seed={eventSlug!} tone="ink" className="absolute inset-0 size-full scale-[1.6]" />
               </span>
-              <span className="text-[11px] text-text-muted font-normal leading-none hidden sm:inline">
-                Independent Event Operations
-              </span>
-            </div>
-          </Link>
-
-          {/* Desktop Navigation */}
-          <nav aria-label="Main Navigation" className="hidden md:flex items-center gap-1 lg:gap-2">
-            <a
-              href="#capabilities"
-              className="text-xs lg:text-sm font-medium text-text-secondary hover:text-text-primary px-3 py-2 rounded-md hover:bg-surface-panel-subtle transition-colors focus-visible:outline-2 focus-visible:outline-focus-ring"
-            >
-              Capabilities
-            </a>
-            <a
-              href="#roles"
-              className="text-xs lg:text-sm font-medium text-text-secondary hover:text-text-primary px-3 py-2 rounded-md hover:bg-surface-panel-subtle transition-colors focus-visible:outline-2 focus-visible:outline-focus-ring"
-            >
-              Role Entry
-            </a>
-            <a
-              href="#architecture"
-              className="text-xs lg:text-sm font-medium text-text-secondary hover:text-text-primary px-3 py-2 rounded-md hover:bg-surface-panel-subtle transition-colors focus-visible:outline-2 focus-visible:outline-focus-ring"
-            >
-              Architecture
-            </a>
-            <div className="h-4 w-px bg-border-default mx-1" aria-hidden="true" />
-            <Link
-              to="/my-tickets"
-              className="text-xs lg:text-sm font-medium text-text-secondary hover:text-text-primary px-3 py-2 rounded-md hover:bg-surface-panel-subtle transition-colors focus-visible:outline-2 focus-visible:outline-focus-ring"
-            >
-              My Tickets
+              {congressName ? (
+                <span className="min-w-0 truncate text-[15px] font-semibold tracking-[-0.01em] text-white">{congressName}</span>
+              ) : (
+                <span aria-hidden="true" className="h-3.5 w-40 rounded-full bg-white/10" />
+              )}
             </Link>
-            <Link
-              to="/my-network"
-              className="text-xs lg:text-sm font-medium text-text-secondary hover:text-text-primary px-3 py-2 rounded-md hover:bg-surface-panel-subtle transition-colors focus-visible:outline-2 focus-visible:outline-focus-ring"
-            >
-              My Network
-            </Link>
-          </nav>
 
-          {/* Header Action */}
-          <div className="flex items-center gap-2">
-            <LinkButton to={signInTarget} variant="outline" size="sm">
-              Attendee Sign In
-            </LinkButton>
-            <LinkButton
-              to="/organizer"
-              variant="primary"
-              size="sm"
-              className="hidden sm:inline-flex"
-            >
-              Organizer Console
-              <span aria-hidden="true">→</span>
-            </LinkButton>
-
-            {/* Mobile menu trigger */}
-            <button
-              type="button"
-              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              className="md:hidden inline-flex items-center justify-center p-2 rounded-lg text-text-secondary hover:text-text-primary hover:bg-surface-panel-subtle focus-visible:outline-2 focus-visible:outline-focus-ring cursor-pointer"
-              aria-expanded={mobileMenuOpen}
-              aria-controls="mobile-nav"
-              aria-label={mobileMenuOpen ? "Close navigation menu" : "Open navigation menu"}
-            >
-              <svg
-                className="w-5 h-5"
-                fill="none"
-                viewBox="0 0 24 24"
-                strokeWidth="2"
-                stroke="currentColor"
-                aria-hidden="true"
-              >
-                {mobileMenuOpen ? (
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                ) : (
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
-                )}
-              </svg>
-            </button>
-          </div>
-        </div>
-
-        {/* Mobile menu panel */}
-        {mobileMenuOpen && (
-          <nav
-            id="mobile-nav"
-            aria-label="Mobile Navigation"
-            className="md:hidden border-t border-border-default bg-surface-panel px-4 pt-3 pb-6 space-y-2 shadow-sm animate-in fade-in duration-150"
-          >
-            <a
-              href="#capabilities"
-              onClick={() => setMobileMenuOpen(false)}
-              className="block text-sm font-medium text-text-secondary hover:text-text-primary px-3 py-2 rounded-md hover:bg-surface-panel-subtle"
-            >
-              Platform Capabilities
-            </a>
-            <a
-              href="#roles"
-              onClick={() => setMobileMenuOpen(false)}
-              className="block text-sm font-medium text-text-secondary hover:text-text-primary px-3 py-2 rounded-md hover:bg-surface-panel-subtle"
-            >
-              Role Entry Points
-            </a>
-            <a
-              href="#architecture"
-              onClick={() => setMobileMenuOpen(false)}
-              className="block text-sm font-medium text-text-secondary hover:text-text-primary px-3 py-2 rounded-md hover:bg-surface-panel-subtle"
-            >
-              Architecture & Invariants
-            </a>
-            <div className="h-px bg-border-subtle my-2" aria-hidden="true" />
-            <Link
-              to="/my-tickets"
-              onClick={() => setMobileMenuOpen(false)}
-              className="block text-sm font-medium text-text-secondary hover:text-text-primary px-3 py-2 rounded-md hover:bg-surface-panel-subtle"
-            >
-              My Tickets & Passes
-            </Link>
-            <Link
-              to="/my-network"
-              onClick={() => setMobileMenuOpen(false)}
-              className="block text-sm font-medium text-text-secondary hover:text-text-primary px-3 py-2 rounded-md hover:bg-surface-panel-subtle"
-            >
-              My Network
-            </Link>
-            <div className="pt-2">
+            <div className="flex shrink-0 items-center gap-1">
+              <nav aria-label={c.mainNav} className="hidden md:flex items-center gap-1">
+                <Link to="/my-tickets" className={navLinkInk}>
+                  {c.myTickets}
+                </Link>
+                <Link to="/my-network" className={navLinkInk}>
+                  {c.myNetwork}
+                </Link>
+              </nav>
+              <span aria-hidden="true" className="hidden md:block mx-2 h-5 w-px bg-white/15" />
               <LinkButton
-                to="/organizer"
-                variant="primary"
-                size="md"
-                isFullWidth
-                onClick={() => setMobileMenuOpen(false)}
+                to={signInTarget}
+                variant="light"
+                size="sm"
+                aria-label={c.attendeeSignIn}
+                className="max-sm:px-3 focus-visible:outline-aiteb-orchid"
               >
-                Organizer Console →
+                <Icon name="user" size={16} />
+                <span className="sm:hidden">{c.signInShort}</span>
+                <span className="max-sm:hidden">{c.attendeeSignIn}</span>
               </LinkButton>
+              <button
+                type="button"
+                onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+                className="md:hidden ms-1 grid size-11 place-items-center rounded-xl text-ink-200 hover:text-white hover:bg-white/8 focus-visible:outline-aiteb-orchid cursor-pointer"
+                aria-expanded={mobileMenuOpen}
+                aria-controls="mobile-nav"
+                aria-label={mobileMenuOpen ? c.closeMenu : c.openMenu}
+              >
+                <Icon name={mobileMenuOpen ? "x" : "menu"} size={22} />
+              </button>
             </div>
-          </nav>
-        )}
-      </header>
+          </div>
+
+          {mobileMenuOpen && (
+            <nav
+              id="mobile-nav"
+              aria-label={c.mobileNav}
+              className="md:hidden border-t border-white/8 bg-surface-ink px-4 pt-3 pb-6 motion-safe:animate-fade"
+            >
+              <ul className="divide-y divide-white/8">
+                {[
+                  { to: "/my-tickets", label: c.myTickets, icon: "ticket" as const },
+                  { to: "/my-network", label: c.myNetwork, icon: "users" as const },
+                ].map((item) => (
+                  <li key={item.label}>
+                    <Link
+                      to={item.to}
+                      onClick={closeMenu}
+                      className="flex min-h-[52px] items-center gap-3 text-base font-medium text-white focus-visible:outline-aiteb-orchid"
+                    >
+                      <Icon name={item.icon} size={20} className="text-aiteb-orchid" />
+                      <span className="flex-1">{item.label}</span>
+                      <Icon name="chevron-right" size={18} className="text-ink-400" />
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+              <Link
+                to="/organizer"
+                onClick={closeMenu}
+                className="mt-4 flex min-h-[48px] items-center justify-center gap-2 rounded-xl border border-white/12 text-sm font-semibold text-ink-200 hover:bg-white/8 hover:text-white focus-visible:outline-aiteb-orchid"
+              >
+                {c.organizerConsole}
+                <Icon name="arrow-right" size={16} />
+              </Link>
+            </nav>
+          )}
+        </header>
+      ) : (
+        /* ── Platform shell: AIteb identity, platform navigation. ── */
+        <header className="sticky top-0 z-40 bg-surface-panel/90 backdrop-blur-md border-b border-border-default pt-safe">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-10 h-16 flex items-center justify-between gap-4">
+            <Link
+              to="/"
+              className="flex items-center gap-3 rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
+              aria-label={c.platformHomeLabel}
+            >
+              <AitebLogo alt="" className="h-8 w-auto" />
+              <span aria-hidden="true" className="hidden sm:block h-6 w-px bg-border-default" />
+              <span className="hidden sm:block text-sm font-semibold tracking-[-0.01em] text-text-primary">{c.platformName}</span>
+            </Link>
+
+            <nav aria-label={c.mainNav} className="hidden lg:flex items-center gap-1">
+              <a href="#capabilities" className={navLinkLight}>
+                Capabilities
+              </a>
+              <a href="#roles" className={navLinkLight}>
+                Role Entry
+              </a>
+              <a href="#architecture" className={navLinkLight}>
+                Architecture
+              </a>
+              <span aria-hidden="true" className="mx-2 h-5 w-px bg-border-default" />
+              <Link to="/my-tickets" className={navLinkLight}>
+                My Tickets
+              </Link>
+              <Link to="/my-network" className={navLinkLight}>
+                My Network
+              </Link>
+            </nav>
+
+            <div className="flex items-center gap-2">
+              <LinkButton to={signInTarget} variant="outline" size="sm" className="max-sm:hidden">
+                Attendee Sign In
+              </LinkButton>
+              <LinkButton to="/organizer" variant="ink" size="sm" className="max-sm:hidden">
+                Organizer Console
+                <Icon name="arrow-right" size={16} />
+              </LinkButton>
+              <button
+                type="button"
+                onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+                className="lg:hidden grid size-11 place-items-center rounded-xl text-text-secondary hover:text-text-primary hover:bg-surface-panel-subtle focus-visible:outline-2 focus-visible:outline-focus-ring cursor-pointer"
+                aria-expanded={mobileMenuOpen}
+                aria-controls="mobile-nav"
+                aria-label={mobileMenuOpen ? "Close navigation menu" : "Open navigation menu"}
+              >
+                <Icon name={mobileMenuOpen ? "x" : "menu"} size={22} />
+              </button>
+            </div>
+          </div>
+
+          {mobileMenuOpen && (
+            <nav
+              id="mobile-nav"
+              aria-label="Mobile Navigation"
+              className="lg:hidden border-t border-border-default bg-surface-panel px-4 pt-2 pb-6 shadow-lift motion-safe:animate-fade"
+            >
+              <ul className="divide-y divide-border-subtle">
+                {[
+                  { href: "#capabilities", label: "Platform Capabilities" },
+                  { href: "#roles", label: "Role Entry Points" },
+                  { href: "#architecture", label: "Architecture & Invariants" },
+                ].map((item) => (
+                  <li key={item.href}>
+                    <a href={item.href} onClick={closeMenu} className="flex min-h-[52px] items-center justify-between text-base font-medium text-text-primary">
+                      {item.label}
+                      <Icon name="chevron-down" size={18} className="text-text-muted" />
+                    </a>
+                  </li>
+                ))}
+                {[
+                  { to: "/my-tickets", label: "My Tickets & Passes" },
+                  { to: "/my-network", label: "My Network" },
+                  { to: signInTarget, label: "Attendee Sign In" },
+                ].map((item) => (
+                  <li key={item.label}>
+                    <Link to={item.to} onClick={closeMenu} className="flex min-h-[52px] items-center justify-between text-base font-medium text-text-primary">
+                      {item.label}
+                      <Icon name="chevron-right" size={18} className="text-text-muted" />
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+              <LinkButton to="/organizer" variant="ink" size="lg" isFullWidth onClick={closeMenu} className="mt-4">
+                Organizer Console
+                <Icon name="arrow-right" size={18} />
+              </LinkButton>
+            </nav>
+          )}
+        </header>
+      )}
 
       {/* Main Content Area */}
       <main id="main-content" tabIndex={-1} className="flex-1 focus:outline-none">
@@ -210,117 +249,68 @@ export function PublicLayout({ children }: PublicLayoutProps) {
       </main>
 
       {/* Footer */}
-      <footer className="border-t border-border-default bg-surface-panel text-text-secondary">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-12 lg:py-16">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8 lg:gap-10">
-            {/* Col 1: Platform Overview */}
-            <div className="space-y-3">
-              <div className="flex items-center gap-2">
-                <span className="w-6 h-6 rounded-md bg-action-primary text-text-inverse flex items-center justify-center font-bold text-xs">
-                  C
-                </span>
-                <span className="font-bold text-sm tracking-tight text-text-primary">
-                  Congress Platform
-                </span>
-              </div>
-              <p className="text-xs text-text-muted leading-relaxed">
-                Independent, multi-tenant congress management system for academic congresses, corporate symposiums, and industrial trade exhibitions.
-              </p>
-              <div className="text-[11px] text-text-muted pt-2 border-t border-border-subtle">
-                <span className="font-medium text-text-secondary">Stack:</span> FastAPI 3.11+, PostgreSQL 16, React 19, TypeScript, Tailwind 4.
-              </div>
+      <footer className="relative overflow-hidden bg-surface-ink text-ink-300">
+        <div aria-hidden="true" className="absolute inset-0 bg-meridian-ink opacity-60" />
+        <div aria-hidden="true" className="absolute inset-x-0 top-0 h-px bg-[image:var(--grad-aiteb)] opacity-70" />
+        <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-10 pt-14 pb-10 sm:pt-16">
+          <div className="grid grid-cols-1 gap-10 md:grid-cols-12 md:gap-8">
+            <div className="md:col-span-5 space-y-4">
+              {congress ? (
+                <>
+                  <div className="flex items-center gap-3">
+                    <span aria-hidden="true" className="relative size-10 shrink-0 overflow-hidden rounded-[10px] [border-start-end-radius:18px] ring-1 ring-white/15">
+                      <CongressSignature seed={eventSlug!} tone="ink" className="absolute inset-0 size-full scale-[1.6]" />
+                    </span>
+                    <p className="text-base font-semibold text-white">{congressName ?? "\u00a0"}</p>
+                  </div>
+                  <p className="max-w-md text-sm leading-relaxed">{c.footerCongressNote}</p>
+                </>
+              ) : (
+                <>
+                  <p className="text-lg font-semibold tracking-[-0.01em] text-white">Congress Platform</p>
+                  <p className="max-w-md text-sm leading-relaxed">
+                    Independent, multi-tenant congress management for academic congresses, corporate symposiums and
+                    industrial trade exhibitions: registration, passes, front desk, gate scanning and exhibitor leads.
+                  </p>
+                  <p className="max-w-md text-xs leading-relaxed text-ink-400">
+                    Registration is private to each congress. Attendees register through the direct link shared by
+                    their organizer (<span className="font-mono text-ink-300">/e/:event-slug</span>); no public event
+                    directory is exposed.
+                  </p>
+                </>
+              )}
             </div>
 
-            {/* Col 2: Role Portals */}
-            <div className="space-y-3">
-              <h4 className="text-xs font-semibold text-text-primary uppercase tracking-wider">
-                User Portals
-              </h4>
-              <ul className="space-y-2 text-xs">
-                <li>
-                  <Link
-                    to="/organizer"
-                    className="hover:text-action-primary transition-colors focus-visible:outline-focus-ring"
-                  >
-                    Organizer Console
-                  </Link>
-                </li>
-                <li>
-                  <Link
-                    to="/my-tickets"
-                    className="hover:text-action-primary transition-colors focus-visible:outline-focus-ring"
-                  >
-                    Attendee Pass Portal
-                  </Link>
-                </li>
-                <li>
-                  <Link
-                    to="/my-network"
-                    className="hover:text-action-primary transition-colors focus-visible:outline-focus-ring"
-                  >
-                    Attendee Networking Hub
-                  </Link>
-                </li>
-                <li>
-                  <Link
-                    to="/reception"
-                    className="hover:text-action-primary transition-colors focus-visible:outline-focus-ring"
-                  >
-                    Reception Desk
-                  </Link>
-                </li>
-              </ul>
-              <p className="text-[11px] text-text-muted leading-normal pt-1">
-                Exhibitors access leads via dedicated booth links (<code className="text-[10px] bg-surface-panel-subtle px-1 py-0.5 rounded border border-border-subtle">/booth/:id</code>).
-              </p>
-            </div>
-
-            {/* Col 3: On-Site Stations */}
-            <div className="space-y-3">
-              <h4 className="text-xs font-semibold text-text-primary uppercase tracking-wider">
-                On-Site Stations
-              </h4>
-              <ul className="space-y-2 text-xs text-text-secondary">
-                <li>
-                  <span className="font-medium text-text-primary">Gate Scanner PWA:</span> Camera & USB HID barcode gun reader with local offline buffer.
-                </li>
-                <li>
-                  <span className="font-medium text-text-primary">Front-Desk Station:</span> Rapid walk-in registration, badge minting, and live search.
-                </li>
-                <li>
-                  <span className="font-medium text-text-primary">Real-Time Analytics:</span> Live attendance throughput, catering counts, and CSV exports.
-                </li>
-              </ul>
-            </div>
-
-            {/* Col 4: Event Links & Trust Policy */}
-            <div className="space-y-3">
-              <h4 className="text-xs font-semibold text-text-primary uppercase tracking-wider">
-                Event Registration
-              </h4>
-              <p className="text-xs text-text-muted leading-relaxed">
-                Registration is private to each congress. Attendees access free ticket registration via the direct link provided by organizers:
-              </p>
-              <div className="p-2.5 rounded-lg bg-surface-panel-subtle border border-border-subtle text-[11px] font-mono text-text-secondary break-all">
-                /e/:event-slug
+            <div className="md:col-span-7 grid grid-cols-2 gap-8 sm:grid-cols-3">
+              <div className="space-y-3">
+                <p className="text-xs font-semibold text-white">{c.footerAttendees}</p>
+                <ul className="space-y-1">
+                  <li><Link to="/my-tickets" className={footerLink}>{c.footerPasses}</Link></li>
+                  <li><Link to="/my-network" className={footerLink}>{c.footerNetwork}</Link></li>
+                </ul>
               </div>
-              <p className="text-[11px] text-text-muted">
-                No public event discovery directory is exposed; privacy and isolation are enforced by design.
-              </p>
+              <div className="space-y-3">
+                <p className="text-xs font-semibold text-white">{c.footerStaff}</p>
+                <ul className="space-y-1">
+                  <li><Link to="/organizer" className={footerLink}>{c.organizerConsole}</Link></li>
+                  <li><Link to="/reception" className={footerLink}>{c.footerReception}</Link></li>
+                </ul>
+              </div>
+              <div className="space-y-3 col-span-2 sm:col-span-1">
+                <p className="text-xs font-semibold text-white">{c.footerPlatform}</p>
+                <ul className="space-y-1">
+                  {congress && <li><Link to="/" className={footerLink}>{c.footerPlatformHome}</Link></li>}
+                  <li><a href={congress ? "/#capabilities" : "#capabilities"} className={footerLink}>{c.footerCapabilities}</a></li>
+                  <li><a href={congress ? "/#roles" : "#roles"} className={footerLink}>{c.footerRoles}</a></li>
+                  <li><a href={congress ? "/#architecture" : "#architecture"} className={footerLink}>{c.footerArchitecture}</a></li>
+                </ul>
+              </div>
             </div>
           </div>
 
-          <div className="mt-12 pt-6 border-t border-border-subtle flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-text-muted">
-            <p>
-              © Congress Management Platform. Built for high-reliability event operations.
-            </p>
-            <div className="flex items-center gap-4">
-              <span>ACID Storage</span>
-              <span className="w-1 h-1 rounded-full bg-border-strong" aria-hidden="true" />
-              <span>Offline Sync Buffer</span>
-              <span className="w-1 h-1 rounded-full bg-border-strong" aria-hidden="true" />
-              <span>Competitor Isolation</span>
-            </div>
+          <div className="mt-12 flex flex-col-reverse gap-4 border-t border-white/10 pt-6 sm:flex-row sm:items-center sm:justify-between">
+            <AitebAttribution locale={locale} tone="dark" />
+            <p className="text-xs text-ink-400">{congress ? c.footerPrivate : "Built for high-reliability congress operations."}</p>
           </div>
         </div>
       </footer>

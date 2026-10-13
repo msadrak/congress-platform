@@ -1,473 +1,361 @@
+import type { ReactNode } from "react";
 import { PublicLayout } from "../layouts/PublicLayout";
 import { LinkButton } from "../components/ui/Button";
-import { Badge } from "../components/ui/Badge";
+import { Icon, type IconName } from "../components/ui/Icon";
+import { ArcMotif } from "../components/brand/Aiteb";
+import { CongressSignature } from "../components/brand/CongressSignature";
+
+interface Environment {
+  name: string;
+  audience: string;
+  route: string;
+  icon: IconName;
+  body: string;
+  entry?: ReactNode;
+  note?: string;
+}
+
+/** The six product environments, described by what they actually do. */
+const ENVIRONMENTS: Environment[] = [
+  {
+    name: "Organizer console",
+    audience: "Organizers",
+    route: "/organizer",
+    icon: "sliders",
+    body: "An API-key workspace per organization: congresses, ticket tiers and quotas, check-in points with single-use, multi-entry or capped admission policies, exhibition booths, booth staff and desk operators. Live attendance analytics with CSV export.",
+    entry: (
+      <LinkButton to="/organizer" variant="light" size="lg">
+        Open Organizer Console
+        <Icon name="arrow-right" size={18} />
+      </LinkButton>
+    ),
+  },
+  {
+    name: "Public congress page",
+    audience: "Everyone with the link",
+    route: "/e/:slug",
+    icon: "congress",
+    body: "Each congress gets its own registration page: passes with live remaining capacity, free reservation in a minute and an index of exhibitors with their profiles and brochures.",
+    note: "Shared privately by each organizer; there is no public event directory.",
+  },
+  {
+    name: "Attendee portal",
+    audience: "Attendees",
+    route: "/c/:slug",
+    icon: "ticket",
+    body: "A personal QR pass that stays available offline, saved exhibition booths and direct contact exchange with fellow attendees, with standard vCard download.",
+    entry: (
+      <div className="flex flex-wrap gap-2">
+        <LinkButton to="/my-tickets" variant="secondary" size="md">
+          My Tickets & Passes
+        </LinkButton>
+        <LinkButton to="/my-network" variant="ghost" size="md">
+          Networking Hub
+        </LinkButton>
+      </div>
+    ),
+  },
+  {
+    name: "Reception desk",
+    audience: "Front-desk operators",
+    route: "/reception",
+    icon: "id-card",
+    body: "Operator sign-in per congress, fast attendee search, pass review and printing, and walk-in registration that offers the existing pass instead of issuing a duplicate.",
+    entry: (
+      <LinkButton to="/reception" variant="secondary" size="md">
+        Open Reception Desk
+        <Icon name="arrow-right" size={16} />
+      </LinkButton>
+    ),
+  },
+  {
+    name: "Gate scanner",
+    audience: "Gate staff",
+    route: "/scan/:pointId",
+    icon: "scan",
+    body: "A paired device per check-in point reading badges by camera or USB barcode reader. The gate manifest lives on the device and scans are buffered offline, then synced when the network returns.",
+    note: "Devices are paired by the organizer for a single check-in point.",
+  },
+  {
+    name: "Exhibitor workspace",
+    audience: "Booth staff",
+    route: "/booth/:id",
+    icon: "booth",
+    body: "Booth representatives capture attendee badges as leads, qualify them Hot, Warm or Cold, add tags and private notes, and export their own CSV. Each booth sees only its own leads.",
+    note: "Booth staff receive private access links from the organizer.",
+  },
+];
+
+const PHASES = [
+  {
+    phase: "Pre-event",
+    title: "Setup & direct registration",
+    body: "Organizers configure ticket tiers with strict quota caps, admission policies and the exhibition booth roster.",
+    points: ["Private direct links for attendee registration", "Instant QR pass generation", "Exhibition booth profiles & brochures"],
+  },
+  {
+    phase: "At the doors",
+    title: "Gate scanning & front desk",
+    body: "Attendance is verified at the gates by camera or handheld USB scanner while the front desk issues walk-in passes in seconds.",
+    points: ["Local scan buffering for unstable venue networks", "Rapid walk-in search with printable passes", "Live analytics with 10-second refresh & CSV export"],
+  },
+  {
+    phase: "On the floor",
+    title: "Leads & peer networking",
+    body: "Exhibitors qualify visitor leads with ratings and private notes; attendees exchange contacts directly through their badges.",
+    points: ["Isolated exhibitor portals with CSV export", "Hot, Warm and Cold lead qualification", "Private notes & standard vCard (.vcf) download"],
+  },
+];
+
+const PRINCIPLES = [
+  {
+    title: "High-contrast legibility",
+    body: "Passes render as black modules on an opaque white plate with a verified quiet zone, so badges scan reliably under harsh hall lighting or on dimmed phone screens.",
+  },
+  {
+    title: "Network-aware scan buffering",
+    body: "Gate check-in evaluates the attendee manifest locally and buffers scans, keeping entry lines moving through temporary venue network dropouts.",
+  },
+  {
+    title: "Strict multi-tenant separation",
+    body: "Organizers are partitioned by their API credentials, and competing exhibitor teams are isolated so each company only ever sees its own captured leads.",
+  },
+];
+
+const pad = (n: number) => String(n).padStart(2, "0");
 
 export default function Home() {
   return (
     <PublicLayout>
-      {/* 1. Hero Section */}
-      <section className="relative overflow-hidden pt-12 pb-16 sm:pt-20 sm:pb-24 border-b border-border-default bg-surface-panel">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="max-w-3xl mx-auto text-center space-y-6">
-            {/* Category / Identity Badge */}
-            <div className="inline-flex items-center">
-              <Badge variant="brand" size="md">
-                Independent Congress Operations
-              </Badge>
-            </div>
-
-            {/* Main Headline (H1) */}
-            <h1 className="text-3xl sm:text-5xl lg:text-6xl font-extrabold tracking-tight text-text-primary leading-[1.12]">
-              The Operating System for Academic & Industry Congresses
+      {/* 1. Hero */}
+      <section className="relative isolate overflow-hidden border-b border-border-default bg-surface-panel">
+        <div aria-hidden="true" className="pub-landing-glow absolute inset-0 -z-10" />
+        <div aria-hidden="true" className="pub-landing-grid absolute inset-0 -z-10 bg-meridian" />
+        <div className="mx-auto grid max-w-7xl items-center gap-14 px-4 pt-14 pb-16 sm:px-6 sm:pt-20 sm:pb-24 lg:grid-cols-12 lg:gap-10 lg:px-10 lg:pt-24 lg:pb-28">
+          <div className="space-y-8 lg:col-span-7 motion-safe:animate-rise">
+            <p className="eyebrow">Congress platform by AIteb</p>
+            <h1 className="text-[clamp(2.5rem,5.6vw,4.75rem)] font-[680] leading-[1.0] tracking-[-0.037em] text-text-primary">
+              The operating system for <span className="text-gradient-aiteb">academic & industry congresses</span>
             </h1>
-
-            {/* Subtitle / Plain-Language Value Proposition */}
-            <p className="text-base sm:text-xl text-text-secondary leading-relaxed max-w-2xl mx-auto">
-              Fast walk-in registration, reliable badge check-in, exhibition lead capture, and attendee networking — engineered for the physical reality of busy conference venues.
+            <p className="max-w-xl text-lg leading-relaxed text-text-secondary sm:text-xl">
+              Fast walk-in registration, reliable badge check-in, exhibition lead capture and attendee networking —
+              engineered for the physical reality of busy conference venues.
             </p>
-
-            {/* Primary Action Buttons */}
-            <div className="pt-2 flex flex-col sm:flex-row items-stretch sm:items-center justify-center gap-3">
-              <LinkButton to="/organizer" variant="primary" size="lg">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+              <LinkButton to="/organizer" variant="primary" size="xl" className="press">
                 Organizer Console
-                <span aria-hidden="true">→</span>
+                <Icon name="arrow-right" size={20} />
               </LinkButton>
-              <LinkButton to="/my-tickets" variant="secondary" size="lg">
+              <LinkButton to="/my-tickets" variant="secondary" size="xl">
+                <Icon name="ticket" size={20} />
                 Attendee Pass Portal
               </LinkButton>
             </div>
-
-            {/* Key Value Signals */}
-            <div className="pt-4 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-xs text-text-muted">
-              <div className="flex items-center gap-1.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-action-primary" aria-hidden="true" />
-                <span>Multi-Tenant Event Workspace</span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-action-primary" aria-hidden="true" />
-                <span>High-Contrast Badge Scanning</span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-action-primary" aria-hidden="true" />
-                <span>Isolated Exhibitor Leads</span>
-              </div>
-            </div>
+            <ul className="flex flex-wrap gap-x-6 gap-y-3 border-t border-border-default pt-6 text-sm text-text-secondary">
+              {["Multi-tenant event workspaces", "High-contrast badge scanning", "Isolated exhibitor leads"].map((s) => (
+                <li key={s} className="flex items-center gap-2">
+                  <Icon name="check" size={16} className="text-aiteb-indigo" />
+                  {s}
+                </li>
+              ))}
+            </ul>
           </div>
 
-          {/* Hero Visual Preview: Dual Perspective (Attendee Pass & Organizer Station) */}
-          <div className="mt-12 sm:mt-16 max-w-4xl mx-auto p-3 sm:p-5 rounded-2xl bg-surface-page border border-border-default shadow-xs">
-            <div className="text-center pb-3 text-[11px] font-medium text-text-muted uppercase tracking-wider">
-              Demonstration Showcase • Illustrative Mockups & Sample Data
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
-              {/* Perspective A: Attendee Digital Pass Card */}
-              <div className="rounded-xl bg-surface-panel p-5 border border-border-default shadow-xs flex flex-col justify-between space-y-4">
-                <div className="flex items-center justify-between border-b border-border-subtle pb-3">
-                  <div className="flex items-center gap-2">
-                    <span className="w-2 h-2 rounded-full bg-action-primary" aria-hidden="true" />
-                    <span className="text-xs font-semibold text-text-primary tracking-tight">
-                      Attendee Pass (Sample)
-                    </span>
-                  </div>
-                  <Badge variant="success" size="sm">Sample Admitted</Badge>
-                </div>
-
-                <div className="flex items-start justify-between gap-4">
-                  <div className="space-y-1">
-                    <div className="text-[11px] font-medium uppercase tracking-wider text-action-primary">
-                      Global Congress 2026
-                    </div>
-                    <div className="text-base sm:text-lg font-bold text-text-primary">
-                      Dr. Sarah Jenkins
-                    </div>
-                    <div className="text-xs text-text-secondary">
-                      Biomedical Research Fellow
-                    </div>
-                    <div className="text-[11px] text-text-muted pt-1">
-                      Tier: Full Delegate Pass
-                    </div>
-                  </div>
-
-                  {/* Scannable SVG QR Code Representation */}
-                  <div className="shrink-0 p-2 bg-white rounded-lg border border-border-default shadow-xs flex flex-col items-center">
-                    <svg className="w-16 h-16 sm:w-20 sm:h-20 text-slate-900" viewBox="0 0 100 100" fill="currentColor" aria-hidden="true">
-                      {/* Corner Position Detection Patterns */}
-                      <rect x="0" y="0" width="30" height="30" rx="3" />
-                      <rect x="5" y="5" width="20" height="20" rx="2" fill="white" />
-                      <rect x="9" y="9" width="12" height="12" rx="1" />
-                      <rect x="70" y="0" width="30" height="30" rx="3" />
-                      <rect x="75" y="5" width="20" height="20" rx="2" fill="white" />
-                      <rect x="79" y="9" width="12" height="12" rx="1" />
-                      <rect x="0" y="70" width="30" height="30" rx="3" />
-                      <rect x="5" y="75" width="20" height="20" rx="2" fill="white" />
-                      <rect x="9" y="79" width="12" height="12" rx="1" />
-                      {/* Synthetic QR Data Modules */}
-                      <rect x="36" y="8" width="6" height="6" />
-                      <rect x="46" y="16" width="6" height="6" />
-                      <rect x="56" y="8" width="6" height="6" />
-                      <rect x="38" y="38" width="8" height="8" />
-                      <rect x="52" y="44" width="8" height="8" />
-                      <rect x="42" y="56" width="6" height="6" />
-                      <rect x="72" y="38" width="6" height="6" />
-                      <rect x="84" y="48" width="8" height="8" />
-                      <rect x="74" y="64" width="6" height="6" />
-                      <rect x="36" y="76" width="6" height="6" />
-                      <rect x="52" y="82" width="6" height="6" />
-                      <rect x="78" y="78" width="8" height="8" />
-                    </svg>
-                    <span className="text-[9px] text-text-muted mt-1 uppercase tracking-tight">Demo QR</span>
-                  </div>
-                </div>
-                <div className="pt-3 border-t border-border-subtle flex items-center justify-between text-xs text-text-muted">
-                  <span>Pass ID: #8492-BC</span>
-                  <div className="flex items-center gap-2 text-[11px] font-medium text-action-primary">
-                    <span>4 Booths Saved</span>
-                    <span>•</span>
-                    <span>7 Contacts</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Perspective B: On-Site Operations Station */}
-              <div className="rounded-xl bg-surface-panel p-5 border border-border-default shadow-xs flex flex-col justify-between space-y-4">
-                <div className="flex items-center justify-between border-b border-border-subtle pb-3">
-                  <div className="flex items-center gap-2">
-                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" aria-hidden="true" />
-                    <span className="text-xs font-semibold text-text-primary tracking-tight">
-                      Gate Station (Simulated)
-                    </span>
-                  </div>
-                  <Badge variant="neutral" size="sm">Sample Point</Badge>
-                </div>
-                <div className="space-y-2">
-                  <div className="p-2.5 rounded-lg bg-surface-panel-subtle border border-border-subtle flex items-center justify-between text-xs">
-                    <div>
-                      <span className="font-semibold text-text-primary">Dr. Sarah Jenkins</span>
-                      <span className="text-text-muted ms-1.5">• Full Delegate</span>
-                    </div>
-                    <span className="font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded text-[11px]">
-                      Admitted
-                    </span>
-                  </div>
-                  <div className="p-2.5 rounded-lg bg-surface-panel-subtle border border-border-subtle flex items-center justify-between text-xs">
-                    <div>
-                      <span className="font-semibold text-text-primary">Marcus Vance</span>
-                      <span className="text-text-muted ms-1.5">• Exhibitor Rep</span>
-                    </div>
-                    <span className="font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded text-[11px]">
-                      Admitted
-                    </span>
-                  </div>
-                </div>
-
-                {/* Live Throughput Metrics */}
-                <div className="pt-3 border-t border-border-subtle grid grid-cols-3 gap-2 text-center">
-                  <div className="p-1.5 rounded-md bg-surface-page">
-                    <div className="text-xs sm:text-sm font-bold text-text-primary">1,420</div>
-                    <div className="text-[10px] text-text-muted">Total Checked In</div>
-                  </div>
-                  <div className="p-1.5 rounded-md bg-surface-page">
-                    <div className="text-xs sm:text-sm font-bold text-text-primary">98.4%</div>
-                    <div className="text-[10px] text-text-muted">Gate Throughput</div>
-                  </div>
-                  <div className="p-1.5 rounded-md bg-surface-page">
-                    <div className="text-xs sm:text-sm font-bold text-action-primary">Single-Use</div>
-                    <div className="text-[10px] text-text-muted">Policy Rule</div>
-                  </div>
-                </div>
-              </div>
+          {/* Instrument: the six environments of one congress */}
+          <div className="lg:col-span-5 motion-safe:animate-pop [animation-delay:120ms]">
+            <div className="relative isolate overflow-hidden bg-surface-ink p-6 text-white shadow-pop shape-arc-lg sm:p-8">
+              <CongressSignature seed="aiteb-congress-platform" tone="ink" animate className="absolute inset-0 -z-20 size-full opacity-90" />
+              <div aria-hidden="true" className="absolute inset-0 -z-10 bg-linear-to-t from-surface-ink via-surface-ink/85 to-surface-ink/30" />
+              <p className="text-xs font-medium text-ink-300">One congress</p>
+              <p className="mt-1 text-2xl font-semibold tracking-[-0.02em]">Six connected environments</p>
+              <ol className="mt-6 divide-y divide-white/10 border-y border-white/10">
+                {ENVIRONMENTS.map((env, i) => (
+                  <li key={env.name} className="flex items-center gap-4 py-3">
+                    <span className="w-6 font-mono text-xs text-aiteb-orchid tabular">{pad(i + 1)}</span>
+                    <Icon name={env.icon} size={18} className="text-ink-300" />
+                    <span className="flex-1 text-sm font-medium">{env.name}</span>
+                    <span className="hidden font-mono text-[11px] text-ink-400 sm:inline">{env.route}</span>
+                  </li>
+                ))}
+              </ol>
+              <p className="mt-5 text-xs leading-relaxed text-ink-300">
+                Organizer, attendee, reception, gate and exhibitor views share one source of truth per congress.
+              </p>
             </div>
           </div>
         </div>
       </section>
 
-      {/* 2. How the Platform Runs Your Event (Chronological Lifecycle, not generic card grid) */}
-      <section id="capabilities" className="py-16 sm:py-24 bg-surface-panel border-b border-border-default">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="max-w-2xl mb-12 sm:mb-16">
-            <Badge variant="neutral" size="sm" className="mb-3">
-              Event Lifecycle
-            </Badge>
-            <h2 className="text-2xl sm:text-4xl font-bold tracking-tight text-text-primary">
-              Built to Support Every Phase of Your Congress
-            </h2>
-            <p className="mt-3 text-base text-text-secondary leading-relaxed">
-              From initial tier configuration to on-site gate throughput and exhibitor lead capture, the platform connects each phase in a clean, unified workflow.
+      {/* 2. Role environments */}
+      <section id="roles" aria-labelledby="roles-heading" className="scroll-mt-20 bg-surface-page py-20 sm:py-28">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-10">
+          <div className="reveal grid gap-6 lg:grid-cols-12 lg:items-end">
+            <div className="space-y-4 lg:col-span-7">
+              <p className="flex items-center gap-3">
+                <span className="pub-index">01</span>
+                <span className="text-xs font-semibold text-text-muted">Role entry</span>
+              </p>
+              <h2 id="roles-heading" className="text-4xl font-bold leading-[1.05] tracking-[-0.03em] text-text-primary sm:text-5xl">
+                Six environments, one congress
+              </h2>
+            </div>
+            <p className="text-base leading-relaxed text-text-secondary lg:col-span-5">
+              Every role works in an interface calibrated for its task density, device and trust boundary — from the
+              organizer’s desk to a phone at the gate.
             </p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-            {/* Step 1: Pre-Event Setup */}
-            <div className="space-y-4 p-6 rounded-2xl bg-surface-page border border-border-default flex flex-col justify-between">
-              <div className="space-y-3">
-                <span className="text-xs font-bold font-mono text-action-primary px-2.5 py-1 rounded-md bg-action-subtle border border-action-subtle-border inline-block">
-                  01 / PRE-EVENT
-                </span>
-                <h3 className="text-lg font-bold text-text-primary tracking-tight">
-                  Setup & Direct Registration
-                </h3>
-                <p className="text-sm text-text-secondary leading-relaxed">
-                  Organizers configure ticket tiers with strict quota caps, admission policies (single-use, multi-entry, capped capacity), and exhibition booth rosters.
-                </p>
-              </div>
-              <ul className="space-y-2 text-xs text-text-muted border-t border-border-subtle pt-4">
-                <li className="flex items-center gap-2">
-                  <span className="w-1.5 h-1.5 rounded-full bg-action-primary" aria-hidden="true" />
-                  <span>Private direct links for attendee registration</span>
-                </li>
-                <li className="flex items-center gap-2">
-                  <span className="w-1.5 h-1.5 rounded-full bg-action-primary" aria-hidden="true" />
-                  <span>Instant SVG QR pass generation</span>
-                </li>
-                <li className="flex items-center gap-2">
-                  <span className="w-1.5 h-1.5 rounded-full bg-action-primary" aria-hidden="true" />
-                  <span>Exhibition booth profile & brochure setup</span>
-                </li>
-              </ul>
-            </div>
-
-            {/* Step 2: On-Site Check-In */}
-            <div className="space-y-4 p-6 rounded-2xl bg-surface-page border border-border-default flex flex-col justify-between">
-              <div className="space-y-3">
-                <span className="text-xs font-bold font-mono text-action-primary px-2.5 py-1 rounded-md bg-action-subtle border border-action-subtle-border inline-block">
-                  02 / AT THE DOORS
-                </span>
-                <h3 className="text-lg font-bold text-text-primary tracking-tight">
-                  Gate Scanning & Front Desk
-                </h3>
-                <p className="text-sm text-text-secondary leading-relaxed">
-                  Fast attendance verification at entrance gates using cameras or handheld USB barcode scanners. Front-desk staff mint walk-in badges in seconds.
-                </p>
-              </div>
-              <ul className="space-y-2 text-xs text-text-muted border-t border-border-subtle pt-4">
-                <li className="flex items-center gap-2">
-                  <span className="w-1.5 h-1.5 rounded-full bg-action-primary" aria-hidden="true" />
-                  <span>Local scan buffering for venue network stability</span>
-                </li>
-                <li className="flex items-center gap-2">
-                  <span className="w-1.5 h-1.5 rounded-full bg-action-primary" aria-hidden="true" />
-                  <span>Rapid walk-in search with badge print layout</span>
-                </li>
-                <li className="flex items-center gap-2">
-                  <span className="w-1.5 h-1.5 rounded-full bg-action-primary" aria-hidden="true" />
-                  <span>Live 10-second polling analytics & CSV exports</span>
-                </li>
-              </ul>
-            </div>
-
-            {/* Step 3: Exhibition Floor & Networking */}
-            <div className="space-y-4 p-6 rounded-2xl bg-surface-page border border-border-default flex flex-col justify-between">
-              <div className="space-y-3">
-                <span className="text-xs font-bold font-mono text-action-primary px-2.5 py-1 rounded-md bg-action-subtle border border-action-subtle-border inline-block">
-                  03 / ON THE FLOOR
-                </span>
-                <h3 className="text-lg font-bold text-text-primary tracking-tight">
-                  Leads & Peer Networking
-                </h3>
-                <p className="text-sm text-text-secondary leading-relaxed">
-                  Exhibitors qualify visitor leads with ratings and private notes. Attendees exchange contacts directly via badge codes and export standard vCards.
-                </p>
-              </div>
-              <ul className="space-y-2 text-xs text-text-muted border-t border-border-subtle pt-4">
-                <li className="flex items-center gap-2">
-                  <span className="w-1.5 h-1.5 rounded-full bg-action-primary" aria-hidden="true" />
-                  <span>Isolated exhibitor portals with direct CSV export</span>
-                </li>
-                <li className="flex items-center gap-2">
-                  <span className="w-1.5 h-1.5 rounded-full bg-action-primary" aria-hidden="true" />
-                  <span>Hot, Warm, and Cold lead qualification tagging</span>
-                </li>
-                <li className="flex items-center gap-2">
-                  <span className="w-1.5 h-1.5 rounded-full bg-action-primary" aria-hidden="true" />
-                  <span>Private notes & standard vCard (.vcf) download</span>
-                </li>
-              </ul>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* 3. Role Workspaces (Asymmetric, purposeful layout) */}
-      <section id="roles" className="py-16 sm:py-24 bg-surface-page border-b border-border-default">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="max-w-2xl mb-12 sm:mb-16">
-            <Badge variant="neutral" size="sm" className="mb-3">
-              Role Workspaces
-            </Badge>
-            <h2 className="text-2xl sm:text-4xl font-bold tracking-tight text-text-primary">
-              Focused Interfaces Tailored to Each Participant
-            </h2>
-            <p className="mt-3 text-base text-text-secondary leading-relaxed">
-              Every role operates within an interface calibrated for its specific task density, device requirements, and trust boundary.
-            </p>
-          </div>
-
-          <div className="space-y-6">
-            {/* Featured Box: Organizer & Operations */}
-            <div className="p-6 sm:p-8 rounded-2xl bg-surface-panel border border-border-default shadow-xs flex flex-col lg:flex-row items-start lg:items-center justify-between gap-6">
-              <div className="max-w-2xl space-y-3">
-                <div className="flex items-center gap-2">
-                  <Badge variant="brand" size="sm">Organizer Workspace</Badge>
-                  <span className="text-xs font-mono text-text-muted">/organizer</span>
-                </div>
-                <h3 className="text-xl font-bold text-text-primary tracking-tight">
-                  Comprehensive Event Control & Operations Desk
-                </h3>
-                <p className="text-sm text-text-secondary leading-relaxed">
-                  Access your organization’s management console using your API key. Configure multi-day events, ticket tiers, and admission policies. Monitor real-time throughput metrics and operate the walk-in front desk station.
-                </p>
-                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-text-muted pt-1">
-                  <span>• API Key Authenticated</span>
-                  <span>• Walk-In Pass Minting</span>
-                  <span>• Gate & Catering Throughput</span>
-                </div>
-              </div>
-              <div className="shrink-0 w-full sm:w-auto">
-                <LinkButton to="/organizer" variant="primary" size="md" isFullWidth>
-                  Open Organizer Console →
-                </LinkButton>
-              </div>
-            </div>
-
-            {/* Two-Column Split: Attendees & Exhibitors */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {/* Attendee Portal */}
-              <div className="p-6 sm:p-8 rounded-2xl bg-surface-panel border border-border-default shadow-xs flex flex-col justify-between space-y-6">
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <Badge variant="neutral" size="sm">Attendee Access</Badge>
-                    <span className="text-xs font-mono text-text-muted">/my-tickets</span>
+          <div className="reveal mt-12 grid overflow-hidden rounded-[28px] border border-border-default bg-border-default gap-px md:grid-cols-2 lg:grid-cols-3 [border-start-end-radius:56px]">
+            {ENVIRONMENTS.map((env, i) => {
+              const lead = i === 0;
+              return (
+                <article
+                  key={env.name}
+                  className={`relative isolate flex flex-col gap-5 overflow-hidden p-6 sm:p-8 ${
+                    lead ? "bg-surface-ink text-white md:col-span-2" : "bg-surface-panel"
+                  } ${i === 5 ? "lg:col-span-2" : ""}`}
+                >
+                  {lead && (
+                    <>
+                      <CongressSignature seed="aiteb-organizer" tone="ink" className="absolute inset-0 -z-20 size-full opacity-80" />
+                      <div aria-hidden="true" className="pub-hero-scrim absolute inset-0 -z-10" />
+                    </>
+                  )}
+                  <div className="flex items-center justify-between gap-4">
+                    <span
+                      className={`grid size-12 place-items-center rounded-xl [border-start-end-radius:20px] ${
+                        lead ? "bg-white/10 text-aiteb-orchid" : "bg-aiteb-lavender text-aiteb-indigo"
+                      }`}
+                    >
+                      <Icon name={env.icon} size={24} />
+                    </span>
+                    <span className={`font-mono text-xs tabular ${lead ? "text-ink-300" : "text-text-muted"}`}>{pad(i + 1)}</span>
                   </div>
-                  <h3 className="text-lg sm:text-xl font-bold text-text-primary tracking-tight">
-                    Personal Passes & Networking
-                  </h3>
-                  <p className="text-sm text-text-secondary leading-relaxed">
-                    View your high-contrast digital QR pass on any mobile device. Keep passes accessible offline during venue entry, browse saved company booths, and exchange contacts with fellow attendees.
-                  </p>
-                </div>
-                <div className="pt-2 flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-                  <LinkButton to="/my-tickets" variant="secondary" size="md">
-                    My Tickets & Passes
-                  </LinkButton>
-                  <LinkButton to="/my-network" variant="outline" size="md">
-                    Networking Hub
-                  </LinkButton>
-                </div>
-              </div>
-
-              {/* Exhibitor Portal */}
-              <div className="p-6 sm:p-8 rounded-2xl bg-surface-panel border border-border-default shadow-xs flex flex-col justify-between space-y-6">
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <Badge variant="neutral" size="sm">Exhibitor Teams</Badge>
-                    <span className="text-xs font-mono text-text-muted">/booth/:id</span>
+                  <div className="space-y-2">
+                    <p className={`text-xs font-semibold ${lead ? "text-aiteb-orchid" : "text-aiteb-indigo"}`}>{env.audience}</p>
+                    <h3 className={`text-2xl font-semibold tracking-[-0.02em] ${lead ? "text-white" : "text-text-primary"}`}>{env.name}</h3>
+                    <p className={`font-mono text-xs ${lead ? "text-ink-300" : "text-text-muted"}`}>{env.route}</p>
                   </div>
-                  <h3 className="text-lg sm:text-xl font-bold text-text-primary tracking-tight">
-                    Booth Lead Management
-                  </h3>
-                  <p className="text-sm text-text-secondary leading-relaxed">
-                    Assigned booth representatives access dedicated lead portals to scan attendee badges, qualify visitor interest with Hot/Warm/Cold ratings, add private team notes, and export CSV files.
-                  </p>
-                </div>
-                <div className="p-3 rounded-lg bg-surface-panel-subtle border border-border-subtle text-xs text-text-muted leading-relaxed">
-                  Booth staff receive private access links directly from the event organizer upon staff assignment.
-                </div>
+                  <p className={`max-w-xl text-sm leading-relaxed ${lead ? "text-ink-200" : "text-text-secondary"}`}>{env.body}</p>
+                  <div className="mt-auto pt-2">
+                    {env.entry ?? (
+                      <p className="flex items-start gap-2 text-xs leading-relaxed text-text-muted">
+                        <Icon name="lock" size={14} className="mt-0.5" />
+                        {env.note}
+                      </p>
+                    )}
+                  </div>
+                </article>
+              );
+            })}
+            <aside className="flex flex-col justify-between gap-6 bg-aiteb-lavender p-6 sm:p-8">
+              <div className="space-y-2">
+                <p className="text-xs font-semibold text-aiteb-indigo">Looking to register for a specific congress?</p>
+                <p className="text-sm leading-relaxed text-text-secondary">
+                  Registration is private to each congress. Open the link your organizer shared (for example{" "}
+                  <code className="rounded border border-action-subtle-border bg-white px-1.5 py-0.5 text-xs text-aiteb-indigo">/e/:slug</code>)
+                  to reserve a free pass.
+                </p>
               </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* 4. Venue-Grade Engineering Principles (Plain Language, Qualified Claims) */}
-      <section id="architecture" className="py-16 sm:py-24 bg-surface-panel border-b border-border-default">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="max-w-2xl mb-12 sm:mb-16">
-            <Badge variant="neutral" size="sm" className="mb-3">
-              Venue Engineering
-            </Badge>
-            <h2 className="text-2xl sm:text-4xl font-bold tracking-tight text-text-primary">
-              Engineered for the Physical Reality of Conferences
-            </h2>
-            <p className="mt-3 text-base text-text-secondary leading-relaxed">
-              Conference venues present unique technical challenges: spotty wireless connectivity, harsh overhead lighting, and strict competitor boundaries.
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 sm:gap-8">
-            <div className="p-6 rounded-xl border border-border-default bg-surface-page space-y-3">
-              <div className="w-8 h-8 rounded-lg bg-action-primary text-text-inverse flex items-center justify-center font-bold text-xs">
-                1
-              </div>
-              <h3 className="text-base font-semibold text-text-primary">
-                High-Contrast Visual Legibility
-              </h3>
-              <p className="text-xs sm:text-sm text-text-secondary leading-relaxed">
-                Attendee passes render on opaque white plates with verified quiet zones, ensuring reliable barcode scanning even under intense overhead convention lighting or dimmed mobile screens.
-              </p>
-            </div>
-
-            <div className="p-6 rounded-xl border border-border-default bg-surface-page space-y-3">
-              <div className="w-8 h-8 rounded-lg bg-action-primary text-text-inverse flex items-center justify-center font-bold text-xs">
-                2
-              </div>
-              <h3 className="text-base font-semibold text-text-primary">
-                Network-Aware Scan Buffering
-              </h3>
-              <p className="text-xs sm:text-sm text-text-secondary leading-relaxed">
-                Gate check-in evaluates attendee manifests locally and buffers scans, allowing entry lines to keep moving smoothly through temporary venue network dropouts.
-              </p>
-            </div>
-
-            <div className="p-6 rounded-xl border border-border-default bg-surface-page space-y-3">
-              <div className="w-8 h-8 rounded-lg bg-action-primary text-text-inverse flex items-center justify-center font-bold text-xs">
-                3
-              </div>
-              <h3 className="text-base font-semibold text-text-primary">
-                Strict Multi-Tenant Separation
-              </h3>
-              <p className="text-xs sm:text-sm text-text-secondary leading-relaxed">
-                Organizers are partitioned by secure API credentials, and competing exhibition booth teams are strictly isolated so companies only access their own captured leads.
-              </p>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* 5. Direct Registration Guidance & Conversion Banner */}
-      <section className="py-16 bg-surface-page">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 space-y-8">
-          {/* Direct Link Notice */}
-          <div className="p-5 sm:p-6 rounded-2xl bg-action-subtle border border-action-subtle-border flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-            <div className="space-y-1">
-              <div className="text-xs font-semibold text-action-primary uppercase tracking-wider">
-                Looking to Register for a Specific Event?
-              </div>
-              <p className="text-xs sm:text-sm text-text-secondary leading-relaxed">
-                Registration is private to each congress. Open the unique link provided by your event organizer (e.g. <code className="text-xs font-mono font-medium text-action-primary bg-white px-1.5 py-0.5 rounded border border-action-subtle-border">/e/:slug</code>) to reserve free passes.
-              </p>
-            </div>
-            <div className="shrink-0">
-              <LinkButton to="/my-tickets" variant="outline" size="sm">
-                View My Passes →
+              <LinkButton to="/my-tickets" variant="outline" size="md" className="self-start">
+                View My Passes
+                <Icon name="arrow-right" size={16} />
               </LinkButton>
-            </div>
+            </aside>
+          </div>
+        </div>
+      </section>
+
+      {/* 3. Lifecycle */}
+      <section id="capabilities" aria-labelledby="capabilities-heading" className="scroll-mt-20 border-y border-border-default bg-surface-panel py-20 sm:py-28">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-10">
+          <div className="reveal max-w-3xl space-y-4">
+            <p className="flex items-center gap-3">
+              <span className="pub-index">02</span>
+              <span className="text-xs font-semibold text-text-muted">Event lifecycle</span>
+            </p>
+            <h2 id="capabilities-heading" className="text-4xl font-bold leading-[1.05] tracking-[-0.03em] text-text-primary sm:text-5xl">
+              Built for every phase of your congress
+            </h2>
+            <p className="text-base leading-relaxed text-text-secondary sm:text-lg">
+              From tier configuration to gate throughput and exhibitor lead capture, each phase connects in one clean
+              workflow.
+            </p>
           </div>
 
-          {/* Bottom Conversion Card */}
-          <div className="p-6 sm:p-10 rounded-2xl bg-surface-panel border border-border-default shadow-xs flex flex-col sm:flex-row items-center justify-between gap-6">
-            <div className="space-y-1.5 text-center sm:text-start max-w-xl">
-              <h3 className="text-lg sm:text-2xl font-bold text-text-primary tracking-tight">
-                Ready to manage your congress or symposium?
-              </h3>
-              <p className="text-xs sm:text-sm text-text-secondary leading-relaxed">
-                Access the organizer console to set up your event, configure ticket quotas, and monitor live gate attendance.
+          <ol className="reveal relative mt-14 grid gap-12 md:grid-cols-3 md:gap-10">
+            <div aria-hidden="true" className="absolute inset-x-0 top-[22px] hidden h-px bg-[image:var(--grad-aiteb)] opacity-50 md:block" />
+            {PHASES.map((p, i) => (
+              <li key={p.phase} className="relative space-y-5">
+                <div className="flex items-center gap-4">
+                  <span className="relative grid size-11 place-items-center rounded-full border border-action-subtle-border bg-surface-panel font-mono text-sm text-aiteb-indigo shadow-soft">
+                    {pad(i + 1)}
+                  </span>
+                  <span className="relative bg-surface-panel pe-3 text-xs font-semibold text-text-muted">{p.phase}</span>
+                </div>
+                <h3 className="text-2xl font-semibold tracking-[-0.02em] text-text-primary">{p.title}</h3>
+                <p className="text-sm leading-relaxed text-text-secondary">{p.body}</p>
+                <ul className="space-y-2.5 border-t border-border-subtle pt-5">
+                  {p.points.map((pt) => (
+                    <li key={pt} className="flex items-start gap-2.5 text-sm text-text-secondary">
+                      <Icon name="check" size={16} className="mt-0.5 text-aiteb-indigo" />
+                      {pt}
+                    </li>
+                  ))}
+                </ul>
+              </li>
+            ))}
+          </ol>
+        </div>
+      </section>
+
+      {/* 4. Venue engineering */}
+      <section id="architecture" aria-labelledby="architecture-heading" className="relative isolate scroll-mt-20 overflow-hidden bg-surface-ink py-20 text-white [--event-accent:var(--aiteb-orchid)] sm:py-28">
+        <div aria-hidden="true" className="absolute inset-0 -z-10 bg-meridian-ink" />
+        <ArcMotif weight={5} className="pointer-events-none absolute -end-20 -top-24 -z-10 size-[16rem] opacity-25 sm:size-[22rem]" />
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-10">
+          <div className="reveal max-w-3xl space-y-4">
+            <p className="flex items-center gap-3">
+              <span className="pub-index">03</span>
+              <span className="text-xs font-semibold text-ink-300">Venue engineering</span>
+            </p>
+            <h2 id="architecture-heading" className="text-4xl font-bold leading-[1.05] tracking-[-0.03em] sm:text-5xl">
+              Engineered for the physical reality of conferences
+            </h2>
+            <p className="text-base leading-relaxed text-ink-200 sm:text-lg">
+              Venues bring spotty wireless, harsh overhead lighting and strict competitor boundaries. The platform is
+              designed around all three.
+            </p>
+          </div>
+          <div className="reveal mt-14 grid border-t border-white/12 md:grid-cols-3">
+            {PRINCIPLES.map((p, i) => (
+              <div key={p.title} className={`space-y-3 border-b border-white/12 py-8 md:border-b-0 md:py-10 ${i > 0 ? "md:border-s md:ps-8" : ""} md:pe-8`}>
+                <span className="font-mono text-xs text-aiteb-orchid tabular">{pad(i + 1)}</span>
+                <h3 className="text-xl font-semibold tracking-[-0.015em]">{p.title}</h3>
+                <p className="text-sm leading-relaxed text-ink-300">{p.body}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* 5. Closing */}
+      <section className="bg-surface-page py-20 sm:py-24">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-10">
+          <div className="reveal flex flex-col items-start justify-between gap-8 border border-border-default bg-surface-panel p-6 shadow-soft shape-arc-lg sm:p-12 lg:flex-row lg:items-center">
+            <div className="max-w-2xl space-y-3">
+              <h2 className="text-3xl font-bold leading-[1.1] tracking-[-0.03em] text-text-primary sm:text-4xl">
+                Ready to run your congress or symposium?
+              </h2>
+              <p className="text-base leading-relaxed text-text-secondary">
+                Open the organizer console to set up your event, configure ticket quotas and follow live gate
+                attendance.
               </p>
             </div>
-            <div className="shrink-0 flex items-center gap-3">
-              <LinkButton to="/organizer" variant="primary" size="lg">
-                Open Organizer Console →
-              </LinkButton>
-            </div>
+            <LinkButton to="/organizer" variant="ink" size="xl" className="press w-full shrink-0 whitespace-normal sm:w-auto">
+              Open Organizer Console
+              <Icon name="arrow-right" size={20} />
+            </LinkButton>
           </div>
         </div>
       </section>

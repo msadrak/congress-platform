@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useId, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   ATTENDEE_TOKEN_STORAGE,
@@ -8,15 +8,22 @@ import {
 } from "../api/client";
 import { isStoredAttendeeToken, rejectAttendeeToken } from "../lib/attendeeSession";
 import { PublicLayout } from "../layouts/PublicLayout";
-import { useAttendeeLocale, formatLocalizedDate, formatLocalizedNumber } from "../lib/i18n";
+import { translations } from "../lib/i18n";
 import { Badge } from "../components/ui/Badge";
 import { Button, LinkButton } from "../components/ui/Button";
-import { Card, CardContent } from "../components/ui/Card";
 import { Dialog } from "../components/ui/Dialog";
+import { Icon, type IconName } from "../components/ui/Icon";
+import { CongressSignature } from "../components/brand/CongressSignature";
+import { contentLocale, num, publicCopy } from "../components/public/copy";
+import { CongressHero } from "../components/public/CongressHero";
+import { EditorialSection } from "../components/public/EditorialSection";
+import { PassStub } from "../components/public/PassStub";
+import { BoothIndex } from "../components/public/BoothIndex";
+
 export default function PublicEvent() {
   const { slug } = useParams<{ slug: string }>();
   const navigate = useNavigate();
-  const { locale, t, isRtl } = useAttendeeLocale();
+  const formId = useId();
   const [event, setEvent] = useState<PublicEventType | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -80,6 +87,9 @@ export default function PublicEvent() {
     };
   }, [slug]);
 
+  const locale = event ? contentLocale(event.name) : "en";
+  const c = publicCopy[locale];
+  const t = translations[locale];
   const selectedTier =
     event?.ticket_tiers.find((t) => t.id === selectedTierId) ??
     (event?.ticket_tiers.length ? event.ticket_tiers[0] : null);
@@ -103,7 +113,7 @@ export default function PublicEvent() {
     if (!isStoredAttendeeToken(token)) {
       setAlreadyHasTicket(false);
       setAuthMode("login");
-      setModalError("Your session changed. Please sign in again to reserve your pass.");
+      setModalError(publicCopy[contentLocale(event.name)].errSessionChanged);
       setIsAuthModalOpen(true);
       setSubmitting(false);
       return;
@@ -133,7 +143,7 @@ export default function PublicEvent() {
         rejectAttendeeToken(token);
         setAlreadyHasTicket(false);
         setAuthMode("login");
-        setModalError("Your session has expired. Please sign in to reserve your pass.");
+        setModalError(publicCopy[contentLocale(event.name)].errSessionExpired);
         setIsAuthModalOpen(true);
         setSubmitting(false);
         return;
@@ -214,7 +224,7 @@ export default function PublicEvent() {
 
     if (authMode === "register") {
       if (!fullName.trim() || !email.trim() || !password) {
-        setModalError("Please complete all required fields.");
+        setModalError(publicCopy[contentLocale(event.name)].errRequired);
         setSubmitting(false);
         return;
       }
@@ -242,7 +252,7 @@ export default function PublicEvent() {
     } else {
       // Login mode
       if (!email.trim() || !password) {
-        setModalError("Please provide your email address and password.");
+        setModalError(publicCopy[contentLocale(event.name)].errLoginRequired);
         setSubmitting(false);
         return;
       }
@@ -272,17 +282,29 @@ export default function PublicEvent() {
   if (loading) {
     return (
       <PublicLayout>
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-16 sm:py-24">
-          <div className="max-w-3xl space-y-6 animate-pulse">
-            <div className="w-28 h-6 bg-surface-panel-subtle rounded-full" />
-            <div className="w-3/4 h-10 sm:h-14 bg-surface-panel-subtle rounded-xl" />
-            <div className="w-full h-24 bg-surface-panel-subtle rounded-xl" />
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-4">
-              <div className="h-20 bg-surface-panel-subtle rounded-xl" />
-              <div className="h-20 bg-surface-panel-subtle rounded-xl" />
+        {/* Fills the viewport so the footer never sits in view and jumps when content arrives (CLS). */}
+        <section role="status" aria-label={c.loading} className="relative min-h-[100svh] overflow-hidden bg-surface-ink">
+          <div aria-hidden="true" className="absolute inset-0 bg-meridian-ink opacity-70" />
+          <div className="relative mx-auto max-w-7xl space-y-10 px-4 pt-12 pb-28 sm:px-6 sm:pt-20 lg:min-h-[640px] lg:px-10 motion-safe:animate-pulse">
+            <div className="flex gap-2">
+              <div className="h-7 w-36 rounded-full bg-white/10" />
+              <div className="h-7 w-28 rounded-full bg-white/[0.06]" />
+            </div>
+            <div className="max-w-4xl space-y-4">
+              <div className="h-3 w-48 rounded-full bg-white/10" />
+              <div className="h-14 w-full rounded-2xl bg-white/10 sm:h-20" />
+              <div className="h-14 w-2/3 rounded-2xl bg-white/10 sm:h-20" />
+            </div>
+            <div className="grid grid-cols-2 gap-6 border-t border-white/10 pt-6 lg:grid-cols-4">
+              {[0, 1, 2, 3].map((i) => (
+                <div key={i} className="space-y-2">
+                  <div className="h-3 w-16 rounded bg-white/10" />
+                  <div className="h-5 w-3/4 rounded bg-white/10" />
+                </div>
+              ))}
             </div>
           </div>
-        </div>
+        </section>
       </PublicLayout>
     );
   }
@@ -290,370 +312,209 @@ export default function PublicEvent() {
   // Error / Not Found state
   if (error || !event) {
     return (
-      <PublicLayout>
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-20 sm:py-32 flex items-center justify-center">
-          <div className="max-w-md w-full bg-surface-panel p-8 sm:p-10 rounded-2xl border border-border-default shadow-xs text-center space-y-5">
-            <div className="w-12 h-12 rounded-full bg-action-subtle text-action-primary mx-auto flex items-center justify-center font-bold text-lg">
-              🔍
+      <PublicLayout congressName="">
+        <section className="relative isolate overflow-hidden">
+          <CongressSignature seed={slug ?? "congress"} tone="light" className="absolute inset-0 -z-10 size-full opacity-70" />
+          <div aria-hidden="true" className="absolute inset-0 -z-10 bg-linear-to-b from-surface-page/30 via-surface-page/85 to-surface-page" />
+          <div className="mx-auto max-w-xl space-y-7 px-4 py-24 text-center sm:py-36">
+            <span className="mx-auto grid size-16 place-items-center bg-surface-panel text-aiteb-indigo shadow-lift shape-arc">
+              <Icon name="search" size={28} />
+            </span>
+            <div className="space-y-3">
+              <h1 className="text-3xl font-bold tracking-[-0.03em] text-text-primary sm:text-4xl">{c.notFoundTitle}</h1>
+              <p className="text-base leading-relaxed text-text-secondary">{error ?? c.notFoundBody}</p>
             </div>
-            <div className="space-y-1.5">
-              <h1 className="text-xl font-bold text-text-primary tracking-tight">
-                Event Not Found
-              </h1>
-              <p className="text-sm text-text-secondary leading-relaxed">
-                {error ?? "The event you are looking for does not exist or has been removed."}
-              </p>
-            </div>
-            <div className="pt-2">
-              <LinkButton to="/" variant="secondary" size="md">
-                ← Return to Platform Home
-              </LinkButton>
-            </div>
+            <LinkButton to="/" variant="secondary" size="lg">
+              <Icon name="arrow-left" size={18} />
+              {c.returnHome}
+            </LinkButton>
           </div>
-        </div>
+        </section>
       </PublicLayout>
     );
   }
-  const startDateFormatted = formatLocalizedDate(event.starts_at, locale);
-  const startTimeFormatted = new Date(event.starts_at).toLocaleTimeString(undefined, {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
 
-  const endTimeFormatted = new Date(event.ends_at).toLocaleTimeString(undefined, {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  const reserveLabel = submitting
+    ? c.processing
+    : selectedTierState === "SOLD_OUT"
+      ? t.reserveButtonSoldOut
+      : selectedTierState === "CLOSED"
+        ? t.reserveButtonClosed
+        : c.reserve;
+  const selectedRemaining = Math.max(0, selectedTierQuota - selectedTierReserved);
+  const tabClass = (active: boolean) =>
+    `min-h-[44px] rounded-lg px-3 text-sm font-semibold transition-[background-color,color,box-shadow] cursor-pointer ${
+      active ? "bg-surface-panel text-text-primary shadow-soft" : "text-text-secondary hover:text-text-primary"
+    }`;
+  const required = (
+    <span aria-hidden="true" className="text-status-danger-text">
+      *
+    </span>
+  );
 
   return (
-    <PublicLayout>
-      {/* Event Hero Banner */}
-      <section className="bg-surface-panel border-b border-border-default pt-10 pb-12 sm:pt-16 sm:pb-20">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="max-w-4xl space-y-6">
-            {/* Status & Category Bar */}
-            <div className="flex flex-wrap items-center gap-2.5">
-              <Badge variant="brand" size="md">
-                Official Congress Registration
-              </Badge>
-              <Badge variant="success" size="md">
-                Registration Open
-              </Badge>
-              <span className="text-xs text-text-muted hidden sm:inline">•</span>
-              <span className="text-xs font-mono text-text-muted hidden sm:inline">
-                /e/{event.slug}
-              </span>
-            </div>
+    <PublicLayout locale={locale} congressName={event.name}>
+      <CongressHero event={event} locale={locale} />
 
-            {/* Event Title (H1) */}
-            <h1 className="text-3xl sm:text-5xl lg:text-6xl font-extrabold tracking-tight text-text-primary leading-[1.12]">
-              {event.name}
-            </h1>
-
-            {/* Fast Facts Bar: Date, Time & Venue */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 pt-2 max-w-2xl text-xs sm:text-sm">
-              <div className="flex items-start gap-3 p-3.5 rounded-xl bg-surface-page border border-border-default">
-                <span className="w-8 h-8 rounded-lg bg-action-subtle text-action-primary flex items-center justify-center shrink-0 font-bold text-sm">
-                  📅
-                </span>
-                <div className="space-y-0.5">
-                  <span className="text-xs font-semibold text-text-primary block">
-                    Dates & Schedule
-                  </span>
-                  <span className="text-text-secondary block font-medium">
-                    {startDateFormatted}
-                  </span>
-                  <span className="text-xs text-text-muted block">
-                    {startTimeFormatted} – {endTimeFormatted}
-                  </span>
-                </div>
-              </div>
-
-              <div className="flex items-start gap-3 p-3.5 rounded-xl bg-surface-page border border-border-default">
-                <span className="w-8 h-8 rounded-lg bg-action-subtle text-action-primary flex items-center justify-center shrink-0 font-bold text-sm">
-                  📍
-                </span>
-                <div className="space-y-0.5">
-                  <span className="text-xs font-semibold text-text-primary block">
-                    Congress Venue
-                  </span>
-                  <span className="text-text-secondary block font-medium">
-                    {event.location}
-                  </span>
-                  <span className="text-xs text-text-muted block">
-                    On-Site Attendance
-                  </span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Main Two-Column Layout (1024px split) */}
-      <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-10 sm:py-16">
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 items-start">
-          {/* Left Column: Event Description & Overview (7 cols) */}
-          <div className="lg:col-span-7 space-y-10">
-            {/* Already has ticket banner */}
-            {alreadyHasTicket && (
-              <div
-                role="alert"
-                className="p-4 sm:p-5 rounded-xl bg-action-subtle border border-action-subtle-border flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4"
-              >
-                <div className="space-y-1">
-                  <span className="text-xs font-bold uppercase tracking-wider text-action-primary block">
-                    Active Pass Detected
-                  </span>
-                  <p className="text-xs sm:text-sm text-text-secondary">
-                    You already hold an active attendee pass for this congress.
-                  </p>
-                </div>
-                <LinkButton to={`/c/${event.slug}/my-ticket`} variant="primary" size="sm">
-                  View My Pass →
-                </LinkButton>
-              </div>
+      <div className="pub-sheet">
+        <div className="mx-auto max-w-7xl space-y-20 px-4 pt-14 pb-20 sm:space-y-28 sm:px-6 sm:pt-20 sm:pb-28 lg:px-10">
+          {/* 01 About */}
+          <EditorialSection id="about" headingId="about-heading" index={1} eyebrow={c.sectionAboutEyebrow} title={c.sectionAbout} locale={locale}>
+            {event.description ? (
+              <p className="max-w-3xl whitespace-pre-line text-xl leading-[1.6] tracking-[-0.01em] text-text-primary sm:text-2xl sm:leading-[1.55] rtl:leading-[1.95]">
+                {event.description}
+              </p>
+            ) : (
+              <p className="text-base text-text-muted">{c.noDescription}</p>
             )}
+          </EditorialSection>
 
-            {/* About / Description */}
-            <section aria-labelledby="about-heading" className="space-y-4">
-              <h2
-                id="about-heading"
-                className="text-xl sm:text-2xl font-bold tracking-tight text-text-primary"
-              >
-                About this Congress
-              </h2>
-              {event.description ? (
-                <div className="prose prose-slate max-w-none text-sm sm:text-base text-text-secondary leading-relaxed whitespace-pre-line space-y-3">
-                  {event.description}
+          {/* 02 What the pass includes */}
+          <EditorialSection id="includes" headingId="features-heading" index={2} eyebrow={c.sectionIncludesEyebrow} title={c.sectionIncludes} locale={locale}>
+            <ul className="grid border-t border-border-default sm:grid-cols-2">
+              {c.includes.map((item, i) => (
+                <li
+                  key={item.title}
+                  className={`flex gap-4 border-b border-border-default py-6 sm:py-8 ${i % 2 === 0 ? "sm:pe-8" : "sm:border-s sm:ps-8"}`}
+                >
+                  <span className="grid size-11 shrink-0 place-items-center rounded-xl bg-event-accent-soft text-event-accent [border-start-end-radius:18px]">
+                    <Icon name={item.icon as IconName} size={22} />
+                  </span>
+                  <div className="space-y-1.5">
+                    <h3 className="text-base font-semibold text-text-primary">{item.title}</h3>
+                    <p className="text-sm leading-relaxed text-text-secondary">{item.body}</p>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </EditorialSection>
+
+          {/* 03 Passes */}
+          <EditorialSection
+            id="passes"
+            headingId="passes-heading"
+            index={3}
+            layout="stack"
+            eyebrow={c.sectionPassesEyebrow}
+            title={c.sectionPasses}
+            lead={c.passesLead}
+            locale={locale}
+            aside={
+              <Badge variant="accent" size="md" icon={<Icon name="ticket" size={14} />} className="self-start lg:self-auto">
+                {c.freeAdmission}
+              </Badge>
+            }
+          >
+            <div className="space-y-6">
+              {event.ticket_tiers.length === 0 ? (
+                <div className="flex items-start gap-4 rounded-2xl border border-dashed border-border-strong bg-surface-panel p-6 sm:p-8">
+                  <span className="grid size-11 shrink-0 place-items-center rounded-xl bg-surface-panel-subtle text-text-muted">
+                    <Icon name="lock" size={22} />
+                  </span>
+                  <div className="space-y-1">
+                    <p className="text-base font-semibold text-text-primary">{c.noTiersTitle}</p>
+                    <p className="text-sm text-text-secondary">{c.noTiersBody}</p>
+                  </div>
                 </div>
               ) : (
-                <p className="text-sm text-text-muted italic">
-                  No additional event description provided by the organizers.
-                </p>
+                <fieldset className="grid gap-5 md:grid-cols-2">
+                  <legend className="sr-only">{c.tierLegend}</legend>
+                  {event.ticket_tiers.map((tier, i) => (
+                    <PassStub
+                      key={tier.id}
+                      tier={tier}
+                      index={i}
+                      locale={locale}
+                      selected={tier.id === selectedTierId}
+                      onSelect={() => setSelectedTierId(tier.id)}
+                    />
+                  ))}
+                </fieldset>
               )}
-            </section>
 
-            {/* Event Highlights & Features */}
-            <section aria-labelledby="features-heading" className="space-y-4 pt-6 border-t border-border-default">
-              <h2
-                id="features-heading"
-                className="text-lg sm:text-xl font-bold tracking-tight text-text-primary"
-              >
-                What Your Pass Includes
-              </h2>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="p-4 rounded-xl bg-surface-panel border border-border-default space-y-1.5">
-                  <div className="text-xs font-bold text-text-primary flex items-center gap-2">
-                    <span className="text-action-primary">✓</span> Digital QR Pass
+              {/* Already has ticket banner */}
+              {alreadyHasTicket && (
+                <div
+                  role="alert"
+                  className="flex flex-col gap-4 rounded-2xl border border-action-subtle-border bg-aiteb-lavender p-5 sm:flex-row sm:items-center sm:justify-between"
+                >
+                  <div className="flex items-start gap-3">
+                    <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-surface-panel text-aiteb-indigo shadow-soft">
+                      <Icon name="ticket" size={20} />
+                    </span>
+                    <div className="space-y-0.5">
+                      <p className="text-sm font-bold text-aiteb-indigo">{c.activePassTitle}</p>
+                      <p className="text-sm text-text-secondary">{c.activePassBody}</p>
+                    </div>
                   </div>
-                  <p className="text-xs text-text-secondary leading-normal">
-                    Instant high-contrast badge for seamless check-in at venue gates.
-                  </p>
+                  <LinkButton to={`/c/${event.slug}/my-ticket`} variant="primary" size="md">
+                    {c.viewMyPass}
+                    <Icon name="arrow-right" size={16} />
+                  </LinkButton>
                 </div>
-                <div className="p-4 rounded-xl bg-surface-panel border border-border-default space-y-1.5">
-                  <div className="text-xs font-bold text-text-primary flex items-center gap-2">
-                    <span className="text-action-primary">✓</span> Exhibition Access
+              )}
+
+              {/* Reservation dock: sticks to the viewport bottom while the passes are on screen. */}
+              <div className="sticky bottom-[max(0.75rem,env(safe-area-inset-bottom))] z-30 lg:static">
+                <div className="flex flex-col gap-4 bg-surface-ink p-4 text-white shadow-pop shape-arc sm:flex-row sm:items-center sm:gap-6 sm:p-5">
+                  <div className="flex min-w-0 flex-1 items-center gap-4">
+                    <span aria-hidden="true" className="relative hidden size-12 shrink-0 overflow-hidden rounded-xl ring-1 ring-white/15 [border-start-end-radius:20px] sm:block">
+                      <CongressSignature seed={event.slug} tone="ink" className="absolute inset-0 size-full scale-150" />
+                    </span>
+                    <div className="min-w-0">
+                      <p className="text-[11px] font-medium text-ink-300">{c.selectedPass}</p>
+                      <p className="truncate text-base font-semibold">{selectedTier?.name ?? c.noTiersTitle}</p>
+                      {selectedTier && isSelectedTierAvailable && (
+                        <p className="text-xs text-ink-300">
+                          {c.freeAdmission} · {t.tierCapacityRemaining} <span className="tabular text-white">{num(selectedRemaining, locale)}</span>
+                        </p>
+                      )}
+                    </div>
                   </div>
-                  <p className="text-xs text-text-secondary leading-normal">
-                    Discover participating company booths and download digital brochures.
-                  </p>
-                </div>
-                <div className="p-4 rounded-xl bg-surface-panel border border-border-default space-y-1.5">
-                  <div className="text-xs font-bold text-text-primary flex items-center gap-2">
-                    <span className="text-action-primary">✓</span> Peer Networking
-                  </div>
-                  <p className="text-xs text-text-secondary leading-normal">
-                    Connect with fellow delegates and download vCards directly.
-                  </p>
-                </div>
-                <div className="p-4 rounded-xl bg-surface-panel border border-border-default space-y-1.5">
-                  <div className="text-xs font-bold text-text-primary flex items-center gap-2">
-                    <span className="text-action-primary">✓</span> Offline Pass Access
-                  </div>
-                  <p className="text-xs text-text-secondary leading-normal">
-                    Passes stay saved in your personal device browser for fast entry.
-                  </p>
-                </div>
-              </div>
-            </section>
-
-            {/* Exhibition Notice */}
-            <section aria-labelledby="exhibition-heading" className="p-5 rounded-2xl bg-surface-panel-subtle border border-border-default space-y-2">
-              <h2
-                id="exhibition-heading"
-                className="text-sm font-bold text-text-primary flex items-center gap-2"
-              >
-                <span>🏢</span> Commercial Exhibition & Sponsorship
-              </h2>
-              <p className="text-xs text-text-secondary leading-relaxed">
-                This event hosts commercial exhibitors and industry sponsors. Attendees can visit digital booth profiles via direct booth links (<code className="font-mono text-xs bg-white px-1 rounded border border-border-subtle">/e/{event.slug}/booths/:id</code>) and save digital brochures.
-              </p>
-            </section>
-          </div>
-
-          {/* Right Column: Ticket Tiers & Registration Card (5 cols) */}
-          <aside className="lg:col-span-5 lg:sticky lg:top-24 space-y-6">
-            <Card className="border-border-default shadow-sm overflow-hidden">
-              <div className="p-5 sm:p-6 bg-surface-panel border-b border-border-subtle space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <h2 className="text-lg font-bold text-text-primary tracking-tight">
-                    Select Your Pass
-                  </h2>
-                  <Badge variant="brand" size="sm">
-                    Free Admission
-                  </Badge>
-                </div>
-                <p className="text-xs text-text-secondary">
-                  Choose your ticket tier below. Registration takes less than a minute.
-                </p>
-              </div>
-
-              <CardContent className="p-5 sm:p-6 space-y-4">
-                {event.ticket_tiers.length === 0 ? (
-                  <div className="p-6 text-center rounded-xl bg-surface-page border border-border-subtle text-xs text-text-muted space-y-2">
-                    <p className="font-semibold text-text-primary">
-                      Registration is currently closed
-                    </p>
-                    <p>No ticket tiers are open for registration at this time.</p>
-                  </div>
-                ) : (
-                  <fieldset className="space-y-3">
-                    <legend className="sr-only">Available Ticket Tiers</legend>
-                    {event.ticket_tiers.map((tier) => {
-                      const isSelected = tier.id === selectedTierId;
-                      const reserved = tier.reserved_count ?? 0;
-                      const remaining = Math.max(0, tier.quota - reserved);
-
-                      const tierState =
-                        reserved >= tier.quota
-                          ? "SOLD_OUT"
-                          : !tier.is_open
-                          ? "CLOSED"
-                          : "AVAILABLE";
-
-                      const isAvailable = tierState === "AVAILABLE";
-
-                      return (
-                        <label
-                          key={tier.id}
-                          className={`block p-4 rounded-xl border transition-all relative select-none ${
-                            !isAvailable
-                              ? "bg-neutral-50/80 border-border-default opacity-85 cursor-not-allowed"
-                              : isSelected
-                              ? "bg-action-subtle/50 border-action-primary ring-1 ring-action-primary shadow-xs cursor-pointer"
-                              : "bg-surface-panel hover:bg-surface-page border-border-default cursor-pointer"
-                          }`}
-                        >
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="flex items-start gap-3">
-                              <input
-                                type="radio"
-                                name="ticket_tier"
-                                value={tier.id}
-                                checked={isSelected}
-                                disabled={!isAvailable}
-                                onChange={() => {
-                                  if (isAvailable) setSelectedTierId(tier.id);
-                                }}
-                                className="mt-0.5 text-action-primary focus:ring-action-primary disabled:opacity-40"
-                              />
-                              <div className="space-y-1">
-                                <span className={`font-bold text-sm block leading-tight ${!isAvailable ? "text-text-secondary" : "text-text-primary"}`}>
-                                  {tier.name}
-                                </span>
-                                <span className="text-xs text-text-secondary block leading-relaxed">
-                                  {tier.description ||
-                                    (isRtl ? "پذیرش عمومی همایش برای کلیه نشست‌ها." : "General admission pass for all sessions and exhibits.")}
-                                </span>
-                              </div>
-                            </div>
-
-                            {/* Authoritative State Badge */}
-                            <div className="shrink-0">
-                              {tierState === "AVAILABLE" && (
-                                <Badge variant="success" size="sm">
-                                  {isRtl ? "رایگان" : "FREE"}
-                                </Badge>
-                              )}
-                              {tierState === "SOLD_OUT" && (
-                                <Badge variant="neutral" size="sm" className="bg-amber-100 text-amber-900 border-amber-300">
-                                  {t.tierStatusSoldOut || (isRtl ? "تکمیل ظرفیت" : "Sold Out")}
-                                </Badge>
-                              )}
-                              {tierState === "CLOSED" && (
-                                <Badge variant="neutral" size="sm" className="bg-neutral-200 text-neutral-800 border-neutral-300">
-                                  {t.tierStatusRegistrationClosed || (isRtl ? "ثبت‌نام بسته است" : "Registration Closed")}
-                                </Badge>
-                              )}
-                            </div>
-                          </div>
-
-                          <div className="mt-3 pt-2.5 border-t border-border-subtle flex items-center justify-between text-[11px] text-text-muted">
-                            <span>
-                              {tierState === "AVAILABLE" && (
-                                <>
-                                  {t.tierCapacityRemaining || (isRtl ? "ظرفیت باقی‌مانده:" : "Seats remaining:")}{" "}
-                                  <strong className="text-text-primary">{formatLocalizedNumber(remaining, locale)}</strong>{" "}
-                                  / {formatLocalizedNumber(tier.quota, locale)}
-                                </>
-                              )}
-                              {tierState === "SOLD_OUT" && (
-                                <span className="text-amber-800 font-medium">
-                                  {t.tierCapacitySoldOutNotice || (isRtl ? "ظرفیت این رده تکمیل شده است." : "Quota has been reached.")}
-                                </span>
-                              )}
-                              {tierState === "CLOSED" && (
-                                <span className="text-text-muted font-medium">
-                                  {t.tierClosedNotice || (isRtl ? "ثبت‌نام این رده توسط برگزارکننده بسته شده است." : "Registration is closed.")}
-                                </span>
-                              )}
-                            </span>
-                            <span className="font-medium text-action-primary">100% Free Pass</span>
-                          </div>
-                        </label>
-                      );
-                    })}
-                  </fieldset>
-                )}
-
-                {/* Primary Action Button */}
-                <div className="pt-2">
                   <Button
                     type="button"
-                    variant="primary"
+                    variant="light"
                     size="lg"
-                    isFullWidth
+                    className="w-full sm:w-auto sm:min-w-[14rem] focus-visible:outline-aiteb-orchid"
                     disabled={submitting || event.ticket_tiers.length === 0 || !isSelectedTierAvailable}
                     onClick={handleStartReservation}
                   >
-                    {submitting
-                      ? (isRtl ? "در حال ثبت نهایی..." : "Processing Reservation...")
-                      : selectedTierState === "SOLD_OUT"
-                      ? (t.reserveButtonSoldOut || (isRtl ? "تکمیل ظرفیت" : "Sold Out"))
-                      : selectedTierState === "CLOSED"
-                      ? (t.reserveButtonClosed || (isRtl ? "ثبت‌نام این رده بسته است" : "Registration Closed"))
-                      : (t.reserveButtonAvailable || (isRtl ? "رزرو رایگان بلیت →" : "Reserve Free Pass →"))}
+                    {reserveLabel}
+                    {!submitting && isSelectedTierAvailable && <Icon name="arrow-right" size={18} />}
                   </Button>
                 </div>
+              </div>
 
-                <div className="text-center pt-2 text-[11px] text-text-muted space-y-1">
-                  <p>
-                    Passes are digital and scannable directly on your smartphone.
-                  </p>
-                  <p>
-                    Already registered?{" "}
-                    <Link
-                      to="/my-tickets"
-                      className="text-action-primary font-medium hover:underline focus-visible:outline-focus-ring"
-                    >
-                      View existing tickets
-                    </Link>
-                  </p>
-                </div>
-              </CardContent>
-            </Card>
-          </aside>
+              <div className="flex flex-col items-center gap-1.5 text-center text-sm text-text-muted lg:flex-row lg:justify-center lg:gap-3">
+                <span className="inline-flex items-center gap-2">
+                  <Icon name="device" size={16} />
+                  {c.digitalNote}
+                </span>
+                <span aria-hidden="true" className="hidden lg:inline">
+                  ·
+                </span>
+                <span>
+                  {c.alreadyRegistered}{" "}
+                  <Link to="/my-tickets" className="font-semibold text-event-accent hover:underline">
+                    {c.viewExisting}
+                  </Link>
+                </span>
+              </div>
+            </div>
+          </EditorialSection>
+
+          {/* 04 Exhibition */}
+          <EditorialSection
+            id="exhibition"
+            headingId="exhibition-heading"
+            index={4}
+            eyebrow={c.sectionExhibitionEyebrow}
+            title={c.sectionExhibition}
+            lead={c.exhibitionLead}
+            locale={locale}
+          >
+            <BoothIndex key={event.slug} slug={event.slug} locale={locale} />
+          </EditorialSection>
         </div>
       </div>
 
@@ -666,21 +527,13 @@ export default function PublicEvent() {
             setModalError(null);
           }
         }}
-        title={authMode === "register" ? "Complete Your Registration" : "Sign In to Reserve"}
-        description={
-          selectedTier
-            ? `Reserving pass for ${selectedTier.name} • 100% Free`
-            : undefined
-        }
+        title={authMode === "register" ? c.dialogRegisterTitle : c.dialogLoginTitle}
+        description={selectedTier ? c.dialogDescription(selectedTier.name) : undefined}
         size="md"
       >
-        <div className="space-y-5">
+        <div className="space-y-6">
           {/* Auth Mode Toggle Tabs */}
-          <div
-            role="tablist"
-            aria-label="Account Access Mode"
-            className="flex border-b border-border-default text-xs font-semibold"
-          >
+          <div role="tablist" aria-label={c.modeLabel} className="grid grid-cols-2 gap-1 rounded-xl border border-border-default bg-surface-panel-subtle p-1">
             <button
               type="button"
               role="tab"
@@ -689,13 +542,9 @@ export default function PublicEvent() {
                 setAuthMode("register");
                 setModalError(null);
               }}
-              className={`flex-1 py-2.5 text-center border-b-2 transition-colors cursor-pointer ${
-                authMode === "register"
-                  ? "border-action-primary text-action-primary font-bold"
-                  : "border-transparent text-text-secondary hover:text-text-primary"
-              }`}
+              className={tabClass(authMode === "register")}
             >
-              New Attendee
+              {c.modeRegister}
             </button>
             <button
               type="button"
@@ -705,86 +554,95 @@ export default function PublicEvent() {
                 setAuthMode("login");
                 setModalError(null);
               }}
-              className={`flex-1 py-2.5 text-center border-b-2 transition-colors cursor-pointer ${
-                authMode === "login"
-                  ? "border-action-primary text-action-primary font-bold"
-                  : "border-transparent text-text-secondary hover:text-text-primary"
-              }`}
+              className={tabClass(authMode === "login")}
             >
-              I Have an Account
+              {c.modeLogin}
             </button>
           </div>
 
           <form onSubmit={handleAuthAndReserve} className="space-y-4">
             {authMode === "register" && (
               <div>
-                <label className="block text-xs font-semibold text-text-primary mb-1">
-                  Full Name <span className="text-red-500">*</span>
+                <label htmlFor={`${formId}-name`} className="ui-label">
+                  {c.fullName} {required}
                 </label>
                 <input
+                  id={`${formId}-name`}
                   type="text"
                   required
+                  autoComplete="name"
                   value={fullName}
                   onChange={(e) => setFullName(e.target.value)}
-                  placeholder="e.g. Dr. Sarah Jenkins"
-                  className="w-full px-3 py-2 bg-white border border-border-default rounded-lg text-sm text-text-primary focus:border-action-primary focus:ring-1 focus:ring-action-primary"
+                  placeholder={c.fullNamePlaceholder}
+                  className="ui-input"
                 />
               </div>
             )}
 
             <div>
-              <label className="block text-xs font-semibold text-text-primary mb-1">
-                Email Address <span className="text-red-500">*</span>
+              <label htmlFor={`${formId}-email`} className="ui-label">
+                {c.email} {required}
               </label>
               <input
+                id={`${formId}-email`}
                 type="email"
                 required
+                dir="ltr"
+                autoComplete="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="name@institution.org"
-                className="w-full px-3 py-2 bg-white border border-border-default rounded-lg text-sm text-text-primary focus:border-action-primary focus:ring-1 focus:ring-action-primary"
+                placeholder={c.emailPlaceholder}
+                className="ui-input rtl:text-right"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-text-primary mb-1">
-                Password <span className="text-red-500">*</span>
+              <label htmlFor={`${formId}-password`} className="ui-label">
+                {c.password} {required}
               </label>
               <input
+                id={`${formId}-password`}
                 type="password"
                 required
                 minLength={8}
+                dir="ltr"
+                autoComplete={authMode === "register" ? "new-password" : "current-password"}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="Minimum 8 characters"
-                className="w-full px-3 py-2 bg-white border border-border-default rounded-lg text-sm text-text-primary focus:border-action-primary focus:ring-1 focus:ring-action-primary"
+                placeholder={c.passwordPlaceholder}
+                className="ui-input rtl:text-right"
               />
             </div>
 
             {authMode === "register" && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 gap-4 border-t border-border-subtle pt-4 sm:grid-cols-2">
+                <p className="-mb-1 text-xs font-medium text-text-muted sm:col-span-2">{c.optional}</p>
                 <div>
-                  <label className="block text-xs font-semibold text-text-primary mb-1">
-                    Organization / University
+                  <label htmlFor={`${formId}-org`} className="ui-label">
+                    {c.organization}
                   </label>
                   <input
+                    id={`${formId}-org`}
                     type="text"
+                    autoComplete="organization"
                     value={organization}
                     onChange={(e) => setOrganization(e.target.value)}
-                    placeholder="e.g. Medical Center"
-                    className="w-full px-3 py-2 bg-white border border-border-default rounded-lg text-sm text-text-primary focus:border-action-primary focus:ring-1 focus:ring-action-primary"
+                    placeholder={c.organizationPlaceholder}
+                    className="ui-input"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-text-primary mb-1">
-                    Professional Title
+                  <label htmlFor={`${formId}-title`} className="ui-label">
+                    {c.title}
                   </label>
                   <input
+                    id={`${formId}-title`}
                     type="text"
+                    autoComplete="organization-title"
                     value={title}
                     onChange={(e) => setTitle(e.target.value)}
-                    placeholder="e.g. Research Fellow"
-                    className="w-full px-3 py-2 bg-white border border-border-default rounded-lg text-sm text-text-primary focus:border-action-primary focus:ring-1 focus:ring-action-primary"
+                    placeholder={c.titlePlaceholder}
+                    className="ui-input"
                   />
                 </div>
               </div>
@@ -794,25 +652,17 @@ export default function PublicEvent() {
               <div
                 role="alert"
                 aria-live="assertive"
-                className="p-3 rounded-lg bg-status-danger-bg text-status-danger-text border border-status-danger-border text-xs leading-relaxed"
+                className="flex items-start gap-3 rounded-xl border border-status-danger-border bg-status-danger-bg p-3.5 text-sm leading-relaxed text-status-danger-text"
               >
-                {modalError}
+                <Icon name="alert" size={18} className="mt-0.5" />
+                <span>{modalError}</span>
               </div>
             )}
 
             <div className="pt-2">
-              <Button
-                type="submit"
-                variant="primary"
-                size="md"
-                isFullWidth
-                disabled={submitting}
-              >
-                {submitting
-                  ? "Reserving Pass..."
-                  : authMode === "register"
-                  ? "Confirm Registration & Get Pass →"
-                  : "Sign In & Confirm Pass →"}
+              <Button type="submit" variant="primary" size="lg" isFullWidth disabled={submitting}>
+                {submitting ? c.submitting : authMode === "register" ? c.submitRegister : c.submitLogin}
+                {!submitting && <Icon name="arrow-right" size={18} />}
               </Button>
             </div>
           </form>
@@ -826,46 +676,38 @@ export default function PublicEvent() {
           setIsSuccessModalOpen(false);
           navigate("/my-tickets");
         }}
-        title="Pass Reserved Successfully!"
-        description="Your congress registration has been confirmed."
+        title={c.successTitle}
+        description={c.successDescription}
         size="sm"
       >
-        <div className="text-center space-y-5 py-2">
-          <div className="w-14 h-14 rounded-full bg-emerald-100 text-emerald-700 mx-auto flex items-center justify-center text-2xl font-bold">
-            ✓
-          </div>
-          <div className="space-y-1">
-            <h3 className="text-base font-bold text-text-primary">
-              {event.name}
-            </h3>
-            <p className="text-xs text-text-secondary">
-              Tier: <span className="font-semibold text-action-primary">{selectedTier?.name}</span>
-            </p>
-            <p className="text-xs text-text-muted pt-1">
-              Your digital pass and QR code have been minted and added to your attendee portal.
+        <div className="space-y-6">
+          <div className="relative isolate overflow-hidden rounded-2xl bg-surface-ink p-5 text-white [border-start-end-radius:var(--radius-arc)]">
+            <CongressSignature seed={event.slug} tone="ink" className="absolute inset-0 -z-10 size-full opacity-80 rtl:-scale-x-100" />
+            <div aria-hidden="true" className="absolute inset-0 -z-10 bg-linear-to-t from-surface-ink via-surface-ink/80 to-surface-ink/20" />
+            <span className="grid size-11 place-items-center rounded-full bg-[#3EE0A1] text-surface-ink motion-safe:animate-pop">
+              <Icon name="check" size={22} strokeWidth={2.4} />
+            </span>
+            <h3 className="mt-6 text-lg font-semibold leading-snug">{event.name}</h3>
+            <p className="mt-1 text-sm text-ink-200">
+              {c.successTier}: <span className="font-semibold text-white">{selectedTier?.name}</span>
             </p>
           </div>
-          <div className="pt-2 flex flex-col gap-2">
+          <p className="text-sm leading-relaxed text-text-secondary">{c.successBody}</p>
+          <div className="flex flex-col gap-2">
             <Button
               type="button"
               variant="primary"
-              size="md"
+              size="lg"
               isFullWidth
               onClick={() => {
                 setIsSuccessModalOpen(false);
                 navigate("/my-tickets");
               }}
             >
-              Open My Tickets & QR Pass →
+              {c.successOpen}
             </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              isFullWidth
-              onClick={() => setIsSuccessModalOpen(false)}
-            >
-              Stay on Event Page
+            <Button type="button" variant="ghost" size="md" isFullWidth onClick={() => setIsSuccessModalOpen(false)}>
+              {c.successStay}
             </Button>
           </div>
         </div>

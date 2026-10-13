@@ -1,0 +1,252 @@
+/*
+ * Public congress experience + platform landing ("Crossing Arcs").
+ * Portal-only presentation; tokens come from src/index.css. Lives in the `components` layer so
+ * Tailwind utilities on the same element still win.
+ */
+@layer components {
+
+/* ── Hero ─────────────────────────────────────────────────────────────── */
+
+/* Legibility scrim over the generative congress artwork: dense on the reading side, open on the far side. */
+.pub-hero-scrim {
+  background:
+    linear-gradient(90deg, rgb(14 12 43 / 0.96) 0%, rgb(14 12 43 / 0.86) 34%, rgb(14 12 43 / 0.3) 68%, rgb(14 12 43 / 0.06) 100%),
+    linear-gradient(0deg, rgb(14 12 43 / 0.94) 0%, rgb(14 12 43 / 0.78) 42%, rgb(14 12 43 / 0) 72%);
+}
+[dir="rtl"] .pub-hero-scrim {
+  background:
+    linear-gradient(270deg, rgb(14 12 43 / 0.96) 0%, rgb(14 12 43 / 0.86) 34%, rgb(14 12 43 / 0.3) 68%, rgb(14 12 43 / 0.06) 100%),
+    linear-gradient(0deg, rgb(14 12 43 / 0.94) 0%, rgb(14 12 43 / 0.78) 42%, rgb(14 12 43 / 0) 72%);
+}
+@media (max-width: 47.99rem) {
+  .pub-hero-scrim,
+  [dir="rtl"] .pub-hero-scrim {
+    background: linear-gradient(0deg, rgb(14 12 43 / 0.97) 0%, rgb(14 12 43 / 0.9) 55%, rgb(14 12 43 / 0.45) 100%);
+  }
+}
+
+/* The meridian grid fades out toward the reading side so it never fights the title. */
+.pub-hero-grid {
+  -webkit-mask-image: linear-gradient(90deg, transparent 10%, #000 70%);
+  mask-image: linear-gradient(90deg, transparent 10%, #000 70%);
+}
+[dir="rtl"] .pub-hero-grid {
+  -webkit-mask-image: linear-gradient(270deg, transparent 10%, #000 70%);
+  mask-image: linear-gradient(270deg, transparent 10%, #000 70%);
+}
+
+/* Congress title: Latin gets tight display tracking, Persian keeps its natural joins and taller lines. */
+.pub-display {
+  font-family: var(--font-display);
+  font-weight: 680;
+  letter-spacing: -0.035em;
+  line-height: 0.98;
+  text-wrap: balance;
+}
+[dir="rtl"] .pub-display {
+  font-weight: 760;
+  letter-spacing: 0;
+  line-height: 1.28;
+}
+
+/* Light content sheet that rises over the ink hero with one signature arc corner. */
+.pub-sheet {
+  position: relative;
+  background: var(--surface-page);
+  border-start-start-radius: 56px;
+  margin-block-start: -3.5rem;
+}
+@media (max-width: 47.99rem) {
+  .pub-sheet {
+    border-start-start-radius: 36px;
+    margin-block-start: -2rem;
+  }
+}
+
+/* Numbered section index: mono numeral with a short brand stroke. */
+.pub-index {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.75rem;
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--event-accent);
+  font-variant-numeric: tabular-nums;
+}
+.pub-index::after {
+  content: "";
+  inline-size: 2.5rem;
+  block-size: 1px;
+  background: var(--grad-aiteb);
+}
+[dir="rtl"] .pub-index::after {
+  background: linear-gradient(270deg, var(--aiteb-orchid), var(--aiteb-violet));
+}
+
+/* ── Pass stub ────────────────────────────────────────────────────────── */
+
+/* Wrapper carries the hairline + lift as drop-shadows so they follow the notched silhouette. */
+.pass-shell {
+  filter: drop-shadow(0 0 0.6px rgb(14 12 43 / 0.32)) drop-shadow(0 12px 22px rgb(32 0 205 / 0.07));
+  transition: filter 220ms var(--ease-arc), transform 220ms var(--ease-arc);
+}
+.pass-shell:hover:not([data-state="disabled"]) {
+  filter: drop-shadow(0 0 0.6px rgb(14 12 43 / 0.4)) drop-shadow(0 18px 30px rgb(32 0 205 / 0.14));
+}
+.pass-shell[data-selected="true"] {
+  filter: drop-shadow(0 0 0.6px rgb(14 12 43 / 0.6)) drop-shadow(0 22px 40px rgb(32 0 205 / 0.26));
+}
+.pass-shell:has(input:focus-visible) {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 4px;
+  border-radius: 18px;
+}
+
+.pass-stub {
+  --stub: 7rem;
+  --notch: 11px;
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--stub);
+  border-radius: 18px;
+  -webkit-mask:
+    radial-gradient(circle var(--notch) at calc(100% - var(--stub)) 0, transparent 97%, #000) top / 100% 51% no-repeat,
+    radial-gradient(circle var(--notch) at calc(100% - var(--stub)) 100%, transparent 97%, #000) bottom / 100% 51% no-repeat;
+  mask:
+    radial-gradient(circle var(--notch) at calc(100% - var(--stub)) 0, transparent 97%, #000) top / 100% 51% no-repeat,
+    radial-gradient(circle var(--notch) at calc(100% - var(--stub)) 100%, transparent 97%, #000) bottom / 100% 51% no-repeat;
+}
+[dir="rtl"] .pass-stub {
+  -webkit-mask:
+    radial-gradient(circle var(--notch) at var(--stub) 0, transparent 97%, #000) top / 100% 51% no-repeat,
+    radial-gradient(circle var(--notch) at var(--stub) 100%, transparent 97%, #000) bottom / 100% 51% no-repeat;
+  mask:
+    radial-gradient(circle var(--notch) at var(--stub) 0, transparent 97%, #000) top / 100% 51% no-repeat,
+    radial-gradient(circle var(--notch) at var(--stub) 100%, transparent 97%, #000) bottom / 100% 51% no-repeat;
+}
+@media (min-width: 40rem) {
+  .pass-stub {
+    --stub: 8.75rem;
+  }
+}
+
+/* Perforation between body and stub. */
+.pass-perf {
+  position: absolute;
+  inset-block: calc(var(--notch) + 6px);
+  inset-inline-start: -1px;
+  inline-size: 2px;
+  background-image: radial-gradient(circle, currentColor 1px, transparent 1.4px);
+  background-size: 2px 8px;
+  background-repeat: repeat-y;
+  opacity: 0.45;
+}
+
+/* Hatched stub for closed / full passes. */
+.pass-hatch {
+  background-image: repeating-linear-gradient(
+    135deg,
+    rgb(14 12 43 / 0.045) 0 6px,
+    transparent 6px 12px
+  );
+}
+
+/* Capacity meter */
+.pass-meter {
+  block-size: 4px;
+  border-radius: 4px;
+  background: rgb(14 12 43 / 0.08);
+  overflow: hidden;
+}
+.pass-meter > span {
+  display: block;
+  block-size: 100%;
+  border-radius: inherit;
+  background: var(--event-accent);
+  transform-origin: left center;
+  transition: inline-size 600ms var(--ease-arc);
+}
+[dir="rtl"] .pass-meter > span {
+  transform-origin: right center;
+}
+.pass-meter[data-tone="low"] > span {
+  background: var(--status-warning-solid);
+}
+.pass-meter[data-tone="off"] > span {
+  background: var(--border-strong);
+}
+.pass-meter-ink {
+  background: rgb(255 255 255 / 0.16);
+}
+.pass-meter-ink > span {
+  background: linear-gradient(90deg, var(--aiteb-orchid), #fff);
+}
+[dir="rtl"] .pass-meter-ink > span {
+  background: linear-gradient(270deg, var(--aiteb-orchid), #fff);
+}
+
+/* ── Exhibition index ─────────────────────────────────────────────────── */
+
+.pub-index-row {
+  position: relative;
+  transition: background-color 200ms ease;
+}
+.pub-index-row::before {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: 0;
+  inline-size: 3px;
+  background: var(--event-accent);
+  transform: scaleY(0);
+  transform-origin: center;
+  transition: transform 260ms var(--ease-arc);
+}
+.pub-index-row:hover,
+.pub-index-row:focus-visible {
+  background: var(--event-accent-soft);
+}
+.pub-index-row:hover::before,
+.pub-index-row:focus-visible::before {
+  transform: scaleY(1);
+}
+.pub-index-row .pub-index-arrow {
+  transition: transform 260ms var(--ease-arc), background-color 200ms ease, color 200ms ease;
+}
+.pub-index-row:hover .pub-index-arrow {
+  transform: translate(2px, -2px);
+  background: var(--event-accent);
+  color: #fff;
+}
+[dir="rtl"] .pub-index-row:hover .pub-index-arrow {
+  transform: translate(-2px, -2px);
+}
+
+/* ── Booth placard ────────────────────────────────────────────────────── */
+
+.pub-placard-code {
+  font-family: var(--font-mono);
+  font-weight: 500;
+  letter-spacing: -0.04em;
+  line-height: 0.95;
+}
+[dir="rtl"] .pub-placard-code {
+  font-family: var(--font-display);
+  font-weight: 760;
+  letter-spacing: 0;
+  line-height: 1.2;
+}
+
+/* ── Landing ─────────────────────────────────────────────────────────── */
+
+.pub-landing-glow {
+  background:
+    radial-gradient(60% 55% at 85% 10%, rgb(255 151 255 / 0.16), transparent 70%),
+    radial-gradient(50% 60% at 10% 0%, rgb(61 53 223 / 0.1), transparent 70%);
+}
+.pub-landing-grid {
+  -webkit-mask-image: radial-gradient(80% 70% at 60% 30%, #000 30%, transparent 85%);
+  mask-image: radial-gradient(80% 70% at 60% 30%, #000 30%, transparent 85%);
+}
+}
