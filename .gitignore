@@ -41,3 +41,4 @@ web/test-results/
 # Local staging (generated secrets, Caddy CA export, backups)
 .staging/
 !.env.hosted.example
+.kilo/
