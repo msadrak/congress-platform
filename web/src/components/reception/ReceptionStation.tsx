@@ -1,5 +1,4 @@
 import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
-import QRCode from "react-qr-code";
 import { Link } from "react-router-dom";
 import {
   createApiClient,
@@ -12,14 +11,19 @@ import {
   type DeskRegistrationOut,
   type TicketTierOut,
 } from "../../api/client";
+import { eventAccentStyle } from "../../lib/eventAccent";
 import { formatLocalizedDate, formatLocalizedNumber, type AttendeeLocale, type TranslationDictionary } from "../../lib/i18n";
+import { ArcMotif } from "../brand/Aiteb";
+import { CongressSignature } from "../brand/CongressSignature";
 import { Badge } from "../ui/Badge";
 import { Button, LinkButton } from "../ui/Button";
-import { Card } from "../ui/Card";
 import { Dialog } from "../ui/Dialog";
+import { Icon } from "../ui/Icon";
+import { ModeSwitch, type DeskMode } from "./ModeSwitch";
+import { Kbd, ReceptionPass, TicketStatusChip } from "./ReceptionPass";
+import "../../styles/reception.css";
 
 type DeskAuthority = Extract<ApiAuthority, { kind: "desk" | "organizer" }>;
-type DeskMode = "operator" | "organizer";
 
 /** Inside Organizer administration only: lets the user deliberately act as Organizer. */
 export interface OrganizerAccess {
@@ -48,9 +52,6 @@ type DuplicateState =
   | { status: "found"; email: string; candidates: AttendeeSearchItem[] }
   | { status: "missing"; email: string }
   | { status: "failed"; email: string };
-
-const inputClass =
-  "w-full px-3.5 py-2.5 bg-white border border-border-default rounded-xl text-sm text-text-primary focus:border-action-primary focus:ring-1 focus:ring-action-primary";
 
 /** The reception work surface: search, review, walk-in issuance, print. Authority is explicit and never falls back. */
 export function ReceptionStation({ eventId, organizer, locale, t, isRtl }: ReceptionStationProps) {
@@ -441,31 +442,20 @@ export function ReceptionStation({ eventId, organizer, locale, t, isRtl }: Recep
     setPageError(null);
   };
 
+  const accentStyle = eventAccentStyle(operatorProfile?.event_slug || eventId);
+  const focusRing = "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring";
   // Only offered inside Organizer administration with an organizer key; the choice is explicit.
-  const modeSwitch =
-    !standalone && apiKey ? (
-      <div role="group" aria-label={isRtl ? "حالت کاری" : "Working mode"} className="flex flex-wrap items-center gap-1.5">
-        <span data-testid="desk-active-mode" className="text-[11px] text-text-muted me-1">
-          {mode === "operator"
-            ? isRtl ? "فعال: نشست اپراتور" : "Acting as: reception operator"
-            : isRtl ? "فعال: حالت مدیر" : "Acting as: organizer"}
-        </span>
-        <Button type="button" size="sm" variant={mode === "operator" ? "primary" : "secondary"} aria-pressed={mode === "operator"} disabled={submitting} onClick={() => selectMode("operator")}>
-          {isRtl ? "نشست اپراتور" : "Operator session"}
-        </Button>
-        <Button type="button" size="sm" variant={mode === "organizer" ? "primary" : "secondary"} aria-pressed={mode === "organizer"} disabled={submitting} onClick={() => selectMode("organizer")}>
-          {isRtl ? "حالت مدیر" : "Organizer mode"}
-        </Button>
-      </div>
-    ) : null;
+  const showModeSwitch = !standalone && Boolean(apiKey);
 
   if (loading) {
     return (
-      <div className="space-y-6 animate-pulse" role="status" aria-label={t.deskTitle}>
-        <div className="w-64 h-8 bg-surface-panel-subtle rounded-xl" />
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-          <div className="lg:col-span-7 h-96 bg-surface-panel rounded-2xl border border-border-default" />
-          <div className="lg:col-span-5 h-96 bg-surface-panel rounded-2xl border border-border-default" />
+      <div className="rx-station space-y-5" role="status" aria-label={t.deskTitle}>
+        <div className="skeleton h-36 shape-arc-lg" />
+        <div className="skeleton h-[72px] rounded-[18px]" />
+        <div className="rx-grid">
+          <div className="rx-area-results skeleton h-80 rounded-2xl" />
+          <div className="rx-area-detail skeleton h-96 shape-arc-lg" />
+          <div className="rx-area-walkin skeleton h-80 rounded-2xl" />
         </div>
       </div>
     );
@@ -473,349 +463,518 @@ export function ReceptionStation({ eventId, organizer, locale, t, isRtl }: Recep
 
   if (mode === "organizer" && !apiKey) {
     return (
-      <Card className="max-w-md mx-auto my-10 sm:my-16 p-8 text-center space-y-4 border-border-default">
-        <div className="text-3xl">🔑</div>
-        <h1 className="text-xl font-bold text-text-primary">{isRtl ? "برای حالت مدیر به کلید سازمان نیاز است" : "Organizer mode needs your organizer key"}</h1>
-        <div className="flex flex-col gap-2">
-          <LinkButton to="/organizer" variant="primary" size="md">{isRtl ? "ورود با کلید سازمان" : "Enter organizer key"}</LinkButton>
-          <Button type="button" variant="secondary" size="md" onClick={() => selectMode("operator")}>
-            {isRtl ? "استفاده از نشست اپراتور" : "Use an operator session"}
-          </Button>
+      <div className="mx-auto my-10 max-w-md sm:my-16">
+        <div className="relative overflow-hidden shape-arc-lg border border-border-default bg-surface-panel p-8 text-center shadow-soft sm:p-10">
+          <ArcMotif className="pointer-events-none absolute -top-8 -end-8 size-32 opacity-25" weight={4} />
+          <div className="relative space-y-5">
+            <span className="mx-auto grid size-14 place-items-center rounded-2xl bg-aiteb-lavender text-aiteb-indigo">
+              <Icon name="key" size={26} />
+            </span>
+            <h1 className="text-xl font-semibold tracking-[-0.02em] text-text-primary">{isRtl ? "برای حالت مدیر به کلید سازمان نیاز است" : "Organizer mode needs your organizer key"}</h1>
+            <div className="flex flex-col gap-2.5">
+              <LinkButton to="/organizer" variant="primary" size="lg">
+                <Icon name="key" size={18} />
+                <span>{isRtl ? "ورود با کلید سازمان" : "Enter organizer key"}</span>
+              </LinkButton>
+              <Button type="button" variant="secondary" size="lg" onClick={() => selectMode("operator")}>
+                <Icon name="user" size={18} />
+                <span>{isRtl ? "استفاده از نشست اپراتور" : "Use an operator session"}</span>
+              </Button>
+            </div>
+          </div>
         </div>
-      </Card>
+      </div>
     );
   }
 
   if (!authority) {
+    const steps = isRtl
+      ? ["جستجوی شرکت‌کننده با نام یا ایمیل", "بررسی و چاپ کارت ورود", "صدور کارت برای ثبت‌نام حضوری"]
+      : ["Find an attendee by name or email", "Review and print their pass", "Issue a pass to a walk-in guest"];
     return (
-      <div className="max-w-md mx-auto my-6 sm:my-14">
-        <Card className="border-border-default shadow-xs overflow-hidden">
-          <div className="p-6 sm:p-8 space-y-6">
-            {modeSwitch}
-            <div className="space-y-2 text-center sm:text-start">
-              <div className="w-12 h-12 rounded-xl bg-action-subtle text-action-primary flex items-center justify-center text-2xl mx-auto sm:mx-0 shadow-xs">🖨️</div>
-              <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-text-primary">{t.deskLoginTitle}</h1>
-              <p className="text-xs sm:text-sm text-text-secondary leading-relaxed">{t.deskLoginSubtitle}</p>
+      <div className="rx-station mx-auto max-w-4xl sm:my-6">
+        <div className="grid overflow-hidden shape-arc-lg border border-border-default bg-surface-panel shadow-lift md:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
+          <aside className="relative isolate overflow-hidden bg-surface-ink p-6 text-white sm:p-8 md:p-10">
+            <div aria-hidden="true" className="absolute inset-0 -z-10 bg-meridian-ink" />
+            <ArcMotif className="pointer-events-none absolute -bottom-12 -end-10 -z-10 size-56 opacity-80 md:size-72" weight={4} />
+            <div className="space-y-5 md:space-y-8">
+              <p className="eyebrow text-ink-300">{t.openDeskAction}</p>
+              <p className="text-2xl font-semibold leading-tight tracking-[-0.03em] md:text-[2rem]">
+                {isRtl ? "پیدا کنید، بررسی کنید، چاپ کنید." : "Find. Review. Print."}
+              </p>
+              <ol className="hidden space-y-3.5 text-sm text-ink-200 sm:block">
+                {steps.map((step, i) => (
+                  <li key={step} className="flex items-baseline gap-3">
+                    <span aria-hidden="true" className="font-mono text-[11px] text-aiteb-orchid">0{i + 1}</span>
+                    <span>{step}</span>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          </aside>
+
+          <div className="space-y-6 p-6 sm:p-8 md:p-10">
+            {showModeSwitch && <ModeSwitch mode={mode} isRtl={isRtl} disabled={submitting} onSelect={selectMode} tone="light" />}
+            <div className="space-y-2">
+              <span aria-hidden="true" className="mb-4 grid size-11 place-items-center rounded-xl bg-aiteb-lavender text-aiteb-indigo">
+                <Icon name="lock" size={20} />
+              </span>
+              <h1 className="text-2xl font-semibold tracking-[-0.03em] text-text-primary sm:text-[1.75rem]">{t.deskLoginTitle}</h1>
+              <p className="text-sm leading-relaxed text-text-secondary">{t.deskLoginSubtitle}</p>
             </div>
 
             {(loginError || sessionRejected) && (
-              <div role="alert" aria-live="assertive" className="p-3 rounded-xl bg-status-danger-bg text-status-danger-text border border-status-danger-border text-xs leading-relaxed">
-                {loginError ?? (isRtl ? "دسترسی اپراتور لغو شده یا نشست کاری منقضی گردیده است." : "Operator access revoked or session expired.")}
-                {!loginError && hasDraft && (
-                  <span className="block mt-1">
-                    {isRtl ? "اطلاعات واردشده برای ثبت حضوری حفظ شده و پس از ورود خودکار ارسال نمی‌شود." : "Your unsent walk-in entry is kept and is not submitted automatically after you sign in."}
-                  </span>
-                )}
+              <div role="alert" aria-live="assertive" className="flex items-start gap-3 rounded-xl border border-status-danger-border bg-status-danger-bg p-3.5 text-sm leading-relaxed text-status-danger-text">
+                <Icon name="alert" size={18} className="mt-0.5" />
+                <span>
+                  {loginError ?? (isRtl ? "دسترسی اپراتور لغو شده یا نشست کاری منقضی گردیده است." : "Operator access revoked or session expired.")}
+                  {!loginError && hasDraft && (
+                    <span className="mt-1 block text-xs">
+                      {isRtl ? "اطلاعات واردشده برای ثبت حضوری حفظ شده و پس از ورود خودکار ارسال نمی‌شود." : "Your unsent walk-in entry is kept and is not submitted automatically after you sign in."}
+                    </span>
+                  )}
+                </span>
               </div>
             )}
 
             <form onSubmit={handleDeskLogin} className="space-y-4">
               <div>
-                <label htmlFor={ids.loginEmail} className="block text-sm font-semibold text-text-primary mb-1">
-                  {t.deskLoginEmailLabel} <span className="text-red-500">*</span>
+                <label htmlFor={ids.loginEmail} className="ui-label">
+                  {t.deskLoginEmailLabel} <span aria-hidden="true" className="text-status-danger-solid">*</span>
                 </label>
-                <input id={ids.loginEmail} type="email" required autoComplete="username" inputMode="email" dir="ltr" value={loginEmail} onChange={(e) => setLoginEmail(e.target.value)} placeholder="operator@example.com" className={`${inputClass} font-mono min-h-[48px]`} />
+                <input id={ids.loginEmail} type="email" required autoComplete="username" inputMode="email" dir="ltr" value={loginEmail} onChange={(e) => setLoginEmail(e.target.value)} placeholder="operator@example.com" className="ui-input font-mono min-h-[50px]" />
               </div>
               <div>
-                <label htmlFor={ids.loginPassword} className="block text-sm font-semibold text-text-primary mb-1">
-                  {t.deskLoginPasswordLabel} <span className="text-red-500">*</span>
+                <label htmlFor={ids.loginPassword} className="ui-label">
+                  {t.deskLoginPasswordLabel} <span aria-hidden="true" className="text-status-danger-solid">*</span>
                 </label>
-                <input id={ids.loginPassword} type="password" required autoComplete="current-password" dir="ltr" value={loginPassword} onChange={(e) => setLoginPassword(e.target.value)} placeholder="••••••••" className={`${inputClass} font-mono min-h-[48px]`} />
+                <input id={ids.loginPassword} type="password" required autoComplete="current-password" dir="ltr" value={loginPassword} onChange={(e) => setLoginPassword(e.target.value)} placeholder="••••••••" className="ui-input font-mono min-h-[50px]" />
               </div>
               <Button type="submit" variant="primary" size="lg" isFullWidth disabled={loggingIn} aria-busy={loggingIn}>
                 {loggingIn ? "..." : t.deskLoginButton}
+                {!loggingIn && <Icon name="arrow-right" size={18} />}
               </Button>
               {!standalone && (
-                <div className="pt-3 border-t border-border-subtle text-center">
-                  <Link to="/organizer" className="text-xs text-action-primary hover:underline font-medium">{isRtl ? "← ورود با کلید مدیر ارشد" : "← Back to Organizer Console"}</Link>
+                <div className="border-t border-border-subtle pt-4 text-center">
+                  <Link to="/organizer" className={`inline-flex min-h-[40px] items-center gap-1.5 rounded-lg px-2 text-sm font-medium text-action-primary hover:underline ${focusRing}`}>
+                    <Icon name="arrow-left" size={16} />
+                    <span>{isRtl ? "ورود با کلید مدیر ارشد" : "Back to Organizer Console"}</span>
+                  </Link>
                 </div>
               )}
             </form>
           </div>
-        </Card>
+        </div>
       </div>
     );
   }
 
   if (pageError) {
     return (
-      <Card className="p-8 sm:p-12 text-center space-y-4 border-border-default">
-        <div className="text-3xl">⚠️</div>
-        <h1 className="text-xl font-bold text-text-primary">{pageError}</h1>
-        <div className="flex flex-col sm:flex-row items-center justify-center gap-2">
-          <Button type="button" variant="primary" size="md" onClick={() => setReloadNonce((n) => n + 1)}>
-            {isRtl ? "تلاش مجدد" : "Retry"}
-          </Button>
-          {!standalone && <LinkButton to="/organizer" variant="secondary" size="md">{t.breadcrumbEvents}</LinkButton>}
+      <div className="mx-auto my-8 max-w-lg sm:my-14">
+        <div className="shape-arc-lg border border-status-danger-border bg-surface-panel p-8 text-center shadow-soft sm:p-10">
+          <div className="space-y-5">
+            <span className="mx-auto grid size-14 place-items-center rounded-2xl bg-status-danger-bg text-status-danger-text">
+              <Icon name="alert" size={26} />
+            </span>
+            <h1 className="text-xl font-semibold tracking-[-0.02em] text-text-primary">{pageError}</h1>
+            <div className="flex flex-col items-center justify-center gap-2.5 sm:flex-row">
+              <Button type="button" variant="primary" size="lg" onClick={() => setReloadNonce((n) => n + 1)}>
+                <Icon name="sync" size={18} />
+                <span>{isRtl ? "تلاش مجدد" : "Retry"}</span>
+              </Button>
+              {!standalone && <LinkButton to="/organizer" variant="secondary" size="lg">{t.breadcrumbEvents}</LinkButton>}
+            </div>
+          </div>
         </div>
-      </Card>
+      </div>
     );
   }
 
-  const passBlock = (pass: { qr: string; name: string; tier: string; org: string; ticketId: string }) => (
-    <div className="print-pass text-center space-y-3">
-      <div className="p-4 bg-white rounded-2xl border-2 border-slate-900 shadow-xs inline-block">
-        <QRCode value={pass.qr} size={176} level="H" viewBox="0 0 256 256" fgColor="#0F172A" bgColor="#FFFFFF" className="w-44 h-44 select-none" />
-      </div>
-      <div className="space-y-1">
-        <h3 className="text-lg font-bold text-text-primary">{pass.name}</h3>
-        <p className="text-xs text-text-secondary font-medium">
-          {pass.tier} • {pass.org || (isRtl ? "شرکت‌کننده آزاد" : "Independent Attendee")}
-        </p>
-        <span className="text-[11px] font-mono text-text-muted block pt-1">
-          <bdi dir="ltr">Pass ID: #{pass.ticketId.slice(0, 8).toUpperCase()}</bdi>
-        </span>
-      </div>
-    </div>
-  );
-
   const trimmedQuery = searchQuery.trim();
+  const selectedTicketId = review.status === "idle" ? null : review.status === "ready" ? review.card.ticket_id : review.ticketId;
+  const issuedByLabel = t.issuedByLabel.replace(/[:：]\s*$/, "");
+  const eventName = operatorProfile?.event_name;
 
   return (
-    <div className="space-y-6 sm:space-y-8">
-      {/* Event and operator context */}
-      <div className="p-5 sm:p-6 rounded-2xl bg-surface-panel border border-border-default shadow-xs">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div className="space-y-1 min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" aria-hidden="true" />
-              <Badge variant="brand" size="sm">{t.openDeskAction}</Badge>
+    <div className="rx-station space-y-5 sm:space-y-6" style={accentStyle}>
+      {/* Console: congress, operator and authority context */}
+      <header className="relative isolate overflow-hidden shape-arc-lg bg-surface-ink text-white">
+        <div aria-hidden="true" className="absolute inset-0 -z-10 bg-meridian-ink" />
+        {operatorProfile?.event_slug && (
+          <CongressSignature
+            seed={operatorProfile.event_slug}
+            tone="ink"
+            className="absolute inset-y-0 end-0 -z-10 h-full w-[70%] opacity-55 [mask-image:linear-gradient(to_left,black_25%,transparent)] rtl:[mask-image:linear-gradient(to_right,black_25%,transparent)]"
+          />
+        )}
+        <div className="flex flex-wrap items-end justify-between gap-x-8 gap-y-5 p-5 sm:p-7">
+          <div className="min-w-0 flex-[1_1_22rem] space-y-2.5">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs">
+              <span className="inline-flex items-center gap-2 font-semibold text-white">
+                <span aria-hidden="true" className="relative flex size-2">
+                  <span className="absolute inset-0 rounded-full bg-[#3BD69B] motion-safe:animate-pulse-ring" />
+                  <span className="relative size-2 rounded-full bg-[#3BD69B]" />
+                </span>
+                {t.openDeskAction}
+              </span>
               {operatorProfile && (
-                <Badge variant="neutral" size="sm" className="font-mono">
+                <span className="font-mono text-ink-300">
                   <bdi dir="ltr">/e/{operatorProfile.event_slug}</bdi>
-                </Badge>
-              )}
-              {operatorProfile && (
-                <Badge variant="success" size="sm" className="gap-1" data-testid="reception-operator">
-                  <span aria-hidden="true">👤</span>
-                  <span>{operatorProfile.operator_name}</span>
-                </Badge>
+                </span>
               )}
             </div>
-            <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-text-primary break-words" data-testid="reception-event">
+            <h1 className="text-2xl font-semibold leading-tight tracking-[-0.03em] break-words sm:text-[2.1rem]" data-testid="reception-event">
               {operatorProfile?.event_name || t.deskTitle}
             </h1>
-            <p className="text-xs sm:text-sm text-text-secondary">{t.deskSubtitle}</p>
+            <p className="max-w-xl text-sm leading-relaxed text-ink-300">{t.deskSubtitle}</p>
           </div>
-          <div className="shrink-0 flex flex-wrap items-center gap-2.5">
-            {modeSwitch}
+          <div className="flex min-w-0 flex-wrap items-center gap-2.5">
+            {operatorProfile && (
+              <span data-testid="reception-operator" className="inline-flex min-h-[44px] items-center gap-2.5 rounded-full bg-white/[0.08] py-1.5 ps-1.5 pe-4 text-sm font-semibold ring-1 ring-white/15">
+                <span aria-hidden="true" className="grid size-8 place-items-center rounded-full bg-white text-surface-ink">
+                  <Icon name="user" size={16} />
+                </span>
+                <span>{operatorProfile.operator_name}</span>
+              </span>
+            )}
+            {showModeSwitch && <ModeSwitch mode={mode} isRtl={isRtl} disabled={submitting} onSelect={selectMode} tone="ink" />}
             {mode === "operator" && deskToken && (
-              <Button type="button" variant="ghost" size="sm" onClick={handleDeskLogout} className="text-xs text-text-muted hover:text-red-600">
-                {t.deskLogoutAction} ✕
-              </Button>
+              <button
+                type="button"
+                onClick={handleDeskLogout}
+                className="inline-flex min-h-[44px] items-center gap-2 rounded-xl px-3.5 text-[13px] font-semibold text-ink-200 ring-1 ring-white/15 transition-colors duration-100 hover:bg-white/10 hover:text-white cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-aiteb-orchid"
+              >
+                <Icon name="logout" size={16} />
+                <span>{t.deskLogoutAction}</span>
+              </button>
             )}
             {!standalone && (
-              <LinkButton to={`/organizer/events/${eventId}`} variant="secondary" size="sm">
-                {isRtl ? "تنظیمات همایش" : "Event Settings"} {isRtl ? "←" : "→"}
+              <LinkButton to={`/organizer/events/${eventId}`} variant="light" size="md">
+                <span>{isRtl ? "تنظیمات همایش" : "Event Settings"}</span>
+                <Icon name="arrow-right" size={16} />
               </LinkButton>
             )}
           </div>
         </div>
-      </div>
+      </header>
 
       {draftRecovered && (
-        <div role="status" className="p-3.5 rounded-xl bg-status-info-bg text-status-info-text border border-status-info-border text-xs leading-relaxed flex items-start justify-between gap-3">
-          <span>{isRtl ? "ورود مجدد انجام شد. اطلاعات ثبت حضوری حفظ شده است؛ تا زمانی که خودتان ارسال نکنید چیزی ثبت نمی‌شود." : "Signed in again. Your walk-in entry was kept; nothing is submitted until you press the button."}</span>
-          <button type="button" onClick={() => setDraftRecovered(false)} aria-label={isRtl ? "بستن پیام" : "Dismiss message"} className="shrink-0 min-h-[24px] min-w-[24px] font-bold cursor-pointer">✕</button>
+        <div role="status" className="flex items-start gap-3 rounded-2xl border border-status-info-border bg-status-info-bg py-2.5 ps-4 pe-2 text-sm leading-relaxed text-status-info-text">
+          <Icon name="info" size={18} className="mt-1" />
+          <span className="flex-1 py-0.5">{isRtl ? "ورود مجدد انجام شد. اطلاعات ثبت حضوری حفظ شده است؛ تا زمانی که خودتان ارسال نکنید چیزی ثبت نمی‌شود." : "Signed in again. Your walk-in entry was kept; nothing is submitted until you press the button."}</span>
+          <button type="button" onClick={() => setDraftRecovered(false)} aria-label={isRtl ? "بستن پیام" : "Dismiss message"} className={`grid size-10 shrink-0 place-items-center rounded-lg hover:bg-white/70 cursor-pointer ${focusRing}`}>
+            <Icon name="x" size={16} />
+          </button>
         </div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8 items-start">
-        {/* Search → review */}
-        <div className="lg:col-span-7 space-y-6 min-w-0">
-          <section aria-labelledby="search-heading" className="p-5 sm:p-6 rounded-2xl bg-surface-panel border border-border-default shadow-xs space-y-4">
-            <div className="flex items-center justify-between gap-3">
-              <h2 id="search-heading" className="text-base sm:text-lg font-bold text-text-primary">🔍 {t.searchAttendeeHeading}</h2>
-              {searching && <span className="text-xs text-text-muted animate-pulse" role="status">{isRtl ? "در حال جستجو..." : "Searching..."}</span>}
-            </div>
+      {/* 01 — Command bar */}
+      <section aria-labelledby="search-heading" className="space-y-3">
+        <div className="flex items-end justify-between gap-4">
+          <h2 id="search-heading" className="flex items-center gap-2.5 text-sm font-semibold text-text-secondary">
+            <span aria-hidden="true" className="font-mono text-[11px] text-aiteb-indigo">01</span>
+            <span>{t.searchAttendeeHeading}</span>
+          </h2>
+          <p className="hidden items-center gap-3 text-xs text-text-muted sm:flex">
+            <span className="inline-flex items-center gap-1.5"><Kbd>/</Kbd>{isRtl ? "جستجو" : "Search"}</span>
+            <span className="inline-flex items-center gap-1.5"><Kbd>Enter</Kbd>{isRtl ? "باز کردن" : "Open"}</span>
+            <span className="inline-flex items-center gap-1.5"><Kbd>Esc</Kbd>{isRtl ? "پاک کردن" : "Clear"}</span>
+          </p>
+        </div>
 
-            <div className="relative">
-              <label htmlFor={ids.search} className="sr-only">{t.searchAttendeeHeading}</label>
-              <input
-                id={ids.search}
-                ref={searchInputRef}
-                type="search"
-                autoComplete="off"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Escape") setSearchQuery("");
-                }}
-                placeholder={t.searchAttendeePlaceholder}
-                className="w-full ps-4 pe-10 py-3.5 min-h-[52px] [&::-webkit-search-cancel-button]:appearance-none bg-surface-page border border-border-default rounded-xl text-base text-text-primary placeholder:text-text-muted focus:border-action-primary focus:ring-1 focus:ring-action-primary"
-              />
-              {searchQuery && (
-                <button type="button" onClick={() => { setSearchQuery(""); searchInputRef.current?.focus(); }} aria-label={isRtl ? "پاک کردن جستجو" : "Clear search"} className="absolute end-2 top-1/2 -translate-y-1/2 min-h-[40px] min-w-[40px] text-text-muted hover:text-text-primary cursor-pointer">✕</button>
-              )}
-            </div>
-            <p className="text-[11px] text-text-muted">{isRtl ? "برای رفتن به جستجو کلید / را بزنید." : "Press / to jump to search."}</p>
+        <div className="relative">
+          <label htmlFor={ids.search} className="sr-only">{t.searchAttendeeHeading}</label>
+          <Icon name="search" size={24} className="pointer-events-none absolute start-5 top-1/2 -translate-y-1/2 text-aiteb-indigo" />
+          <input
+            id={ids.search}
+            ref={searchInputRef}
+            type="search"
+            autoComplete="off"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") setSearchQuery("");
+            }}
+            placeholder={t.searchAttendeePlaceholder}
+            className="rx-command-input"
+          />
+          <div className="absolute end-2.5 top-1/2 flex -translate-y-1/2 items-center gap-1.5">
+            {searching && (
+              <span role="status" className="grid size-8 place-items-center text-text-muted">
+                <Icon name="sync" size={18} className="motion-safe:animate-spin" />
+                <span className="sr-only">{isRtl ? "در حال جستجو..." : "Searching..."}</span>
+              </span>
+            )}
+            {searchQuery ? (
+              <button
+                type="button"
+                onClick={() => { setSearchQuery(""); searchInputRef.current?.focus(); }}
+                aria-label={isRtl ? "پاک کردن جستجو" : "Clear search"}
+                className={`grid size-11 place-items-center rounded-xl text-text-muted hover:bg-surface-panel-subtle hover:text-text-primary cursor-pointer ${focusRing}`}
+              >
+                <Icon name="x" size={20} />
+              </button>
+            ) : (
+              <span aria-hidden="true" className="me-2 hidden sm:inline-flex"><Kbd>/</Kbd></span>
+            )}
+          </div>
+        </div>
 
-            {searchFailed && (
-              <div role="alert" className="p-3 rounded-xl bg-status-danger-bg text-status-danger-text border border-status-danger-border text-xs flex items-center justify-between gap-3">
-                <span>{isRtl ? "جستجو انجام نشد؛ نتایج زیر ممکن است قدیمی باشند." : "Search failed; the list below may be out of date."}</span>
-                <Button type="button" size="sm" variant="secondary" onClick={() => { setSearchFailed(false); setSearchNonce((n) => n + 1); }}>
-                  {isRtl ? "تلاش مجدد" : "Retry"}
+        {searchFailed && (
+          <div role="alert" className="flex items-center justify-between gap-3 rounded-xl border border-status-danger-border bg-status-danger-bg py-2 ps-3.5 pe-2 text-sm text-status-danger-text">
+            <span className="flex items-center gap-2.5"><Icon name="wifi-off" size={18} />{isRtl ? "جستجو انجام نشد؛ نتایج زیر ممکن است قدیمی باشند." : "Search failed; the list below may be out of date."}</span>
+            <Button type="button" size="sm" variant="secondary" onClick={() => { setSearchFailed(false); setSearchNonce((n) => n + 1); }}>
+              {isRtl ? "تلاش مجدد" : "Retry"}
+            </Button>
+          </div>
+        )}
+      </section>
+
+      <div className="rx-grid">
+        {/* 02 — Results */}
+        <section aria-labelledby="results-heading" className="rx-area-results min-w-0 overflow-hidden rounded-2xl border border-border-default bg-surface-panel shadow-soft">
+          <div className="flex items-center justify-between gap-3 border-b border-border-subtle px-4 py-3 sm:px-5">
+            <h2 id="results-heading" className="flex items-center gap-2.5 text-sm font-semibold text-text-primary">
+              <span aria-hidden="true" className="font-mono text-[11px] text-aiteb-indigo">02</span>
+              <span>{trimmedQuery ? (isRtl ? "نتایج جستجو" : "Matches") : isRtl ? "شرکت‌کنندگان" : "Attendees"}</span>
+            </h2>
+            {searchResults.length > 0 && (
+              <span className="rounded-full bg-surface-panel-subtle px-2 py-0.5 font-mono text-[11px] text-text-secondary tabular">{formatLocalizedNumber(searchResults.length, locale)}</span>
+            )}
+          </div>
+          <div className="rx-results-scroll" aria-live="polite">
+            {searchResults.length === 0 && trimmedQuery ? (
+              <div className="space-y-4 px-5 py-9 text-center">
+                <span aria-hidden="true" className="mx-auto grid size-11 place-items-center rounded-full bg-surface-panel-subtle text-text-muted">
+                  <Icon name="search" size={20} />
+                </span>
+                <p className="text-sm text-text-secondary">{t.noAttendeeFound}</p>
+                <Button type="button" variant="outline" size="md" onClick={registerFromSearch} className="h-auto max-w-full whitespace-normal">
+                  <Icon name="user-plus" size={18} />
+                  <span className="break-words">{isRtl ? `ثبت «${trimmedQuery}» به‌عنوان ثبت حضوری` : `Register “${trimmedQuery}” as walk-in`}</span>
                 </Button>
               </div>
-            )}
-
-            <div className="max-h-[420px] overflow-y-auto space-y-2.5" aria-live="polite">
-              {searchResults.length === 0 && trimmedQuery ? (
-                <div className="p-6 text-center text-sm text-text-muted rounded-xl bg-surface-page border border-border-subtle space-y-3">
-                  <p>{t.noAttendeeFound}</p>
-                  <Button type="button" variant="secondary" size="md" onClick={registerFromSearch}>
-                    {isRtl ? `ثبت «${trimmedQuery}» به‌عنوان ثبت حضوری` : `Register “${trimmedQuery}” as walk-in`}
-                  </Button>
-                </div>
-              ) : searchResults.length === 0 ? (
-                <div className="p-6 text-center text-sm text-text-muted rounded-xl bg-surface-page border border-border-subtle">
-                  {isRtl ? "نام یا ایمیل شرکت‌کننده را جستجو کنید." : "Type a name or email to find an attendee."}
-                </div>
-              ) : (
-                <ul className="space-y-2.5">
-                  {searchResults.map((att) => (
+            ) : searchResults.length === 0 ? (
+              <p className="px-5 py-9 text-center text-sm text-text-muted">
+                {isRtl ? "نام یا ایمیل شرکت‌کننده را جستجو کنید." : "Type a name or email to find an attendee."}
+              </p>
+            ) : (
+              <ul className="divide-y divide-border-subtle">
+                {searchResults.map((att) => {
+                  const affiliation = [att.title, att.organization].filter(Boolean).join(" · ");
+                  return (
                     <li key={att.ticket_id}>
                       <button
                         type="button"
                         onClick={() => void openReview(att.ticket_id)}
                         aria-label={isRtl ? `بررسی ${att.attendee_name}` : `Review ${att.attendee_name}`}
-                        className={`w-full text-start p-3.5 sm:p-4 rounded-xl border transition-colors flex items-start justify-between gap-3 cursor-pointer min-h-[64px] focus-visible:outline-2 focus-visible:outline-focus-ring ${
-                          review.status !== "idle" && (review.status === "ready" ? review.card.ticket_id : review.ticketId) === att.ticket_id
-                            ? "bg-action-subtle border-action-primary"
-                            : "bg-surface-page border-border-default hover:border-border-strong"
-                        }`}
+                        aria-current={selectedTicketId === att.ticket_id ? "true" : undefined}
+                        className="rx-row flex min-h-[68px] w-full items-start justify-between gap-3 px-4 py-3.5 text-start hover:bg-surface-panel-subtle cursor-pointer focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-focus-ring sm:px-5"
                       >
-                        <span className="space-y-1 min-w-0">
-                          <span className="flex flex-wrap items-center gap-2">
-                            <span className="font-bold text-sm sm:text-base text-text-primary break-words">{att.attendee_name}</span>
-                            <Badge variant="neutral" size="sm">{att.ticket_tier_name}</Badge>
-                          </span>
-                          <span className="block text-xs text-text-secondary">
-                            {att.attendee_email && <bdi dir="ltr" className="font-mono">{att.attendee_email}</bdi>}
-                            {(att.organization || att.title) && <span className="block">{[att.title, att.organization].filter(Boolean).join(" • ")}</span>}
+                        <span className="min-w-0 space-y-1">
+                          <span className="block text-[15px] font-semibold leading-snug text-text-primary break-words">{att.attendee_name}</span>
+                          {att.attendee_email && (
+                            <span className="block truncate font-mono text-xs text-text-secondary">
+                              <bdi dir="ltr">{att.attendee_email}</bdi>
+                            </span>
+                          )}
+                          <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-text-muted">
+                            <span className="rounded-md bg-event-accent-soft px-1.5 py-0.5 font-semibold text-event-accent">{att.ticket_tier_name}</span>
+                            {affiliation && <span className="min-w-0 break-words">{affiliation}</span>}
                           </span>
                         </span>
-                        <span className="shrink-0 flex flex-col items-end gap-1">
-                          <Badge variant={att.status === "active" ? "success" : "danger"} size="sm">
-                            {att.status === "active" ? t.ticketStatusActive : att.status}
-                          </Badge>
-                          <span className="text-[11px] text-text-muted">
+                        <span className="flex shrink-0 flex-col items-end gap-1.5">
+                          <TicketStatusChip status={att.status} activeLabel={t.ticketStatusActive} />
+                          <span className="text-[11px] text-text-muted tabular">
                             {isRtl ? "تردد:" : "Check-ins:"} {formatLocalizedNumber(att.checkin_count, locale)}
                           </span>
                         </span>
                       </button>
                     </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          </section>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+        </section>
 
-          {review.status !== "idle" && (
-            <section aria-labelledby="review-heading" className="p-5 sm:p-6 rounded-2xl bg-surface-panel border-2 border-action-primary shadow-xs space-y-5" aria-live="polite">
-              {review.status === "loading" && <p role="status" className="text-sm text-text-muted animate-pulse">{isRtl ? "در حال بارگذاری کارت..." : "Loading pass..."}</p>}
+        {/* Selected attendee */}
+        <div className="rx-area-detail min-w-0">
+          {review.status === "idle" ? (
+            <div className="rx-detail-idle flex-col items-center justify-center gap-4 shape-arc-lg border border-dashed border-border-strong bg-surface-panel/50 p-8 text-center">
+              <span aria-hidden="true" className="grid size-16 place-items-center rounded-2xl bg-surface-panel text-event-accent shadow-soft ring-1 ring-border-default">
+                <Icon name="id-card" size={30} strokeWidth={1.5} />
+              </span>
+              <p className="text-base font-semibold text-text-primary">{isRtl ? "شرکت‌کننده‌ای انتخاب نشده است" : "No attendee selected"}</p>
+              <p className="max-w-xs text-sm leading-relaxed text-text-secondary">
+                {isRtl ? "یک نفر را از فهرست انتخاب کنید تا کارت ورود و سوابق تردد او اینجا نمایش داده شود." : "Choose someone from the list to see their pass and gate history here."}
+              </p>
+            </div>
+          ) : (
+            <section aria-labelledby="review-heading" aria-live="polite" className="@container overflow-hidden shape-arc-lg border border-border-default bg-surface-panel shadow-lift">
+              <div aria-hidden="true" className="h-[3px] bg-[image:var(--grad-aiteb)]" />
+              {review.status === "loading" && (
+                <div role="status" className="space-y-5 p-5 sm:p-6">
+                  <p className="text-sm text-text-muted">{isRtl ? "در حال بارگذاری کارت..." : "Loading pass..."}</p>
+                  <div className="skeleton h-8 w-2/3" />
+                  <div className="grid gap-5 @xl:grid-cols-2">
+                    <div className="skeleton h-72 shape-arc" />
+                    <div className="space-y-3">
+                      <div className="skeleton h-5" />
+                      <div className="skeleton h-5 w-4/5" />
+                      <div className="skeleton h-5 w-3/5" />
+                    </div>
+                  </div>
+                </div>
+              )}
               {review.status === "error" && (
-                <div role="alert" className="space-y-3">
-                  <h2 id="review-heading" className="text-base font-bold text-status-danger-text">{review.message}</h2>
-                  <div className="flex gap-2">
-                    <Button type="button" variant="primary" size="md" onClick={() => void openReview(review.ticketId)}>{isRtl ? "تلاش مجدد" : "Retry"}</Button>
-                    <Button type="button" variant="secondary" size="md" onClick={closeReview}>{isRtl ? "بستن" : "Close"}</Button>
+                <div role="alert" className="space-y-5 p-6 sm:p-8">
+                  <span aria-hidden="true" className="grid size-12 place-items-center rounded-2xl bg-status-danger-bg text-status-danger-text">
+                    <Icon name="alert" size={24} />
+                  </span>
+                  <h2 id="review-heading" className="text-lg font-semibold text-status-danger-text">{review.message}</h2>
+                  <div className="flex flex-wrap gap-2.5">
+                    <Button type="button" variant="primary" size="lg" onClick={() => void openReview(review.ticketId)}>
+                      <Icon name="sync" size={18} />
+                      <span>{isRtl ? "تلاش مجدد" : "Retry"}</span>
+                    </Button>
+                    <Button type="button" variant="secondary" size="lg" onClick={closeReview}>{isRtl ? "بستن" : "Close"}</Button>
                   </div>
                 </div>
               )}
               {review.status === "ready" && (
                 <>
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <h2 id="review-heading" ref={reviewHeadingRef} tabIndex={-1} className="text-xl font-extrabold text-text-primary break-words focus:outline-none">{review.card.attendee_name}</h2>
-                      <p className="text-xs text-text-secondary">{review.card.ticket_tier_name}</p>
+                  <div className="space-y-5 p-4 sm:p-6">
+                    <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
+                      <div className="min-w-0 space-y-1.5">
+                        <p className="eyebrow">{isRtl ? "شرکت‌کننده انتخاب‌شده" : "Selected attendee"}</p>
+                        <h2 id="review-heading" ref={reviewHeadingRef} tabIndex={-1} className="text-2xl font-semibold leading-tight tracking-[-0.03em] text-text-primary break-words focus:outline-none sm:text-[1.75rem]">
+                          {review.card.attendee_name}
+                        </h2>
+                        <p className="text-sm text-text-secondary">
+                          <span className="font-semibold text-event-accent">{review.card.ticket_tier_name}</span>
+                          {review.card.title && <span> · {review.card.title}</span>}
+                        </p>
+                      </div>
+                      <TicketStatusChip status={review.card.status} activeLabel={t.ticketStatusActive} size="md" />
                     </div>
-                    <Badge variant={review.card.status === "active" ? "success" : "danger"} size="md">
-                      {review.card.status === "active" ? t.ticketStatusActive : review.card.status}
-                    </Badge>
-                  </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 items-start">
-                    {passBlock({ qr: review.card.qr_secret, name: review.card.attendee_name, tier: review.card.ticket_tier_name, org: review.card.organization, ticketId: review.card.ticket_id })}
-                    <div className="space-y-4">
-                      <dl className="p-4 rounded-xl bg-surface-page border border-border-subtle space-y-1.5 text-xs">
-                        {review.card.attendee_email && (
-                          <div className="flex items-center justify-between gap-3"><dt className="text-text-muted">{isRtl ? "ایمیل:" : "Email:"}</dt><dd className="font-mono"><bdi dir="ltr">{review.card.attendee_email}</bdi></dd></div>
-                        )}
-                        {review.card.organization && (
-                          <div className="flex items-center justify-between gap-3"><dt className="text-text-muted">{isRtl ? "سازمان:" : "Organization:"}</dt><dd>{review.card.organization}</dd></div>
-                        )}
-                        {review.card.issued_by && (
-                          <div className="flex items-center justify-between gap-3"><dt className="text-text-muted">{t.issuedByLabel}</dt><dd className="font-semibold text-text-primary">{review.card.issued_by}</dd></div>
-                        )}
-                      </dl>
-                      <div className="space-y-2">
-                        <h3 className="text-xs font-bold uppercase tracking-wider text-text-muted">{isRtl ? "سوابق تردد و اسکن‌های گیت" : "Check-In Scan History"}</h3>
-                        {review.card.scan_history.length === 0 ? (
-                          <p className="p-3 rounded-xl bg-surface-page border border-border-subtle text-xs text-text-muted text-center">{isRtl ? "هنوز هیچ ترددی برای این کارت ثبت نشده است." : "No gate scans recorded yet."}</p>
-                        ) : (
-                          <ul className="space-y-2 max-h-40 overflow-y-auto">
-                            {review.card.scan_history.map((scan, i) => (
-                              <li key={`${scan.checkin_point_name}-${scan.scanned_at}-${i}`} className="p-2.5 rounded-xl bg-surface-page border border-border-subtle flex items-center justify-between gap-2 text-xs">
-                                <span>
-                                  <span className="font-bold text-text-primary block">{scan.checkin_point_name}</span>
-                                  <span className="text-[11px] text-text-muted">{formatLocalizedDate(scan.scanned_at, locale)}</span>
-                                </span>
-                                <Badge variant={scan.status === "ADMITTED" ? "success" : "danger"} size="sm">{scan.status}</Badge>
-                              </li>
-                            ))}
-                          </ul>
-                        )}
+                    <div className="grid grid-cols-1 items-start gap-5 @xl:grid-cols-2">
+                      <div className="rounded-2xl bg-surface-panel-subtle p-2 @sm:p-4">
+                        <ReceptionPass
+                          pass={{ qr: review.card.qr_secret, name: review.card.attendee_name, tier: review.card.ticket_tier_name, org: review.card.organization, ticketId: review.card.ticket_id }}
+                          isRtl={isRtl}
+                          eventName={eventName}
+                          printable={!mintedPass}
+                        />
+                      </div>
+                      <div className="min-w-0 space-y-5">
+                        <dl className="divide-y divide-border-subtle border-y border-border-subtle text-sm">
+                          {review.card.attendee_email && (
+                            <div className="grid gap-0.5 py-2.5">
+                              <dt className="text-xs text-text-muted">{isRtl ? "ایمیل" : "Email"}</dt>
+                              <dd className="truncate font-mono text-[13px] text-text-primary"><bdi dir="ltr">{review.card.attendee_email}</bdi></dd>
+                            </div>
+                          )}
+                          {review.card.organization && (
+                            <div className="grid gap-0.5 py-2.5">
+                              <dt className="text-xs text-text-muted">{isRtl ? "سازمان" : "Organization"}</dt>
+                              <dd className="text-text-primary break-words">{review.card.organization}</dd>
+                            </div>
+                          )}
+                          {review.card.issued_by && (
+                            <div className="grid gap-0.5 py-2.5">
+                              <dt className="text-xs text-text-muted">{issuedByLabel}</dt>
+                              <dd className="font-semibold text-text-primary">{review.card.issued_by}</dd>
+                            </div>
+                          )}
+                          <div className="grid gap-0.5 py-2.5">
+                            <dt className="text-xs text-text-muted">{isRtl ? "تاریخ ثبت" : "Registered"}</dt>
+                            <dd className="text-text-primary tabular">{formatLocalizedDate(review.card.created_at, locale)}</dd>
+                          </div>
+                        </dl>
+
+                        <div className="space-y-2.5">
+                          <h3 className="flex items-center justify-between gap-2 text-xs font-semibold text-text-muted">
+                            <span className="flex items-center gap-2"><Icon name="gate" size={15} />{isRtl ? "سوابق تردد و اسکن‌های گیت" : "Check-In Scan History"}</span>
+                            <span className="font-mono tabular">{formatLocalizedNumber(review.card.scan_history.length, locale)}</span>
+                          </h3>
+                          {review.card.scan_history.length === 0 ? (
+                            <p className="rounded-xl border border-dashed border-border-default px-3 py-4 text-center text-xs text-text-muted">{isRtl ? "هنوز هیچ ترددی برای این کارت ثبت نشده است." : "No gate scans recorded yet."}</p>
+                          ) : (
+                            <ol className="max-h-48 overflow-y-auto">
+                              {review.card.scan_history.map((scan, i) => (
+                                <li key={`${scan.checkin_point_name}-${scan.scanned_at}-${i}`} className="relative ms-1 flex items-center justify-between gap-3 border-s border-border-default py-2 ps-4 text-xs">
+                                  <span aria-hidden="true" className={`absolute -start-[4.5px] top-1/2 size-2 -translate-y-1/2 rounded-full ring-2 ring-surface-panel ${scan.status === "ADMITTED" ? "bg-status-success-solid" : "bg-status-danger-solid"}`} />
+                                  <span className="min-w-0">
+                                    <span className="block font-semibold text-text-primary break-words">{scan.checkin_point_name}</span>
+                                    <span className="text-[11px] text-text-muted tabular">{formatLocalizedDate(scan.scanned_at, locale)}</span>
+                                  </span>
+                                  <Badge variant={scan.status === "ADMITTED" ? "success" : "danger"} size="sm" className="font-mono">{scan.status}</Badge>
+                                </li>
+                              ))}
+                            </ol>
+                          )}
+                        </div>
                       </div>
                     </div>
                   </div>
 
-                  <div className="flex flex-col sm:flex-row gap-2 pt-1 print:hidden">
-                    <Button type="button" variant="secondary" size="lg" className="gap-2 flex-1" onClick={() => window.print()}>
-                      <span aria-hidden="true">🖨️</span><span>{t.printPassAction}</span>
-                    </Button>
-                    <Button type="button" variant="primary" size="lg" className="gap-2 flex-1" onClick={handleNextAttendee}>
-                      <span>{t.nextAttendeeAction}</span><span aria-hidden="true">{isRtl ? "←" : "→"}</span>
-                    </Button>
+                  <div className="space-y-3 border-t border-border-subtle bg-surface-panel-subtle/70 p-4 sm:p-5 print:hidden">
+                    <div className="flex flex-col-reverse gap-2.5 @md:flex-row">
+                      <Button type="button" variant="secondary" size="lg" className="whitespace-normal @md:flex-1" onClick={() => window.print()}>
+                        <Icon name="print" size={19} />
+                        <span>{t.printPassAction}</span>
+                      </Button>
+                      <Button type="button" variant="primary" size="lg" className="whitespace-normal @md:flex-[1.35]" onClick={handleNextAttendee}>
+                        <span>{t.nextAttendeeAction}</span>
+                        <Icon name="arrow-right" size={19} />
+                      </Button>
+                    </div>
+                    <p className="flex items-start gap-2 text-[11px] leading-relaxed text-text-muted">
+                      <Icon name="info" size={14} className="mt-px" />
+                      <span>{isRtl ? "چاپ از مرورگر انجام می‌شود و کارت جدیدی صادر نمی‌کند. ورود به همایش را همچنان اسکنر گیت ثبت می‌کند." : "Printing uses the browser and issues nothing new. Admission is still recorded by the gate scanner."}</span>
+                    </p>
                   </div>
-                  <p className="text-[11px] text-text-muted">
-                    {isRtl ? "چاپ از مرورگر انجام می‌شود و کارت جدیدی صادر نمی‌کند. ورود به همایش را همچنان اسکنر گیت ثبت می‌کند." : "Printing uses the browser and issues nothing new. Admission is still recorded by the gate scanner."}
-                  </p>
                 </>
               )}
             </section>
           )}
         </div>
 
-        {/* Walk-in registration */}
-        <section aria-labelledby="walkin-heading" className="lg:col-span-5 p-5 sm:p-6 rounded-2xl bg-surface-panel border border-border-default shadow-xs space-y-5">
-          <div className="space-y-1 pb-3 border-b border-border-subtle">
-            <h2 id="walkin-heading" className="text-base sm:text-lg font-bold text-text-primary flex items-center gap-2"><span aria-hidden="true">⚡</span><span>{t.walkInRegistrationHeading}</span></h2>
-            <p className="text-xs text-text-secondary leading-relaxed">{isRtl ? "صدور آنی کارت ورود برای کسی که هنوز ثبت‌نام نکرده است." : "Issue a pass for someone who has not registered yet."}</p>
+        {/* 03 — Walk-in registration */}
+        <section aria-labelledby="walkin-heading" className="rx-area-walkin min-w-0 overflow-hidden rounded-2xl border border-border-default bg-surface-panel shadow-soft">
+          <div className="space-y-1.5 border-b border-border-subtle px-5 py-4 sm:px-6">
+            <h2 id="walkin-heading" className="flex items-center gap-2.5 text-sm font-semibold text-text-primary">
+              <span aria-hidden="true" className="font-mono text-[11px] text-aiteb-indigo">03</span>
+              <span>{t.walkInRegistrationHeading}</span>
+            </h2>
+            <p className="text-xs leading-relaxed text-text-secondary">{isRtl ? "صدور آنی کارت ورود برای کسی که هنوز ثبت‌نام نکرده است." : "Issue a pass for someone who has not registered yet."}</p>
           </div>
 
-          <form onSubmit={handleRegisterWalkIn} className="space-y-3.5" noValidate>
+          <form onSubmit={handleRegisterWalkIn} className="@container space-y-4 p-5 sm:p-6" noValidate>
             <div>
-              <label htmlFor={ids.name} className="block text-xs font-semibold text-text-primary mb-1">{isRtl ? "نام و نام خانوادگی شرکت‌کننده" : "Full Name"} <span className="text-red-500">*</span></label>
-              <input id={ids.name} ref={nameInputRef} type="text" required value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder={isRtl ? "مثال: دکتر مهدی احمدی" : "e.g. Dr. Mahdi Ahmadi"} className={inputClass} />
+              <label htmlFor={ids.name} className="ui-label">{isRtl ? "نام و نام خانوادگی شرکت‌کننده" : "Full Name"} <span aria-hidden="true" className="text-status-danger-solid">*</span></label>
+              <input id={ids.name} ref={nameInputRef} type="text" required value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder={isRtl ? "مثال: دکتر مهدی احمدی" : "e.g. Dr. Mahdi Ahmadi"} className="ui-input" />
             </div>
             <div>
-              <label htmlFor={ids.email} className="block text-xs font-semibold text-text-primary mb-1">{isRtl ? "آدرس ایمیل (اختیاری)" : "Email Address (Optional)"}</label>
-              <input id={ids.email} type="email" dir="ltr" inputMode="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="name@institution.com" className={`${inputClass} font-mono`} />
+              <label htmlFor={ids.email} className="ui-label">{isRtl ? "آدرس ایمیل (اختیاری)" : "Email Address (Optional)"}</label>
+              <input id={ids.email} type="email" dir="ltr" inputMode="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="name@institution.com" className="ui-input font-mono" />
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 gap-4 @sm:grid-cols-2">
               <div>
-                <label htmlFor={ids.org} className="block text-xs font-semibold text-text-primary mb-1">{isRtl ? "سازمان / دانشگاه" : "Organization"}</label>
-                <input id={ids.org} type="text" value={organization} onChange={(e) => setOrganization(e.target.value)} placeholder={isRtl ? "دانشگاه علوم پزشکی" : "University / Hospital"} className={inputClass} />
+                <label htmlFor={ids.org} className="ui-label">{isRtl ? "سازمان / دانشگاه" : "Organization"}</label>
+                <input id={ids.org} type="text" value={organization} onChange={(e) => setOrganization(e.target.value)} placeholder={isRtl ? "دانشگاه علوم پزشکی" : "University / Hospital"} className="ui-input" />
               </div>
               <div>
-                <label htmlFor={ids.title} className="block text-xs font-semibold text-text-primary mb-1">{isRtl ? "عنوان حرفه‌ای" : "Title"}</label>
-                <input id={ids.title} type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder={isRtl ? "متخصص، پژوهشگر" : "Specialist, Researcher"} className={inputClass} />
+                <label htmlFor={ids.title} className="ui-label">{isRtl ? "عنوان حرفه‌ای" : "Title"}</label>
+                <input id={ids.title} type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder={isRtl ? "متخصص، پژوهشگر" : "Specialist, Researcher"} className="ui-input" />
               </div>
             </div>
             <div>
-              <label htmlFor={ids.tier} className="block text-xs font-semibold text-text-primary mb-1">{t.tierLabel} <span className="text-red-500">*</span></label>
-              <select id={ids.tier} value={selectedTierId} onChange={(e) => setSelectedTierId(e.target.value)} className={`${inputClass} min-h-[44px]`}>
+              <label htmlFor={ids.tier} className="ui-label">{t.tierLabel} <span aria-hidden="true" className="text-status-danger-solid">*</span></label>
+              <select id={ids.tier} value={selectedTierId} onChange={(e) => setSelectedTierId(e.target.value)} className="ui-select">
                 {tiers.map((tier) => (
                   <option key={tier.id} value={tier.id}>
                     {tier.name} ({t.tierQuotaTotal}: {formatLocalizedNumber(tier.quota, locale)})
@@ -826,20 +985,24 @@ export function ReceptionStation({ eventId, organizer, locale, t, isRtl }: Recep
             </div>
 
             {formError && (
-              <div role="alert" aria-live="assertive" className="p-3.5 rounded-xl bg-status-danger-bg text-status-danger-text border border-status-danger-border text-xs leading-relaxed">{formError}</div>
+              <div role="alert" aria-live="assertive" className="flex items-start gap-2.5 rounded-xl border border-status-danger-border bg-status-danger-bg p-3.5 text-[13px] leading-relaxed text-status-danger-text">
+                <Icon name="alert" size={17} className="mt-0.5" />
+                <span>{formError}</span>
+              </div>
             )}
 
             {duplicate.status !== "none" && (
-              <div role="status" className="p-3.5 rounded-xl bg-status-warning-bg text-status-warning-text border border-status-warning-border text-xs leading-relaxed space-y-2">
-                {duplicate.status === "looking" && <p>{isRtl ? "در حال جستجوی کارت موجود..." : "Looking for the existing pass..."}</p>}
+              <div role="status" className="space-y-3 rounded-xl border border-status-warning-border bg-status-warning-bg p-3.5 text-[13px] leading-relaxed text-status-warning-text">
+                {duplicate.status === "looking" && <p className="flex items-center gap-2"><Icon name="sync" size={16} className="motion-safe:animate-spin" />{isRtl ? "در حال جستجوی کارت موجود..." : "Looking for the existing pass..."}</p>}
                 {duplicate.status === "failed" && <p>{isRtl ? "کارت موجود پیدا نشد (خطای جستجو). با جستجوی دستی بررسی کنید." : "The existing pass could not be looked up. Check with the search box."}</p>}
                 {duplicate.status === "missing" && <p>{isRtl ? "کارت دقیقاً مطابق این ایمیل پیدا نشد. با جستجوی دستی بررسی کنید." : "No pass with exactly this email was found. Check with the search box."}</p>}
                 {duplicate.status === "found" && (
                   <>
-                    <p>{isRtl ? "این ایمیل قبلاً کارت دارد. برای بررسی کارت موجود، آن را انتخاب کنید:" : "This email already has a pass. Choose it to review the existing pass:"}</p>
+                    <p className="flex items-start gap-2"><Icon name="ticket" size={16} className="mt-0.5" /><span>{isRtl ? "این ایمیل قبلاً کارت دارد. برای بررسی کارت موجود، آن را انتخاب کنید:" : "This email already has a pass. Choose it to review the existing pass:"}</span></p>
                     {duplicate.candidates.map((c) => (
-                      <Button key={c.ticket_id} type="button" variant="secondary" size="md" isFullWidth onClick={() => void openReview(c.ticket_id)}>
-                        {isRtl ? `بررسی کارت ${c.attendee_name}` : `Review existing pass: ${c.attendee_name}`}
+                      <Button key={c.ticket_id} type="button" variant="secondary" size="md" isFullWidth className="h-auto justify-between whitespace-normal text-start" onClick={() => void openReview(c.ticket_id)}>
+                        <span className="min-w-0 break-words">{isRtl ? `بررسی کارت ${c.attendee_name}` : `Review existing pass: ${c.attendee_name}`}</span>
+                        <Icon name="arrow-right" size={16} />
                       </Button>
                     ))}
                   </>
@@ -847,24 +1010,40 @@ export function ReceptionStation({ eventId, organizer, locale, t, isRtl }: Recep
               </div>
             )}
 
-            <Button type="submit" variant="primary" size="lg" isFullWidth disabled={submitting || tiers.length === 0} aria-busy={submitting} className="shadow-xs font-bold">
-              {submitting ? t.mintingBadge : `${t.mintBadgeAction} →`}
+            <Button type="submit" variant="primary" size="lg" isFullWidth disabled={submitting || tiers.length === 0} aria-busy={submitting}>
+              <Icon name={submitting ? "sync" : "ticket"} size={18} className={submitting ? "motion-safe:animate-spin" : ""} />
+              <span>{submitting ? t.mintingBadge : t.mintBadgeAction}</span>
             </Button>
           </form>
         </section>
       </div>
 
       {/* Backend-confirmed issuance */}
-      <Dialog isOpen={Boolean(mintedPass)} onClose={handleNextAttendee} title={t.ticketIssuedSuccess} description={isRtl ? "کارت ورود با موفقیت صادر شد. می‌توانید کارت را چاپ کرده یا به شرکت‌کننده تحویل دهید." : "Pass minted successfully."} size="sm">
+      <Dialog isOpen={Boolean(mintedPass)} onClose={handleNextAttendee} title={t.ticketIssuedSuccess.replace(/^✓\s*/, "")} description={isRtl ? "کارت ورود با موفقیت صادر شد. می‌توانید کارت را چاپ کرده یا به شرکت‌کننده تحویل دهید." : "Pass minted successfully."} size="sm">
         {mintedPass && (
-          <div className="space-y-4 py-2">
-            {passBlock({ qr: mintedPass.qr_secret, name: mintedPass.attendee_name, tier: mintedPass.ticket_tier_name, org: mintedPass.organization, ticketId: mintedPass.ticket_id })}
-            <div className="pt-2 flex flex-col gap-2 print:hidden">
-              <Button type="button" variant="secondary" size="md" isFullWidth onClick={() => window.print()} className="gap-2">
-                <span aria-hidden="true">🖨️</span><span>{t.printPassAction}</span>
+          <div className="space-y-4" style={accentStyle}>
+            <p className="flex items-center gap-2.5 text-sm font-semibold text-status-success-text">
+              <span aria-hidden="true" className="grid size-7 place-items-center rounded-full bg-status-success-text text-white">
+                <Icon name="check" size={15} strokeWidth={2.5} />
+              </span>
+              <span>{isRtl ? "صادر شد و آماده چاپ است" : "Issued and ready to print"}</span>
+            </p>
+            <div className="rounded-2xl bg-surface-panel-subtle p-4">
+              <ReceptionPass
+                pass={{ qr: mintedPass.qr_secret, name: mintedPass.attendee_name, tier: mintedPass.ticket_tier_name, org: mintedPass.organization, ticketId: mintedPass.ticket_id }}
+                isRtl={isRtl}
+                eventName={eventName}
+                printable
+              />
+            </div>
+            <div className="grid gap-2.5 print:hidden">
+              <Button type="button" variant="secondary" size="lg" isFullWidth onClick={() => window.print()}>
+                <Icon name="print" size={18} />
+                <span>{t.printPassAction}</span>
               </Button>
-              <Button type="button" variant="primary" size="md" isFullWidth onClick={handleNextAttendee} className="gap-1.5">
-                <span>{t.nextAttendeeAction}</span><span aria-hidden="true">{isRtl ? "←" : "→"}</span>
+              <Button type="button" variant="primary" size="lg" isFullWidth onClick={handleNextAttendee} className="whitespace-normal">
+                <span>{t.nextAttendeeAction}</span>
+                <Icon name="arrow-right" size={18} />
               </Button>
             </div>
           </div>
