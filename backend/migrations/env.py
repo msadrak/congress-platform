@@ -16,7 +16,12 @@ if config.config_file_name is not None:
 
 target_metadata = Base.metadata
 
-if url_override := os.environ.get("CONGRESS_DATABASE_URL"):
+# URL precedence: a caller that passes `config.attributes["database_url"]` (the test harness) gets exactly
+# that database, so an ambient CONGRESS_DATABASE_URL can never redirect it. The command line uses
+# CONGRESS_DATABASE_URL, then alembic.ini.
+if explicit_url := config.attributes.get("database_url"):
+    config.set_main_option("sqlalchemy.url", explicit_url)
+elif url_override := os.environ.get("CONGRESS_DATABASE_URL"):
     config.set_main_option("sqlalchemy.url", url_override)
 
 

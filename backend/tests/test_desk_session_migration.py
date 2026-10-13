@@ -12,7 +12,7 @@ from alembic.config import Config
 from alembic.script import ScriptDirectory
 from sqlalchemy.engine import make_url
 
-from tests.conftest import ADMIN_DSN, BACKEND_DIR, TEST_URL, _truncate_all
+from tests.conftest import ADMIN_DSN, BACKEND_DIR, TEST_URL, _truncate_all, disposable_target_problem
 
 
 async def verify_populated_expansion(url: str) -> None:
@@ -64,7 +64,7 @@ async def verify_populated_expansion(url: str) -> None:
         await conn.close()
     # Alembic uses its environment override, not the Config URL.
     result = subprocess.run(
-        [sys.executable, "-m", "alembic", "upgrade", "head"], cwd=BACKEND_DIR,
+        [sys.executable, "-m", "alembic", "upgrade", "0012"], cwd=BACKEND_DIR,
         env={**os.environ, "CONGRESS_DATABASE_URL": url}, capture_output=True, text=True,
     )
     assert result.returncode == 0, result.stdout + result.stderr
@@ -107,25 +107,31 @@ async def verify_populated_expansion(url: str) -> None:
 
 async def test_populated_desk_session_expansion_is_additive() -> None:
     # This fixture database is explicitly disposable; no other database is touched.
-    url, admin = make_url(TEST_URL), make_url(ADMIN_DSN)
-    assert url.database == "congress_test"
-    assert (url.host, url.port) == (admin.host, admin.port)
-    assert admin.database == "postgres"
+    assert disposable_target_problem(make_url(TEST_URL), make_url(ADMIN_DSN)) is None
     await _truncate_all()
     result = subprocess.run(
         [sys.executable, "-m", "alembic", "downgrade", "0011"], cwd=BACKEND_DIR,
         env={**os.environ, "CONGRESS_DATABASE_URL": TEST_URL}, capture_output=True, text=True,
     )
     assert result.returncode == 0, result.stdout + result.stderr
-    await verify_populated_expansion(TEST_URL)
+    try:
+        await verify_populated_expansion(TEST_URL)
+    finally:
+        # Later tests expect the current schema.
+        restored = subprocess.run(
+            [sys.executable, "-m", "alembic", "upgrade", "head"], cwd=BACKEND_DIR,
+            env={**os.environ, "CONGRESS_DATABASE_URL": TEST_URL}, capture_output=True, text=True,
+        )
+        assert restored.returncode == 0, restored.stdout + restored.stderr
 
 
 def test_desk_session_migration_has_one_linear_head() -> None:
     config = Config(str(BACKEND_DIR / "alembic.ini"))
     config.set_main_option("script_location", str(BACKEND_DIR / "migrations"))
     scripts = ScriptDirectory.from_config(config)
-    assert scripts.get_heads() == ["0012"]
+    assert scripts.get_heads() == ["0013"]
     revisions = list(scripts.walk_revisions())
-    assert [revision.revision for revision in revisions] == [f"{number:04d}" for number in range(12, 0, -1)]
-    assert revisions[0].down_revision == "0011"
+    assert [revision.revision for revision in revisions] == [f"{number:04d}" for number in range(13, 0, -1)]
+    desk_session = scripts.get_revision("0012")
+    assert desk_session is not None and desk_session.down_revision == "0011"
     assert len(list(Path(BACKEND_DIR / "migrations" / "versions").glob("0012_*.py"))) == 1

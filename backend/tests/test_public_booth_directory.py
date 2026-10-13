@@ -1,6 +1,6 @@
 from httpx import AsyncClient
 
-from tests.helpers import bearer, provision_organizer
+from tests.helpers import bearer, provision_organizer, publish_page
 from tests.test_booths import BOOTH_PAYLOAD
 from tests.test_events import EVENT
 from tests.test_ticket_tiers import create_event
@@ -24,6 +24,7 @@ async def test_anonymous_directory_lists_only_this_congress_booths_in_name_order
 ) -> None:
     organizer = await provision_organizer(client, "Acme Congress Co")
     event_id = await create_event(client, organizer)
+    await publish_page(client, organizer, event_id)
     await _add_booth(client, organizer, event_id, name="Zeta Pharma", slug="zeta")
     alpha = await _add_booth(client, organizer, event_id, name="Alpha Devices", slug="alpha")
     other = await client.post(
@@ -48,6 +49,7 @@ async def test_anonymous_directory_lists_only_this_congress_booths_in_name_order
 async def test_directory_exposes_no_secrets_or_staff_data(client: AsyncClient) -> None:
     organizer = await provision_organizer(client, "Acme Congress Co")
     event_id = await create_event(client, organizer)
+    await publish_page(client, organizer, event_id)
     created = await _add_booth(client, organizer, event_id)
     assert "qr_secret" in created
 
@@ -62,7 +64,7 @@ async def test_directory_of_an_event_without_booths_is_empty_and_unknown_slug_is
     client: AsyncClient,
 ) -> None:
     organizer = await provision_organizer(client, "Acme Congress Co")
-    await create_event(client, organizer)
+    await publish_page(client, organizer, await create_event(client, organizer))
 
     empty = await client.get(f"/api/public/events/{EVENT['slug']}/booths")
     unknown = await client.get("/api/public/events/does-not-exist/booths")

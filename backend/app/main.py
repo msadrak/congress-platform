@@ -3,9 +3,10 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from app.config import Settings
+from app.config import Settings, describe_settings_error
 from app.routes import (
     access,
     analytics,
@@ -14,9 +15,11 @@ from app.routes import (
     checkin,
     desk,
     events,
+    health,
     leads,
     network,
     organizers,
+    pages,
     public,
     ticket_tiers,
     tickets,
@@ -39,6 +42,7 @@ def create_app(settings: Settings) -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    app.include_router(health.router)
     app.include_router(auth.router)
     app.include_router(access.router)
     app.include_router(organizers.router)
@@ -51,10 +55,18 @@ def create_app(settings: Settings) -> FastAPI:
     app.include_router(booths.router)
     app.include_router(leads.router)
     app.include_router(network.router)
+    app.include_router(pages.router)
     app.include_router(public.router)
     return app
 
 
 def create_app_from_env() -> FastAPI:
-    """Entry point for `uvicorn app.main:create_app_from_env --factory`."""
-    return create_app(Settings())
+    """Entry point for `uvicorn app.main:create_app_from_env --factory`.
+
+    A misconfigured deployment stops here with a list of what to fix, before it opens any connection.
+    """
+    try:
+        settings = Settings()
+    except ValidationError as exc:
+        raise SystemExit(describe_settings_error(exc)) from None
+    return create_app(settings)

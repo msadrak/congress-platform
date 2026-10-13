@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from httpx import AsyncClient
 
-from tests.helpers import bearer, provision_organizer
+from tests.helpers import bearer, provision_organizer, publish_page
 from tests.test_events import EVENT
 from tests.test_ticket_tiers import create_event, tier
 from tests.test_tickets import register_user
@@ -16,6 +16,7 @@ from tests.test_tickets import register_user
 async def test_authorized_event_update(client: AsyncClient) -> None:
     organizer = await provision_organizer(client, "Event Update Org")
     event_id = await create_event(client, organizer)
+    await publish_page(client, organizer, event_id)
 
     # 1. Successful update of name, location, description, and dates
     now = datetime.now(timezone.utc)
@@ -51,6 +52,7 @@ async def test_authorized_event_update(client: AsyncClient) -> None:
 async def test_event_update_rejects_invalid_dates(client: AsyncClient) -> None:
     organizer = await provision_organizer(client, "Date Validation Org")
     event_id = await create_event(client, organizer)
+    await publish_page(client, organizer, event_id)
 
     now = datetime.now(timezone.utc)
     # starts_at is after ends_at
@@ -84,6 +86,7 @@ async def test_cross_tenant_event_update_rejected(client: AsyncClient) -> None:
 async def test_ticket_tier_update_and_quota_constraint(client: AsyncClient) -> None:
     organizer = await provision_organizer(client, "Tier Update Org")
     event_id = await create_event(client, organizer)
+    await publish_page(client, organizer, event_id)
 
     # Create tier with quota 10
     tier_resp = await client.post(
@@ -127,6 +130,7 @@ async def test_ticket_tier_update_and_quota_constraint(client: AsyncClient) -> N
 async def test_closing_and_reopening_ticket_tier(client: AsyncClient) -> None:
     organizer = await provision_organizer(client, "Tier Open Close Org")
     event_id = await create_event(client, organizer)
+    await publish_page(client, organizer, event_id)
 
     tier_resp = await client.post(
         f"/api/events/{event_id}/ticket-tiers",
@@ -201,6 +205,7 @@ async def test_closing_and_reopening_ticket_tier(client: AsyncClient) -> None:
 async def test_checkin_point_updates_and_policy_safety(client: AsyncClient) -> None:
     organizer = await provision_organizer(client, "Point Update Org")
     event_id = await create_event(client, organizer)
+    await publish_page(client, organizer, event_id)
 
     tier_resp = await client.post(
         f"/api/events/{event_id}/ticket-tiers",

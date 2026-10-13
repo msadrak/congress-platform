@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime
+from typing import Any
 
 from sqlalchemy import (
     JSON,
@@ -13,6 +14,7 @@ from sqlalchemy import (
     UniqueConstraint,
     func,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -46,6 +48,60 @@ class Event(Base):
     ends_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     location: Mapped[str] = mapped_column(String(300))
     description: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class EventPage(Base):
+    """Public-page presentation of one event: the organizer's draft and the published snapshot.
+
+    Visitors only ever read `published`; it is replaced as a whole by Publish. `draft_revision` is the
+    optimistic-concurrency token: every save and publish names the revision it was based on.
+    """
+
+    __tablename__ = "event_pages"
+    __table_args__ = (
+        CheckConstraint("draft_revision >= 1", name="ck_event_pages_draft_revision"),
+        CheckConstraint(
+            "(published IS NULL) = (published_at IS NULL)", name="ck_event_pages_published_pair"
+        ),
+    )
+
+    event_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("events.id", ondelete="CASCADE"), primary_key=True
+    )
+    draft: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    draft_revision: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    draft_updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    published: Mapped[dict[str, Any] | None] = mapped_column(JSONB(none_as_null=True), nullable=True)
+    # Draft revision that was published; differs from draft_revision while there are unpublished edits.
+    published_revision: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Images anonymous visitors may load: exactly those the published snapshot references.
+    published_asset_ids: Mapped[list[str]] = mapped_column(
+        JSONB, default=list, server_default="[]"
+    )
+
+
+class MediaAsset(Base):
+    """An uploaded, re-encoded image owned by one event. Bytes live under the media root, never in the DB."""
+
+    __tablename__ = "media_assets"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    event_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("events.id", ondelete="CASCADE"), index=True
+    )
+    content_type: Mapped[str] = mapped_column(String(32))
+    width: Mapped[int] = mapped_column(Integer)
+    height: Mapped[int] = mapped_column(Integer)
+    byte_size: Mapped[int] = mapped_column(Integer)
+    sha256: Mapped[str] = mapped_column(String(64))
+    # Path relative to the media root, generated server-side ("<event_id>/<asset_id>.<ext>").
+    storage_key: Mapped[str] = mapped_column(String(200), unique=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

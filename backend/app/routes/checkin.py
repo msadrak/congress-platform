@@ -130,6 +130,30 @@ class BatchScanResponse(BaseModel):
     results: list[ScanResult]
 
 
+ADMISSION_POLICIES = ("MULTI_ENTRY", "SINGLE_USE", "TIER_RESTRICTED", "CAPACITY_CAPPED")
+
+
+def _admission_policy(raw: str) -> str:
+    policy = raw.strip().upper()
+    if policy not in ADMISSION_POLICIES:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Invalid policy_type: {policy}")
+    return policy
+
+
+async def _require_event_tiers(session: SessionDep, event: Event, tier_ids: list[str]) -> None:
+    """Every allowed tier must be one of this event's tiers; another event's tier is rejected."""
+    if not tier_ids:
+        return
+    valid_tiers = await session.scalars(select(TicketTier.id).where(TicketTier.event_id == event.id))
+    valid_tier_strs = {str(t_id) for t_id in valid_tiers}
+    for tier_id_str in tier_ids:
+        if tier_id_str not in valid_tier_strs:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                f"Tier ID '{tier_id_str}' does not belong to this event",
+            )
+
+
 @router.post(
     "/api/events/{event_id}/checkin-points",
     status_code=status.HTTP_201_CREATED,
@@ -137,11 +161,13 @@ class BatchScanResponse(BaseModel):
 async def create_checkin_point(
     body: CheckInPointCreate, event: OwnedEventDep, session: SessionDep
 ) -> CheckInPointOut:
+    policy = _admission_policy(body.policy_type)
+    await _require_event_tiers(session, event, body.allowed_tier_ids)
     point = CheckInPoint(
         event_id=event.id,
         name=body.name.strip(),
         location=body.location.strip(),
-        policy_type=body.policy_type.upper(),
+        policy_type=policy,
         allowed_tier_ids=body.allowed_tier_ids,
         max_capacity=body.max_capacity,
     )
@@ -179,9 +205,7 @@ async def update_checkin_point(
 
     # 1. Validate policy_type change safety
     if body.policy_type is not None:
-        new_policy = body.policy_type.strip().upper()
-        if new_policy not in ("MULTI_ENTRY", "SINGLE_USE", "TIER_RESTRICTED", "CAPACITY_CAPPED"):
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Invalid policy_type: {new_policy}")
+        new_policy = _admission_policy(body.policy_type)
 
         if new_policy != point.policy_type:
             # Check if scans have already been recorded at this point
@@ -198,17 +222,7 @@ async def update_checkin_point(
 
     # 2. Validate allowed_tier_ids against event ownership
     if body.allowed_tier_ids is not None:
-        if body.allowed_tier_ids:
-            valid_tiers = await session.scalars(
-                select(TicketTier.id).where(TicketTier.event_id == event.id)
-            )
-            valid_tier_strs = {str(t_id) for t_id in valid_tiers}
-            for tier_id_str in body.allowed_tier_ids:
-                if tier_id_str not in valid_tier_strs:
-                    raise HTTPException(
-                        status.HTTP_400_BAD_REQUEST,
-                        f"Tier ID '{tier_id_str}' does not belong to this event",
-                    )
+        await _require_event_tiers(session, event, body.allowed_tier_ids)
         point.allowed_tier_ids = body.allowed_tier_ids
 
     # 3. Update metadata

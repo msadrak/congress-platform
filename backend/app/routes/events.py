@@ -16,7 +16,8 @@ from sqlalchemy.exc import IntegrityError
 
 from app.auth import OrganizerDep
 from app.db import SessionDep
-from app.models import Event
+from app.models import Event, EventPage
+from app.page_document import default_page_document
 
 router = APIRouter(prefix="/api/events", tags=["events"])
 
@@ -78,17 +79,26 @@ async def owned_event(
 OwnedEventDep = Annotated[Event, Depends(owned_event)]
 
 
+def new_event_page(event_id: uuid.UUID) -> EventPage:
+    """A new event's public page: the standard layout as an unpublished draft."""
+    return EventPage(event_id=event_id, draft=default_page_document().model_dump(mode="json"))
+
+
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def create_event(
     body: EventCreate, organizer: OrganizerDep, session: SessionDep
 ) -> EventOut:
-    event = Event(organizer_id=organizer.id, **body.model_dump())
+    """The event exists immediately for setup (tiers, booths, check-in, reception); its public page is
+    an unpublished draft until the organizer publishes it in Page Studio."""
+    event = Event(id=uuid.uuid4(), organizer_id=organizer.id, **body.model_dump())
     session.add(event)
     try:
-        await session.commit()
+        await session.flush()
     except IntegrityError:
         # events.slug is the only unique column a caller can collide on.
         raise HTTPException(status.HTTP_409_CONFLICT, "Slug already in use") from None
+    session.add(new_event_page(event.id))
+    await session.commit()
     return EventOut.model_validate(event)
 
 

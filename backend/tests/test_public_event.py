@@ -1,6 +1,6 @@
 from httpx import AsyncClient
 
-from tests.helpers import bearer, provision_organizer
+from tests.helpers import bearer, provision_organizer, publish_page
 from tests.test_events import EVENT
 from tests.test_ticket_tiers import create_event, tier
 
@@ -10,6 +10,7 @@ async def test_public_visitor_sees_all_tiers_with_status_and_counts(
 ) -> None:
     organizer = await provision_organizer(client, "Acme Congress Co")
     event_id = await create_event(client, organizer)
+    await publish_page(client, organizer, event_id)
     url = f"/api/events/{event_id}/ticket-tiers"
     await client.post(url, json=tier(name="General Admission", quota=100), headers=bearer(organizer))
     await client.post(
@@ -45,7 +46,7 @@ async def test_public_page_for_an_unknown_event_is_not_found(
 
 async def test_public_page_does_not_leak_tenant_internals(client: AsyncClient) -> None:
     organizer = await provision_organizer(client, "Acme Congress Co")
-    await create_event(client, organizer)
+    await publish_page(client, organizer, await create_event(client, organizer))
 
     page = (await client.get(f"/api/public/events/{EVENT['slug']}")).json()
 
