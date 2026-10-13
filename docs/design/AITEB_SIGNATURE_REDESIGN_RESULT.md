@@ -85,6 +85,23 @@ The AIteb mark is two arcs crossing: medicine meets technology, and people meet 
 | Exhibitor | Ink booth header with placard and lead tally. Capture dock on phones, sticky capture panel on desktop. HOT/WARM/COLD toggle group that works from the keyboard. Lead cards, filter chips with counts, and an export spinner. |
 | Scanner | Dark instrument: gate identity, a status rail (link / manifest / queue), and a reticle with a sweep line. Results take over the scan area in full colour with icon and words: admitted, offline-provisional (amber stripes), already admitted, rejected. They appear in 110 ms and never block the next scan. Precise scan log. Attribution appears only on setup and settings screens. |
 
+### Persian on the public site (follow-up)
+The platform landing page, public congress pages and booth pages are now fully bilingual. Before this, the landing page was English-only and congress pages had no language switch.
+- **Language switch.** A "فارسی / English" switch sits in every public header. The choice is stored in the same `congress_attendee_locale` key the portals use, so one choice applies everywhere.
+- **Default language** when the visitor has not chosen one:
+  - Congress and booth pages follow the language of the congress itself.
+  - The landing page defaults to Persian.
+- **Persian copy.** All landing-page copy was written in Persian (`components/public/homeCopy.ts`). The platform header, mobile menu and footer chrome are translated too.
+- **Persian presentation.** Pages lay out right-to-left. Dates use the Persian (Jalali) calendar, numerals and section indexes are Persian, and the display headings are tuned for Persian.
+- **Organizer-written content.** Congress, booth and tier names and descriptions are isolated by script (`<Bidi>`, `proseDir`, `isolateFor`).
+  - An English congress name inside a Persian page keeps the page's right alignment but renders left-to-right in the Latin typeface. A Persian name inside an English page behaves the same way in reverse.
+  - `[dir="ltr"]` elements switch to the Latin typeface automatically.
+- **Other leftovers translated:**
+  - The dialog close button now speaks the page language ("بستن").
+  - Analytics gate filters show the translated admission policy instead of the raw code.
+  - The scanner's sound-toggle tooltip is translated. Its token-field placeholder is Persian plus the English command the tests rely on.
+- **Screenshots:** `docs/design/aiteb-redesign/after/persian-public/`.
+
 ## 8. Screenshots
 All are real renders of this build against the local demo (synthetic data).
 - **Before:** `docs/design/aiteb-redesign/before/` — 45 screens captured before any change.
@@ -104,12 +121,12 @@ All are real renders of this build against the local demo (synthetic data).
 | Check | Result |
 |---|---|
 | `npx tsc -b` | exit 0 |
-| `npx oxlint src` | 0 errors; the remaining warnings are hook-dependency / set-state-in-effect in logic that was already there |
+| `npx oxlint src` | 0 errors. The remaining warnings are hook-dependency / set-state-in-effect in logic that was already there, plus one in `Button.tsx` (exports a class-name helper next to its components). The route tree moved to `App.tsx`, so `main.tsx` is warning-free. |
 | `npm test` (unit) | 55 passed, 0 failed |
 | `npm run build` | exit 0; precache 56 entries |
 | Playwright, full suite (production preview on 127.0.0.1:4190, msedge, `--retries=0`) | **165 passed, 1 skipped** (`scanner-real-api.spec.ts` needs an isolated backend). All other specs intercept the API with synthetic data. |
-| `scripts/integration/congress-e2e.mjs --skip-build` (real FastAPI + PostgreSQL in disposable `congress-e2e-*` containers, Postgres unpublished, effective database verified) | **45/45 checks passed** and `scanner-real-api.spec.ts` 1 passed, exit 0. This covers scanner offline queue and sync, idempotent replay, revocation, reception, exhibitor CSV and tenant isolation. |
-| `scripts\check.bat` (backend mypy + pytest, web unit + typecheck + build, Dart tests + analyze) | ALL CHECKS PASSED, exit 0 |
+| `scripts/integration/congress-e2e.mjs --skip-build` (real FastAPI + PostgreSQL in disposable `congress-e2e-*` containers, Postgres unpublished, effective database verified) | **45/45 checks passed** and `scanner-real-api.spec.ts` 1 passed, exit 0. This covers scanner offline queue and sync, idempotent replay, revocation, reception, exhibitor CSV and tenant isolation. On the Persian follow-up build, one run had D4 fail with `fetch failed` on the harness's direct Node→API call; an immediate rerun passed 45/45 with exit 0. |
+| `scripts\check.bat` (backend mypy + pytest, web unit + typecheck + build, Dart tests + analyze) | Design milestone: ALL CHECKS PASSED, exit 0. After the Persian follow-up, the backend pytest step was intermittent: 1 then 2 different auth-related tests returned 401 in two runs, and the third full run passed 185/185. No backend file changed since `8807183`, so this flakiness is pre-existing. The check script stops at the backend step, so the web unit, typecheck and build steps were run separately and passed; the mobile app is unchanged. |
 
 The persistent demo database was not reset; port 4174 (another worktree) was not touched.
 
@@ -151,6 +168,8 @@ The persistent demo database was not reset; port 4174 (another worktree) was not
 | `a24633d9a6cd02611c38eadb858dfa4528df3987` | exhibitor |
 | `905c48c1f570ffe99b8b2add76a577ab27d42079` | scanner |
 | `28bdbbbfadf5c777e1e563eb316ddc8185e7829b` | route splitting |
+| `53364f1585fc61f6fc460271b619f90cdd14ff4e` | result report and screenshots |
+| `46d6ee5453acbf222e59f357274567d6757b751b` | Persian on the public site |
 
 This report, the screenshots and the refreshed integration evidence are in the commit that follows.
 
