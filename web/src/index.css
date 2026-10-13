@@ -243,6 +243,13 @@
     line-height: 1.75;
   }
 
+  /* Explicit LTR islands (English names, e-mails, codes) inside Persian pages read in the Latin face. */
+  [dir="ltr"] {
+    --font-sans: "Schibsted Grotesk Variable", "Vazirmatn Variable", ui-sans-serif, system-ui, "Segoe UI", sans-serif;
+    --font-display: "Schibsted Grotesk Variable", "Vazirmatn Variable", ui-sans-serif, system-ui, sans-serif;
+    font-family: var(--font-sans);
+  }
+
   h1, h2, h3, h4 {
     font-family: var(--font-display);
     text-wrap: balance;

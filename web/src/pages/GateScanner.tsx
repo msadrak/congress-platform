@@ -926,7 +926,7 @@ export default function GateScanner() {
               type="password"
               value={tokenInput}
               onChange={(e) => setTokenInput(e.target.value)}
-              placeholder="Paste device scanner token..."
+              placeholder={copy.tokenPlaceholder}
               autoComplete="off"
               dir="ltr"
               className="scanner-input w-full font-mono"

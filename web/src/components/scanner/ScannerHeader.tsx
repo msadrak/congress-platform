@@ -61,7 +61,7 @@ export function ScannerHeader(props: ScannerHeaderProps) {
               onClick={props.onToggleSound}
               aria-pressed={props.soundEnabled}
               aria-label={props.soundEnabled ? copy.soundOn : copy.soundOff}
-              title={props.soundEnabled ? "Mute audio chimes" : "Enable audio chimes"}
+              title={props.soundEnabled ? copy.soundMute : copy.soundUnmute}
               className={`scanner-tool grid size-11 place-items-center rounded-[10px] border ${
                 props.soundEnabled
                   ? "border-white/12 bg-white/[0.04] text-white hover:bg-white/[0.08]"

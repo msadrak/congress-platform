@@ -48,6 +48,21 @@
   letter-spacing: 0;
   line-height: 1.28;
 }
+/* The congress name follows its own script, not the page language. */
+.pub-display bdi[dir="ltr"] {
+  font-weight: 680;
+  letter-spacing: -0.035em;
+}
+.pub-display bdi[dir="rtl"] {
+  font-weight: 760;
+  letter-spacing: 0;
+}
+.pub-display:has(> bdi[dir="rtl"]) {
+  line-height: 1.28;
+}
+[dir="rtl"] .pub-display:has(> bdi[dir="ltr"]) {
+  line-height: 1.02;
+}
 
 /* Light content sheet that rises over the ink hero with one signature arc corner. */
 .pub-sheet {

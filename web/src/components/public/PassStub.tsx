@@ -1,7 +1,8 @@
 import type { TicketTierOut } from "../../api/client";
 import { translations } from "../../lib/i18n";
 import { Icon } from "../ui/Icon";
-import { num, publicCopy, type PublicLocale } from "./copy";
+import { Bidi } from "./Bidi";
+import { indexLabel, num, publicCopy, type PublicLocale } from "./copy";
 import { tierState } from "./format";
 
 interface PassStubProps {
@@ -50,13 +51,13 @@ export function PassStub({ tier, index, selected, locale, onSelect }: PassStubPr
             />
             <div className="min-w-0 space-y-1">
               <span className={`block font-mono text-[11px] tabular ${ink ? "text-aiteb-orchid" : "text-text-muted"}`}>
-                {c.tierPassNo} {num(index + 1, locale).padStart(2, locale === "fa" ? "۰" : "0")}
+                {c.tierPassNo} {indexLabel(index + 1, locale)}
               </span>
               <span className={`block text-lg font-semibold leading-snug tracking-[-0.015em] break-words ${available || ink ? "" : "text-text-secondary"}`}>
-                {tier.name}
+                <Bidi text={tier.name} />
               </span>
               <span className={`block text-sm leading-relaxed ${ink ? "text-ink-200" : "text-text-secondary"}`}>
-                {tier.description || c.tierDefaultDescription}
+                {tier.description ? <Bidi text={tier.description} /> : c.tierDefaultDescription}
               </span>
             </div>
           </div>

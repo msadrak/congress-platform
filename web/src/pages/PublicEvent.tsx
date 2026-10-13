@@ -14,7 +14,8 @@ import { Button, LinkButton } from "../components/ui/Button";
 import { Dialog } from "../components/ui/Dialog";
 import { Icon, type IconName } from "../components/ui/Icon";
 import { CongressSignature } from "../components/brand/CongressSignature";
-import { contentLocale, num, publicCopy } from "../components/public/copy";
+import { contentLocale, isolateFor, num, proseDir, publicCopy, usePublicLocale } from "../components/public/copy";
+import { Bidi } from "../components/public/Bidi";
 import { CongressHero } from "../components/public/CongressHero";
 import { EditorialSection } from "../components/public/EditorialSection";
 import { PassStub } from "../components/public/PassStub";
@@ -87,7 +88,7 @@ export default function PublicEvent() {
     };
   }, [slug]);
 
-  const locale = event ? contentLocale(event.name) : "en";
+  const { locale, setLocale } = usePublicLocale(event ? contentLocale(event.name) : undefined);
   const c = publicCopy[locale];
   const t = translations[locale];
   const selectedTier =
@@ -113,7 +114,7 @@ export default function PublicEvent() {
     if (!isStoredAttendeeToken(token)) {
       setAlreadyHasTicket(false);
       setAuthMode("login");
-      setModalError(publicCopy[contentLocale(event.name)].errSessionChanged);
+      setModalError(c.errSessionChanged);
       setIsAuthModalOpen(true);
       setSubmitting(false);
       return;
@@ -143,7 +144,7 @@ export default function PublicEvent() {
         rejectAttendeeToken(token);
         setAlreadyHasTicket(false);
         setAuthMode("login");
-        setModalError(publicCopy[contentLocale(event.name)].errSessionExpired);
+        setModalError(c.errSessionExpired);
         setIsAuthModalOpen(true);
         setSubmitting(false);
         return;
@@ -224,7 +225,7 @@ export default function PublicEvent() {
 
     if (authMode === "register") {
       if (!fullName.trim() || !email.trim() || !password) {
-        setModalError(publicCopy[contentLocale(event.name)].errRequired);
+        setModalError(c.errRequired);
         setSubmitting(false);
         return;
       }
@@ -252,7 +253,7 @@ export default function PublicEvent() {
     } else {
       // Login mode
       if (!email.trim() || !password) {
-        setModalError(publicCopy[contentLocale(event.name)].errLoginRequired);
+        setModalError(c.errLoginRequired);
         setSubmitting(false);
         return;
       }
@@ -281,7 +282,7 @@ export default function PublicEvent() {
   // Loading skeleton state
   if (loading) {
     return (
-      <PublicLayout>
+      <PublicLayout locale={locale} onLocaleChange={setLocale}>
         {/* Fills the viewport so the footer never sits in view and jumps when content arrives (CLS). */}
         <section role="status" aria-label={c.loading} className="relative min-h-[100svh] overflow-hidden bg-surface-ink">
           <div aria-hidden="true" className="absolute inset-0 bg-meridian-ink opacity-70" />
@@ -312,7 +313,7 @@ export default function PublicEvent() {
   // Error / Not Found state
   if (error || !event) {
     return (
-      <PublicLayout congressName="">
+      <PublicLayout locale={locale} onLocaleChange={setLocale} congressName="">
         <section className="relative isolate overflow-hidden">
           <CongressSignature seed={slug ?? "congress"} tone="light" className="absolute inset-0 -z-10 size-full opacity-70" />
           <div aria-hidden="true" className="absolute inset-0 -z-10 bg-linear-to-b from-surface-page/30 via-surface-page/85 to-surface-page" />
@@ -353,7 +354,7 @@ export default function PublicEvent() {
   );
 
   return (
-    <PublicLayout locale={locale} congressName={event.name}>
+    <PublicLayout locale={locale} onLocaleChange={setLocale} congressName={event.name}>
       <CongressHero event={event} locale={locale} />
 
       <div className="pub-sheet">
@@ -361,7 +362,7 @@ export default function PublicEvent() {
           {/* 01 About */}
           <EditorialSection id="about" headingId="about-heading" index={1} eyebrow={c.sectionAboutEyebrow} title={c.sectionAbout} locale={locale}>
             {event.description ? (
-              <p className="max-w-3xl whitespace-pre-line text-xl leading-[1.6] tracking-[-0.01em] text-text-primary sm:text-2xl sm:leading-[1.55] rtl:leading-[1.95]">
+              <p {...proseDir(event.description)} className="max-w-3xl whitespace-pre-line text-xl leading-[1.6] tracking-[-0.01em] text-text-primary sm:text-2xl sm:leading-[1.55] rtl:leading-[1.95]">
                 {event.description}
               </p>
             ) : (
@@ -463,7 +464,7 @@ export default function PublicEvent() {
                     </span>
                     <div className="min-w-0">
                       <p className="text-[11px] font-medium text-ink-300">{c.selectedPass}</p>
-                      <p className="truncate text-base font-semibold">{selectedTier?.name ?? c.noTiersTitle}</p>
+                      <p className="truncate text-base font-semibold">{selectedTier ? <Bidi text={selectedTier.name} /> : c.noTiersTitle}</p>
                       {selectedTier && isSelectedTierAvailable && (
                         <p className="text-xs text-ink-300">
                           {c.freeAdmission} · {t.tierCapacityRemaining} <span className="tabular text-white">{num(selectedRemaining, locale)}</span>
@@ -528,7 +529,7 @@ export default function PublicEvent() {
           }
         }}
         title={authMode === "register" ? c.dialogRegisterTitle : c.dialogLoginTitle}
-        description={selectedTier ? c.dialogDescription(selectedTier.name) : undefined}
+        description={selectedTier ? c.dialogDescription(isolateFor(selectedTier.name, locale)) : undefined}
         size="md"
       >
         <div className="space-y-6">
@@ -687,9 +688,9 @@ export default function PublicEvent() {
             <span className="grid size-11 place-items-center rounded-full bg-[#3EE0A1] text-surface-ink motion-safe:animate-pop">
               <Icon name="check" size={22} strokeWidth={2.4} />
             </span>
-            <h3 className="mt-6 text-lg font-semibold leading-snug">{event.name}</h3>
+            <h3 className="mt-6 text-lg font-semibold leading-snug"><Bidi text={event.name} /></h3>
             <p className="mt-1 text-sm text-ink-200">
-              {c.successTier}: <span className="font-semibold text-white">{selectedTier?.name}</span>
+              {c.successTier}: <span className="font-semibold text-white">{selectedTier && <Bidi text={selectedTier.name} />}</span>
             </p>
           </div>
           <p className="text-sm leading-relaxed text-text-secondary">{c.successBody}</p>

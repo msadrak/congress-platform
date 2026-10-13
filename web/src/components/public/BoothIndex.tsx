@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { createApiClient, type PublicBoothSummary } from "../../api/client";
 import { Icon } from "../ui/Icon";
+import { Bidi } from "./Bidi";
 import { num, publicCopy, type PublicLocale } from "./copy";
 
 type Directory = { status: "loading" } | { status: "ready"; booths: PublicBoothSummary[] } | { status: "unavailable" };
@@ -84,8 +85,8 @@ export function BoothIndex({ slug, locale }: { slug: string; locale: PublicLocal
                   </span>
                 </span>
                 <span className="min-w-0 space-y-1">
-                  <span className="block text-base sm:text-lg font-semibold tracking-[-0.015em] text-text-primary break-words">{b.name}</span>
-                  {b.description && <span className="block text-sm text-text-secondary line-clamp-2 sm:line-clamp-1">{b.description}</span>}
+                  <span className="block text-base sm:text-lg font-semibold tracking-[-0.015em] text-text-primary break-words"><Bidi text={b.name} /></span>
+                  {b.description && <span className="block text-sm text-text-secondary line-clamp-2 sm:line-clamp-1"><Bidi text={b.description} /></span>}
                   {/^https?:\/\//i.test(b.brochure_url) && (
                     <span className="inline-flex items-center gap-1.5 pt-0.5 text-xs font-medium text-text-muted">
                       <Icon name="file" size={14} />

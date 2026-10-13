@@ -1,18 +1,54 @@
-import { formatLocalizedNumber, type AttendeeLocale } from "../../lib/i18n";
+import { useState } from "react";
+import { ATTENDEE_LOCALE_STORAGE, formatLocalizedNumber, type AttendeeLocale } from "../../lib/i18n";
 
 export type PublicLocale = AttendeeLocale;
 
 const PERSIAN_SCRIPT = /[\u0600-\u06FF\uFB50-\uFDFF\uFE70-\uFEFF]/;
 
-/**
- * Public congress pages speak the language of the congress itself: a congress whose name is written
- * in Persian script gets the Persian (RTL) page, every other congress the English one.
- */
+export const hasPersian = (text: string | null | undefined) => Boolean(text && PERSIAN_SCRIPT.test(text));
+
+/** The language a congress is written in: Persian script means Persian, anything else English. */
 export function contentLocale(...texts: (string | null | undefined)[]): PublicLocale {
-  return texts.some((t) => t && PERSIAN_SCRIPT.test(t)) ? "fa" : "en";
+  return texts.some(hasPersian) ? "fa" : "en";
+}
+
+/** Attributes for a block of organizer-written prose: it reads in its own direction. */
+export function proseDir(text: string): { dir: "rtl" | "ltr"; lang: "fa" | "en" } {
+  return hasPersian(text) ? { dir: "rtl", lang: "fa" } : { dir: "ltr", lang: "en" };
+}
+
+/**
+ * For plain-string slots (dialog descriptions, aria labels): wraps text written in the other language in
+ * Unicode first-strong isolates so it cannot reorder the sentence around it.
+ */
+export function isolateFor(text: string, locale: "fa" | "en"): string {
+  return hasPersian(text) === (locale === "fa") ? text : `\u2068${text}\u2069`;
+}
+
+function storedLocale(): PublicLocale | null {
+  if (typeof window === "undefined") return null;
+  const stored = localStorage.getItem(ATTENDEE_LOCALE_STORAGE);
+  return stored === "fa" || stored === "en" ? stored : null;
+}
+
+/**
+ * Public page language. A visitor's explicit choice wins and is shared with the portals (same storage
+ * key); without one, a congress page speaks the language of its congress and the platform pages Persian.
+ */
+export function usePublicLocale(contentDefault?: PublicLocale) {
+  const [chosen, setChosen] = useState<PublicLocale | null>(storedLocale);
+  const locale: PublicLocale = chosen ?? contentDefault ?? "fa";
+  const setLocale = (next: PublicLocale) => {
+    setChosen(next);
+    localStorage.setItem(ATTENDEE_LOCALE_STORAGE, next);
+  };
+  return { locale, setLocale };
 }
 
 export const num = (n: number, locale: PublicLocale) => formatLocalizedNumber(n, locale);
+
+/** Two-digit section index ("01" / "۰۱"). */
+export const indexLabel = (n: number, locale: PublicLocale) => num(n, locale).padStart(2, locale === "fa" ? "۰" : "0");
 
 /** Page chrome for the public congress, booth and shell. English strings are relied on by e2e specs. */
 export const publicCopy = {
@@ -43,6 +79,20 @@ export const publicCopy = {
     footerRoles: "Role entry points",
     footerArchitecture: "Architecture",
     footerPrivate: "Registration is private to each congress: there is no public event directory.",
+    switchLanguage: "فارسی",
+    switchLanguageLabel: "نمایش این صفحه به فارسی",
+    navCapabilities: "Capabilities",
+    navRoles: "Role Entry",
+    navArchitecture: "Architecture",
+    menuCapabilities: "Platform Capabilities",
+    menuRoles: "Role Entry Points",
+    menuArchitecture: "Architecture & Invariants",
+    menuPasses: "My Tickets & Passes",
+    platformFooterBody:
+      "Independent, multi-tenant congress management for academic congresses, corporate symposiums and industrial trade exhibitions: registration, passes, front desk, gate scanning and exhibitor leads.",
+    platformFooterPrivateLead: "Registration is private to each congress. Attendees register through the direct link shared by their organizer",
+    platformFooterPrivateTail: "; no public event directory is exposed.",
+    platformTagline: "Built for high-reliability congress operations.",
     // Event page
     officialRegistration: "Official Congress Registration",
     statusOpen: "Registration Open",
@@ -202,9 +252,23 @@ export const publicCopy = {
     footerReception: "میز پذیرش",
     footerPlatformHome: "صفحه اصلی سامانه",
     footerCapabilities: "قابلیت‌ها",
-    footerRoles: "درگاه‌های نقش‌ها",
+    footerRoles: "ورود بر اساس نقش",
     footerArchitecture: "معماری",
     footerPrivate: "ثبت‌نام هر همایش خصوصی است؛ فهرست عمومی رویدادها وجود ندارد.",
+    switchLanguage: "English",
+    switchLanguageLabel: "Show this page in English",
+    navCapabilities: "قابلیت‌ها",
+    navRoles: "ورود نقش‌ها",
+    navArchitecture: "معماری",
+    menuCapabilities: "قابلیت‌های سامانه",
+    menuRoles: "درگاه ورود هر نقش",
+    menuArchitecture: "معماری و اصول پایداری",
+    menuPasses: "کارت‌های ورود من",
+    platformFooterBody:
+      "سامانهٔ مستقل و چندمستأجری مدیریت همایش برای کنگره‌های علمی، سمپوزیوم‌های سازمانی و نمایشگاه‌های تخصصی: ثبت‌نام، کارت ورود، میز پذیرش، اسکن گیت و ثبت سرنخ غرفه‌ها.",
+    platformFooterPrivateLead: "ثبت‌نام هر همایش خصوصی است. شرکت‌کنندگان از پیوند مستقیمی که برگزارکننده در اختیارشان می‌گذارد ثبت‌نام می‌کنند",
+    platformFooterPrivateTail: "؛ هیچ فهرست عمومی از رویدادها منتشر نمی‌شود.",
+    platformTagline: "ساخته‌شده برای اجرای پایدار و بی‌وقفهٔ همایش‌ها.",
     officialRegistration: "ثبت‌نام رسمی همایش",
     statusOpen: "ثبت‌نام باز است",
     statusFull: "ظرفیت تکمیل شد",
@@ -251,7 +315,7 @@ export const publicCopy = {
     tierAdmit: "ورود یک نفر",
     tierPassNo: "رده",
     selectedPass: "کارت انتخاب‌شده",
-    reserve: "رزرو رایگان بلیت",
+    reserve: "رزرو رایگان کارت ورود",
     processing: "در حال ثبت نهایی...",
     digitalNote: "کارت‌های ورود دیجیتال‌اند و مستقیماً از روی تلفن همراه شما اسکن می‌شوند.",
     alreadyRegistered: "قبلاً ثبت‌نام کرده‌اید؟",

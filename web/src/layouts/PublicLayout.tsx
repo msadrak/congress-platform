@@ -8,12 +8,15 @@ import { CongressSignature } from "../components/brand/CongressSignature";
 import { eventAccentStyle } from "../lib/eventAccent";
 import { signInPath } from "../lib/safeRedirect";
 import { publicCopy, type PublicLocale } from "../components/public/copy";
+import { Bidi } from "../components/public/Bidi";
 import "../styles/public.css";
 
 interface PublicLayoutProps {
   children?: React.ReactNode;
-  /** Page language; congress pages follow the language of the congress content. */
-  locale?: PublicLocale;
+  /** Page language (visitor choice, else the congress's own language, else Persian). */
+  locale: PublicLocale;
+  /** Switches the page language; the choice is remembered for the public pages and the portals. */
+  onLocaleChange: (locale: PublicLocale) => void;
   /** Congress name once known; congress pages (/e/:slug…) show the congress identity in the shell. */
   congressName?: string;
 }
@@ -24,7 +27,7 @@ const navLinkInk =
   "inline-flex items-center min-h-[40px] px-3 rounded-lg text-sm font-medium text-ink-200 hover:text-white hover:bg-white/8 transition-colors focus-visible:outline-aiteb-orchid";
 const footerLink = "inline-flex min-h-[32px] items-center text-sm text-ink-300 hover:text-white transition-colors focus-visible:outline-aiteb-orchid";
 
-export function PublicLayout({ children, locale = "en", congressName }: PublicLayoutProps) {
+export function PublicLayout({ children, locale, onLocaleChange, congressName }: PublicLayoutProps) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const location = useLocation();
   // Event pages (/e/:slug…) sign in straight back to that congress's portal.
@@ -50,6 +53,23 @@ export function PublicLayout({ children, locale = "en", congressName }: PublicLa
   const isRtl = locale === "fa";
   const congress = Boolean(eventSlug);
   const closeMenu = () => setMobileMenuOpen(false);
+  const nextLocale: PublicLocale = isRtl ? "en" : "fa";
+  const languageButton = (tone: "ink" | "light", extra = "") => (
+    <button
+      type="button"
+      onClick={() => onLocaleChange(nextLocale)}
+      aria-label={c.switchLanguageLabel}
+      lang={nextLocale}
+      className={`inline-flex min-h-[40px] items-center gap-2 rounded-xl px-3 text-sm font-semibold transition-colors cursor-pointer ${
+        tone === "ink"
+          ? "text-ink-200 hover:text-white hover:bg-white/8 focus-visible:outline-aiteb-orchid"
+          : "text-text-secondary hover:text-text-primary hover:bg-surface-panel-subtle focus-visible:outline-2 focus-visible:outline-focus-ring"
+      } ${extra}`}
+    >
+      <Icon name="globe" size={18} />
+      <span>{c.switchLanguage}</span>
+    </button>
+  );
 
   return (
     <div
@@ -73,7 +93,7 @@ export function PublicLayout({ children, locale = "en", congressName }: PublicLa
                 <CongressSignature seed={eventSlug!} tone="ink" className="absolute inset-0 size-full scale-[1.6]" />
               </span>
               {congressName ? (
-                <span className="min-w-0 truncate text-[15px] font-semibold tracking-[-0.01em] text-white">{congressName}</span>
+                <span className="min-w-0 truncate text-[15px] font-semibold tracking-[-0.01em] text-white"><Bidi text={congressName} /></span>
               ) : (
                 <span aria-hidden="true" className="h-3.5 w-40 rounded-full bg-white/10" />
               )}
@@ -89,6 +109,7 @@ export function PublicLayout({ children, locale = "en", congressName }: PublicLa
                 </Link>
               </nav>
               <span aria-hidden="true" className="hidden md:block mx-2 h-5 w-px bg-white/15" />
+              {languageButton("ink", "max-sm:px-2.5 [&>span]:max-sm:hidden")}
               <LinkButton
                 to={signInTarget}
                 variant="light"
@@ -164,29 +185,30 @@ export function PublicLayout({ children, locale = "en", congressName }: PublicLa
 
             <nav aria-label={c.mainNav} className="hidden lg:flex items-center gap-1">
               <a href="#capabilities" className={navLinkLight}>
-                Capabilities
+                {c.navCapabilities}
               </a>
               <a href="#roles" className={navLinkLight}>
-                Role Entry
+                {c.navRoles}
               </a>
               <a href="#architecture" className={navLinkLight}>
-                Architecture
+                {c.navArchitecture}
               </a>
               <span aria-hidden="true" className="mx-2 h-5 w-px bg-border-default" />
               <Link to="/my-tickets" className={navLinkLight}>
-                My Tickets
+                {c.myTickets}
               </Link>
               <Link to="/my-network" className={navLinkLight}>
-                My Network
+                {c.myNetwork}
               </Link>
             </nav>
 
             <div className="flex items-center gap-2">
+              {languageButton("light", "max-sm:px-2.5 [&>span]:max-sm:hidden")}
               <LinkButton to={signInTarget} variant="outline" size="sm" className="max-sm:hidden">
-                Attendee Sign In
+                {c.attendeeSignIn}
               </LinkButton>
               <LinkButton to="/organizer" variant="ink" size="sm" className="max-sm:hidden">
-                Organizer Console
+                {c.organizerConsole}
                 <Icon name="arrow-right" size={16} />
               </LinkButton>
               <button
@@ -195,7 +217,7 @@ export function PublicLayout({ children, locale = "en", congressName }: PublicLa
                 className="lg:hidden grid size-11 place-items-center rounded-xl text-text-secondary hover:text-text-primary hover:bg-surface-panel-subtle focus-visible:outline-2 focus-visible:outline-focus-ring cursor-pointer"
                 aria-expanded={mobileMenuOpen}
                 aria-controls="mobile-nav"
-                aria-label={mobileMenuOpen ? "Close navigation menu" : "Open navigation menu"}
+                aria-label={mobileMenuOpen ? c.closeMenu : c.openMenu}
               >
                 <Icon name={mobileMenuOpen ? "x" : "menu"} size={22} />
               </button>
@@ -205,14 +227,14 @@ export function PublicLayout({ children, locale = "en", congressName }: PublicLa
           {mobileMenuOpen && (
             <nav
               id="mobile-nav"
-              aria-label="Mobile Navigation"
+              aria-label={c.mobileNav}
               className="lg:hidden border-t border-border-default bg-surface-panel px-4 pt-2 pb-6 shadow-lift motion-safe:animate-fade"
             >
               <ul className="divide-y divide-border-subtle">
                 {[
-                  { href: "#capabilities", label: "Platform Capabilities" },
-                  { href: "#roles", label: "Role Entry Points" },
-                  { href: "#architecture", label: "Architecture & Invariants" },
+                  { href: "#capabilities", label: c.menuCapabilities },
+                  { href: "#roles", label: c.menuRoles },
+                  { href: "#architecture", label: c.menuArchitecture },
                 ].map((item) => (
                   <li key={item.href}>
                     <a href={item.href} onClick={closeMenu} className="flex min-h-[52px] items-center justify-between text-base font-medium text-text-primary">
@@ -222,9 +244,9 @@ export function PublicLayout({ children, locale = "en", congressName }: PublicLa
                   </li>
                 ))}
                 {[
-                  { to: "/my-tickets", label: "My Tickets & Passes" },
-                  { to: "/my-network", label: "My Network" },
-                  { to: signInTarget, label: "Attendee Sign In" },
+                  { to: "/my-tickets", label: c.menuPasses },
+                  { to: "/my-network", label: c.myNetwork },
+                  { to: signInTarget, label: c.attendeeSignIn },
                 ].map((item) => (
                   <li key={item.label}>
                     <Link to={item.to} onClick={closeMenu} className="flex min-h-[52px] items-center justify-between text-base font-medium text-text-primary">
@@ -235,7 +257,7 @@ export function PublicLayout({ children, locale = "en", congressName }: PublicLa
                 ))}
               </ul>
               <LinkButton to="/organizer" variant="ink" size="lg" isFullWidth onClick={closeMenu} className="mt-4">
-                Organizer Console
+                {c.organizerConsole}
                 <Icon name="arrow-right" size={18} />
               </LinkButton>
             </nav>
@@ -261,21 +283,17 @@ export function PublicLayout({ children, locale = "en", congressName }: PublicLa
                     <span aria-hidden="true" className="relative size-10 shrink-0 overflow-hidden rounded-[10px] [border-start-end-radius:18px] ring-1 ring-white/15">
                       <CongressSignature seed={eventSlug!} tone="ink" className="absolute inset-0 size-full scale-[1.6]" />
                     </span>
-                    <p className="text-base font-semibold text-white">{congressName ?? "\u00a0"}</p>
+                    <p className="text-base font-semibold text-white">{congressName ? <Bidi text={congressName} /> : "\u00a0"}</p>
                   </div>
                   <p className="max-w-md text-sm leading-relaxed">{c.footerCongressNote}</p>
                 </>
               ) : (
                 <>
-                  <p className="text-lg font-semibold tracking-[-0.01em] text-white">Congress Platform</p>
-                  <p className="max-w-md text-sm leading-relaxed">
-                    Independent, multi-tenant congress management for academic congresses, corporate symposiums and
-                    industrial trade exhibitions: registration, passes, front desk, gate scanning and exhibitor leads.
-                  </p>
+                  <p className="text-lg font-semibold tracking-[-0.01em] text-white">{c.platformName}</p>
+                  <p className="max-w-md text-sm leading-relaxed">{c.platformFooterBody}</p>
                   <p className="max-w-md text-xs leading-relaxed text-ink-400">
-                    Registration is private to each congress. Attendees register through the direct link shared by
-                    their organizer (<span className="font-mono text-ink-300">/e/:event-slug</span>); no public event
-                    directory is exposed.
+                    {c.platformFooterPrivateLead} (<span className="font-mono text-ink-300 ltr-isolate">/e/:event-slug</span>)
+                    {c.platformFooterPrivateTail}
                   </p>
                 </>
               )}
@@ -310,7 +328,7 @@ export function PublicLayout({ children, locale = "en", congressName }: PublicLa
 
           <div className="mt-12 flex flex-col-reverse gap-4 border-t border-white/10 pt-6 sm:flex-row sm:items-center sm:justify-between">
             <AitebAttribution locale={locale} tone="dark" />
-            <p className="text-xs text-ink-400">{congress ? c.footerPrivate : "Built for high-reliability congress operations."}</p>
+            <p className="text-xs text-ink-400">{congress ? c.footerPrivate : c.platformTagline}</p>
           </div>
         </div>
       </footer>

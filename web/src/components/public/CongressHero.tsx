@@ -2,7 +2,8 @@ import type { PublicEvent } from "../../api/client";
 import { CongressSignature } from "../brand/CongressSignature";
 import { buttonClassName } from "../ui/Button";
 import { Icon } from "../ui/Icon";
-import { num, publicCopy, type PublicLocale } from "./copy";
+import { Bidi } from "./Bidi";
+import { indexLabel, num, publicCopy, type PublicLocale } from "./copy";
 import { calendarDays, congressTiming, formatDateRange, formatMoment, registrationStatus, tierState } from "./format";
 
 const STATUS_DOT = { open: "bg-[#3EE0A1]", full: "bg-status-warning-solid", closed: "bg-ink-400" } as const;
@@ -35,7 +36,7 @@ export function CongressHero({ event, locale }: { event: PublicEvent; locale: Pu
       note: `${c.closes} ${formatMoment(event.ends_at, locale)}`,
       wide: false,
     },
-    { label: c.metaVenue, value: event.location, note: c.onSite, wide: true },
+    { label: c.metaVenue, value: <Bidi text={event.location} />, note: c.onSite, wide: true },
     {
       label: c.metaPasses,
       value: openTiers > 0 ? c.passesOpen(num(openTiers, locale), num(event.ticket_tiers.length, locale)) : c.passesNone,
@@ -72,7 +73,7 @@ export function CongressHero({ event, locale }: { event: PublicEvent; locale: Pu
               id="congress-title"
               className="pub-display max-w-[16ch] text-[clamp(2.4rem,8.4vw,6.75rem)] text-white break-words"
             >
-              {event.name}
+              <Bidi text={event.name} />
             </h1>
           </div>
         </div>
@@ -86,7 +87,7 @@ export function CongressHero({ event, locale }: { event: PublicEvent; locale: Pu
               } ${i > 0 ? "lg:border-s lg:ps-8" : ""} ${i === 1 ? "border-s border-white/12 ps-4 lg:ps-8" : ""}`}
             >
               <dt className="flex items-center gap-2 text-[11px] font-medium text-ink-300">
-                <span className="font-mono text-aiteb-orchid tabular">{num(i + 1, locale).padStart(2, locale === "fa" ? "۰" : "0")}</span>
+                <span className="font-mono text-aiteb-orchid tabular">{indexLabel(i + 1, locale)}</span>
                 {m.label}
               </dt>
               <dd className="mt-2 text-base font-semibold leading-snug text-white sm:text-lg break-words">{m.value}</dd>

@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { num, type PublicLocale } from "./copy";
+import { indexLabel, type PublicLocale } from "./copy";
 
 interface EditorialSectionProps {
   id: string;
@@ -17,7 +17,7 @@ interface EditorialSectionProps {
 
 /** Numbered editorial section: mono index, small eyebrow, confident heading. */
 export function EditorialSection({ id, headingId, index, eyebrow, title, lead, locale, layout = "split", aside, children }: EditorialSectionProps) {
-  const n = num(index, locale).padStart(2, locale === "fa" ? "۰" : "0");
+  const n = indexLabel(index, locale);
   const head = (
     <div className="space-y-4">
       <p className="flex items-center gap-3">

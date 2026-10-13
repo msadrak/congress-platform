@@ -256,7 +256,7 @@ function OrganizerAnalyticsContent() {
             <option value="">{t.allPointsFilter}</option>
             {points.map((p) => (
               <option key={p.id} value={p.id}>
-                {p.name} ({p.policy_type})
+                {p.name} ({policyLabel[p.policy_type] ?? p.policy_type})
               </option>
             ))}
           </select>

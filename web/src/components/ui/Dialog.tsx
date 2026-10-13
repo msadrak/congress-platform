@@ -138,7 +138,8 @@ export function Dialog({
           <button
             type="button"
             onClick={onClose}
-            aria-label="Close dialog"
+            // Dialogs render inside each portal's dir wrapper: name the close button in that page's language.
+            ref={(el) => el?.setAttribute("aria-label", el.closest('[dir="rtl"]') ? "بستن" : "Close dialog")}
             className="shrink-0 grid place-items-center size-10 -me-2 -mt-1.5 rounded-full text-text-muted hover:text-text-primary hover:bg-surface-panel-subtle transition-colors focus-visible:outline-2 focus-visible:outline-focus-ring cursor-pointer"
           >
             <Icon name="x" size={20} />

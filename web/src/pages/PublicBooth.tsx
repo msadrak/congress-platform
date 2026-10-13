@@ -10,7 +10,8 @@ import { PublicLayout } from "../layouts/PublicLayout";
 import { Button, LinkButton } from "../components/ui/Button";
 import { Icon } from "../components/ui/Icon";
 import { CongressSignature } from "../components/brand/CongressSignature";
-import { contentLocale, publicCopy } from "../components/public/copy";
+import { contentLocale, indexLabel, proseDir, publicCopy, usePublicLocale } from "../components/public/copy";
+import { Bidi } from "../components/public/Bidi";
 
 type FeedbackKey = "fbSignIn" | "fbSessionChanged" | "fbSaved" | "fbRemoved" | "fbUpdateFailed" | "fbLoadFailed";
 /** Bookmark feedback: a page-copy message (rendered in the page language) or a server message as received. */
@@ -31,7 +32,9 @@ export default function PublicBooth() {
 
   const [booth, setBooth] = useState<PublicBoothOut | null>(null);
   const [loading, setLoading] = useState(true);
+  /** A server message as received, or `null` + `loadFailed` for a network failure (rendered in the page language). */
   const [error, setError] = useState<string | null>(null);
+  const [loadFailed, setLoadFailed] = useState(false);
   const [bookmarking, setBookmarking] = useState(false);
   const [bookmarkFeedback, setBookmarkFeedback] = useState<BookmarkFeedback | null>(null);
   const [isBookmarked, setIsBookmarked] = useState(false);
@@ -51,6 +54,7 @@ export default function PublicBooth() {
       setLoading(true);
       setBooth(null);
       setError(null);
+      setLoadFailed(false);
       setBookmarkFeedback(null);
       try {
         const client = createApiClient({ kind: "anonymous" });
@@ -62,7 +66,7 @@ export default function PublicBooth() {
         if (err) setError(formatApiError(err));
         else if (data) setBooth(data);
       } catch {
-        if (active) setError(publicCopy.en.boothLoadFailed);
+        if (active) setLoadFailed(true);
       } finally {
         if (active) setLoading(false);
       }
@@ -136,10 +140,13 @@ export default function PublicBooth() {
     }
   };
 
+  const { locale, setLocale } = usePublicLocale(booth ? contentLocale(booth.event_name) : undefined);
+  const c = publicCopy[locale];
+
   // Loading skeleton
   if (loading) {
     return (
-      <PublicLayout>
+      <PublicLayout locale={locale} onLocaleChange={setLocale}>
         {/* Fills the viewport so the footer never sits in view and jumps when content arrives (CLS). */}
         <section aria-busy="true" className="relative min-h-[100svh] overflow-hidden bg-surface-ink">
           <div aria-hidden="true" className="absolute inset-0 bg-meridian-ink opacity-70" />
@@ -157,10 +164,9 @@ export default function PublicBooth() {
   }
 
   // Error / Not Found state
-  if (error || !booth) {
-    const en = publicCopy.en;
+  if (error || loadFailed || !booth) {
     return (
-      <PublicLayout congressName="">
+      <PublicLayout locale={locale} onLocaleChange={setLocale} congressName="">
         <section className="relative isolate overflow-hidden">
           <CongressSignature seed={slug ?? "booth"} tone="light" className="absolute inset-0 -z-10 size-full opacity-70" />
           <div aria-hidden="true" className="absolute inset-0 -z-10 bg-linear-to-b from-surface-page/30 via-surface-page/85 to-surface-page" />
@@ -169,12 +175,12 @@ export default function PublicBooth() {
               <Icon name="booth" size={28} />
             </span>
             <div className="space-y-3">
-              <h1 className="text-3xl font-bold tracking-[-0.03em] text-text-primary sm:text-4xl">{en.boothNotFound}</h1>
-              <p className="text-base leading-relaxed text-text-secondary">{error ?? en.boothNotFoundBody}</p>
+              <h1 className="text-3xl font-bold tracking-[-0.03em] text-text-primary sm:text-4xl">{c.boothNotFound}</h1>
+              <p className="text-base leading-relaxed text-text-secondary">{error ?? (loadFailed ? c.boothLoadFailed : c.boothNotFoundBody)}</p>
             </div>
             <LinkButton to={slug ? `/e/${slug}` : "/"} variant="secondary" size="lg">
               <Icon name="arrow-left" size={18} />
-              {slug ? en.backToEvent : en.platformHome}
+              {slug ? c.backToEvent : c.platformHome}
             </LinkButton>
           </div>
         </section>
@@ -182,8 +188,6 @@ export default function PublicBooth() {
     );
   }
 
-  const locale = contentLocale(booth.event_name);
-  const c = publicCopy[locale];
   const brochureUrl = booth.brochure_url && /^https?:\/\//i.test(booth.brochure_url) ? booth.brochure_url : null;
   const websiteUrl = booth.website_url && /^https?:\/\//i.test(booth.website_url) ? booth.website_url : null;
   const code = booth.location || c.mainFloor;
@@ -192,7 +196,7 @@ export default function PublicBooth() {
   const feedbackOk = bookmarkFeedback !== null && "key" in bookmarkFeedback && (bookmarkFeedback.key === "fbSaved" || bookmarkFeedback.key === "fbRemoved");
 
   return (
-    <PublicLayout locale={locale} congressName={booth.event_name}>
+    <PublicLayout locale={locale} onLocaleChange={setLocale} congressName={booth.event_name}>
       {/* Booth hero: exhibitor name + stand placard over the congress signature */}
       <section aria-labelledby="booth-title" className="relative isolate overflow-hidden bg-surface-ink text-white">
         <CongressSignature seed={slug ?? booth.event_slug} tone="ink" className="absolute inset-0 -z-20 size-full opacity-80 rtl:-scale-x-100" />
@@ -206,7 +210,7 @@ export default function PublicBooth() {
               className="inline-flex min-h-[44px] max-w-full items-center gap-2 rounded-lg text-sm font-semibold text-ink-200 transition-colors hover:text-white focus-visible:outline-aiteb-orchid"
             >
               <Icon name="arrow-left" size={18} />
-              <span className="truncate">{c.backTo(booth.event_name)}</span>
+              <span className="truncate">{c.backTo("")}<Bidi text={booth.event_name} /></span>
             </Link>
           </nav>
 
@@ -214,11 +218,11 @@ export default function PublicBooth() {
             <div className="space-y-5 lg:col-span-7 motion-safe:animate-rise">
               <p className="eyebrow text-ink-300">{c.exhibitorBooth}</p>
               <h1 id="booth-title" className="pub-display text-[clamp(2.4rem,7vw,5.5rem)] text-white break-words">
-                {booth.name}
+                <Bidi text={booth.name} />
               </h1>
               <p className="flex items-center gap-2 text-base text-ink-200">
                 <Icon name="congress" size={18} className="text-aiteb-orchid" />
-                {booth.event_name}
+                <Bidi text={booth.event_name} />
               </p>
             </div>
 
@@ -239,7 +243,7 @@ export default function PublicBooth() {
                   </p>
                   <div className="mt-6 flex flex-wrap items-center justify-between gap-2 border-t border-border-default pt-4 text-xs text-text-muted">
                     <span className="font-mono ltr-isolate">/{booth.slug}</span>
-                    <span className="truncate">{booth.event_name}</span>
+                    <span className="truncate"><Bidi text={booth.event_name} /></span>
                   </div>
                 </div>
               </div>
@@ -344,14 +348,14 @@ export default function PublicBooth() {
           <div className="space-y-12 lg:col-span-7">
             <section aria-labelledby="exhibitor-about" className="space-y-5">
               <p className="flex items-center gap-3">
-                <span className="pub-index">{locale === "fa" ? "۰۱" : "01"}</span>
+                <span className="pub-index">{indexLabel(1, locale)}</span>
                 <span className="text-xs font-semibold text-text-muted">{c.sectionAboutEyebrow}</span>
               </p>
               <h2 id="exhibitor-about" className="text-3xl font-bold tracking-[-0.03em] text-text-primary sm:text-4xl rtl:leading-[1.4]">
                 {c.aboutExhibitor}
               </h2>
               {booth.description ? (
-                <p className="whitespace-pre-line text-xl leading-[1.6] text-text-primary sm:text-2xl sm:leading-[1.55] rtl:leading-[1.95]">
+                <p {...proseDir(booth.description)} className="whitespace-pre-line text-xl leading-[1.6] text-text-primary sm:text-2xl sm:leading-[1.55] rtl:leading-[1.95]">
                   {booth.description}
                 </p>
               ) : (
