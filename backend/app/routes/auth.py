@@ -9,6 +9,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app.db import SessionDep
 from app.models import User
+from app.rate_limit import LOGIN_PER_ACCOUNT, LOGIN_PER_IP, client_ip, limiter
 from app.security import (
     create_access_token,
     decode_access_token,
@@ -124,11 +125,16 @@ async def login_user(
     body: UserLogin, request: Request, session: SessionDep
 ) -> AuthResponse:
     email = body.email.lower().strip()
+    throttle = limiter(request)
+    keys = (f"login:account:{email}", f"login:ip:{client_ip(request)}")
+    throttle.check((keys[0], LOGIN_PER_ACCOUNT), (keys[1], LOGIN_PER_IP))
     user = await session.scalar(select(User).where(User.email == email))
     if user is None or not verify_password(body.password, user.password_hash):
+        throttle.fail(*keys)
         raise HTTPException(
             status.HTTP_401_UNAUTHORIZED, "Invalid email or password"
         )
+    throttle.succeed(keys[0])
 
     jwt_secret: str = request.app.state.settings.jwt_secret
     token = create_access_token(user.id, user.email, jwt_secret)

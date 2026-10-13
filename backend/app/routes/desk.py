@@ -24,6 +24,7 @@ from app.models import (
 )
 from app.routes.events import OwnedEventDep
 from app.routes.ticket_tiers import TicketTierOut
+from app.rate_limit import LOGIN_PER_ACCOUNT, LOGIN_PER_IP, client_ip, limiter
 from app.security import (
     create_desk_operator_token,
     decode_access_token,
@@ -263,9 +264,14 @@ async def desk_operator_login(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Event not found")
 
     email = body.email.strip().lower()
+    throttle = limiter(request)
+    keys = (f"login:account:{email}", f"login:ip:{client_ip(request)}")
+    throttle.check((keys[0], LOGIN_PER_ACCOUNT), (keys[1], LOGIN_PER_IP))
     user = await session.scalar(select(User).where(User.email == email))
     if user is None or not verify_password(body.password, user.password_hash):
+        throttle.fail(*keys)
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid email or password")
+    throttle.succeed(keys[0])
 
     operator = await session.scalar(
         select(DeskOperator).where(

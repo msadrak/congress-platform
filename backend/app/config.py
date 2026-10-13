@@ -46,6 +46,8 @@ class Settings(BaseSettings):
     cors_origins: list[str] = ["http://localhost:5173"]
     # Uploaded Page Studio images. Must be a durable volume (or mount) outside the application image.
     media_root: Path
+    # Throttle repeated failed sign-ins / admin-token / API-key attempts (see app/rate_limit.py).
+    auth_rate_limits_enabled: bool = True
     # Absolute origin visitors use (e.g. https://congress.example.org); used for canonical/og URLs.
     public_origin: str | None = None
     media_max_bytes: int = Field(default=5 * 1024 * 1024, gt=0, le=20 * 1024 * 1024)
