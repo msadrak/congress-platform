@@ -30,13 +30,7 @@ export function ConfirmDialog({
         <Button type="button" variant="secondary" size="md" onClick={onCancel}>
           {cancelLabel}
         </Button>
-        <Button
-          type="button"
-          variant="primary"
-          size="md"
-          onClick={onConfirm}
-          className={tone === "danger" ? "bg-red-600 hover:bg-red-700 active:bg-red-800" : ""}
-        >
+        <Button type="button" variant={tone === "danger" ? "danger" : "primary"} size="md" onClick={onConfirm}>
           {confirmLabel}
         </Button>
       </div>

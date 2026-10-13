@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useId } from "react";
+import { Icon } from "./Icon";
 
 export interface DialogProps {
   isOpen: boolean;
@@ -103,7 +104,7 @@ export function Dialog({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs transition-opacity duration-150 motion-reduce:transition-none"
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-ink-950/55 backdrop-blur-[6px] motion-safe:animate-fade"
       onClick={(e) => {
         if (e.target === e.currentTarget) {
           onClose();
@@ -118,16 +119,18 @@ export function Dialog({
         aria-labelledby={titleId}
         aria-describedby={description ? descriptionId : undefined}
         tabIndex={-1}
-        className={`w-full ${sizeClasses[size]} bg-surface-panel rounded-2xl border border-border-default shadow-xl overflow-hidden focus:outline-none animate-in fade-in zoom-in-95 duration-150 motion-reduce:animate-none ${className}`}
+        className={`relative w-full ${sizeClasses[size]} bg-surface-panel rounded-t-[28px] sm:rounded-2xl sm:[border-start-end-radius:var(--radius-arc)] border border-border-default shadow-pop overflow-hidden focus:outline-none motion-safe:animate-pop pb-safe ${className}`}
       >
+        {/* Brand hairline */}
+        <div aria-hidden="true" className="h-[3px] w-full bg-[image:var(--grad-aiteb)]" />
         {/* Header */}
-        <div className="p-5 sm:p-6 border-b border-border-subtle flex items-start justify-between gap-4">
-          <div className="space-y-1">
+        <div className="px-5 pt-5 pb-4 sm:px-7 sm:pt-6 flex items-start justify-between gap-4">
+          <div className="space-y-1.5 min-w-0">
             <h2 id={titleId} className="text-lg sm:text-xl font-bold tracking-tight text-text-primary">
               {title}
             </h2>
             {description && (
-              <p id={descriptionId} className="text-xs sm:text-sm text-text-secondary leading-relaxed">
+              <p id={descriptionId} className="text-sm text-text-secondary leading-relaxed">
                 {description}
               </p>
             )}
@@ -136,23 +139,14 @@ export function Dialog({
             type="button"
             onClick={onClose}
             aria-label="Close dialog"
-            className="shrink-0 p-1.5 -me-1 -mt-1 rounded-lg text-text-muted hover:text-text-primary hover:bg-surface-panel-subtle transition-colors focus-visible:outline-2 focus-visible:outline-focus-ring cursor-pointer"
+            className="shrink-0 grid place-items-center size-10 -me-2 -mt-1.5 rounded-full text-text-muted hover:text-text-primary hover:bg-surface-panel-subtle transition-colors focus-visible:outline-2 focus-visible:outline-focus-ring cursor-pointer"
           >
-            <svg
-              className="w-5 h-5"
-              fill="none"
-              viewBox="0 0 24 24"
-              strokeWidth="2"
-              stroke="currentColor"
-              aria-hidden="true"
-            >
-              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-            </svg>
+            <Icon name="x" size={20} />
           </button>
         </div>
 
         {/* Content Body */}
-        <div className="p-5 sm:p-6 max-h-[calc(85vh-8rem)] overflow-y-auto">
+        <div className="px-5 pb-6 sm:px-7 sm:pb-7 max-h-[calc(88dvh-7rem)] overflow-y-auto overscroll-contain">
           {children}
         </div>
       </div>

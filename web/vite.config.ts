@@ -9,27 +9,15 @@ export default defineConfig({
     tailwindcss(),
     VitePWA({
       registerType: 'prompt',
-      // Only precache the app shell; never cache API responses or bearer tokens
+      // Only precache the app shell (including self-hosted fonts); never cache API responses or bearer tokens
       workbox: {
-        globPatterns: ['**/*.{js,css,html,svg,png,ico,woff,woff2}'],
+        globPatterns: ['**/*.{js,css,html,svg,png,ico,woff2}'],
         // Client-side SPA routes: serve index.html for all navigation requests
         // that don't match a precached file (enables offline /scan/:pointId)
         navigateFallback: '/index.html',
         navigateFallbackAllowlist: [/^\/(?!api\/).*/],
         // Explicitly exclude API routes from any runtime caching
         navigateFallbackDenylist: [/^\/api\//],
-        runtimeCaching: [
-          {
-            // Cache Google Fonts stylesheets and WOFF2 binaries for offline PWA
-            urlPattern: /^https:\/\/fonts\.(?:googleapis|gstatic)\.com\/.*/i,
-            handler: 'CacheFirst',
-            options: {
-              cacheName: 'google-fonts-cache',
-              expiration: { maxEntries: 10, maxAgeSeconds: 60 * 60 * 24 * 365 },
-              cacheableResponse: { statuses: [0, 200] },
-            },
-          },
-        ],
         // Do not precache source maps
         globIgnores: ['**/*.map'],
         // Clean up old precaches on activate
@@ -41,29 +29,29 @@ export default defineConfig({
         name: 'Congress Scanner',
         short_name: 'Scanner',
         description: 'Offline-capable gate scanner for Congress Management Platform',
-        theme_color: '#0a0a0a',
-        background_color: '#0a0a0a',
+        theme_color: '#0E0C2B',
+        background_color: '#0E0C2B',
         display: 'standalone',
         orientation: 'portrait',
         start_url: '/',
         scope: '/',
         icons: [
           {
-            src: '/pwa-192x192.svg',
+            src: '/pwa-192x192.png',
             sizes: '192x192',
-            type: 'image/svg+xml',
+            type: 'image/png',
             purpose: 'any',
           },
           {
-            src: '/pwa-512x512.svg',
+            src: '/pwa-512x512.png',
             sizes: '512x512',
-            type: 'image/svg+xml',
+            type: 'image/png',
             purpose: 'any',
           },
           {
-            src: '/pwa-maskable-512x512.svg',
+            src: '/pwa-maskable-512x512.png',
             sizes: '512x512',
-            type: 'image/svg+xml',
+            type: 'image/png',
             purpose: 'maskable',
           },
         ],

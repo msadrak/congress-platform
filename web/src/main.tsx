@@ -1,6 +1,10 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import "@fontsource-variable/vazirmatn/wght.css";
+import "@fontsource-variable/schibsted-grotesk/wght.css";
+import "@fontsource/ibm-plex-mono/latin-400.css";
+import "@fontsource/ibm-plex-mono/latin-500.css";
 import "./index.css";
 // Register PWA service worker (side-effect import — must remain top-level)
 import "./lib/pwaRegistration";

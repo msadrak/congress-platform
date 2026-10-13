@@ -90,11 +90,11 @@ export default function MyCongress() {
   );
 
   if (congress.status === "missing") {
-    return shell(<StatusPanel icon="🔍" title={isRtl ? "همایش پیدا نشد" : "Congress not found"} />);
+    return shell(<StatusPanel icon="search" title={isRtl ? "همایش پیدا نشد" : "Congress not found"} />);
   }
   if (congress.status === "error") {
     return shell(
-      <StatusPanel tone="danger" icon="⚠️" title={isRtl ? "اطلاعات همایش بارگذاری نشد" : "Could not load this congress"}>
+      <StatusPanel tone="danger" icon="alert" title={isRtl ? "اطلاعات همایش بارگذاری نشد" : "Could not load this congress"}>
         <p>{isRtl ? "اتصال را بررسی کنید و دوباره تلاش کنید." : "Check your connection and try again."}</p>
       </StatusPanel>
     );
@@ -117,7 +117,7 @@ export default function MyCongress() {
     return shell(
       <>
         {hero}
-        <StatusPanel icon="🔐" title={t.unauthenticatedTitle}>
+        <StatusPanel icon="lock" title={t.unauthenticatedTitle}>
           <p>{isRtl ? "برای دیدن بلیط و ارتباطات این همایش وارد شوید." : "Sign in to see your pass and connections for this congress."}</p>
           <LinkButton to={signInPath(slug, congressPath(slug, "my-congress"))} variant="primary" size="md">{t.loginAction} →</LinkButton>
         </StatusPanel>

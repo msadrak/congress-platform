@@ -100,13 +100,13 @@ export default function MyProfile() {
     content = <LoadingBlock label={t.navMyProfile} />;
   } else if (view.status === "signed-out") {
     content = (
-      <StatusPanel icon="🔐" title={t.unauthenticatedTitle}>
+      <StatusPanel icon="lock" title={t.unauthenticatedTitle}>
         <LinkButton to={signInPath(slug, congressPath(slug, "my-profile"))} variant="primary" size="md">{t.loginAction} →</LinkButton>
       </StatusPanel>
     );
   } else if (view.status === "error") {
     content = (
-      <StatusPanel tone="danger" icon="⚠️" title={isRtl ? "پروفایل بارگذاری نشد" : "Could not load your profile"}>
+      <StatusPanel tone="danger" icon="alert" title={isRtl ? "پروفایل بارگذاری نشد" : "Could not load your profile"}>
         <p>{isRtl ? "اتصال را بررسی کنید و صفحه را دوباره باز کنید." : "Check your connection and reopen this page."}</p>
       </StatusPanel>
     );

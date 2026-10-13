@@ -18,10 +18,10 @@ export default function CongressDetails() {
   if (congress.status === "loading") {
     content = <LoadingBlock label={t.navCongressDetails} />;
   } else if (congress.status === "missing") {
-    content = <StatusPanel icon="🔍" title={isRtl ? "همایش پیدا نشد" : "Congress not found"} />;
+    content = <StatusPanel icon="search" title={isRtl ? "همایش پیدا نشد" : "Congress not found"} />;
   } else if (congress.status === "error") {
     content = (
-      <StatusPanel tone="danger" icon="⚠️" title={isRtl ? "اطلاعات همایش بارگذاری نشد" : "Could not load this congress"}>
+      <StatusPanel tone="danger" icon="alert" title={isRtl ? "اطلاعات همایش بارگذاری نشد" : "Could not load this congress"}>
         <p>{isRtl ? "اتصال را بررسی کنید و دوباره تلاش کنید." : "Check your connection and try again."}</p>
       </StatusPanel>
     );

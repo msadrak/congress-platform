@@ -1,56 +1,87 @@
 @import "tailwindcss";
 
+/*
+ * AIteb product language — "Crossing Arcs".
+ * Official AIteb values (extracted from aiteb.ir and its logo files) are marked [official];
+ * everything else is a product extension derived from them.
+ */
 :root {
-  /* Surface and layout */
-  --surface-page: #F8FAFC;
-  --surface-panel: #FFFFFF;
-  --surface-panel-subtle: #F1F5F9;
-  --surface-panel-inset: #EDF2F7;
+  /* ── AIteb brand ─────────────────────────────────────────────── */
+  --aiteb-indigo: #2000CD;   /* [official] wordmark + primary site accent */
+  --aiteb-violet: #3D35DF;   /* [official] logo mark gradient, cool end */
+  --aiteb-orchid: #FF97FF;   /* [official] logo mark gradient, warm end */
+  --aiteb-magenta: #D6018D;  /* [official] site headline gradient start */
+  --aiteb-blue: #283BEA;     /* [official] site headline gradient end */
+  --aiteb-lavender: #F2F0FE; /* [official] section surface */
+  --aiteb-slate: #486284;    /* [official] section heading colour */
+  --aiteb-graphite: #191919; /* [official] body ink */
 
-  /* Typography / Text colors */
-  --text-primary: #0F172A;
-  --text-secondary: #475569;
-  --text-muted: #64748B;
+  --grad-aiteb: linear-gradient(90deg, var(--aiteb-orchid), var(--aiteb-violet));
+  --grad-aiteb-deep: linear-gradient(90deg, var(--aiteb-magenta), var(--aiteb-blue));
+  --grad-aiteb-arc: linear-gradient(135deg, var(--aiteb-orchid) 0%, #9B6BF2 45%, var(--aiteb-indigo) 100%);
+
+  /* ── Surfaces ───────────────────────────────────────────────── */
+  --surface-page: #F8F7FC;
+  --surface-panel: #FFFFFF;
+  --surface-panel-subtle: #F4F2FB;
+  --surface-panel-inset: #ECE9F6;
+  --surface-ink: #0E0C2B;
+  --surface-ink-raised: #17143D;
+
+  /* ── Text ───────────────────────────────────────────────────── */
+  --text-primary: #0E0C2B;
+  --text-secondary: #46426A;
+  --text-muted: #67638A;
   --text-inverse: #FFFFFF;
 
-  /* Borders */
-  --border-default: #E2E8F0;
-  --border-subtle: #F1F5F9;
-  --border-strong: #CBD5E1;
+  /* ── Lines ──────────────────────────────────────────────────── */
+  --border-default: #E3E0EF;
+  --border-subtle: #EFEDF7;
+  --border-strong: #C9C4DE;
 
-  /* Brand / Action (Muted teal, Direction A) */
-  --action-primary: #0F766E;
-  --action-hover: #115E59;
-  --action-active: #134E4A;
-  --action-subtle: #F0FDFA;
-  --action-subtle-border: #CCFBF1;
-  --action-subtle-text: #0F766E;
+  /* ── Action (AIteb indigo) ──────────────────────────────────── */
+  --action-primary: #2000CD;
+  --action-hover: #1B00AD;
+  --action-active: #16008A;
+  --action-subtle: #F2F0FE;
+  --action-subtle-border: #DAD4FC;
+  --action-subtle-text: #2000CD;
 
-  /* Focus indicator */
-  --focus-ring: #0F766E;
+  --focus-ring: #2000CD;
 
-  /* Semantic status colors */
-  --status-success-text: #166534;
-  --status-success-bg: #F0FDF4;
-  --status-success-border: #BBF7D0;
+  /* ── Semantic status ────────────────────────────────────────── */
+  --status-success-text: #04704F;
+  --status-success-bg: #EAF7F1;
+  --status-success-border: #B6E2CF;
+  --status-success-solid: #0B9B68;
 
-  --status-warning-text: #854D0E;
-  --status-warning-bg: #FEFCE8;
-  --status-warning-border: #FEF08A;
+  --status-warning-text: #8A4B00;
+  --status-warning-bg: #FFF6E5;
+  --status-warning-border: #F3D49A;
+  --status-warning-solid: #E8960C;
 
-  --status-danger-text: #991B1B;
-  --status-danger-bg: #FEF2F2;
-  --status-danger-border: #FECACA;
+  --status-danger-text: #B0103F;
+  --status-danger-bg: #FFF0F3;
+  --status-danger-border: #F6C4D1;
+  --status-danger-solid: #DE1A50;
 
-  --status-info-text: #1E40AF;
-  --status-info-bg: #EFF6FF;
-  --status-info-border: #BFDBFE;
+  --status-info-text: #1F3BC4;
+  --status-info-bg: #EEF1FF;
+  --status-info-border: #C9D3FF;
+  --status-info-solid: #283BEA;
 
-  /* Radii */
+  /* ── Shape ──────────────────────────────────────────────────── */
   --radius-sm: 6px;
-  --radius-md: 8px;
-  --radius-lg: 12px;
-  --radius-xl: 16px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 20px;
+  --radius-arc: 34px;
+
+  /* Per-congress accent; CongressSignature/eventAccent() override it on a wrapper. */
+  --event-accent: var(--aiteb-indigo);
+  --event-accent-soft: var(--aiteb-lavender);
+
+  color-scheme: light;
 }
 
 @theme {
@@ -58,6 +89,8 @@
   --color-surface-panel: var(--surface-panel);
   --color-surface-panel-subtle: var(--surface-panel-subtle);
   --color-surface-panel-inset: var(--surface-panel-inset);
+  --color-surface-ink: var(--surface-ink);
+  --color-surface-ink-raised: var(--surface-ink-raised);
 
   --color-text-primary: var(--text-primary);
   --color-text-secondary: var(--text-secondary);
@@ -74,28 +107,366 @@
   --color-action-subtle: var(--action-subtle);
   --color-action-subtle-border: var(--action-subtle-border);
   --color-action-subtle-text: var(--action-subtle-text);
-
-  --font-sans: "Vazirmatn", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --color-focus-ring: var(--focus-ring);
 
   --color-status-success-text: var(--status-success-text);
   --color-status-success-bg: var(--status-success-bg);
   --color-status-success-border: var(--status-success-border);
+  --color-status-success-solid: var(--status-success-solid);
 
   --color-status-warning-text: var(--status-warning-text);
   --color-status-warning-bg: var(--status-warning-bg);
   --color-status-warning-border: var(--status-warning-border);
+  --color-status-warning-solid: var(--status-warning-solid);
 
   --color-status-danger-text: var(--status-danger-text);
   --color-status-danger-bg: var(--status-danger-bg);
   --color-status-danger-border: var(--status-danger-border);
+  --color-status-danger-solid: var(--status-danger-solid);
 
   --color-status-info-text: var(--status-info-text);
   --color-status-info-bg: var(--status-info-bg);
   --color-status-info-border: var(--status-info-border);
+  --color-status-info-solid: var(--status-info-solid);
+
+  /* AIteb brand + extended scales */
+  --color-aiteb-indigo: var(--aiteb-indigo);
+  --color-aiteb-violet: var(--aiteb-violet);
+  --color-aiteb-orchid: var(--aiteb-orchid);
+  --color-aiteb-magenta: var(--aiteb-magenta);
+  --color-aiteb-blue: var(--aiteb-blue);
+  --color-aiteb-lavender: var(--aiteb-lavender);
+  --color-aiteb-slate: var(--aiteb-slate);
+  --color-aiteb-graphite: var(--aiteb-graphite);
+  --color-event-accent: var(--event-accent);
+  --color-event-accent-soft: var(--event-accent-soft);
+
+  --color-brand-50: #F4F2FF;
+  --color-brand-100: #EAE6FF;
+  --color-brand-200: #D4CDFF;
+  --color-brand-300: #B1A4FF;
+  --color-brand-400: #8770FF;
+  --color-brand-500: #5B3FF5;
+  --color-brand-600: #2000CD;
+  --color-brand-700: #1B00AD;
+  --color-brand-800: #16008A;
+  --color-brand-900: #120066;
+
+  --color-ink-50: #F7F6FB;
+  --color-ink-100: #EEEDF6;
+  --color-ink-200: #DCDAEC;
+  --color-ink-300: #B9B6D3;
+  --color-ink-400: #8C88B0;
+  --color-ink-500: #67638A;
+  --color-ink-600: #3A3570;
+  --color-ink-700: #241F55;
+  --color-ink-800: #17143D;
+  --color-ink-900: #0E0C2B;
+  --color-ink-950: #07061A;
+
+  /* Typography: Vazirmatn (Persian, same type family lineage as AIteb's Shabnam),
+     Schibsted Grotesk (Latin editorial grotesk), IBM Plex Mono (codes, IDs). All OFL, self-hosted. */
+  --font-sans: "Schibsted Grotesk Variable", "Vazirmatn Variable", ui-sans-serif, system-ui, "Segoe UI", sans-serif;
+  --font-display: "Schibsted Grotesk Variable", "Vazirmatn Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+
+  --radius-arc: 34px;
+
+  --shadow-hairline: 0 0 0 1px rgb(14 12 43 / 0.06);
+  --shadow-soft: 0 1px 1px rgb(14 12 43 / 0.03), 0 2px 6px -2px rgb(14 12 43 / 0.08);
+  --shadow-lift: 0 1px 2px rgb(14 12 43 / 0.04), 0 14px 30px -14px rgb(32 0 205 / 0.22);
+  --shadow-pop: 0 2px 4px rgb(14 12 43 / 0.05), 0 30px 70px -24px rgb(32 0 205 / 0.38);
+  --shadow-glow: 0 0 0 1px rgb(255 151 255 / 0.25), 0 18px 50px -18px rgb(61 53 223 / 0.65);
+
+  --ease-arc: cubic-bezier(0.22, 1, 0.36, 1);
+
+  --animate-rise: rise 520ms var(--ease-arc) both;
+  --animate-fade: fade 360ms ease-out both;
+  --animate-pop: pop 260ms var(--ease-arc) both;
+  --animate-draw: draw 1600ms var(--ease-arc) both;
+  --animate-shimmer: shimmer 1.6s linear infinite;
+  --animate-sweep: sweep 2.4s ease-in-out infinite;
+  --animate-pulse-ring: pulse-ring 2s var(--ease-arc) infinite;
+
+  @keyframes rise {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: none; }
+  }
+  @keyframes fade {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  @keyframes pop {
+    from { opacity: 0; transform: translateY(6px) scale(0.975); }
+    to { opacity: 1; transform: none; }
+  }
+  @keyframes draw {
+    from { stroke-dashoffset: var(--arc-length, 600); }
+    to { stroke-dashoffset: 0; }
+  }
+  @keyframes shimmer {
+    from { background-position: 200% 0; }
+    to { background-position: -200% 0; }
+  }
+  @keyframes sweep {
+    0%, 100% { transform: translateY(-46%); opacity: 0.35; }
+    50% { transform: translateY(46%); opacity: 1; }
+  }
+  @keyframes pulse-ring {
+    0% { transform: scale(0.92); opacity: 0.7; }
+    100% { transform: scale(1.25); opacity: 0; }
+  }
+}
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    font-feature-settings: "kern";
+  }
+
+  body {
+    background: var(--surface-page);
+    color: var(--text-primary);
+    font-family: var(--font-sans);
+    line-height: 1.55;
+  }
+
+  /* Persian first in RTL: Vazirmatn carries Persian and its own harmonised Latin. */
+  [dir="rtl"],
+  :lang(fa) {
+    --font-sans: "Vazirmatn Variable", "Schibsted Grotesk Variable", ui-sans-serif, system-ui, sans-serif;
+    --font-display: "Vazirmatn Variable", "Schibsted Grotesk Variable", ui-sans-serif, system-ui, sans-serif;
+    font-family: var(--font-sans);
+    line-height: 1.75;
+  }
+
+  h1, h2, h3, h4 {
+    font-family: var(--font-display);
+    text-wrap: balance;
+  }
+
+  p {
+    text-wrap: pretty;
+  }
+
+  /* 16px+ inputs stop iOS Safari zooming the page on focus. */
+  input,
+  textarea,
+  select {
+    font-size: 1rem;
+  }
+
+  ::selection {
+    background: rgb(32 0 205 / 0.16);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--focus-ring);
+    outline-offset: 2px;
+  }
+
+  code, kbd, samp {
+    font-family: var(--font-mono);
+  }
+}
+
+@layer components {
+  /* Small, spaced meta label above headings ("eyebrow"). */
+  .eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+  }
+  .eyebrow::before {
+    content: "";
+    inline-size: 1.25rem;
+    block-size: 2px;
+    border-radius: 2px;
+    background: var(--grad-aiteb);
+  }
+  [dir="rtl"] .eyebrow,
+  :lang(fa) .eyebrow {
+    font-size: 0.8rem;
+    letter-spacing: 0;
+  }
+
+  .text-gradient-aiteb {
+    background: var(--grad-aiteb-deep);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  /* Signature silhouette: a quarter-arc corner echoing the AIteb mark. Logical, so it mirrors in RTL. */
+  .shape-arc {
+    border-radius: var(--radius-lg);
+    border-start-end-radius: var(--radius-arc);
+  }
+  .shape-arc-lg {
+    border-radius: var(--radius-xl);
+    border-start-end-radius: 56px;
+  }
+
+  /* Hairline rule with a short brand-gradient lead-in. */
+  .rule-arc {
+    block-size: 1px;
+    background: linear-gradient(90deg, var(--aiteb-orchid), var(--aiteb-violet) 3rem, var(--border-default) 3rem);
+  }
+  [dir="rtl"] .rule-arc {
+    background: linear-gradient(270deg, var(--aiteb-orchid), var(--aiteb-violet) 3rem, var(--border-default) 3rem);
+  }
+
+  /* Fine architectural grid used behind heroes and instruments. */
+  .bg-meridian {
+    background-image:
+      linear-gradient(to right, rgb(32 0 205 / 0.05) 1px, transparent 1px),
+      linear-gradient(to bottom, rgb(32 0 205 / 0.05) 1px, transparent 1px);
+    background-size: 56px 56px;
+  }
+  .bg-meridian-ink {
+    background-image:
+      linear-gradient(to right, rgb(255 255 255 / 0.045) 1px, transparent 1px),
+      linear-gradient(to bottom, rgb(255 255 255 / 0.045) 1px, transparent 1px);
+    background-size: 56px 56px;
+  }
+
+  /* Form controls */
+  .ui-label {
+    display: block;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    margin-block-end: 0.375rem;
+  }
+  .ui-input,
+  .ui-select,
+  .ui-textarea {
+    inline-size: 100%;
+    min-block-size: 46px;
+    padding: 0.625rem 0.875rem;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border-default);
+    background: var(--surface-panel);
+    color: var(--text-primary);
+    box-shadow: inset 0 1px 0 rgb(14 12 43 / 0.03);
+    transition: border-color 150ms ease, box-shadow 150ms ease, background-color 150ms ease;
+  }
+  .ui-input::placeholder,
+  .ui-textarea::placeholder {
+    color: #8C88B0;
+  }
+  .ui-input:hover,
+  .ui-select:hover,
+  .ui-textarea:hover {
+    border-color: var(--border-strong);
+  }
+  .ui-input:focus,
+  .ui-select:focus,
+  .ui-textarea:focus {
+    outline: none;
+    border-color: var(--aiteb-indigo);
+    box-shadow: 0 0 0 4px rgb(32 0 205 / 0.12);
+  }
+  .ui-input[aria-invalid="true"] {
+    border-color: var(--status-danger-solid);
+    box-shadow: 0 0 0 4px rgb(222 26 80 / 0.1);
+  }
+  .ui-input:disabled,
+  .ui-select:disabled,
+  .ui-textarea:disabled {
+    background: var(--surface-panel-subtle);
+    color: var(--text-muted);
+    cursor: not-allowed;
+  }
+  .ui-select {
+    appearance: none;
+    padding-inline-end: 2.5rem;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2367638A' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-size: 1.1rem;
+    background-position: right 0.75rem center;
+  }
+  [dir="rtl"] .ui-select {
+    background-position: left 0.75rem center;
+  }
+  .ui-textarea {
+    min-block-size: 6rem;
+    line-height: 1.6;
+  }
+
+  /* Skeleton shimmer for loading states */
+  .skeleton {
+    background: linear-gradient(90deg, var(--surface-panel-subtle) 25%, #E9E6F6 37%, var(--surface-panel-subtle) 63%);
+    background-size: 400% 100%;
+    animation: var(--animate-shimmer);
+    border-radius: var(--radius-md);
+  }
+
+  /* Tactile press feedback for touch-first controls */
+  .press {
+    transition: transform 120ms var(--ease-arc);
+  }
+  .press:active {
+    transform: scale(0.97);
+  }
+
+  /* Scroll-linked reveal, progressive enhancement only (content is visible without support). */
+  @supports (animation-timeline: view()) {
+    .reveal {
+      animation: rise linear both;
+      animation-timeline: view();
+      animation-range: entry 0% cover 22%;
+    }
+  }
+}
+
+@layer utilities {
+  /* Bidi isolation for e-mails, URLs, IDs and codes inside Persian text. */
+  .ltr-isolate {
+    direction: ltr;
+    unicode-bidi: isolate;
+  }
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+  .pb-safe {
+    padding-bottom: max(env(safe-area-inset-bottom), 0px);
+  }
+  .pt-safe {
+    padding-top: max(env(safe-area-inset-top), 0px);
+  }
+}
+
+/* Letter-spacing breaks Persian joins: neutralise every tracking utility in RTL (unlayered on purpose). */
+[dir="rtl"] [class*="tracking-"],
+[dir="rtl"][class*="tracking-"] {
+  letter-spacing: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+    scroll-behavior: auto !important;
+  }
+  .reveal {
+    animation: none !important;
+  }
 }
 
 @media print {
-  /* Print only the selected pass; the rest of the reception screen is hidden. */
+  /* Print only the selected pass; the rest of the screen is hidden. */
   body * {
     visibility: hidden;
   }
@@ -108,20 +479,6 @@
     top: 2rem;
     inset-inline: 0;
     margin: 0 auto;
-  }
-}
-
-@layer base {
-  /* 16px+ inputs stop iOS Safari zooming the page on focus. */
-  input,
-  textarea,
-  select {
-    font-size: 1rem;
-  }
-
-  /* Consistent base selection and focus outline rules */
-  :focus-visible {
-    outline: 2px solid var(--focus-ring);
-    outline-offset: 2px;
+    box-shadow: none !important;
   }
 }
