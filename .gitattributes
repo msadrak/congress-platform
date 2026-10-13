@@ -1,0 +1,4 @@
+# Files consumed inside Linux containers keep LF on every checkout.
+deploy/** text eol=lf
+backend/Dockerfile text eol=lf
+*.sh text eol=lf
