@@ -5,8 +5,9 @@ interface EditorialSectionProps {
   id: string;
   headingId: string;
   index: number;
-  eyebrow: string;
-  title: string;
+  eyebrow: ReactNode;
+  /** Platform copy, or organizer text wrapped in `<Bidi>` so it keeps its own direction. */
+  title: ReactNode;
   lead?: ReactNode;
   locale: PublicLocale;
   /** `split` = 4/8 editorial columns, `stack` = heading above full-width content. */

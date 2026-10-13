@@ -5,6 +5,7 @@ export const EVENT_SETUP_SECTIONS = [
   { key: "check-in", path: "/check-in" },
   { key: "booths", path: "/booths" },
   { key: "operators", path: "/operators" },
+  { key: "page", path: "/page" },
 ] as const;
 
 export type EventSetupSection = (typeof EVENT_SETUP_SECTIONS)[number]["key"];

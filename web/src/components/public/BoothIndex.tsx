@@ -10,28 +10,31 @@ type Directory = { status: "loading" } | { status: "ready"; booths: PublicBoothS
 const LATIN_CODE = /^[\x20-\x7E]+$/;
 
 /**
- * Curated index of the congress exhibition, read anonymously from the public directory. If the
- * directory cannot be read the section quietly falls back to explanatory text: it never blocks
- * registration or claims an error the visitor cannot act on.
+ * Curated index of the congress exhibition, read anonymously from the public directory (or given by
+ * the Page Studio preview, which reads it with the organizer key). If the directory cannot be read the
+ * section quietly falls back to explanatory text: it never blocks registration or claims an error the
+ * visitor cannot act on.
  */
-export function BoothIndex({ slug, locale }: { slug: string; locale: PublicLocale }) {
+export function BoothIndex({ slug, locale, booths }: { slug: string; locale: PublicLocale; booths?: PublicBoothSummary[] }) {
   const c = publicCopy[locale];
-  const [directory, setDirectory] = useState<Directory>({ status: "loading" });
+  const [fetched, setFetched] = useState<Directory>({ status: "loading" });
+  const directory: Directory = booths ? { status: "ready", booths } : fetched;
 
   useEffect(() => {
+    if (booths) return;
     let active = true;
     createApiClient({ kind: "anonymous" })
       .GET("/api/public/events/{slug}/booths", { params: { path: { slug } } })
       .then(({ data }) => {
-        if (active) setDirectory(Array.isArray(data) ? { status: "ready", booths: data } : { status: "unavailable" });
+        if (active) setFetched(Array.isArray(data) ? { status: "ready", booths: data } : { status: "unavailable" });
       })
       .catch(() => {
-        if (active) setDirectory({ status: "unavailable" });
+        if (active) setFetched({ status: "unavailable" });
       });
     return () => {
       active = false;
     };
-  }, [slug]);
+  }, [slug, booths]);
 
   if (directory.status === "loading") {
     return (

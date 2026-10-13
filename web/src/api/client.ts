@@ -53,6 +53,9 @@ export type PrivacyPreferenceOut = components["schemas"]["PrivacyPreferenceOut"]
 export type PrivacyPreferenceUpdate = components["schemas"]["PrivacyPreferenceUpdate"];
 export type AccessOut = components["schemas"]["AccessOut"];
 export type AccessEvent = components["schemas"]["AccessEvent"];
+export type PageStateOut = components["schemas"]["PageStateOut"];
+export type PagePreview = components["schemas"]["PagePreview"];
+export type MediaAssetOut = components["schemas"]["MediaAssetOut"];
 export const ORGANIZER_KEY_STORAGE = "congress_organizer_api_key";
 export const ATTENDEE_TOKEN_STORAGE = "congress_attendee_token";
 

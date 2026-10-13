@@ -22,6 +22,8 @@ const OrganizerDesk = lazy(() => import("./pages/OrganizerDesk"));
 const OrganizerEventDetail = lazy(() => import("./pages/OrganizerEventDetail"));
 const OrganizerEvents = lazy(() => import("./pages/OrganizerEvents"));
 const OrganizerLayout = lazy(() => import("./pages/OrganizerLayout"));
+const OrganizerPagePreview = lazy(() => import("./pages/OrganizerPagePreview"));
+const OrganizerPageStudio = lazy(() => import("./pages/OrganizerPageStudio"));
 const ReceptionPortal = lazy(() => import("./pages/ReceptionPortal"));
 const ReceptionEntry = lazy(() => import("./pages/ReceptionPortal").then((m) => ({ default: m.ReceptionEntry })));
 
@@ -40,9 +42,12 @@ export default function App() {
           <Route path="events/:eventId/check-in" element={section(<OrganizerEventDetail />)} />
           <Route path="events/:eventId/booths" element={section(<OrganizerEventDetail />)} />
           <Route path="events/:eventId/operators" element={section(<OrganizerEventDetail />)} />
+          <Route path="events/:eventId/page" element={section(<OrganizerPageStudio />)} />
           <Route path="events/:eventId/desk" element={section(<OrganizerDesk />)} />
           <Route path="events/:eventId/analytics" element={section(<OrganizerAnalytics />)} />
         </Route>
+        {/* Page Studio preview frame: the public page without the organizer shell (key from this tab's session). */}
+        <Route path="/organizer/events/:eventId/page/preview" element={<OrganizerPagePreview />} />
         <Route path="/reception" element={<ReceptionEntry />} />
         <Route path="/reception/e/:slug" element={<ReceptionEntry />} />
         <Route path="/reception/:eventId" element={<ReceptionPortal />} />

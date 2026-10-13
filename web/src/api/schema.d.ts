@@ -4,6 +4,46 @@
  */
 
 export interface paths {
+    "/api/health": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Health
+         * @description The process is up and serving requests. Touches nothing else.
+         */
+        get: operations["health_api_health_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/ready": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Ready
+         * @description The database answers within a few seconds; 503 otherwise, without the reason (it may name hosts).
+         */
+        get: operations["ready_api_ready_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/auth/register": {
         parameters: {
             query?: never;
@@ -99,7 +139,11 @@ export interface paths {
         /** List Events */
         get: operations["list_events_api_events_get"];
         put?: never;
-        /** Create Event */
+        /**
+         * Create Event
+         * @description The event exists immediately for setup (tiers, booths, check-in, reception); its public page is
+         *     an unpublished draft until the organizer publishes it in Page Studio.
+         */
         post: operations["create_event_api_events_post"];
         delete?: never;
         options?: never;
@@ -781,6 +825,174 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/events/{event_id}/page": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Page */
+        get: operations["get_page_api_events__event_id__page_get"];
+        /** Save Page Draft */
+        put: operations["save_page_draft_api_events__event_id__page_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/events/{event_id}/page/publish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Publish Page
+         * @description Replaces the public page with the draft at `revision`, in one transaction.
+         */
+        post: operations["publish_page_api_events__event_id__page_publish_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/events/{event_id}/page/unpublish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Unpublish Page
+         * @description Takes the public page (and the event's public booth pages) offline. The draft is kept; tickets,
+         *     reservations, check-in and reception are unaffected.
+         */
+        post: operations["unpublish_page_api_events__event_id__page_unpublish_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/events/{event_id}/page/discard": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Discard Page Draft
+         * @description Throws away unpublished edits: the draft becomes the published page again.
+         */
+        post: operations["discard_page_draft_api_events__event_id__page_discard_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/events/{event_id}/page/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Preview Page */
+        get: operations["preview_page_api_events__event_id__page_preview_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/events/{event_id}/media": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Media */
+        get: operations["list_media_api_events__event_id__media_get"];
+        put?: never;
+        /** Upload Media */
+        post: operations["upload_media_api_events__event_id__media_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/events/{event_id}/media/{asset_id}/content": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Organizer Media Content */
+        get: operations["organizer_media_content_api_events__event_id__media__asset_id__content_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/events/{event_id}/media/{asset_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Media */
+        delete: operations["delete_media_api_events__event_id__media__asset_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/public/media/{asset_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Public Media
+         * @description Anonymous image access: only images the event's published page references.
+         */
+        get: operations["public_media_api_public_media__asset_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/public/events/{slug}": {
         parameters: {
             query?: never;
@@ -836,6 +1048,24 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** AboutSection */
+        AboutSection: {
+            /** Id */
+            id: string;
+            /**
+             * Visible
+             * @default true
+             */
+            visible: boolean;
+            eyebrow?: components["schemas"]["LocalizedLabel"];
+            title?: components["schemas"]["LocalizedLabel"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "about";
+            body?: components["schemas"]["LocalizedProse"];
+        };
         /** AccessEvent */
         AccessEvent: {
             /**
@@ -867,6 +1097,36 @@ export interface components {
             user_id: string;
             /** Events */
             events: components["schemas"]["AccessEvent"][];
+        };
+        /** AgendaItem */
+        AgendaItem: {
+            /**
+             * Time
+             * @default
+             */
+            time: string;
+            title?: components["schemas"]["LocalizedLine"];
+            detail?: components["schemas"]["LocalizedLine"];
+        };
+        /** AgendaSection */
+        AgendaSection: {
+            /** Id */
+            id: string;
+            /**
+             * Visible
+             * @default true
+             */
+            visible: boolean;
+            eyebrow?: components["schemas"]["LocalizedLabel"];
+            title?: components["schemas"]["LocalizedLabel"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "agenda";
+            lead?: components["schemas"]["LocalizedLine"];
+            /** Items */
+            items?: components["schemas"]["AgendaItem"][];
         };
         /** AttendanceAnalyticsResponse */
         AttendanceAnalyticsResponse: {
@@ -1162,6 +1422,17 @@ export interface components {
             /** Full Name */
             full_name: string;
         };
+        /** Branding */
+        Branding: {
+            /**
+             * Accent
+             * @default auto
+             * @enum {string}
+             */
+            accent: "auto" | "indigo" | "magenta" | "azure" | "violet" | "orchid";
+            /** Logo Asset Id */
+            logo_asset_id?: string | null;
+        };
         /** CateringMetric */
         CateringMetric: {
             /**
@@ -1307,6 +1578,37 @@ export interface components {
         ConnectionUpdate: {
             /** Private Notes */
             private_notes: string;
+        };
+        /** CtaSection */
+        CtaSection: {
+            /** Id */
+            id: string;
+            /**
+             * Visible
+             * @default true
+             */
+            visible: boolean;
+            eyebrow?: components["schemas"]["LocalizedLabel"];
+            title?: components["schemas"]["LocalizedLabel"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "cta";
+            /**
+             * Layout
+             * @default ink
+             * @enum {string}
+             */
+            layout: "ink" | "accent";
+            body?: components["schemas"]["LocalizedLine"];
+            button_label?: components["schemas"]["LocalizedLabel"];
+            /**
+             * Target
+             * @default passes
+             * @enum {string}
+             */
+            target: "passes" | "exhibitors";
         };
         /** DeskLoginRequest */
         DeskLoginRequest: {
@@ -1542,6 +1844,48 @@ export interface components {
             /** Description */
             description?: string | null;
         };
+        /** ExhibitorsSection */
+        ExhibitorsSection: {
+            /** Id */
+            id: string;
+            /**
+             * Visible
+             * @default true
+             */
+            visible: boolean;
+            eyebrow?: components["schemas"]["LocalizedLabel"];
+            title?: components["schemas"]["LocalizedLabel"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "exhibitors";
+            lead?: components["schemas"]["LocalizedLine"];
+        };
+        /** FaqItem */
+        FaqItem: {
+            question?: components["schemas"]["LocalizedLine"];
+            answer?: components["schemas"]["LocalizedProse"];
+        };
+        /** FaqSection */
+        FaqSection: {
+            /** Id */
+            id: string;
+            /**
+             * Visible
+             * @default true
+             */
+            visible: boolean;
+            eyebrow?: components["schemas"]["LocalizedLabel"];
+            title?: components["schemas"]["LocalizedLabel"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "faq";
+            /** Items */
+            items?: components["schemas"]["FaqItem"][];
+        };
         /** GateMetric */
         GateMetric: {
             /**
@@ -1569,12 +1913,90 @@ export interface components {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
         };
+        /** Hero */
+        Hero: {
+            /**
+             * Layout
+             * @default signature
+             * @enum {string}
+             */
+            layout: "signature" | "cover" | "split";
+            eyebrow?: components["schemas"]["LocalizedLabel"];
+            title?: components["schemas"]["LocalizedLine"];
+            subtitle?: components["schemas"]["LocalizedLine"];
+            cta_label?: components["schemas"]["LocalizedLabel"];
+            /** Cover Asset Id */
+            cover_asset_id?: string | null;
+        };
+        /** HighlightItem */
+        HighlightItem: {
+            /**
+             * Icon
+             * @default check-circle
+             * @enum {string}
+             */
+            icon: "qr" | "booth" | "users" | "wifi-off" | "calendar" | "clock" | "pin" | "ticket" | "shield" | "activity" | "globe" | "layers" | "note" | "chart" | "device" | "mail" | "bookmark" | "congress" | "id-card" | "utensils" | "check-circle" | "info";
+            title?: components["schemas"]["LocalizedLabel"];
+            body?: components["schemas"]["LocalizedLine"];
+        };
+        /** HighlightsSection */
+        HighlightsSection: {
+            /** Id */
+            id: string;
+            /**
+             * Visible
+             * @default true
+             */
+            visible: boolean;
+            eyebrow?: components["schemas"]["LocalizedLabel"];
+            title?: components["schemas"]["LocalizedLabel"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "highlights";
+            /**
+             * Layout
+             * @default list
+             * @enum {string}
+             */
+            layout: "list" | "cards";
+            /** Items */
+            items?: components["schemas"]["HighlightItem"][];
+        };
         /** HourlyScanCount */
         HourlyScanCount: {
             /** Hour */
             hour: string;
             /** Count */
             count: number;
+        };
+        /** ImageTextSection */
+        ImageTextSection: {
+            /** Id */
+            id: string;
+            /**
+             * Visible
+             * @default true
+             */
+            visible: boolean;
+            eyebrow?: components["schemas"]["LocalizedLabel"];
+            title?: components["schemas"]["LocalizedLabel"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "image_text";
+            /**
+             * Layout
+             * @default image_start
+             * @enum {string}
+             */
+            layout: "image_start" | "image_end";
+            body?: components["schemas"]["LocalizedProse"];
+            /** Image Asset Id */
+            image_asset_id?: string | null;
+            image_alt?: components["schemas"]["LocalizedLabel"];
         };
         /** LeadOut */
         LeadOut: {
@@ -1647,6 +2069,54 @@ export interface components {
             /** Notes */
             notes?: string | null;
         };
+        /**
+         * LocalizedLabel
+         * @description Short single-line text: headings, labels, names.
+         */
+        LocalizedLabel: {
+            /**
+             * Fa
+             * @default
+             */
+            fa: string;
+            /**
+             * En
+             * @default
+             */
+            en: string;
+        };
+        /**
+         * LocalizedLine
+         * @description A sentence or two: subtitles, leads, short descriptions.
+         */
+        LocalizedLine: {
+            /**
+             * Fa
+             * @default
+             */
+            fa: string;
+            /**
+             * En
+             * @default
+             */
+            en: string;
+        };
+        /**
+         * LocalizedProse
+         * @description Paragraphs with the Markdown-lite subset (blank-line paragraphs, `- ` lists, **bold**, https links).
+         */
+        LocalizedProse: {
+            /**
+             * Fa
+             * @default
+             */
+            fa: string;
+            /**
+             * En
+             * @default
+             */
+            en: string;
+        };
         /** ManifestTicket */
         ManifestTicket: {
             /** Qr Secret */
@@ -1670,6 +2140,27 @@ export interface components {
             /** Is Admitted */
             is_admitted: boolean;
         };
+        /** MediaAssetOut */
+        MediaAssetOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Content Type */
+            content_type: string;
+            /** Width */
+            width: number;
+            /** Height */
+            height: number;
+            /** Byte Size */
+            byte_size: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
         /** OrganizerCreate */
         OrganizerCreate: {
             /** Name */
@@ -1689,6 +2180,135 @@ export interface components {
              * @description Shown once. Only its hash is stored.
              */
             api_key: string;
+        };
+        /** PageAsset */
+        PageAsset: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Url */
+            url: string;
+            /** Width */
+            width: number;
+            /** Height */
+            height: number;
+            /** Content Type */
+            content_type: string;
+        };
+        /** PageDocument */
+        PageDocument: {
+            /**
+             * Version
+             * @default 1
+             * @constant
+             */
+            version: 1;
+            /**
+             * Primary Locale
+             * @default auto
+             * @enum {string}
+             */
+            primary_locale: "auto" | "fa" | "en";
+            branding?: components["schemas"]["Branding"];
+            hero?: components["schemas"]["Hero"];
+            seo?: components["schemas"]["Seo"];
+            /** Sections */
+            sections: (components["schemas"]["AboutSection"] | components["schemas"]["HighlightsSection"] | components["schemas"]["PassesSection"] | components["schemas"]["ExhibitorsSection"] | components["schemas"]["RichTextSection"] | components["schemas"]["ImageTextSection"] | components["schemas"]["FaqSection"] | components["schemas"]["CtaSection"] | components["schemas"]["SpeakersSection"] | components["schemas"]["AgendaSection"])[];
+        };
+        /** PageDraftUpdate */
+        PageDraftUpdate: {
+            /**
+             * Revision
+             * @description draft_revision this edit was based on
+             */
+            revision: number;
+            document: components["schemas"]["PageDocument"];
+        };
+        /**
+         * PagePreview
+         * @description The draft rendered with the same payload shape visitors get, plus the booth directory.
+         */
+        PagePreview: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /** Slug */
+            slug: string;
+            /**
+             * Starts At
+             * Format: date-time
+             */
+            starts_at: string;
+            /**
+             * Ends At
+             * Format: date-time
+             */
+            ends_at: string;
+            /** Location */
+            location: string;
+            /** Description */
+            description: string;
+            /** Ticket Tiers */
+            ticket_tiers: components["schemas"]["TicketTierOut"][];
+            page: components["schemas"]["PublicPage"];
+            /** Booths */
+            booths: components["schemas"]["PublicBoothSummary"][];
+        };
+        /** PageRevision */
+        PageRevision: {
+            /**
+             * Revision
+             * @description draft_revision the action applies to
+             */
+            revision: number;
+        };
+        /** PageStateOut */
+        PageStateOut: {
+            /**
+             * Event Id
+             * Format: uuid
+             */
+            event_id: string;
+            draft: components["schemas"]["PageDocument"];
+            /** Draft Revision */
+            draft_revision: number;
+            /**
+             * Draft Updated At
+             * Format: date-time
+             */
+            draft_updated_at: string;
+            /** Is Published */
+            is_published: boolean;
+            /** Published Revision */
+            published_revision: number | null;
+            /** Published At */
+            published_at: string | null;
+            /** Has Unpublished Changes */
+            has_unpublished_changes: boolean;
+        };
+        /** PassesSection */
+        PassesSection: {
+            /** Id */
+            id: string;
+            /**
+             * Visible
+             * @default true
+             */
+            visible: boolean;
+            eyebrow?: components["schemas"]["LocalizedLabel"];
+            title?: components["schemas"]["LocalizedLabel"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "passes";
+            lead?: components["schemas"]["LocalizedLine"];
         };
         /** PrivacyPreferenceOut */
         PrivacyPreferenceOut: {
@@ -1779,6 +2399,37 @@ export interface components {
             description: string;
             /** Ticket Tiers */
             ticket_tiers: components["schemas"]["TicketTierOut"][];
+            page: components["schemas"]["PublicPage"];
+        };
+        /** PublicPage */
+        PublicPage: {
+            document: components["schemas"]["PageDocument"];
+            /** Assets */
+            assets: components["schemas"]["PageAsset"][];
+        };
+        /** RichTextSection */
+        RichTextSection: {
+            /** Id */
+            id: string;
+            /**
+             * Visible
+             * @default true
+             */
+            visible: boolean;
+            eyebrow?: components["schemas"]["LocalizedLabel"];
+            title?: components["schemas"]["LocalizedLabel"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "rich_text";
+            /**
+             * Layout
+             * @default split
+             * @enum {string}
+             */
+            layout: "split" | "centered";
+            body?: components["schemas"]["LocalizedProse"];
         };
         /** ScanHistoryItem */
         ScanHistoryItem: {
@@ -1895,6 +2546,41 @@ export interface components {
              * Format: date-time
              */
             expires_at: string;
+        };
+        /** Seo */
+        Seo: {
+            title?: components["schemas"]["LocalizedLabel"];
+            description?: components["schemas"]["LocalizedLine"];
+            /** Share Image Asset Id */
+            share_image_asset_id?: string | null;
+        };
+        /** Speaker */
+        Speaker: {
+            name?: components["schemas"]["LocalizedLabel"];
+            role?: components["schemas"]["LocalizedLabel"];
+            affiliation?: components["schemas"]["LocalizedLabel"];
+            /** Photo Asset Id */
+            photo_asset_id?: string | null;
+        };
+        /** SpeakersSection */
+        SpeakersSection: {
+            /** Id */
+            id: string;
+            /**
+             * Visible
+             * @default true
+             */
+            visible: boolean;
+            eyebrow?: components["schemas"]["LocalizedLabel"];
+            title?: components["schemas"]["LocalizedLabel"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "speakers";
+            lead?: components["schemas"]["LocalizedLine"];
+            /** Items */
+            items?: components["schemas"]["Speaker"][];
         };
         /** TicketOut */
         TicketOut: {
@@ -2061,6 +2747,50 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    health_api_health_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: string;
+                    };
+                };
+            };
+        };
+    };
+    ready_api_ready_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: string;
+                    };
+                };
+            };
+        };
+    };
     register_user_api_auth_register_post: {
         parameters: {
             query?: never;
@@ -3745,6 +4475,369 @@ export interface operations {
             };
         };
     };
+    get_page_api_events__event_id__page_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PageStateOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    save_page_draft_api_events__event_id__page_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PageDraftUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PageStateOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    publish_page_api_events__event_id__page_publish_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PageRevision"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PageStateOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    unpublish_page_api_events__event_id__page_unpublish_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PageStateOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    discard_page_draft_api_events__event_id__page_discard_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PageRevision"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PageStateOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    preview_page_api_events__event_id__page_preview_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PagePreview"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_media_api_events__event_id__media_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MediaAssetOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    upload_media_api_events__event_id__media_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "content-type"?: string | null;
+                "content-length"?: number | null;
+            };
+            path: {
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        /** @description The image bytes. PNG, JPEG or WebP; SVG and other formats are refused. */
+        requestBody: {
+            content: {
+                "image/jpeg": string;
+                "image/png": string;
+                "image/webp": string;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MediaAssetOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    organizer_media_content_api_events__event_id__media__asset_id__content_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                asset_id: string;
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "image/*": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_media_api_events__event_id__media__asset_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                asset_id: string;
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    public_media_api_public_media__asset_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                asset_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "image/*": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_public_event_api_public_events__slug__get: {
         parameters: {
             query?: never;
@@ -3814,8 +4907,8 @@ export interface operations {
                 authorization?: string | null;
             };
             path: {
-                slug: string;
                 booth_id: string;
+                slug: string;
             };
             cookie?: never;
         };

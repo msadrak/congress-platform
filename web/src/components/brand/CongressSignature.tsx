@@ -1,5 +1,6 @@
 import { useId, useMemo } from "react";
 import { eventAccent, seededRandom } from "../../lib/eventAccent";
+import type { AccentName } from "../../lib/pageDocument";
 
 interface CongressSignatureProps {
   /** Congress slug (or any stable id); the same seed always draws the same artwork. */
@@ -7,6 +8,8 @@ interface CongressSignatureProps {
   tone?: "ink" | "light";
   /** Draw the arcs in on mount (disabled automatically under prefers-reduced-motion). */
   animate?: boolean;
+  /** Accent chosen in Page Studio; "auto"/absent derives it from the seed. */
+  accent?: AccentName | "auto";
   className?: string;
 }
 
@@ -20,9 +23,9 @@ interface Orbit {
  * Generative "Crossing Arcs" artwork: a congress-specific composition of orbit lines, two
  * crossing brand arcs (after the AIteb mark) and network nodes. Decorative only.
  */
-export function CongressSignature({ seed, tone = "ink", animate = false, className = "" }: CongressSignatureProps) {
+export function CongressSignature({ seed, tone = "ink", animate = false, accent: accentChoice, className = "" }: CongressSignatureProps) {
   const uid = useId().replace(/:/g, "");
-  const accent = eventAccent(seed);
+  const accent = eventAccent(seed, accentChoice);
   const art = useMemo(() => {
     const rand = seededRandom(seed);
     const W = 800;

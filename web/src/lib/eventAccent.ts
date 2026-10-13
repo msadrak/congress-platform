@@ -1,8 +1,8 @@
 import type { CSSProperties } from "react";
 
 /**
- * Per-congress accent identity. Congresses carry no imagery or colours in the API, so each one gets
- * a stable accent from a small AIteb-derived set, chosen deterministically from its slug.
+ * Per-congress accent identity from a small AIteb-derived set. Each accent is text-safe on white, so an
+ * organizer's choice (Page Studio) can never break contrast; without a choice, the slug picks one.
  */
 export interface EventAccent {
   name: "indigo" | "magenta" | "azure" | "violet" | "orchid";
@@ -43,14 +43,18 @@ export function seededRandom(seed: string): () => number {
   };
 }
 
-export function eventAccent(seed: string | undefined): EventAccent {
+export function eventAccent(seed: string | undefined, choice?: EventAccent["name"] | "auto" | null): EventAccent {
+  if (choice && choice !== "auto") return ACCENTS.find((a) => a.name === choice) ?? ACCENTS[0];
   if (!seed) return ACCENTS[0];
   return ACCENTS[hashSeed(seed) % ACCENTS.length];
 }
 
+/** The selectable accents, in display order. */
+export const EVENT_ACCENTS: readonly EventAccent[] = ACCENTS;
+
 /** CSS variables consumed by `text-event-accent`, `bg-event-accent-soft`, etc. */
-export function eventAccentStyle(seed: string | undefined): CSSProperties {
-  const a = eventAccent(seed);
+export function eventAccentStyle(seed: string | undefined, choice?: EventAccent["name"] | "auto" | null): CSSProperties {
+  const a = eventAccent(seed, choice);
   return {
     "--event-accent": a.accent,
     "--event-accent-soft": a.soft,

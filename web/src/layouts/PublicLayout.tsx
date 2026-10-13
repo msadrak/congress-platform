@@ -9,6 +9,7 @@ import { eventAccentStyle } from "../lib/eventAccent";
 import { signInPath } from "../lib/safeRedirect";
 import { publicCopy, type PublicLocale } from "../components/public/copy";
 import { Bidi } from "../components/public/Bidi";
+import type { AccentChoice, PageImage } from "../lib/pageDocument";
 import "../styles/public.css";
 
 interface PublicLayoutProps {
@@ -19,6 +20,27 @@ interface PublicLayoutProps {
   onLocaleChange: (locale: PublicLocale) => void;
   /** Congress name once known; congress pages (/e/:slug…) show the congress identity in the shell. */
   congressName?: string;
+  /** Congress shown outside `/e/:slug` (the Page Studio preview). Defaults to the slug in the URL. */
+  congressSlug?: string;
+  /** Organizer branding from the published (or previewed) page. */
+  brand?: { accent?: AccentChoice; logo?: PageImage | null };
+}
+
+/** The congress mark in the shell: the organizer's logo on a white tile, else the generative signature. */
+function CongressMark({ slug, brand, size }: { slug: string; brand?: PublicLayoutProps["brand"]; size: "header" | "footer" }) {
+  const box = size === "header" ? "size-9 rounded-[10px] [border-start-end-radius:16px]" : "size-10 rounded-[10px] [border-start-end-radius:18px]";
+  if (brand?.logo) {
+    return (
+      <span aria-hidden="true" className={`grid shrink-0 place-items-center overflow-hidden bg-white p-1 ring-1 ring-white/15 ${box}`}>
+        <img src={brand.logo.url} alt="" width={brand.logo.width} height={brand.logo.height} decoding="async" className="max-h-full max-w-full object-contain" />
+      </span>
+    );
+  }
+  return (
+    <span aria-hidden="true" className={`relative shrink-0 overflow-hidden ring-1 ring-white/15 ${box}`}>
+      <CongressSignature seed={slug} accent={brand?.accent} tone="ink" className="absolute inset-0 size-full scale-[1.6]" />
+    </span>
+  );
 }
 
 const navLinkLight =
@@ -27,11 +49,11 @@ const navLinkInk =
   "inline-flex items-center min-h-[40px] px-3 rounded-lg text-sm font-medium text-ink-200 hover:text-white hover:bg-white/8 transition-colors focus-visible:outline-aiteb-orchid";
 const footerLink = "inline-flex min-h-[32px] items-center text-sm text-ink-300 hover:text-white transition-colors focus-visible:outline-aiteb-orchid";
 
-export function PublicLayout({ children, locale, onLocaleChange, congressName }: PublicLayoutProps) {
+export function PublicLayout({ children, locale, onLocaleChange, congressName, congressSlug, brand }: PublicLayoutProps) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const location = useLocation();
   // Event pages (/e/:slug…) sign in straight back to that congress's portal.
-  const eventSlug = /^\/e\/([A-Za-z0-9_-]+)/.exec(location.pathname)?.[1];
+  const eventSlug = congressSlug ?? /^\/e\/([A-Za-z0-9_-]+)/.exec(location.pathname)?.[1];
   const signInTarget = eventSlug ? signInPath(eventSlug, `/c/${eventSlug}/my-congress`) : "/sign-in";
   const [prevPath, setPrevPath] = useState(location.pathname);
   if (prevPath !== location.pathname) {
@@ -75,7 +97,7 @@ export function PublicLayout({ children, locale, onLocaleChange, congressName }:
     <div
       dir={isRtl ? "rtl" : "ltr"}
       lang={locale}
-      style={congress ? eventAccentStyle(eventSlug) : undefined}
+      style={congress ? eventAccentStyle(eventSlug, brand?.accent) : undefined}
       className="min-h-screen bg-surface-page text-text-primary flex flex-col font-sans"
     >
       <SkipLink targetId="main-content">{isRtl ? "رفتن به محتوای اصلی" : "Skip to main content"}</SkipLink>
@@ -89,9 +111,7 @@ export function PublicLayout({ children, locale, onLocaleChange, congressName }:
               className="group flex min-w-0 items-center gap-3 rounded-xl focus-visible:outline-aiteb-orchid"
               aria-label={congressName ? c.congressHomeLabel(congressName) : undefined}
             >
-              <span aria-hidden="true" className="relative size-9 shrink-0 overflow-hidden rounded-[10px] [border-start-end-radius:16px] ring-1 ring-white/15">
-                <CongressSignature seed={eventSlug!} tone="ink" className="absolute inset-0 size-full scale-[1.6]" />
-              </span>
+              <CongressMark slug={eventSlug!} brand={brand} size="header" />
               {congressName ? (
                 <span className="min-w-0 truncate text-[15px] font-semibold tracking-[-0.01em] text-white"><Bidi text={congressName} /></span>
               ) : (
@@ -280,9 +300,7 @@ export function PublicLayout({ children, locale, onLocaleChange, congressName }:
               {congress ? (
                 <>
                   <div className="flex items-center gap-3">
-                    <span aria-hidden="true" className="relative size-10 shrink-0 overflow-hidden rounded-[10px] [border-start-end-radius:18px] ring-1 ring-white/15">
-                      <CongressSignature seed={eventSlug!} tone="ink" className="absolute inset-0 size-full scale-[1.6]" />
-                    </span>
+                    <CongressMark slug={eventSlug!} brand={brand} size="footer" />
                     <p className="text-base font-semibold text-white">{congressName ? <Bidi text={congressName} /> : "\u00a0"}</p>
                   </div>
                   <p className="max-w-md text-sm leading-relaxed">{c.footerCongressNote}</p>

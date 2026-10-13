@@ -38,6 +38,7 @@ const SECTION_ICONS: Record<(typeof EVENT_SETUP_SECTIONS)[number]["key"], IconNa
   "check-in": "gate",
   booths: "booth",
   operators: "users",
+  page: "web",
 };
 
 export default function OrganizerLayout() {
@@ -118,6 +119,7 @@ export default function OrganizerLayout() {
     "check-in": t.tabPoints,
     booths: t.tabBooths,
     operators: t.tabOperators,
+    page: isRtl ? "صفحهٔ عمومی" : "Public page",
   };
 
   const showGate = !apiKey && !isDesk;
@@ -245,13 +247,13 @@ export default function OrganizerLayout() {
                 navItem(s.key, eventWorkspacePath(eventId, s.path), setupLabels[s.key], SECTION_ICONS[s.key], i + 1, section === s.key),
               )}
               <span className="org-nav-divider" aria-hidden="true" />
-              {navItem("analytics", eventWorkspacePath(eventId, "/analytics"), t.breadcrumbAnalytics, "chart", 6, section === "analytics")}
+              {navItem("analytics", eventWorkspacePath(eventId, "/analytics"), t.breadcrumbAnalytics, "chart", EVENT_SETUP_SECTIONS.length + 1, section === "analytics")}
               {navItem(
                 "desk",
                 eventWorkspacePath(eventId, "/desk"),
                 t.breadcrumbDesk,
                 "id-card",
-                7,
+                EVENT_SETUP_SECTIONS.length + 2,
                 isDesk,
                 isRtl ? "میز پذیرش با دسترسی مستقل اپراتور" : "Reception uses its own operator access",
               )}
@@ -308,7 +310,9 @@ export default function OrganizerLayout() {
         <main
           id="organizer-main-content"
           tabIndex={-1}
-          className="mx-auto w-full max-w-[78rem] flex-1 px-4 py-6 focus:outline-none sm:px-6 sm:py-8 lg:px-10 lg:py-10"
+          className={`mx-auto w-full flex-1 px-4 focus:outline-none sm:px-6 lg:px-10 ${
+            section === "page" ? "max-w-[112rem] pb-6 sm:pb-8 lg:pb-10" : "max-w-[78rem] py-6 sm:py-8 lg:py-10"
+          }`}
         >
           <Outlet context={{ apiKey, onKeyRejected: handleKeyRejected, reportEvent, locale, t, isRtl, dir } satisfies OrganizerOutletContext} />
         </main>

@@ -1,5 +1,5 @@
-import React, { useEffect, useId, useRef, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import React, { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
 import {
   ATTENDEE_TOKEN_STORAGE,
   formatApiError,
@@ -8,18 +8,16 @@ import {
 } from "../api/client";
 import { isStoredAttendeeToken, rejectAttendeeToken } from "../lib/attendeeSession";
 import { PublicLayout } from "../layouts/PublicLayout";
-import { translations } from "../lib/i18n";
-import { Badge } from "../components/ui/Badge";
+import { normalizeDocument, standardDocument, type PageImages } from "../lib/pageDocument";
+import { usePageMeta } from "../lib/pageMeta";
 import { Button, LinkButton } from "../components/ui/Button";
 import { Dialog } from "../components/ui/Dialog";
-import { Icon, type IconName } from "../components/ui/Icon";
+import { Icon } from "../components/ui/Icon";
 import { CongressSignature } from "../components/brand/CongressSignature";
-import { contentLocale, isolateFor, num, proseDir, publicCopy, usePublicLocale } from "../components/public/copy";
+import { contentLocale, isolateFor, publicCopy, usePublicLocale } from "../components/public/copy";
 import { Bidi } from "../components/public/Bidi";
-import { CongressHero } from "../components/public/CongressHero";
-import { EditorialSection } from "../components/public/EditorialSection";
-import { PassStub } from "../components/public/PassStub";
-import { BoothIndex } from "../components/public/BoothIndex";
+import { CongressPage } from "../components/public/page/CongressPage";
+import { PassesPanel } from "../components/public/page/PassesPanel";
 
 export default function PublicEvent() {
   const { slug } = useParams<{ slug: string }>();
@@ -88,9 +86,16 @@ export default function PublicEvent() {
     };
   }, [slug]);
 
-  const { locale, setLocale } = usePublicLocale(event ? contentLocale(event.name) : undefined);
+  // A payload without a page (older API, test fixtures) renders the standard layout.
+  const doc = useMemo(() => (event?.page ? normalizeDocument(event.page.document) : standardDocument()), [event]);
+  const images = useMemo<PageImages>(
+    () => Object.fromEntries((event?.page?.assets ?? []).map((a) => [a.id, { url: a.url, width: a.width, height: a.height }])),
+    [event],
+  );
+  const contentDefault = !event ? undefined : doc.primary_locale !== "auto" ? doc.primary_locale : contentLocale(event.name);
+  const { locale, setLocale } = usePublicLocale(contentDefault);
   const c = publicCopy[locale];
-  const t = translations[locale];
+  usePageMeta(event ? { doc, images, locale, eventName: event.name } : null);
   const selectedTier =
     event?.ticket_tiers.find((t) => t.id === selectedTierId) ??
     (event?.ticket_tiers.length ? event.ticket_tiers[0] : null);
@@ -335,189 +340,38 @@ export default function PublicEvent() {
     );
   }
 
-  const reserveLabel = submitting
-    ? c.processing
-    : selectedTierState === "SOLD_OUT"
-      ? t.reserveButtonSoldOut
-      : selectedTierState === "CLOSED"
-        ? t.reserveButtonClosed
-        : c.reserve;
-  const selectedRemaining = Math.max(0, selectedTierQuota - selectedTierReserved);
-  const tabClass = (active: boolean) =>
-    `min-h-[44px] rounded-lg px-3 text-sm font-semibold transition-[background-color,color,box-shadow] cursor-pointer ${
-      active ? "bg-surface-panel text-text-primary shadow-soft" : "text-text-secondary hover:text-text-primary"
-    }`;
   const required = (
     <span aria-hidden="true" className="text-status-danger-text">
       *
     </span>
   );
+  const tabClass = (active: boolean) =>
+    `min-h-[44px] rounded-lg px-3 text-sm font-semibold transition-[background-color,color,box-shadow] cursor-pointer ${
+      active ? "bg-surface-panel text-text-primary shadow-soft" : "text-text-secondary hover:text-text-primary"
+    }`;
+  const logo = doc.branding.logo_asset_id ? images[doc.branding.logo_asset_id] ?? null : null;
 
   return (
-    <PublicLayout locale={locale} onLocaleChange={setLocale} congressName={event.name}>
-      <CongressHero event={event} locale={locale} />
-
-      <div className="pub-sheet">
-        <div className="mx-auto max-w-7xl space-y-20 px-4 pt-14 pb-20 sm:space-y-28 sm:px-6 sm:pt-20 sm:pb-28 lg:px-10">
-          {/* 01 About */}
-          <EditorialSection id="about" headingId="about-heading" index={1} eyebrow={c.sectionAboutEyebrow} title={c.sectionAbout} locale={locale}>
-            {event.description ? (
-              <p {...proseDir(event.description)} className="max-w-3xl whitespace-pre-line text-xl leading-[1.6] tracking-[-0.01em] text-text-primary sm:text-2xl sm:leading-[1.55] rtl:leading-[1.95]">
-                {event.description}
-              </p>
-            ) : (
-              <p className="text-base text-text-muted">{c.noDescription}</p>
-            )}
-          </EditorialSection>
-
-          {/* 02 What the pass includes */}
-          <EditorialSection id="includes" headingId="features-heading" index={2} eyebrow={c.sectionIncludesEyebrow} title={c.sectionIncludes} locale={locale}>
-            <ul className="grid border-t border-border-default sm:grid-cols-2">
-              {c.includes.map((item, i) => (
-                <li
-                  key={item.title}
-                  className={`flex gap-4 border-b border-border-default py-6 sm:py-8 ${i % 2 === 0 ? "sm:pe-8" : "sm:border-s sm:ps-8"}`}
-                >
-                  <span className="grid size-11 shrink-0 place-items-center rounded-xl bg-event-accent-soft text-event-accent [border-start-end-radius:18px]">
-                    <Icon name={item.icon as IconName} size={22} />
-                  </span>
-                  <div className="space-y-1.5">
-                    <h3 className="text-base font-semibold text-text-primary">{item.title}</h3>
-                    <p className="text-sm leading-relaxed text-text-secondary">{item.body}</p>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          </EditorialSection>
-
-          {/* 03 Passes */}
-          <EditorialSection
-            id="passes"
-            headingId="passes-heading"
-            index={3}
-            layout="stack"
-            eyebrow={c.sectionPassesEyebrow}
-            title={c.sectionPasses}
-            lead={c.passesLead}
+    <PublicLayout locale={locale} onLocaleChange={setLocale} congressName={event.name} brand={{ accent: doc.branding.accent, logo }}>
+      <CongressPage
+        event={event}
+        doc={doc}
+        images={images}
+        locale={locale}
+        passes={
+          <PassesPanel
+            slug={event.slug}
+            tiers={event.ticket_tiers}
             locale={locale}
-            aside={
-              <Badge variant="accent" size="md" icon={<Icon name="ticket" size={14} />} className="self-start lg:self-auto">
-                {c.freeAdmission}
-              </Badge>
-            }
-          >
-            <div className="space-y-6">
-              {event.ticket_tiers.length === 0 ? (
-                <div className="flex items-start gap-4 rounded-2xl border border-dashed border-border-strong bg-surface-panel p-6 sm:p-8">
-                  <span className="grid size-11 shrink-0 place-items-center rounded-xl bg-surface-panel-subtle text-text-muted">
-                    <Icon name="lock" size={22} />
-                  </span>
-                  <div className="space-y-1">
-                    <p className="text-base font-semibold text-text-primary">{c.noTiersTitle}</p>
-                    <p className="text-sm text-text-secondary">{c.noTiersBody}</p>
-                  </div>
-                </div>
-              ) : (
-                <fieldset className="grid gap-5 md:grid-cols-2">
-                  <legend className="sr-only">{c.tierLegend}</legend>
-                  {event.ticket_tiers.map((tier, i) => (
-                    <PassStub
-                      key={tier.id}
-                      tier={tier}
-                      index={i}
-                      locale={locale}
-                      selected={tier.id === selectedTierId}
-                      onSelect={() => setSelectedTierId(tier.id)}
-                    />
-                  ))}
-                </fieldset>
-              )}
-
-              {/* Already has ticket banner */}
-              {alreadyHasTicket && (
-                <div
-                  role="alert"
-                  className="flex flex-col gap-4 rounded-2xl border border-action-subtle-border bg-aiteb-lavender p-5 sm:flex-row sm:items-center sm:justify-between"
-                >
-                  <div className="flex items-start gap-3">
-                    <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-surface-panel text-aiteb-indigo shadow-soft">
-                      <Icon name="ticket" size={20} />
-                    </span>
-                    <div className="space-y-0.5">
-                      <p className="text-sm font-bold text-aiteb-indigo">{c.activePassTitle}</p>
-                      <p className="text-sm text-text-secondary">{c.activePassBody}</p>
-                    </div>
-                  </div>
-                  <LinkButton to={`/c/${event.slug}/my-ticket`} variant="primary" size="md">
-                    {c.viewMyPass}
-                    <Icon name="arrow-right" size={16} />
-                  </LinkButton>
-                </div>
-              )}
-
-              {/* Reservation dock: sticks to the viewport bottom while the passes are on screen. */}
-              <div className="sticky bottom-[max(0.75rem,env(safe-area-inset-bottom))] z-30 lg:static">
-                <div className="flex flex-col gap-4 bg-surface-ink p-4 text-white shadow-pop shape-arc sm:flex-row sm:items-center sm:gap-6 sm:p-5">
-                  <div className="flex min-w-0 flex-1 items-center gap-4">
-                    <span aria-hidden="true" className="relative hidden size-12 shrink-0 overflow-hidden rounded-xl ring-1 ring-white/15 [border-start-end-radius:20px] sm:block">
-                      <CongressSignature seed={event.slug} tone="ink" className="absolute inset-0 size-full scale-150" />
-                    </span>
-                    <div className="min-w-0">
-                      <p className="text-[11px] font-medium text-ink-300">{c.selectedPass}</p>
-                      <p className="truncate text-base font-semibold">{selectedTier ? <Bidi text={selectedTier.name} /> : c.noTiersTitle}</p>
-                      {selectedTier && isSelectedTierAvailable && (
-                        <p className="text-xs text-ink-300">
-                          {c.freeAdmission} · {t.tierCapacityRemaining} <span className="tabular text-white">{num(selectedRemaining, locale)}</span>
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                  <Button
-                    type="button"
-                    variant="light"
-                    size="lg"
-                    className="w-full sm:w-auto sm:min-w-[14rem] focus-visible:outline-aiteb-orchid"
-                    disabled={submitting || event.ticket_tiers.length === 0 || !isSelectedTierAvailable}
-                    onClick={handleStartReservation}
-                  >
-                    {reserveLabel}
-                    {!submitting && isSelectedTierAvailable && <Icon name="arrow-right" size={18} />}
-                  </Button>
-                </div>
-              </div>
-
-              <div className="flex flex-col items-center gap-1.5 text-center text-sm text-text-muted lg:flex-row lg:justify-center lg:gap-3">
-                <span className="inline-flex items-center gap-2">
-                  <Icon name="device" size={16} />
-                  {c.digitalNote}
-                </span>
-                <span aria-hidden="true" className="hidden lg:inline">
-                  ·
-                </span>
-                <span>
-                  {c.alreadyRegistered}{" "}
-                  <Link to="/my-tickets" className="font-semibold text-event-accent hover:underline">
-                    {c.viewExisting}
-                  </Link>
-                </span>
-              </div>
-            </div>
-          </EditorialSection>
-
-          {/* 04 Exhibition */}
-          <EditorialSection
-            id="exhibition"
-            headingId="exhibition-heading"
-            index={4}
-            eyebrow={c.sectionExhibitionEyebrow}
-            title={c.sectionExhibition}
-            lead={c.exhibitionLead}
-            locale={locale}
-          >
-            <BoothIndex key={event.slug} slug={event.slug} locale={locale} />
-          </EditorialSection>
-        </div>
-      </div>
+            accent={doc.branding.accent}
+            selectedTierId={selectedTierId}
+            onSelectTier={setSelectedTierId}
+            onReserve={handleStartReservation}
+            submitting={submitting}
+            alreadyHasTicket={alreadyHasTicket}
+          />
+        }
+      />
 
       {/* Accessible Registration / Authentication Dialog */}
       <Dialog
@@ -683,7 +537,7 @@ export default function PublicEvent() {
       >
         <div className="space-y-6">
           <div className="relative isolate overflow-hidden rounded-2xl bg-surface-ink p-5 text-white [border-start-end-radius:var(--radius-arc)]">
-            <CongressSignature seed={event.slug} tone="ink" className="absolute inset-0 -z-10 size-full opacity-80 rtl:-scale-x-100" />
+            <CongressSignature seed={event.slug} accent={doc.branding.accent} tone="ink" className="absolute inset-0 -z-10 size-full opacity-80 rtl:-scale-x-100" />
             <div aria-hidden="true" className="absolute inset-0 -z-10 bg-linear-to-t from-surface-ink via-surface-ink/80 to-surface-ink/20" />
             <span className="grid size-11 place-items-center rounded-full bg-[#3EE0A1] text-surface-ink motion-safe:animate-pop">
               <Icon name="check" size={22} strokeWidth={2.4} />
