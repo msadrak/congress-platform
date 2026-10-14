@@ -72,6 +72,7 @@ export default function MyTickets() {
 
   useEffect(() => {
     let active = true;
+    // oxlint-disable-next-line react/set-state-in-effect -- owner-isolation reset keyed on the localStorage token (external, not React state); it must commit together with the cache swap and refetch for the new session.
     setSessionRejected(false);
 
     // 1. Stage A: Load owner-scoped cached tickets immediately (fails closed if unauthenticated)

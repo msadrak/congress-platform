@@ -122,10 +122,9 @@ function ExhibitorPortalContent() {
       setAuthError(null);
     }
     if (!boothId) return;
-    if (!token) {
-      setLoading(false);
-      return;
-    }
+    // Without a token the render returns the sign-in gate before `loading` is ever read, and the
+    // fetch below sets `loading` itself once a token exists, so no reset is needed here.
+    if (!token) return;
 
     const fetchData = async () => {
       setLoading(true);

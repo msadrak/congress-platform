@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { Link, useParams } from "react-router-dom";
 import { createScannerApiClient, formatApiError, type CheckInManifest } from "../api/client";
 import { playErrorBuzz, playSuccessChime, playProvisionalChime } from "../lib/audioFeedback";
@@ -76,14 +76,14 @@ export default function GateScanner() {
   const [deactivationPending, setDeactivationPending] = useState(false);
   const deactivationRef = useRef(false);
   const [unpairNotice, setUnpairNotice] = useState<string | null>(null);
-  const getStoredScannerToken = (): string | null => {
+  const getStoredScannerToken = useCallback((): string | null => {
     if (!pointId || typeof window === "undefined") return null;
     return (
       sessionStorage.getItem(`congress_scanner_token_${pointId}`) ||
       persistedCredential?.token ||
       null
     );
-  };
+  }, [pointId, persistedCredential]);
 
   // Explicit device authority bound to this check-in point. Without a device credential nothing is
   // dispatched, so no other session (User, organizer, desk) can ever be attached to scanner requests.
@@ -103,7 +103,8 @@ export default function GateScanner() {
     });
   }, [pointId]);
 
-  const storeCredential = async (token: string) => {
+  // Closes over pointId and stable setters/refs only, so its identity changes exactly when pointId does.
+  const storeCredential = useCallback(async (token: string) => {
     if (!pointId) return;
     const credential: PersistedScannerCredential = {
       pointId,
@@ -124,7 +125,7 @@ export default function GateScanner() {
     deactivationRef.current = false;
     setDeactivationPending(false);
     setUnpairNotice(null);
-  };
+  }, [pointId]);
 
 
   // Handle token from URL query parameter (?token=...) — persist then strip
@@ -136,10 +137,11 @@ export default function GateScanner() {
     if (tokenFromUrl && pointId && typeof window !== "undefined") {
       const trimmed = tokenFromUrl.trim();
       sessionStorage.setItem(`congress_scanner_token_${pointId}`, trimmed);
+      // oxlint-disable-next-line react/set-state-in-effect -- storeCredential only sets state after awaiting IndexedDB persistence; the effect syncs the ?token= handoff into storage.
       void storeCredential(trimmed);
       window.history.replaceState({}, document.title, window.location.pathname);
     }
-  }, [pointId]);
+  }, [pointId, storeCredential]);
 
   // Authorization failure classification (Phase 3):
   // - 401 missing/invalid/expired/revoked  -> definitive credential failure.
@@ -220,8 +222,9 @@ export default function GateScanner() {
       manifestCachedAt,
       isOnline,
     });
+    // oxlint-disable-next-line react/set-state-in-effect -- the verdict is a Date.now() snapshot taken when its inputs change (and overwritten by the scan handler); computing it during render would be impure and re-evaluate the window on every render.
     setAuthVerdict(verdict);
-  }, [persistedCredential, lastServerContactAt, manifestCachedAt, isOnline]);
+  }, [persistedCredential, lastServerContactAt, manifestCachedAt, isOnline, getStoredScannerToken]);
 
   // Camera state
   const [cameraActive, setCameraActive] = useState(false);
@@ -316,6 +319,7 @@ export default function GateScanner() {
           setTicketMap(reconMap);
           setCurrentAdmittedCount(reconCount);
           await saveCachedManifest(pointId, data);
+          // oxlint-disable-next-line react/purity -- runs inside async loadManifest (effect/event handlers only), after awaits; never during render.
           const nowIso = new Date().toISOString();
           setManifestCachedAt(nowIso);
           setLastServerContactAt(nowIso);
@@ -352,32 +356,6 @@ export default function GateScanner() {
     const pending = await getUnsyncedScans(pointId);
     setPendingCount(pending.length);
   };
-
-  useEffect(() => {
-    loadManifest();
-
-    const handleOnline = () => {
-      setIsOnline(true);
-      flushQueue();
-    };
-    const handleOffline = () => setIsOnline(false);
-
-    window.addEventListener("online", handleOnline);
-    window.addEventListener("offline", handleOffline);
-
-    // Background sync timer every 5 seconds
-    const syncInterval = setInterval(() => {
-      if (navigator.onLine) {
-        flushQueue();
-      }
-    }, 5000);
-
-    return () => {
-      window.removeEventListener("online", handleOnline);
-      window.removeEventListener("offline", handleOffline);
-      clearInterval(syncInterval);
-    };
-  }, [pointId]);
 
   // 2. Background queue flush with per-record reconciliation.
   // Definitive 401/403 stops new admissions (authBlocked) while preserving
@@ -437,6 +415,35 @@ export default function GateScanner() {
       setIsSyncing(false);
     }
   };
+
+  // Declared after flushQueue so the closures below never reference it before initialization.
+  useEffect(() => {
+    // oxlint-disable-next-line react/set-state-in-effect -- loadManifest's state updates are the manifest fetch for this pointId (IndexedDB + network sync).
+    loadManifest();
+
+    const handleOnline = () => {
+      setIsOnline(true);
+      flushQueue();
+    };
+    const handleOffline = () => setIsOnline(false);
+
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+
+    // Background sync timer every 5 seconds
+    const syncInterval = setInterval(() => {
+      if (navigator.onLine) {
+        flushQueue();
+      }
+    }, 5000);
+
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+      clearInterval(syncInterval);
+    };
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- deliberately bound once per pointId: depending on loadManifest/flushQueue (new each render) would refetch the manifest and reset the 5 s sync interval on every render.
+  }, [pointId]);
 
   // 3. Central Scan Processor (Evaluates locally in <10ms, triggers audio/visual, queues to IndexedDB)
   // Hard gates: definitively deauthorized devices and expired offline windows
@@ -565,6 +572,7 @@ export default function GateScanner() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- rebinds only on these scan inputs (same snapshot model as the camera loop); depending on processScannedCode would rebind every render and change which state snapshot HID scans evaluate against.
   }, [pointId, manifest, ticketMap, soundEnabled]);
   // Locally disable first, then report server revocation only after an
   // authenticated, successful self-revoke response.

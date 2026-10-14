@@ -12,7 +12,7 @@ import type {
 } from "../../../lib/pageDocument";
 import { localized } from "../../../lib/pageDocument";
 import { CongressSignature } from "../../brand/CongressSignature";
-import { buttonClassName } from "../../ui/Button";
+import { buttonClassName } from "../../ui/buttonStyles";
 import { Icon, type IconName } from "../../ui/Icon";
 import { Bidi } from "../Bidi";
 import { proseDir, publicCopy, type PublicLocale } from "../copy";

@@ -140,11 +140,9 @@ export function ReceptionStation({ eventId, organizer, locale, t, isRtl }: Recep
 
   useEffect(() => {
     let isMounted = true;
-    // Without the selected mode's credential nothing is dispatched; an entry gate is shown instead.
-    if (!authority) {
-      setLoading(false);
-      return;
-    }
+    // Without the selected mode's credential nothing is dispatched; an entry gate is shown instead
+    // (the loading skeleton is gated on `authority` during render, so no reset is needed here).
+    if (!authority) return;
     const loadEventData = async () => {
       setLoading(true);
       setPageError(null);
@@ -447,7 +445,7 @@ export function ReceptionStation({ eventId, organizer, locale, t, isRtl }: Recep
   // Only offered inside Organizer administration with an organizer key; the choice is explicit.
   const showModeSwitch = !standalone && Boolean(apiKey);
 
-  if (loading) {
+  if (loading && authority) {
     return (
       <div className="rx-station space-y-5" role="status" aria-label={t.deskTitle}>
         <div className="skeleton h-36 shape-arc-lg" />

@@ -2,7 +2,7 @@ import type { PublicEvent } from "../../api/client";
 import type { PageDoc, PageImage, PageImages } from "../../lib/pageDocument";
 import { localized } from "../../lib/pageDocument";
 import { CongressSignature } from "../brand/CongressSignature";
-import { buttonClassName } from "../ui/Button";
+import { buttonClassName } from "../ui/buttonStyles";
 import { Icon } from "../ui/Icon";
 import { Bidi } from "./Bidi";
 import { indexLabel, num, proseDir, publicCopy, type PublicLocale } from "./copy";

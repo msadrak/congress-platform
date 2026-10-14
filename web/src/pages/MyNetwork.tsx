@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import {
   ATTENDEE_TOKEN_STORAGE,
   createApiClient,
@@ -66,7 +66,7 @@ export default function MyNetwork() {
       ? localStorage.getItem(ATTENDEE_TOKEN_STORAGE)
       : null;
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     if (!token) {
       setLoading(false);
       return;
@@ -101,17 +101,18 @@ export default function MyNetwork() {
     }
 
     setLoading(false);
-  };
+  }, [token]);
 
   useEffect(() => {
     // A different session must never inherit the previous owner's contacts or notes.
+    // oxlint-disable-next-line react/set-state-in-effect -- owner-isolation reset keyed on the localStorage token (external, not React state); it must commit together with the refetch for the new session.
     setConnections([]);
     setPrivacyPref(null);
     setEditingId(null);
     setNoteFeedback(null);
     setPrivacyFeedback(null);
     loadData();
-  }, [token]);
+  }, [token, loadData]);
 
   const handleTogglePrivacyConsent = async () => {
     if (!token || !privacyPref) return;
