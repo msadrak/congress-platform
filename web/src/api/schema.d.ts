@@ -119,10 +119,49 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /** List Organizers */
+        get: operations["list_organizers_api_organizers_get"];
         put?: never;
         /** Provision Organizer */
         post: operations["provision_organizer_api_organizers_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/organizers/{organizer_id}/rotate-key": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Rotate Organizer Key
+         * @description New key shown once; the previous key is rejected from this commit on. Also reinstates a revoked
+         *     organizer (rotation is how a compromised tenant gets access back).
+         */
+        post: operations["rotate_organizer_key_api_organizers__organizer_id__rotate_key_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/organizers/{organizer_id}/revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Revoke Organizer Key */
+        post: operations["revoke_organizer_key_api_organizers__organizer_id__revoke_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1036,6 +1075,43 @@ export interface paths {
         };
         /** Get Public Booth */
         get: operations["get_public_booth_api_public_events__slug__booths__booth_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/public/seo/e/{slug}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Congress Head
+         * @description `<head>` tags for `/e/{slug}`: published SEO title, description and share image, or neutral defaults.
+         */
+        get: operations["congress_head_api_public_seo_e__slug__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/public/seo/e/{slug}/booths/{booth_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Booth Head */
+        get: operations["booth_head_api_public_seo_e__slug__booths__booth_id__get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2166,6 +2242,25 @@ export interface components {
             /** Name */
             name: string;
         };
+        /** OrganizerOut */
+        OrganizerOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Revoked At */
+            revoked_at: string | null;
+            /** Key Rotated At */
+            key_rotated_at: string | null;
+        };
         /** OrganizerProvisioned */
         OrganizerProvisioned: {
             /**
@@ -2897,6 +2992,37 @@ export interface operations {
             };
         };
     };
+    list_organizers_api_organizers_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-admin-token"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrganizerOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     provision_organizer_api_organizers_post: {
         parameters: {
             query?: never;
@@ -2919,6 +3045,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["OrganizerProvisioned"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    rotate_organizer_key_api_organizers__organizer_id__rotate_key_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-admin-token"?: string | null;
+            };
+            path: {
+                organizer_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrganizerProvisioned"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    revoke_organizer_key_api_organizers__organizer_id__revoke_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-admin-token"?: string | null;
+            };
+            path: {
+                organizer_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrganizerOut"];
                 };
             };
             /** @description Validation Error */
@@ -4921,6 +5113,69 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PublicBoothOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    congress_head_api_public_seo_e__slug__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": string;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    booth_head_api_public_seo_e__slug__booths__booth_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                slug: string;
+                booth_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": string;
                 };
             };
             /** @description Validation Error */

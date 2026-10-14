@@ -12,13 +12,13 @@
  *    throw-away container — NOT a real external provider), failure reporting, retention, health check.
  * Every container/network/volume created here is named congress-hardening-* and removed at the end.
  */
-import { spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import https from 'node:https';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { compose, readEnv, run } from './stack.mjs';
+import { run } from '../lib/process.mjs';
+import { compose, readEnv } from './stack.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const env = readEnv();
@@ -35,7 +35,7 @@ const check = async (name, fn) => {
 };
 const eq = (a, b, m) => { if (JSON.stringify(a) !== JSON.stringify(b)) throw new Error(`${m}: got ${JSON.stringify(a)} expected ${JSON.stringify(b)}`); };
 const assert = (c, m) => { if (!c) throw new Error(m); };
-const stack = (args, extraEnv = {}) => spawnSync(process.execPath, [join(root, 'scripts/staging/stack.mjs'), ...args], { encoding: 'utf8', env: { ...process.env, ...extraEnv } });
+const stack = (args, extraEnv = {}) => run(process.execPath, [join(root, 'scripts/staging/stack.mjs'), ...args], { allowFail: true, env: extraEnv });
 const api = async (method, path, { key, body } = {}) => {
   const r = await fetch(HTTP_BASE + path, { method, headers: { ...(key ? { Authorization: `Bearer ${key}` } : {}), ...(body ? { 'Content-Type': 'application/json' } : {}) }, body: body ? JSON.stringify(body) : undefined });
   let json = null; try { json = await r.json(); } catch { /* none */ }

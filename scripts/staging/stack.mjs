@@ -22,11 +22,11 @@
  * Nothing here deletes the staging volumes. The only `down -v` is on the disposable
  * `congress-restore-*` project that restore-verify itself creates.
  */
-import { spawnSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { run } from '../lib/process.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const STATE = join(root, '.staging');
@@ -35,14 +35,6 @@ const BACKUPS = join(STATE, 'backups');
 const COMPOSE_FILE = join(root, 'deploy/staging/compose.yaml');
 const PROJECT = 'congress-staging';
 
-export const run = (cmd, args, { allowFail = false, input, quiet = false, binary = false, env, redact = false } = {}) => {
-  const r = spawnSync(cmd, args, { input, env: env ? { ...process.env, ...env } : undefined, encoding: binary ? 'buffer' : 'utf8', stdio: quiet || binary ? 'pipe' : ['pipe', 'pipe', 'pipe'], maxBuffer: 1 << 30 });
-  if (r.status !== 0 && !allowFail) {
-    const what = redact ? `${cmd} ${args[0]} (arguments withheld)` : `${cmd} ${args.join(' ')}`;
-    throw new Error(`${what} -> exit ${r.status}\n${redact ? '' : (r.stderr ?? '').toString().slice(-2000)}`);
-  }
-  return r;
-};
 export const compose = (project, args, opts) => run('docker', ['compose', '-p', project, '--env-file', ENV_FILE, '-f', COMPOSE_FILE, ...args], opts);
 export const readEnv = () => ({
   ...Object.fromEntries(
@@ -105,7 +97,7 @@ async function status() {
 
 async function up() {
   requireEnv();
-  compose(PROJECT, ['build'], { quiet: false });
+  compose(PROJECT, ['build']);
   // `up --wait` returns once every service is healthy (migrate must have exited 0 for api to start).
   const r = compose(PROJECT, ['up', '-d', '--wait', '--wait-timeout', '300'], { allowFail: true });
   if (r.status !== 0) {

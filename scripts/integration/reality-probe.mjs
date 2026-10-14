@@ -2,14 +2,14 @@
 /**
  * Product-reality probe (diagnostic, disposable): `node scripts/integration/reality-probe.mjs`.
  * Requires Docker, the local backend image used by congress-e2e.mjs, postgres:16, a built `web/dist` and Edge. Fresh PostgreSQL in a private Docker network with a
- * named volume, API on 127.0.0.1:8000 (from the existing local backend image), production web build
- * served by `vite preview` on 127.0.0.1:4176. No seed data. Everything is removed at the end.
+ * named volume, API published on 127.0.0.1 (from the existing local backend image), production web build
+ * served by `vite preview` on 127.0.0.1 — both on free ports picked per run. No seed data. Everything is removed at the end.
  */
-import { spawn, spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { createRequire } from 'node:module';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { freePorts, run, startPreview, stopProcess } from '../lib/process.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const require = createRequire(resolve(root, 'web/package.json'));
@@ -18,20 +18,17 @@ const IMAGE = process.env.CONGRESS_E2E_BACKEND_IMAGE ?? 'congress-t0-backend:2c0
 const NET = 'congress-reality-net', PG = 'congress-reality-pg', API = 'congress-reality-api', VOL = 'congress-reality-pgdata';
 const DB = 'congress_reality', PGU = 'congress_reality', PGPW = randomBytes(18).toString('hex');
 const ADMIN = randomBytes(24).toString('hex'), JWTS = randomBytes(32).toString('hex');
-const BASE = 'http://127.0.0.1:4176', API_URL = 'http://127.0.0.1:8000';
+const [WEB_PORT, API_PORT] = await freePorts(2);
+const BASE = `http://127.0.0.1:${WEB_PORT}`, API_URL = `http://127.0.0.1:${API_PORT}`;
 const RUN = Date.now().toString(36).slice(-5);
 const PW = `Synth-${randomBytes(6).toString('hex')}!`;
 const mail = (n) => `${n}.${RUN}@example.com`;
 
-const sh = (cmd, args, allowFail = false) => {
-  const r = spawnSync(cmd, args, { encoding: 'utf8', shell: process.platform === 'win32' && (cmd === 'npx') });
-  if (r.status !== 0 && !allowFail) throw new Error(`${cmd} ${args.join(' ')} -> ${r.status}: ${r.stderr || r.stdout}`);
-  return r;
-};
+const sh = (cmd, args, allowFail = false) => run(cmd, args, { allowFail });
 const docker = (...a) => sh('docker', a);
 const psql = (sql) => docker('exec', PG, 'psql', '-U', PGU, '-d', DB, '-At', '-c', sql).stdout.trim();
 const wait = async (label, probe, ms = 60000) => { const end = Date.now() + ms; while (Date.now() < end) { try { if (await probe()) return; } catch {} await new Promise((r) => setTimeout(r, 700)); } throw new Error('timeout ' + label); };
-const env = () => ['-e', 'CONGRESS_ENVIRONMENT=production', '-e', 'CONGRESS_MEDIA_ROOT=/tmp/congress-media', '-e', `CONGRESS_DATABASE_URL=postgresql+asyncpg://${PGU}:${PGPW}@${PG}:5432/${DB}`, '-e', `CONGRESS_PLATFORM_ADMIN_TOKEN=${ADMIN}`, '-e', `CONGRESS_JWT_SECRET=${JWTS}`, '-e', 'CONGRESS_CORS_ORIGINS=["http://127.0.0.1:4176"]'];
+const env = () => ['-e', 'CONGRESS_ENVIRONMENT=production', '-e', 'CONGRESS_MEDIA_ROOT=/tmp/congress-media', '-e', `CONGRESS_DATABASE_URL=postgresql+asyncpg://${PGU}:${PGPW}@${PG}:5432/${DB}`, '-e', `CONGRESS_PLATFORM_ADMIN_TOKEN=${ADMIN}`, '-e', `CONGRESS_JWT_SECRET=${JWTS}`, '-e', `CONGRESS_CORS_ORIGINS=${JSON.stringify([BASE])}`];
 const http = async (m, p, { token, key, admin, body } = {}) => {
   const h = { 'Content-Type': 'application/json' };
   if (token) h.Authorization = `Bearer ${token}`;
@@ -61,7 +58,7 @@ try {
   teardown();
   docker('network', 'create', '--internal', NET);
   await startPg();
-  docker('run', '-d', '--name', API, '-p', '127.0.0.1:8000:8000', '--entrypoint', 'sleep', IMAGE, 'infinity');
+  docker('run', '-d', '--name', API, '-p', `127.0.0.1:${API_PORT}:8000`, '--entrypoint', 'sleep', IMAGE, 'infinity');
   docker('network', 'connect', NET, API);
   for (const d of ['app', 'migrations']) { docker('exec', API, 'rm', '-rf', `/app/${d}`); docker('cp', resolve(root, 'backend', d), `${API}:/app/${d}`); }
   for (const f of ['alembic.ini', 'pyproject.toml', 'uv.lock']) docker('cp', resolve(root, 'backend', f), `${API}:/app/${f}`);
@@ -69,7 +66,7 @@ try {
   docker('exec', ...env(), API, 'sh', '-c', 'cd /app && .venv/bin/alembic upgrade head');
   await startUvicorn();
   if (docker('port', PG).stdout.trim()) throw new Error('PostgreSQL publishes a port');
-  console.log(`env: db=${psql('select current_database()')} alembic=${psql('select version_num from alembic_version')} pg unpublished`);
+  console.log(`env: db=${psql('select current_database()')} alembic=${psql('select version_num from alembic_version')} pg unpublished api=${API_URL} web=${BASE}`);
 
   await check('Fresh database: no users, organizers, events or tickets; API serves without any seed', 'DB', async () => {
     const counts = ['users', 'organizers', 'events', 'tickets'].map((t) => `${t}=${psql(`select count(*) from ${t}`)}`).join(' ');
@@ -77,7 +74,7 @@ try {
     return counts;
   });
 
-  preview = spawn('npx', ['vite', 'preview', '--host', '127.0.0.1', '--port', '4176', '--strictPort'], { cwd: resolve(root, 'web'), stdio: 'ignore', shell: true });
+  preview = startPreview({ port: WEB_PORT, apiOrigin: API_URL });
   await wait('preview', async () => (await fetch(BASE)).ok);
   browser = await chromium.launch({ channel: 'msedge' });
   const page = async (vw = { width: 1280, height: 900 }) => { const c = await browser.newContext({ viewport: vw, serviceWorkers: 'block' }); await c.addInitScript(() => localStorage.setItem('congress_attendee_locale', 'en')); return c.newPage(); };
@@ -228,7 +225,7 @@ try {
   console.log('ABORT', e.message);
 } finally {
   if (browser) await browser.close();
-  if (preview) spawnSync('taskkill', ['/pid', String(preview.pid), '/T', '/F']);
+  stopProcess(preview);
   teardown();
   const failed = results.filter((r) => !r.ok).length;
   console.log(`\n${results.length - failed}/${results.length} passed; disposable stack removed`);

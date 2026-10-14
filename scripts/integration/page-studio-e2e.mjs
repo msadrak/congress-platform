@@ -12,17 +12,18 @@
  *
  * Safety: disposable Docker stack with fixed `congress-studio-*` names — PostgreSQL on a private
  * --internal network without a published port, named volumes for its data and for the media root,
- * generated secrets, API in CONGRESS_ENVIRONMENT=production on 127.0.0.1:8000. Everything is removed at the
+ * generated secrets, API in CONGRESS_ENVIRONMENT=production published on 127.0.0.1 and the web preview on
+ * 127.0.0.1, both on free ports picked per run. Everything is removed at the
  * end unless --keep. Requires Docker, the backend image used by congress-e2e.mjs, postgres:16, Edge and
  * the backend virtualenv (to draw the synthetic artwork).
  */
-import { spawn, spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { freePorts, run, startPreview, stopProcess } from '../lib/process.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const require = createRequire(resolve(root, 'web/package.json'));
@@ -33,15 +34,12 @@ const NET = 'congress-studio-net', PG = 'congress-studio-pg', API = 'congress-st
 const VOL_PG = 'congress-studio-pgdata', VOL_MEDIA = 'congress-studio-media';
 const DB = 'congress_studio', PGU = 'congress_studio', PGPW = randomBytes(18).toString('hex');
 const ADMIN = randomBytes(24).toString('hex'), JWTS = randomBytes(32).toString('hex');
-const BASE = 'http://127.0.0.1:4177', API_URL = 'http://127.0.0.1:8000';
+const [WEB_PORT, API_PORT] = await freePorts(2);
+const BASE = `http://127.0.0.1:${WEB_PORT}`, API_URL = `http://127.0.0.1:${API_PORT}`;
 const SHOTS = resolve(root, 'docs/product/page-studio-evidence');
 const RUN = Date.now().toString(36).slice(-5);
 
-const sh = (cmd, argv, allowFail = false, opts = {}) => {
-  const r = spawnSync(cmd, argv, { encoding: 'utf8', shell: process.platform === 'win32' && (cmd === 'npm' || cmd === 'npx'), ...opts });
-  if (r.status !== 0 && !allowFail) throw new Error(`${cmd} ${argv.join(' ')} -> ${r.status}: ${r.stderr || r.stdout}`);
-  return r;
-};
+const sh = (cmd, argv, allowFail = false, opts = {}) => run(cmd, argv, { ...opts, allowFail });
 const docker = (...a) => sh('docker', a);
 const psql = (sql) => docker('exec', PG, 'psql', '-U', PGU, '-d', DB, '-At', '-c', sql).stdout.trim();
 const wait = async (label, probe, ms = 60000) => {
@@ -58,7 +56,7 @@ const env = () => [
   '-e', 'CONGRESS_MEDIA_ROOT=/data/media',
   '-e', `CONGRESS_PLATFORM_ADMIN_TOKEN=${ADMIN}`,
   '-e', `CONGRESS_JWT_SECRET=${JWTS}`,
-  '-e', 'CONGRESS_CORS_ORIGINS=["http://127.0.0.1:4177"]',
+  '-e', `CONGRESS_CORS_ORIGINS=${JSON.stringify([BASE])}`,
 ];
 const http = async (method, path, { key, admin, body, raw } = {}) => {
   const headers = {};
@@ -110,7 +108,7 @@ try {
   // ── Disposable stack ──
   docker('network', 'create', '--internal', NET);
   await startPg();
-  docker('run', '-d', '--name', API, '-p', '127.0.0.1:8000:8000', '-v', `${VOL_MEDIA}:/data/media`, '--entrypoint', 'sleep', IMAGE, 'infinity');
+  docker('run', '-d', '--name', API, '-p', `127.0.0.1:${API_PORT}:8000`, '-v', `${VOL_MEDIA}:/data/media`, '--entrypoint', 'sleep', IMAGE, 'infinity');
   for (const d of ['app', 'migrations']) { docker('exec', API, 'rm', '-rf', `/app/${d}`); docker('cp', resolve(root, 'backend', d), `${API}:/app/${d}`); }
   for (const f of ['alembic.ini', 'pyproject.toml', 'uv.lock']) docker('cp', resolve(root, 'backend', f), `${API}:/app/${f}`);
   docker('exec', '-e', 'UV_PROJECT_ENVIRONMENT=/app/.venv', '-w', '/app', API, 'uv', 'sync', '--frozen', '--no-dev', '--quiet');
@@ -118,10 +116,10 @@ try {
   docker('exec', ...env(), API, 'sh', '-c', 'cd /app && .venv/bin/alembic upgrade head');
   await startApi();
   if (docker('port', PG).stdout.trim()) throw new Error('PostgreSQL publishes a port');
-  console.log(`stack: db=${psql('select current_database()')} alembic=${psql('select version_num from alembic_version')} env=production media=volume:${VOL_MEDIA}`);
+  console.log(`stack: db=${psql('select current_database()')} alembic=${psql('select version_num from alembic_version')} env=production media=volume:${VOL_MEDIA} api=${API_URL} web=${BASE}`);
 
   if (!args.has('--skip-build') || !existsSync(resolve(root, 'web/dist'))) sh('npm', ['run', 'build'], false, { cwd: resolve(root, 'web') });
-  preview = spawn(process.platform === 'win32' ? 'npx.cmd' : 'npx', ['vite', 'preview', '--host', '127.0.0.1', '--port', '4177', '--strictPort'], { cwd: resolve(root, 'web'), stdio: 'ignore', shell: process.platform === 'win32' });
+  preview = startPreview({ port: WEB_PORT, apiOrigin: API_URL });
   await wait('web preview', async () => (await fetch(BASE)).ok);
   browser = await chromium.launch({ channel: 'msedge' });
   const contextFor = async (viewport, locale = 'en') => {
@@ -408,7 +406,7 @@ try {
 } finally {
   writeFileSync(resolve(SHOTS, 'last-run.json'), JSON.stringify({ at: new Date().toISOString(), results }, null, 2));
   if (browser) await browser.close().catch(() => undefined);
-  if (preview) { if (process.platform === 'win32') spawnSync('taskkill', ['/pid', String(preview.pid), '/T', '/F']); else preview.kill(); }
+  stopProcess(preview);
   if (!args.has('--keep')) teardown();
   const failed = results.filter((r) => !r.ok).length;
   console.log(`\n${results.length - failed}/${results.length} checks passed`);

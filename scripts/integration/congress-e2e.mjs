@@ -6,7 +6,8 @@
  *   node scripts/integration/congress-e2e.mjs [--keep] [--skip-build] [--skip-scanner-spec]
  *
  * Safety: everything is created with fixed `congress-e2e-*` names on a private --internal Docker
- * network. PostgreSQL has no published port; only the API is published, on 127.0.0.1:8000. The
+ * network. PostgreSQL has no published port; only the API is published, on 127.0.0.1 at a free port
+ * picked per run (the preview server gets another one), so nothing collides with other stacks. The
  * script refuses to continue unless the API's effective database is the dedicated `congress_e2e`
  * database inside its own PostgreSQL container. Nothing outside those containers is touched.
  *
@@ -14,11 +15,11 @@
  * (CONGRESS_E2E_BACKEND_IMAGE, default congress-t0-backend:2c0085137f), the postgres:16 image,
  * Node 22+, `npm ci` done in web/, and Microsoft Edge (Playwright channel `msedge`).
  */
-import { spawn, spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { freePorts, run, startPreview, stopProcess } from '../lib/process.mjs';
 import { runJourney } from './journey.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
@@ -33,15 +34,11 @@ const PG_USER = 'congress_e2e';
 const PG_PASSWORD = randomBytes(18).toString('hex');
 const ADMIN_TOKEN = randomBytes(24).toString('hex');
 const JWT_SECRET = randomBytes(24).toString('hex');
-const BASE = 'http://127.0.0.1:4175';
-const API_URL = 'http://127.0.0.1:8000';
+const [WEB_PORT, API_PORT] = await freePorts(2);
+const BASE = `http://127.0.0.1:${WEB_PORT}`;
+const API_URL = `http://127.0.0.1:${API_PORT}`;
 const SHOT_DIR = resolve(root, 'docs/architecture/portal-redesign/congress-e2e');
 
-const run = (cmd, argv, opts = {}) => {
-  const r = spawnSync(cmd, argv, { encoding: 'utf8', shell: process.platform === 'win32' && (cmd === 'npm' || cmd === 'npx'), ...opts });
-  if (r.status !== 0 && !opts.allowFail) throw new Error(`${cmd} ${argv.join(' ')} failed (${r.status}): ${r.stderr || r.stdout}`);
-  return r;
-};
 const docker = (...argv) => run('docker', argv);
 const dockerQuiet = (...argv) => run('docker', argv, { allowFail: true });
 
@@ -74,7 +71,7 @@ async function up() {
   docker('exec', PG, 'psql', '-U', PG_USER, '-d', 'postgres', '-c', `CREATE DATABASE ${DB}`);
 
   const dbUrl = `postgresql+asyncpg://${PG_USER}:${PG_PASSWORD}@${PG}:5432/${DB}`;
-  docker('run', '-d', '--name', API, '-p', '127.0.0.1:8000:8000', '--entrypoint', 'sleep', IMAGE, 'infinity');
+  docker('run', '-d', '--name', API, '-p', `127.0.0.1:${API_PORT}:8000`, '--entrypoint', 'sleep', IMAGE, 'infinity');
   docker('network', 'connect', NET, API);
   for (const d of ['app', 'migrations']) {
     docker('exec', API, 'rm', '-rf', `/app/${d}`);
@@ -84,7 +81,7 @@ async function up() {
   // The image predates some dependencies (Pillow): sync the venv to the lock file while the container is still online.
   docker('exec', '-e', 'UV_PROJECT_ENVIRONMENT=/app/.venv', '-w', '/app', API, 'uv', 'sync', '--frozen', '--no-dev', '--quiet');
   // Production mode: the hardened configuration (explicit database, media volume, generated secrets) must hold.
-  const env = ['-e', 'CONGRESS_ENVIRONMENT=production', '-e', `CONGRESS_DATABASE_URL=${dbUrl}`, '-e', 'CONGRESS_MEDIA_ROOT=/tmp/congress-media', '-e', `CONGRESS_PLATFORM_ADMIN_TOKEN=${ADMIN_TOKEN}`, '-e', `CONGRESS_JWT_SECRET=${JWT_SECRET}`, '-e', 'CONGRESS_CORS_ORIGINS=["http://127.0.0.1:4175"]'];
+  const env = ['-e', 'CONGRESS_ENVIRONMENT=production', '-e', `CONGRESS_DATABASE_URL=${dbUrl}`, '-e', 'CONGRESS_MEDIA_ROOT=/tmp/congress-media', '-e', `CONGRESS_PLATFORM_ADMIN_TOKEN=${ADMIN_TOKEN}`, '-e', `CONGRESS_JWT_SECRET=${JWT_SECRET}`, '-e', `CONGRESS_CORS_ORIGINS=${JSON.stringify([BASE])}`];
   docker('exec', ...env, API, 'sh', '-c', 'cd /app && .venv/bin/alembic upgrade head');
   docker('exec', '-d', ...env, API, 'sh', '-c', 'cd /app && .venv/bin/uvicorn app.main:create_app_from_env --factory --host 0.0.0.0 --port 8000 > /tmp/api.log 2>&1');
   await waitFor('API', async () => (await fetch(`${API_URL}/api/ready`)).status === 200);
@@ -97,7 +94,7 @@ async function up() {
   if (!cfg.includes(`@${PG}:5432/${DB}`) || dbName !== DB) throw new Error(`Refusing to continue: effective database is ${cfg} / ${dbName}`);
   const published = docker('port', PG).stdout.trim();
   if (published) throw new Error('PostgreSQL unexpectedly publishes a port');
-  console.log(`environment ok: db=${dbName} alembic=${alembicHead} api=127.0.0.1:8000 (pg unpublished, network ${NET} internal)`);
+  console.log(`environment ok: db=${dbName} alembic=${alembicHead} api=${API_URL} web=${BASE} (pg unpublished, network ${NET} internal)`);
 }
 
 async function main() {
@@ -107,7 +104,7 @@ async function main() {
   try {
     await up();
     if (!args.has('--skip-build') || !existsSync(resolve(root, 'web/dist'))) run('npm', ['run', 'build'], { cwd: resolve(root, 'web') });
-    preview = spawn(process.platform === 'win32' ? 'npx.cmd' : 'npx', ['vite', 'preview', '--host', '127.0.0.1', '--port', '4175', '--strictPort'], { cwd: resolve(root, 'web'), stdio: 'ignore', shell: process.platform === 'win32' });
+    preview = startPreview({ port: WEB_PORT, apiOrigin: API_URL });
     await waitFor('preview server', async () => (await fetch(BASE)).ok);
 
     const ctx = { root, BASE, API_URL, ADMIN_TOKEN, JWT_SECRET, SHOT_DIR, psql, docker, dockerQuiet, names: { API, PG, DB } };
@@ -118,13 +115,13 @@ async function main() {
     if (!args.has('--skip-scanner-spec')) {
       const spec = run('npx', ['playwright', 'test', 'e2e/scanner-real-api.spec.ts', '--retries=0'], {
         cwd: resolve(root, 'web'), allowFail: true,
-        env: { ...process.env, PLAYWRIGHT_BASE_URL: BASE, CONGRESS_API_BASE_URL: API_URL, CONGRESS_PLATFORM_ADMIN_TOKEN: ADMIN_TOKEN, CI: '', FORCE_COLOR: '0', NO_COLOR: '1' },
+        env: { PLAYWRIGHT_BASE_URL: BASE, CONGRESS_API_BASE_URL: API_URL, CONGRESS_PLATFORM_ADMIN_TOKEN: ADMIN_TOKEN, CI: '', FORCE_COLOR: '0', NO_COLOR: '1' },
       });
       console.log(`scanner-real-api.spec.ts exit=${spec.status}\n${(spec.stdout || '').split('\n').slice(-6).join('\n')}`);
       if (spec.status !== 0) failed = true;
     }
   } finally {
-    if (preview) { if (process.platform === 'win32') spawnSync('taskkill', ['/pid', String(preview.pid), '/T', '/F']); else preview.kill(); }
+    stopProcess(preview);
     if (!args.has('--keep')) teardown();
   }
   process.exit(failed ? 1 : 0);

@@ -15,10 +15,10 @@
  * congress-t0-backend:2c0085137f, which provides Python 3.11 and uv). Dependencies are synced from
  * backend/uv.lock inside the container before it joins the private network.
  */
-import { spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { run } from '../lib/process.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const IMAGE = process.env.CONGRESS_E2E_BACKEND_IMAGE ?? 'congress-t0-backend:2c0085137f';
@@ -28,11 +28,7 @@ const NET = `congress-pytest-net-${RUN}`, PG = `congress-pytest-pg-${RUN}`, RUNN
 const PG_USER = 'congress', PG_PASSWORD = randomBytes(18).toString('hex');
 const pytestArgs = process.argv.slice(2);
 
-const sh = (cmd, args, { allowFail = false, inherit = false } = {}) => {
-  const r = spawnSync(cmd, args, { encoding: 'utf8', stdio: inherit ? 'inherit' : 'pipe' });
-  if (r.status !== 0 && !allowFail) throw new Error(`${cmd} ${args.join(' ')} -> ${r.status}: ${r.stderr || r.stdout}`);
-  return r;
-};
+const sh = (cmd, args, { allowFail = false, inherit = false } = {}) => run(cmd, args, { allowFail, stdio: inherit ? 'inherit' : 'pipe' });
 const docker = (...a) => sh('docker', a);
 const teardown = () => {
   for (const c of [RUNNER, PG]) sh('docker', ['rm', '-f', c], { allowFail: true });

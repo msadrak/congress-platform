@@ -11,7 +11,6 @@
  * API image rebuild, data surviving stop/start, and backup + restore into a separate disposable project.
  * Evidence: docs/deployment/staging-evidence/.
  */
-import { spawnSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import https from 'node:https';
@@ -19,7 +18,8 @@ import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runJourney } from '../integration/journey.mjs';
-import { backup, compose, psql, readEnv, restoreVerify, run } from './stack.mjs';
+import { run } from '../lib/process.mjs';
+import { backup, compose, psql, readEnv, restoreVerify } from './stack.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const require = createRequire(resolve(root, 'web/package.json'));
@@ -164,9 +164,9 @@ try {
   });
 
   await check('07 real-API scanner spec (pairing, manifest, self-revocation) on staging', async () => {
-    const r = spawnSync(process.platform === 'win32' ? 'npx.cmd' : 'npx', ['playwright', 'test', 'e2e/scanner-real-api.spec.ts', '--retries=0'], {
-      cwd: resolve(root, 'web'), encoding: 'utf8', shell: process.platform === 'win32',
-      env: { ...process.env, PLAYWRIGHT_BASE_URL: HTTP_BASE, CONGRESS_API_BASE_URL: HTTP_BASE, CONGRESS_PLATFORM_ADMIN_TOKEN: env.CONGRESS_PLATFORM_ADMIN_TOKEN, CI: '', FORCE_COLOR: '0' },
+    const r = run('npx', ['playwright', 'test', 'e2e/scanner-real-api.spec.ts', '--retries=0'], {
+      cwd: resolve(root, 'web'), allowFail: true,
+      env: { PLAYWRIGHT_BASE_URL: HTTP_BASE, CONGRESS_API_BASE_URL: HTTP_BASE, CONGRESS_PLATFORM_ADMIN_TOKEN: env.CONGRESS_PLATFORM_ADMIN_TOKEN, CI: '', FORCE_COLOR: '0' },
     });
     assert(r.status === 0, (r.stdout || r.stderr).split('\n').slice(-8).join(' '));
     return (r.stdout.match(/\d+ passed/) ?? ['?'])[0];
