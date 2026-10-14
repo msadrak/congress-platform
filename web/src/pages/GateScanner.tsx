@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent } from "react";
 import { Link, useParams } from "react-router-dom";
 import { createScannerApiClient, formatApiError, type CheckInManifest } from "../api/client";
 import { playErrorBuzz, playSuccessChime, playProvisionalChime } from "../lib/audioFeedback";
@@ -64,10 +64,15 @@ export default function GateScanner() {
   // Persisted scanner credential (survives browser restart via IndexedDB)
   const [persistedCredential, setPersistedCredential] = useState<PersistedScannerCredential | null>(null);
   // Authorization lifecycle: definitive server rejects + offline-window verdict
-  const [authBlocked, setAuthBlocked] = useState<{
-    kind: "REVOKED" | "FORBIDDEN" | "EXPIRED";
-    message: string;
-  } | null>(null);
+  type AuthBlock = { kind: "REVOKED" | "FORBIDDEN" | "EXPIRED"; message: string };
+  const [authBlocked, setAuthBlockedState] = useState<AuthBlock | null>(null);
+  // Long-lived callbacks (sync timer, online handler, HID listener, camera loop) and back-to-back
+  // scans read these refs, never a render's snapshot: they are written synchronously with the state.
+  const authBlockedRef = useRef<AuthBlock | null>(null);
+  const setAuthBlocked = (value: AuthBlock | null) => {
+    authBlockedRef.current = value;
+    setAuthBlockedState(value);
+  };
   const [lastServerContactAt, setLastServerContactAt] = useState<string | null>(null);
   const [authVerdict, setAuthVerdict] = useState<OfflineAuthVerdict | null>(null);
   // Unpair flow state — durable local lockout remains until server revocation.
@@ -166,8 +171,7 @@ export default function GateScanner() {
   const enterAuthBlocked = (kind: "REVOKED" | "FORBIDDEN" | "EXPIRED", message: string) => {
     setAuthBlocked({ kind, message });
     setManifest(null);
-    setTicketMap({});
-    setCurrentAdmittedCount(0);
+    applyAdmissionState({}, 0);
     setRecentScans([]);
     setConflicts([]);
     setShowConflictDrawer(false);
@@ -202,7 +206,36 @@ export default function GateScanner() {
   }, []);
   const [manifest, setManifest] = useState<CheckInManifest | null>(null);
   const [ticketMap, setTicketMap] = useState<Record<string, LocalTicket>>({});
-  const [currentAdmittedCount, setCurrentAdmittedCount] = useState<number>(0);
+  // The admission state every scan evaluates against. evaluateLocalScan mutates the ticket entries in
+  // place, so the map and the admitted count are only ever read and advanced through this ref.
+  const admissionRef = useRef<{ ticketMap: Record<string, LocalTicket>; admittedCount: number }>({
+    ticketMap: {},
+    admittedCount: 0,
+  });
+  const applyAdmissionState = (map: Record<string, LocalTicket>, admittedCount: number) => {
+    admissionRef.current = { ticketMap: map, admittedCount };
+    setTicketMap(map);
+  };
+  // Scans evaluated here but not yet written to IndexedDB, and a counter bumped whenever a scan is
+  // evaluated or written. A rebuild (manifest load/refresh, sync conflicts) may only replace the live
+  // state if no scan happened while it read the history; otherwise it reads again.
+  const unsavedScansRef = useRef<QueuedScan[]>([]);
+  const scanEpochRef = useRef(0);
+  const rebuildAdmissionState = async (tickets: LocalTicket[]): Promise<QueuedScan[]> => {
+    if (!pointId) return [];
+    for (;;) {
+      const epoch = scanEpochRef.current;
+      const history = await getAllScansForPoint(pointId);
+      if (epoch !== scanEpochRef.current) continue;
+      const saved = new Set(history.map((s) => s.scan_id));
+      const { ticketMap: map, currentAdmittedCount } = reconstructLocalState(tickets, [
+        ...history,
+        ...unsavedScansRef.current.filter((s) => !saved.has(s.scan_id)),
+      ]);
+      applyAdmissionState(map, currentAdmittedCount);
+      return history;
+    }
+  };
   const [conflicts, setConflicts] = useState<QueuedScan[]>([]);
   const [showConflictDrawer, setShowConflictDrawer] = useState<boolean>(false);
   const [loading, setLoading] = useState(true);
@@ -261,8 +294,7 @@ export default function GateScanner() {
       deactivationRef.current = true;
       setDeactivationPending(true);
       setManifest(null);
-      setTicketMap({});
-      setCurrentAdmittedCount(0);
+      applyAdmissionState({}, 0);
       setRecentScans([]);
       setConflicts([]);
       setLoading(false);
@@ -271,8 +303,7 @@ export default function GateScanner() {
     }
     if (!token) {
       setManifest(null);
-      setTicketMap({});
-      setCurrentAdmittedCount(0);
+      applyAdmissionState({}, 0);
       setRecentScans([]);
       setInitError("Pair this scanner with a valid device token before loading attendee data.");
       setLoading(false);
@@ -291,11 +322,7 @@ export default function GateScanner() {
       const casted = cached as CheckInManifest;
       setManifest(casted);
       if (cachedMeta.cached_at) setManifestCachedAt(cachedMeta.cached_at);
-      const localHistory = await getAllScansForPoint(pointId);
-      const { ticketMap: reconMap, currentAdmittedCount: reconCount } =
-        reconstructLocalState(casted.tickets, localHistory);
-      setTicketMap(reconMap);
-      setCurrentAdmittedCount(reconCount);
+      const localHistory = await rebuildAdmissionState(casted.tickets);
       setRecentScans(localHistory.slice(0, 10));
       setLoading(false);
     }
@@ -313,11 +340,7 @@ export default function GateScanner() {
         );
         if (data) {
           setManifest(data);
-          const localHistory = await getAllScansForPoint(pointId);
-          const { ticketMap: reconMap, currentAdmittedCount: reconCount } =
-            reconstructLocalState(data.tickets, localHistory);
-          setTicketMap(reconMap);
-          setCurrentAdmittedCount(reconCount);
+          const localHistory = await rebuildAdmissionState(data.tickets);
           await saveCachedManifest(pointId, data);
           // oxlint-disable-next-line react/purity -- runs inside async loadManifest (effect/event handlers only), after awaits; never during render.
           const nowIso = new Date().toISOString();
@@ -361,9 +384,8 @@ export default function GateScanner() {
   // Definitive 401/403 stops new admissions (authBlocked) while preserving
   // every queued record. Network throws stay transient: the 5 s interval
   // gates retries, so no infinite hot loop exists.
-  const flushQueue = async () => {
-    if (!pointId || isSyncing || !navigator.onLine) return;
-    if (authBlocked) return;
+  const syncOnce = async () => {
+    if (!pointId || !navigator.onLine || authBlockedRef.current) return;
     const unsynced = await getUnsyncedScans(pointId);
     if (unsynced.length === 0) return;
 
@@ -390,13 +412,15 @@ export default function GateScanner() {
 
       if (data && data.results) {
         const report = await reconcileBatchOutcomes(pointId, data.results);
+        const allPointScans = await getAllScansForPoint(pointId);
         if (report.conflictCount > 0) {
           const updatedConflicts = await getConflictsForPoint(pointId);
           setConflicts(updatedConflicts);
+          // The server overruled provisional admissions: later scans evaluate against its verdict.
+          if (manifest && !authBlockedRef.current) await rebuildAdmissionState(manifest.tickets);
         }
         const nowIso = new Date().toISOString();
         setLastServerContactAt(nowIso);
-        const allPointScans = await getAllScansForPoint(pointId);
         setRecentScans(allPointScans.slice(0, 10));
         updatePendingCount();
         setSyncFailCount(0);
@@ -416,14 +440,42 @@ export default function GateScanner() {
     }
   };
 
-  // Declared after flushQueue so the closures below never reference it before initialization.
+  // Timers, the online handler, the HID listener and the camera loop live for the whole mount, so they
+  // call through these refs and always run the latest render's code (credential, manifest, policy).
+  const syncOnceRef = useRef(syncOnce);
+  const processScanRef = useRef<(rawCode: string) => Promise<void>>(async () => undefined);
+  const syncInFlightRef = useRef<Promise<void> | null>(null);
+  const syncAgainRef = useRef(false);
+
+  // One sync at a time per scanner. A trigger that arrives mid-sync (timer, reconnect, a new scan)
+  // joins the running one and asks for one more pass, so its records go out right after, never in
+  // parallel. Callers that await (unpair) wait for the whole run.
+  const flushQueue = (): Promise<void> => {
+    if (syncInFlightRef.current) {
+      syncAgainRef.current = true;
+      return syncInFlightRef.current;
+    }
+    const run = (async () => {
+      try {
+        do {
+          syncAgainRef.current = false;
+          await syncOnceRef.current();
+        } while (syncAgainRef.current && !authBlockedRef.current);
+      } finally {
+        syncInFlightRef.current = null;
+      }
+    })();
+    syncInFlightRef.current = run;
+    return run;
+  };
+
   useEffect(() => {
     // oxlint-disable-next-line react/set-state-in-effect -- loadManifest's state updates are the manifest fetch for this pointId (IndexedDB + network sync).
     loadManifest();
 
     const handleOnline = () => {
       setIsOnline(true);
-      flushQueue();
+      void flushQueue();
     };
     const handleOffline = () => setIsOnline(false);
 
@@ -432,9 +484,7 @@ export default function GateScanner() {
 
     // Background sync timer every 5 seconds
     const syncInterval = setInterval(() => {
-      if (navigator.onLine) {
-        flushQueue();
-      }
+      if (navigator.onLine) void flushQueue();
     }, 5000);
 
     return () => {
@@ -442,7 +492,7 @@ export default function GateScanner() {
       window.removeEventListener("offline", handleOffline);
       clearInterval(syncInterval);
     };
-    // oxlint-disable-next-line react-hooks/exhaustive-deps -- deliberately bound once per pointId: depending on loadManifest/flushQueue (new each render) would refetch the manifest and reset the 5 s sync interval on every render.
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- bound once per pointId: loadManifest runs once per point, and flushQueue only touches refs (it calls the latest syncOnce).
   }, [pointId]);
 
   // 3. Central Scan Processor (Evaluates locally in <10ms, triggers audio/visual, queues to IndexedDB)
@@ -460,7 +510,7 @@ export default function GateScanner() {
       playErrorBuzz();
       return;
     }
-    if (authBlocked) {
+    if (authBlockedRef.current) {
       playErrorBuzz();
       return;
     }
@@ -484,17 +534,21 @@ export default function GateScanner() {
     lastProcessedCodeRef.current = cleanSecret;
     isScanningRef.current = true;
 
+    // Read and advance the live admission state in one synchronous step, so back-to-back scans
+    // (HID bursts, camera frames, manual entry) each see every admission before them.
+    const admission = admissionRef.current;
     const policy: LocalPolicyConfig = {
       policy_type: manifest.checkin_point.policy_type as LocalPolicyConfig["policy_type"],
       allowed_tier_ids: manifest.checkin_point.allowed_tier_ids,
       max_capacity: manifest.checkin_point.max_capacity,
-      current_admitted_count: currentAdmittedCount,
+      current_admitted_count: admission.admittedCount,
       is_offline: !navigator.onLine,
     };
 
-    const result = evaluateLocalScan(ticketMap, policy, cleanSecret);
+    const result = evaluateLocalScan(admission.ticketMap, policy, cleanSecret);
+    admissionRef.current = { ticketMap: admission.ticketMap, admittedCount: result.current_admitted_count };
+    scanEpochRef.current += 1;
     setActiveResult(result);
-    setCurrentAdmittedCount(result.current_admitted_count);
 
     // Sound feedback distinguishing Confirmed vs Provisional vs Rejected
     if (soundEnabled) {
@@ -522,13 +576,19 @@ export default function GateScanner() {
       ticket_tier_name: result.ticket?.ticket_tier_name,
     };
 
-    await saveQueuedScan(scanRecord);
+    unsavedScansRef.current.push(scanRecord);
+    try {
+      await saveQueuedScan(scanRecord);
+    } finally {
+      unsavedScansRef.current = unsavedScansRef.current.filter((s) => s.scan_id !== scanRecord.scan_id);
+      scanEpochRef.current += 1;
+    }
     setRecentScans((prev) => [scanRecord, ...prev.slice(0, 9)]);
     updatePendingCount();
 
     // Auto-flush immediately if online
     if (navigator.onLine) {
-      flushQueue();
+      void flushQueue();
     }
 
     // Auto-clear active flash after 1.8 seconds
@@ -539,6 +599,11 @@ export default function GateScanner() {
       lastProcessedCodeRef.current = null;
     }, 1800);
   };
+
+  useLayoutEffect(() => {
+    syncOnceRef.current = syncOnce;
+    processScanRef.current = processScannedCode;
+  });
 
   // 4. USB / Bluetooth HID Laser Scanner Listener (Buffered keystrokes with <50ms delta)
   useEffect(() => {
@@ -557,7 +622,7 @@ export default function GateScanner() {
         if (hidBufferRef.current.length >= 4) {
           const barcode = hidBufferRef.current;
           hidBufferRef.current = "";
-          processScannedCode(barcode);
+          void processScanRef.current(barcode);
         } else {
           hidBufferRef.current = "";
         }
@@ -572,8 +637,7 @@ export default function GateScanner() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-    // oxlint-disable-next-line react-hooks/exhaustive-deps -- rebinds only on these scan inputs (same snapshot model as the camera loop); depending on processScannedCode would rebind every render and change which state snapshot HID scans evaluate against.
-  }, [pointId, manifest, ticketMap, soundEnabled]);
+  }, []);
   // Locally disable first, then report server revocation only after an
   // authenticated, successful self-revoke response.
   const handleUnpair = async () => {
@@ -633,8 +697,7 @@ export default function GateScanner() {
       setPersistedCredential(null);
       setAuthBlocked(null);
       setManifest(null);
-      setTicketMap({});
-      setCurrentAdmittedCount(0);
+      applyAdmissionState({}, 0);
       setRecentScans([]);
       setConflicts([]);
       setUnpairNotice(
@@ -778,7 +841,7 @@ export default function GateScanner() {
 
             if (!isDuplicateFrame) {
               lastScannedCodeRef.current = { code: trimmed, time: now };
-              void processScannedCode(trimmed);
+              void processScanRef.current(trimmed);
             }
           }
         } catch {
