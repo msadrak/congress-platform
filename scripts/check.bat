@@ -35,6 +35,8 @@ if errorlevel 1 (
 )
 
 :web
+call node scripts\gen-api.mjs --check
+if errorlevel 1 ( echo [FAIL] web\src\api\schema.d.ts is stale & exit /b 1 )
 echo.
 echo [2/3] Checking Web (React / TypeScript)...
 cd web
@@ -42,6 +44,8 @@ call npm test
 if errorlevel 1 ( echo [FAIL] Web test failed & exit /b 1 )
 call npm run typecheck
 if errorlevel 1 ( echo [FAIL] Web typecheck failed & exit /b 1 )
+call npm run lint
+if errorlevel 1 ( echo [FAIL] Web lint failed & exit /b 1 )
 call npm run build
 if errorlevel 1 ( echo [FAIL] Web build failed & exit /b 1 )
 cd ..

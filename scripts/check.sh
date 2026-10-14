@@ -13,12 +13,19 @@ echo "=========================================="
 # 1. Backend Verification
 echo ""
 echo "[1/3] Checking Backend (Python / FastAPI)..."
-cd backend
-echo "  -> Running strict mypy..."
-uv run mypy
-echo "  -> Running pytest suite..."
-uv run pytest -q
-cd ..
+if docker info > /dev/null 2>&1; then
+  # Preferred: mypy + pytest on disposable Docker PostgreSQL with a steady clock (same as check.bat).
+  node scripts/integration/backend-tests.mjs
+else
+  cd backend
+  echo "  -> Running strict mypy..."
+  uv run mypy
+  echo "  -> Running pytest suite..."
+  uv run pytest -q
+  cd ..
+fi
+echo "  -> Checking web/src/api/schema.d.ts against the backend..."
+node scripts/gen-api.mjs --check
 
 # 2. Web Verification
 echo ""
@@ -28,6 +35,8 @@ echo "  -> Running unit tests..."
 npm test
 echo "  -> Running TypeScript typecheck..."
 npm run typecheck
+echo "  -> Running oxlint..."
+npm run lint
 echo "  -> Running production Vite build..."
 npm run build
 cd ..
