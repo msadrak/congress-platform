@@ -12,7 +12,7 @@
  *
  * Safety: disposable Docker stack with fixed `congress-studio-*` names — PostgreSQL on a private
  * --internal network without a published port, named volumes for its data and for the media root,
- * generated secrets, API in CONGRESS_ENVIRONMENT=production on 127.0.0.1:8000. Everything is removed at the
+ * generated secrets, API in CONGRESS_ENVIRONMENT=staging on 127.0.0.1:8000. Everything is removed at the
  * end unless --keep. Requires Docker, the backend image used by congress-e2e.mjs, postgres:16, Edge and
  * the backend virtualenv (to draw the synthetic artwork).
  */
@@ -53,7 +53,9 @@ const wait = async (label, probe, ms = 60000) => {
   throw new Error(`timeout: ${label}`);
 };
 const env = () => [
-  '-e', 'CONGRESS_ENVIRONMENT=production',
+  // Staging (strict) with the console SMS provider: production requires real sms.ir delivery.
+  '-e', 'CONGRESS_ENVIRONMENT=staging',
+  '-e', 'CONGRESS_SMS_PROVIDER=console',
   '-e', `CONGRESS_DATABASE_URL=postgresql+asyncpg://${PGU}:${PGPW}@${PG}:5432/${DB}`,
   '-e', 'CONGRESS_MEDIA_ROOT=/data/media',
   '-e', `CONGRESS_PLATFORM_ADMIN_TOKEN=${ADMIN}`,
@@ -118,7 +120,7 @@ try {
   docker('exec', ...env(), API, 'sh', '-c', 'cd /app && .venv/bin/alembic upgrade head');
   await startApi();
   if (docker('port', PG).stdout.trim()) throw new Error('PostgreSQL publishes a port');
-  console.log(`stack: db=${psql('select current_database()')} alembic=${psql('select version_num from alembic_version')} env=production media=volume:${VOL_MEDIA}`);
+  console.log(`stack: db=${psql('select current_database()')} alembic=${psql('select version_num from alembic_version')} env=staging media=volume:${VOL_MEDIA}`);
 
   if (!args.has('--skip-build') || !existsSync(resolve(root, 'web/dist'))) sh('npm', ['run', 'build'], false, { cwd: resolve(root, 'web') });
   preview = spawn(process.platform === 'win32' ? 'npx.cmd' : 'npx', ['vite', 'preview', '--host', '127.0.0.1', '--port', '4177', '--strictPort'], { cwd: resolve(root, 'web'), stdio: 'ignore', shell: process.platform === 'win32' });

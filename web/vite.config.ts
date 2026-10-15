@@ -3,6 +3,9 @@ import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vite'
 import { VitePWA } from 'vite-plugin-pwa'
 
+// The API the dev and preview servers proxy /api to. Override when port 8000 is taken on this machine.
+const apiProxyTarget = process.env.CONGRESS_API_PROXY_TARGET ?? 'http://127.0.0.1:8000'
+
 export default defineConfig({
   plugins: [
     react(),
@@ -65,11 +68,11 @@ export default defineConfig({
     host: '0.0.0.0',
     port: 5173,
     // Same-origin in the browser, so no CORS configuration is needed in dev.
-    proxy: { '/api': 'http://127.0.0.1:8000' },
+    proxy: { '/api': apiProxyTarget },
   },
   preview: {
     host: '0.0.0.0',
     port: 5180,
-    proxy: { '/api': 'http://127.0.0.1:8000' },
+    proxy: { '/api': apiProxyTarget },
   },
 })

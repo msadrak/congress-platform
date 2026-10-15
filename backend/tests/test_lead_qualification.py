@@ -30,24 +30,24 @@ async def setup_booth_with_captured_leads(
     booth_id = booth["id"]
 
     _, staff_token = await register_user(
-        client, "staff@siemens.com", "Booth Staff Rep"
+        client, "09121000042", "Booth Staff Rep"
     )
     await client.post(
         f"/api/events/{event_id}/booths/{booth_id}/staff",
-        json={"email": "staff@siemens.com"},
+        json={"mobile": "09121000042"},
         headers=bearer(organizer),
     )
 
     # Capture 3 leads
     leads = []
     attendees_info = [
-        ("Dr. Ali Rezaei", "ali.rezaei@hospital.org", "HOT", "Urgent inquiry for 10 units"),
-        ("Dr. Sara Alavi", "sara.alavi@clinic.ir", "WARM", "General catalog inquiry"),
-        ("Nima Rad", "nima@university.ac.ir", "COLD", "Student visit"),
+        ("Dr. Ali Rezaei", "09121000043", "HOT", "Urgent inquiry for 10 units"),
+        ("Dr. Sara Alavi", "09121000044", "WARM", "General catalog inquiry"),
+        ("Nima Rad", "09121000045", "COLD", "Student visit"),
     ]
 
-    for name, email, rating, note in attendees_info:
-        _, att_token = await register_user(client, email, name)
+    for name, mobile, rating, note in attendees_info:
+        _, att_token = await register_user(client, mobile, name)
         ticket = (
             await client.post(
                 f"/api/events/{event_id}/tickets/reserve",

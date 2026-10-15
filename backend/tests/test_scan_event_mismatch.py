@@ -32,7 +32,7 @@ async def test_foreign_ticket_scan_is_rejected_without_exposing_its_holder(
     organizer_a, event_a, _ = await _congress(client, "Congress A Org", "congress-a")
     organizer_b, event_b, tier_b = await _congress(client, "Congress B Org", "congress-b")
 
-    _, attendee_token = await register_user(client, "foreign.holder@example.com", "Foreign Holder")
+    _, attendee_token = await register_user(client, "09121000058", "Foreign Holder")
     foreign_ticket = (
         await client.post(
             f"/api/events/{event_b}/tickets/reserve",
@@ -84,7 +84,7 @@ async def test_foreign_ticket_scan_is_rejected_without_exposing_its_holder(
     assert export.status_code == 200
     assert "EVENT_MISMATCH" in export.text
     assert "Foreign Holder" not in export.text
-    assert "foreign.holder@example.com" not in export.text
+    assert "09121000058" not in export.text
 
     # The rejection is recorded once and counts as a scan, never as an admission.
     analytics = (

@@ -35,9 +35,10 @@ the container, the volume and the local credential files; without `-ConfirmDatab
 
 `.demo/DEMO-GUIDE.md` (generated on every start with the real ports, ids, accounts, test badges and the checklist) and
 `.demo/credentials.json`. The `.demo/` directory is gitignored; scanner tokens are only copied to the clipboard.
-All people, companies and addresses are synthetic (`example.com`).
+All people and companies are synthetic; mobile numbers use the unassigned `0900` prefix. Sign-in codes are printed in
+the API window (the demo runs the `console` SMS provider: nothing is sent).
 
 ## Not verified by this environment
 
-Camera decoding and USB HID reader input (the scanner and badge capture are exercised by typing codes), real e-mail
-delivery (none exists), production build / service-worker behaviour (the dev server is used).
+Camera decoding and USB HID reader input (the scanner and badge capture are exercised by typing codes), real SMS
+delivery through sms.ir (the demo records messages instead), production build / service-worker behaviour (the dev server is used).

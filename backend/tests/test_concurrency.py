@@ -34,8 +34,8 @@ async def create_unique_event(client: AsyncClient, organizer: dict[str, str]) ->
 
 
 async def create_attendee(client: AsyncClient, event_id: str, tier_id: str, name: str) -> dict[str, Any]:
-    email = f"user_{uuid.uuid4().hex[:6]}@example.com"
-    _, token = await register_user(client, email, name)
+    mobile = f"0935{uuid.uuid4().int % 10**7:07d}"
+    _, token = await register_user(client, mobile, name)
     resp = await client.post(
         f"/api/events/{event_id}/tickets/reserve",
         json={"ticket_tier_id": tier_id},

@@ -1,11 +1,10 @@
-import secrets
 import uuid
 from datetime import datetime, timezone
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 
@@ -24,21 +23,21 @@ from app.models import (
 )
 from app.routes.events import OwnedEventDep
 from app.routes.ticket_tiers import TicketTierOut
-from app.rate_limit import LOGIN_PER_ACCOUNT, LOGIN_PER_IP, client_ip, limiter
+from app.routes.auth import OtpCode, verify_code
 from app.security import (
     create_desk_operator_token,
     decode_access_token,
     generate_entity_qr_secret,
-    hash_password,
-    verify_password,
 )
+from app.sms.outbox import queue_ticket_confirmation
+from app.sms.phone import IranMobile, OptionalIranMobile, ascii_digits, search_digits
 
 _bearer = HTTPBearer(auto_error=False)
 router = APIRouter(tags=["desk"])
 
 
 class DeskOperatorCreate(BaseModel):
-    email: EmailStr
+    mobile: IranMobile
     operator_name: str = Field(min_length=1, max_length=200)
 
 
@@ -49,19 +48,17 @@ class DeskOperatorOut(BaseModel):
     event_id: uuid.UUID
     user_id: uuid.UUID
     operator_name: str
-    email: str
+    mobile: str | None
     is_revoked: bool
     revoked_at: datetime | None
     created_at: datetime
 
 
-class DeskOperatorCreated(DeskOperatorOut):
-    temporary_password: str | None = None
-
-
 class DeskLoginRequest(BaseModel):
-    email: EmailStr
-    password: str
+    """Sign-in code requested with POST /api/auth/otp/request (purpose "desk")."""
+
+    mobile: IranMobile
+    code: OtpCode
 
 
 class DeskLoginResponse(BaseModel):
@@ -84,7 +81,8 @@ class DeskMeOut(BaseModel):
 
 class DeskRegistrationCreate(BaseModel):
     full_name: str = Field(min_length=1, max_length=200)
-    email: str | None = None
+    # Optional: with a number the attendee gets the pass link by SMS and can sign in later.
+    mobile: OptionalIranMobile = None
     organization: str = Field(default="", max_length=200)
     title: str = Field(default="", max_length=100)
     ticket_tier_id: uuid.UUID
@@ -95,7 +93,7 @@ class DeskRegistrationOut(BaseModel):
 
     ticket_id: uuid.UUID
     attendee_name: str
-    attendee_email: str
+    attendee_mobile: str | None
     organization: str
     title: str
     ticket_tier_name: str
@@ -108,7 +106,7 @@ class AttendeeSearchItem(BaseModel):
     ticket_id: uuid.UUID
     attendee_id: uuid.UUID
     attendee_name: str
-    attendee_email: str
+    attendee_mobile: str | None
     organization: str
     title: str
     ticket_tier_id: uuid.UUID
@@ -130,7 +128,7 @@ class AttendeeDetailCard(BaseModel):
     ticket_id: uuid.UUID
     attendee_id: uuid.UUID
     attendee_name: str
-    attendee_email: str
+    attendee_mobile: str | None
     organization: str
     title: str
     ticket_tier_name: str
@@ -263,15 +261,13 @@ async def desk_operator_login(
     if event is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Event not found")
 
-    email = body.email.strip().lower()
-    throttle = limiter(request)
-    keys = (f"login:account:{email}", f"login:ip:{client_ip(request)}")
-    throttle.check((keys[0], LOGIN_PER_ACCOUNT), (keys[1], LOGIN_PER_IP))
-    user = await session.scalar(select(User).where(User.email == email))
-    if user is None or not verify_password(body.password, user.password_hash):
-        throttle.fail(*keys)
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid email or password")
-    throttle.succeed(keys[0])
+    await verify_code(request, session, body.mobile, body.code, "desk")
+    user = await session.scalar(select(User).where(User.mobile == body.mobile))
+    if user is None:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "User is not registered as a front desk operator for this event",
+        )
 
     operator = await session.scalar(
         select(DeskOperator).where(
@@ -306,7 +302,7 @@ async def desk_operator_login(
         event_id=operator.event_id,
         user_id=operator.user_id,
         operator_name=operator.operator_name,
-        email=user.email,
+        mobile=user.mobile,
         is_revoked=operator.is_revoked,
         revoked_at=operator.revoked_at,
         created_at=operator.created_at,
@@ -353,7 +349,7 @@ async def list_desk_operators(
     session: SessionDep,
 ) -> list[DeskOperatorOut]:
     query = (
-        select(DeskOperator, User.email)
+        select(DeskOperator, User.mobile)
         .join(User, DeskOperator.user_id == User.id)
         .where(DeskOperator.event_id == event.id)
         .order_by(DeskOperator.created_at)
@@ -366,12 +362,12 @@ async def list_desk_operators(
             event_id=op.event_id,
             user_id=op.user_id,
             operator_name=op.operator_name,
-            email=email,
+            mobile=mobile,
             is_revoked=op.is_revoked,
             revoked_at=op.revoked_at,
             created_at=op.created_at,
         )
-        for op, email in rows
+        for op, mobile in rows
     ]
 
 
@@ -383,18 +379,11 @@ async def add_desk_operator(
     event: OwnedEventDep,
     body: DeskOperatorCreate,
     session: SessionDep,
-) -> DeskOperatorCreated:
-    email = body.email.strip().lower()
-    user = await session.scalar(select(User).where(User.email == email))
-
-    temp_password: str | None = None
+) -> DeskOperatorOut:
+    """Authorize a person (by mobile) for this event's front desk; they sign in with an SMS code."""
+    user = await session.scalar(select(User).where(User.mobile == body.mobile))
     if user is None:
-        temp_password = f"desk-{secrets.token_urlsafe(8)}"
-        user = User(
-            email=email,
-            password_hash=hash_password(temp_password),
-            full_name=body.operator_name.strip(),
-        )
+        user = User(mobile=body.mobile, full_name=body.operator_name.strip())
         session.add(user)
         await session.flush()
 
@@ -411,16 +400,15 @@ async def add_desk_operator(
             existing_op.revoked_at = None
             existing_op.operator_name = body.operator_name.strip()
             await session.commit()
-            return DeskOperatorCreated(
+            return DeskOperatorOut(
                 id=existing_op.id,
                 event_id=existing_op.event_id,
                 user_id=existing_op.user_id,
                 operator_name=existing_op.operator_name,
-                email=user.email,
+                mobile=user.mobile,
                 is_revoked=existing_op.is_revoked,
                 revoked_at=existing_op.revoked_at,
                 created_at=existing_op.created_at,
-                temporary_password=temp_password,
             )
         raise HTTPException(
             status.HTTP_409_CONFLICT,
@@ -437,16 +425,15 @@ async def add_desk_operator(
     await session.commit()
     await session.refresh(operator)
 
-    return DeskOperatorCreated(
+    return DeskOperatorOut(
         id=operator.id,
         event_id=operator.event_id,
         user_id=operator.user_id,
         operator_name=operator.operator_name,
-        email=user.email,
+        mobile=user.mobile,
         is_revoked=operator.is_revoked,
         revoked_at=operator.revoked_at,
         created_at=operator.created_at,
-        temporary_password=temp_password,
     )
 
 
@@ -467,7 +454,7 @@ async def revoke_desk_operator(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Desk operator not found")
 
     user = await session.get(User, operator.user_id)
-    email = user.email if user else ""
+    mobile = user.mobile if user else None
 
     operator.is_revoked = True
     operator.session_version += 1
@@ -479,7 +466,7 @@ async def revoke_desk_operator(
         event_id=operator.event_id,
         user_id=operator.user_id,
         operator_name=operator.operator_name,
-        email=email,
+        mobile=mobile,
         is_revoked=operator.is_revoked,
         revoked_at=operator.revoked_at,
         created_at=operator.created_at,
@@ -497,32 +484,29 @@ async def revoke_desk_operator(
 async def create_desk_registration(
     desk_ctx: AuthorizedDeskDep,
     body: DeskRegistrationCreate,
+    request: Request,
     session: SessionDep,
 ) -> DeskRegistrationOut:
     event = desk_ctx.event
 
-    # 1. Resolve User (find or create)
-    email = body.email.strip().lower() if body.email else None
+    # 1. Resolve User: an existing account with this mobile, or a new one (no mobile = cannot sign in later)
     user = None
-
-    if email:
-        user = await session.scalar(select(User).where(User.email == email))
+    if body.mobile:
+        user = await session.scalar(select(User).where(User.mobile == body.mobile))
 
     if user is None:
-        actual_email = email or f"walkin-{uuid.uuid4().hex[:12]}@{event.slug}.local"
-        random_pwd = secrets.token_urlsafe(16)
         user = User(
-            email=actual_email,
-            password_hash=hash_password(random_pwd),
+            mobile=body.mobile,
             full_name=body.full_name.strip(),
             organization=body.organization.strip(),
             title=body.title.strip(),
         )
         session.add(user)
         try:
-            await session.flush()
+            async with session.begin_nested():
+                await session.flush()
         except IntegrityError:
-            user = await session.scalar(select(User).where(User.email == actual_email))
+            user = await session.scalar(select(User).where(User.mobile == body.mobile))
             if user is None:
                 raise HTTPException(
                     status.HTTP_409_CONFLICT, "User creation failed"
@@ -590,12 +574,15 @@ async def create_desk_registration(
         is_active=True,
     )
     session.add(qr)
+    queue_ticket_confirmation(
+        session, request.app.state.settings, str(request.base_url), user=user, event=event, ticket=ticket
+    )
     await session.commit()
 
     return DeskRegistrationOut(
         ticket_id=ticket.id,
         attendee_name=user.full_name,
-        attendee_email=user.email,
+        attendee_mobile=user.mobile,
         organization=user.organization,
         title=user.title,
         ticket_tier_name=tier_name,
@@ -641,12 +628,13 @@ async def search_event_attendees(
     )
 
     if term:
-        like_term = f"%{term}%"
+        like_term = f"%{ascii_digits(term)}%"
+        digits = search_digits(term)
         query = query.where(
             or_(
                 User.full_name.ilike(like_term),
-                User.email.ilike(like_term),
                 User.organization.ilike(like_term),
+                *([User.mobile.contains(digits)] if digits else []),
             )
         )
 
@@ -659,7 +647,7 @@ async def search_event_attendees(
             ticket_id=ticket.id,
             attendee_id=user.id,
             attendee_name=user.full_name,
-            attendee_email=user.email,
+            attendee_mobile=user.mobile,
             organization=user.organization,
             title=user.title,
             ticket_tier_id=tier.id,
@@ -723,7 +711,7 @@ async def get_attendee_ticket_detail(
         ticket_id=ticket.id,
         attendee_id=user.id,
         attendee_name=user.full_name,
-        attendee_email=user.email,
+        attendee_mobile=user.mobile,
         organization=user.organization,
         title=user.title,
         ticket_tier_name=tier.name,

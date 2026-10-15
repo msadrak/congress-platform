@@ -4,10 +4,12 @@ from typing import Any
 
 from sqlalchemy import (
     JSON,
+    BigInteger,
     Boolean,
     CheckConstraint,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
@@ -128,13 +130,14 @@ class TicketTier(Base):
 
 
 class User(Base):
-    """An attendee, buyer, or booth staff user account."""
+    """An attendee, booth staff or desk operator account. Identity is the mobile number, proven by SMS code."""
 
     __tablename__ = "users"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
-    email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
-    password_hash: Mapped[str] = mapped_column(String(255))
+    # Canonical 09xxxxxxxxx (app/sms/phone.py). NULL only for a walk-in who gave no number; such an account
+    # cannot sign in, but its ticket and pass work at the gate.
+    mobile: Mapped[str | None] = mapped_column(String(11), unique=True, index=True, nullable=True)
     full_name: Mapped[str] = mapped_column(String(200))
     organization: Mapped[str] = mapped_column(String(200), default="")
     title: Mapped[str] = mapped_column(String(100), default="")
@@ -367,3 +370,56 @@ class Lead(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+
+
+class OtpChallenge(Base):
+    """A one-time sign-in code sent by SMS. Only an HMAC of the code is stored; a newer code supersedes older ones."""
+
+    __tablename__ = "otp_challenges"
+    __table_args__ = (Index("ix_otp_challenges_lookup", "mobile", "purpose", "created_at"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    mobile: Mapped[str] = mapped_column(String(11))
+    # signin (attendees, booth staff) or desk (front-desk operators).
+    purpose: Mapped[str] = mapped_column(String(16))
+    code_hash: Mapped[str] = mapped_column(String(64))
+    attempts: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class SmsMessage(Base):
+    """Every SMS the platform sends: the delivery log, and the outbox for messages sent in the background.
+
+    A ticket confirmation is written in the same transaction as its ticket (status pending) and delivered by
+    app/sms/outbox.py, so a reservation never fails or waits because of SMS. OTP rows are written after an
+    inline send and never store their parameters.
+    """
+
+    __tablename__ = "sms_messages"
+    __table_args__ = (UniqueConstraint("kind", "ticket_id", name="uq_sms_messages_kind_ticket"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    # otp | ticket_confirmation
+    kind: Mapped[str] = mapped_column(String(32))
+    mobile: Mapped[str] = mapped_column(String(11))
+    template_id: Mapped[int] = mapped_column(Integer)
+    params: Mapped[dict[str, str] | None] = mapped_column(JSONB, nullable=True)
+    ticket_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("tickets.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    # pending | sent | failed | unknown (may or may not have been delivered; never resent automatically)
+    status: Mapped[str] = mapped_column(String(16), index=True)
+    provider_message_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    attempts: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    send_after: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True
+    )
+    last_error: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

@@ -12,7 +12,8 @@ Writes, into --state-dir (gitignored):
   credentials.json  every demo credential, id and QR secret
   DEMO-GUIDE.md     portal URLs, accounts and the manual checklist (regenerated on every run)
 
-All people, companies and e-mail addresses are synthetic (example.com).
+All people and companies are synthetic; mobile numbers use the unassigned 0900 prefix, and the development
+API sends no SMS (sign-in codes are read back through the platform-admin outbox).
 """
 
 from __future__ import annotations
@@ -23,6 +24,7 @@ import json
 import os
 import random
 import sys
+import time
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -30,12 +32,13 @@ from typing import Any
 
 import httpx
 
-PASSWORD = "Demo-Pass-2026!"
-SEED_VERSION = 1
+# 2: accounts are mobile numbers signed in by SMS code (e-mail and passwords removed).
+SEED_VERSION = 2
 ORG1_NAME = "Demo Medical Informatics Association"
 ORG2_NAME = "انجمن قلب و عروق (نمونه)"
 SLUG1 = "ai-health-2026"
 SLUG2 = "cardio-forum-1405"
+OPERATOR_MOBILES = {SLUG1: "09000000101", SLUG2: "09000000102"}
 
 FIRST = ["Sara", "Omid", "Leila", "Kian", "Nasrin", "Arash", "Mina", "Farhad", "Tara", "Shayan",
          "Parisa", "Behnam", "Yasaman", "Kaveh", "Roya", "Sina", "Elham", "Darius", "Niloofar", "Payam"]
@@ -63,15 +66,18 @@ class Api:
     def __init__(self, base: str, admin_token: str) -> None:
         self.http = httpx.Client(base_url=base, timeout=60.0)
         self.admin_token = admin_token
+        # One sign-in per number per run: SMS codes are rate limited per number.
+        self.sessions: dict[str, tuple[str, str]] = {}
 
     def call(self, method: str, path: str, *, token: str | None = None, admin: bool = False,
-             body: Any = None, expect: tuple[int, ...] = (200, 201)) -> httpx.Response:
+             body: Any = None, params: dict[str, str] | None = None,
+             expect: tuple[int, ...] = (200, 201)) -> httpx.Response:
         headers: dict[str, str] = {}
         if token:
             headers["Authorization"] = f"Bearer {token}"
         if admin:
             headers["X-Admin-Token"] = self.admin_token
-        r = self.http.request(method, path, headers=headers, json=body)
+        r = self.http.request(method, path, headers=headers, json=body, params=params)
         if r.status_code not in expect:
             raise SeedError(f"{method} {path} -> {r.status_code}: {r.text[:300]}")
         return r
@@ -93,13 +99,30 @@ def log(msg: str) -> None:
 
 # ───────────────────────────── ensure-style helpers (never delete, never duplicate) ─────────────────────────────
 
-def user_session(api: Api, email: str, name: str, org: str = "", title: str = "") -> tuple[str, str]:
-    r = api.call("POST", "/api/auth/register", expect=(201, 409), body={
-        "email": email, "password": PASSWORD, "full_name": name, "organization": org, "title": title})
-    if r.status_code == 409:
-        r = api.call("POST", "/api/auth/login", body={"email": email, "password": PASSWORD})
-    data = r.json()
-    return data["access_token"], data["user"]["id"]
+def sms_code(api: Api, mobile: str) -> str:
+    """The newest sign-in code the development (console) SMS provider recorded for this number."""
+    sent = api.call("GET", "/api/platform/sms-outbox", admin=True, params={"mobile": mobile}).json()
+    codes = [m["params"]["CODE"] for m in sent if "CODE" in m["params"]]
+    if not codes:
+        raise SeedError(f"No sign-in code was recorded for {mobile}; is the API running with CONGRESS_SMS_PROVIDER=console?")
+    return str(codes[0])
+
+
+def user_session(api: Api, mobile: str, name: str, org: str = "", title: str = "") -> tuple[str, str]:
+    """Sign in by SMS code (creating the account on first use); returns (access token, user id)."""
+    if mobile in api.sessions:
+        return api.sessions[mobile]
+    while True:
+        r = api.call("POST", "/api/auth/otp/request", expect=(202, 429), body={"mobile": mobile})
+        if r.status_code == 202:
+            break
+        time.sleep(int(r.headers.get("retry-after", "5")))  # a previous run asked for a code moments ago
+    verified = api.call("POST", "/api/auth/otp/verify", body={"mobile": mobile, "code": sms_code(api, mobile)}).json()
+    if verified["status"] == "profile_required":
+        verified = api.call("POST", "/api/auth/otp/complete", body={
+            "signup_token": verified["signup_token"], "full_name": name, "organization": org, "title": title}).json()
+    api.sessions[mobile] = (verified["access_token"], verified["user"]["id"])
+    return api.sessions[mobile]
 
 
 def ensure_event(api: Api, key: str, spec: dict[str, Any]) -> dict[str, Any]:
@@ -128,22 +151,23 @@ def ensure_point(api: Api, key: str, event_id: str, spec: dict[str, Any]) -> dic
     return api.call("POST", f"/api/events/{event_id}/checkin-points", token=key, body=spec).json()  # type: ignore[no-any-return]
 
 
-def ensure_booth(api: Api, key: str, event_id: str, spec: dict[str, Any], rep_email: str) -> dict[str, Any]:
+def ensure_booth(api: Api, key: str, event_id: str, spec: dict[str, Any], rep_mobile: str, rep_name: str) -> dict[str, Any]:
     booth = next((b for b in api.call("GET", f"/api/events/{event_id}/booths", token=key).json()
                   if b["slug"] == spec["slug"]), None)
     if booth is None:
         booth = api.call("POST", f"/api/events/{event_id}/booths", token=key, body=spec).json()
     staff = api.call("GET", f"/api/events/{event_id}/booths/{booth['id']}/staff", token=key).json()
-    if not any(s["email"] == rep_email for s in staff):
-        api.call("POST", f"/api/events/{event_id}/booths/{booth['id']}/staff", token=key, body={"email": rep_email})
+    if not any(s["mobile"] == rep_mobile for s in staff):
+        api.call("POST", f"/api/events/{event_id}/booths/{booth['id']}/staff", token=key,
+                 body={"mobile": rep_mobile, "full_name": rep_name})
     return booth  # type: ignore[no-any-return]
 
 
-def ensure_operator(api: Api, key: str, event_id: str, email: str, name: str) -> None:
+def ensure_operator(api: Api, key: str, event_id: str, mobile: str, name: str) -> None:
     ops = api.call("GET", f"/api/events/{event_id}/desk/operators", token=key).json()
-    if not any(o["email"] == email and not o["is_revoked"] for o in ops):
+    if not any(o["mobile"] == mobile and not o["is_revoked"] for o in ops):
         api.call("POST", f"/api/events/{event_id}/desk/operators", token=key,
-                 body={"email": email, "operator_name": name})
+                 body={"mobile": mobile, "operator_name": name})
 
 
 def ensure_ticket(api: Api, token: str, event_id: str, tier_id: str) -> str:
@@ -216,57 +240,54 @@ def seed_content(api: Api, creds: dict[str, Any]) -> None:
     p2_main = ensure_point(api, key2, ev2["id"], {"name": "ورودی اصلی", "location": "لابی", "policy_type": "MULTI_ENTRY"})
 
     print("Reception operators ...")
-    for email, name in (("reception.ai@example.com", "Maryam Bagheri"), ("reception.cardio@example.com", "Reza Operator")):
-        user_session(api, email, name)
-    ensure_operator(api, key1, ev1["id"], "reception.ai@example.com", "Maryam Bagheri")
-    ensure_operator(api, key2, ev2["id"], "reception.cardio@example.com", "Reza Operator")
+    ensure_operator(api, key1, ev1["id"], OPERATOR_MOBILES[SLUG1], "Maryam Bagheri")
+    ensure_operator(api, key2, ev2["id"], OPERATOR_MOBILES[SLUG2], "Reza Operator")
 
     print("Booths and representatives ...")
-    reps = {"neurolens": "rep.neurolens@example.com", "cardiosense": "rep.cardiosense@example.com",
-            "medbot": "rep.medbot@example.com", "genome": "rep.genome@example.com",
-            "rhythm": "rep.rhythm@example.com", "imaging": "rep.imaging@example.com"}
+    reps = {"neurolens": "09000000201", "cardiosense": "09000000202", "medbot": "09000000203",
+            "genome": "09000000204", "rhythm": "09000000205", "imaging": "09000000206"}
     rep_names = {"neurolens": "Rep Neurolens", "cardiosense": "Rep Cardiosense", "medbot": "Rep Medbot",
                  "genome": "Rep Genome", "rhythm": "نماینده ریتم قلب", "imaging": "نماینده تصویربرداری"}
-    for k, email in reps.items():
-        user_session(api, email, rep_names[k], "Demo exhibitor")
+    for k, mobile in reps.items():
+        user_session(api, mobile, rep_names[k], "Demo exhibitor")
     url = "https://example.com"
     booths = {
         "neurolens": ensure_booth(api, key1, ev1["id"], {"name": "NeuroLens Imaging", "slug": "neurolens-imaging", "location": "A-101",
-                  "description": "AI-assisted MRI reading (fictional company).", "website_url": url, "brochure_url": f"{url}/neurolens.pdf"}, reps["neurolens"]),
+                  "description": "AI-assisted MRI reading (fictional company).", "website_url": url, "brochure_url": f"{url}/neurolens.pdf"}, reps["neurolens"], rep_names["neurolens"]),
         "cardiosense": ensure_booth(api, key1, ev1["id"], {"name": "CardioSense Wearables", "slug": "cardiosense-wearables", "location": "A-102",
-                  "description": "Continuous ECG patches and analytics (fictional company).", "website_url": url, "brochure_url": f"{url}/cardiosense.pdf"}, reps["cardiosense"]),
+                  "description": "Continuous ECG patches and analytics (fictional company).", "website_url": url, "brochure_url": f"{url}/cardiosense.pdf"}, reps["cardiosense"], rep_names["cardiosense"]),
         "medbot": ensure_booth(api, key1, ev1["id"], {"name": "MedBot Surgical", "slug": "medbot-surgical", "location": "B-201",
-                  "description": "Tele-operated laparoscopic platforms (fictional company).", "website_url": url, "brochure_url": f"{url}/medbot.pdf"}, reps["medbot"]),
+                  "description": "Tele-operated laparoscopic platforms (fictional company).", "website_url": url, "brochure_url": f"{url}/medbot.pdf"}, reps["medbot"], rep_names["medbot"]),
         "genome": ensure_booth(api, key1, ev1["id"], {"name": "GenomeCloud Analytics", "slug": "genomecloud-analytics", "location": "B-202",
-                  "description": "Cloud pipelines for clinical genomics (fictional company).", "website_url": url, "brochure_url": ""}, reps["genome"]),
+                  "description": "Cloud pipelines for clinical genomics (fictional company).", "website_url": url, "brochure_url": ""}, reps["genome"], rep_names["genome"]),
         "rhythm": ensure_booth(api, key2, ev2["id"], {"name": "ریتم قلب", "slug": "heart-rhythm", "location": "غرفه ۱",
-                  "description": "سامانه‌های پایش ریتم قلب (شرکت خیالی).", "website_url": url, "brochure_url": ""}, reps["rhythm"]),
+                  "description": "سامانه‌های پایش ریتم قلب (شرکت خیالی).", "website_url": url, "brochure_url": ""}, reps["rhythm"], rep_names["rhythm"]),
         "imaging": ensure_booth(api, key2, ev2["id"], {"name": "تصویربرداری قلب", "slug": "cardio-imaging", "location": "غرفه ۲",
-                  "description": "اکوکاردیوگرافی هوشمند (شرکت خیالی).", "website_url": url, "brochure_url": ""}, reps["imaging"]),
+                  "description": "اکوکاردیوگرافی هوشمند (شرکت خیالی).", "website_url": url, "brochure_url": ""}, reps["imaging"], rep_names["imaging"]),
     }
 
     print("Attendees and tickets ...")
     people: dict[str, dict[str, Any]] = {}
 
-    def add_person(key: str, email: str, name: str, org: str, title: str, share: bool,
+    def add_person(key: str, mobile: str, name: str, org: str, title: str, share: bool,
                    t1: dict[str, Any] | None, t2: dict[str, Any] | None) -> None:
-        token, uid = user_session(api, email, name, org, title)
+        token, uid = user_session(api, mobile, name, org, title)
         api.call("PATCH", "/api/attendees/me/network/privacy", token=token, body={"share_contact_with_peers": share})
         qr1 = ensure_ticket(api, token, ev1["id"], t1["id"]) if t1 else None
         qr2 = ensure_ticket(api, token, ev2["id"], t2["id"]) if t2 else None
-        people[key] = {"email": email, "name": name, "token": token, "user_id": uid, "qr1": qr1, "qr2": qr2,
+        people[key] = {"mobile": mobile, "name": name, "token": token, "user_id": uid, "qr1": qr1, "qr2": qr2,
                        "tier1": t1["name"] if t1 else None, "tier2": t2["name"] if t2 else None}
 
     tiers_for = {"alice": (t_general, t2_delegate), "bob": (t_faculty, t2_delegate), "carol": (t_student, None),
                  "erin": (t_general, None), "frank": (t_general, None)}
-    emails = {"alice": "alice.rahimi@example.com", "bob": "bahram.nouri@example.com", "carol": "cyrus.student@example.com",
-              "erin": "erin.entry@example.com", "frank": "frank.fresh@example.com"}
+    mobiles = {"alice": "09000000001", "bob": "09000000002", "carol": "09000000003",
+               "erin": "09000000004", "frank": "09000000005"}
     for key, name, org, title, share in PERSONAS:
-        add_person(key, emails[key], name, org, title, share, *tiers_for[key])
+        add_person(key, mobiles[key], name, org, title, share, *tiers_for[key])
     for i in range(1, 41):  # 28 General, 4 Faculty, 8 Student; every 4th is also registered for Congress 2
         tier1 = t_general if i <= 28 else t_faculty if i <= 32 else t_student
         name = f"{rng.choice(FIRST)} {rng.choice(LAST)}"
-        add_person(f"f{i:02d}", f"attendee{i:02d}@example.com", name, rng.choice(ORGS), rng.choice(TITLES),
+        add_person(f"f{i:02d}", f"0900001{i:04d}", name, rng.choice(ORGS), rng.choice(TITLES),
                    i % 3 != 0, tier1, t2_delegate if i % 4 == 0 else None)
     log(f"{len(people)} attendees, tickets issued for both congresses where applicable")
 
@@ -327,7 +348,7 @@ def seed_content(api: Api, creds: dict[str, Any]) -> None:
         "events": [{"slug": SLUG1, "id": ev1["id"], "name": ev1["name"]}, {"slug": SLUG2, "id": ev2["id"], "name": ev2["name"]}],
         "points": {"main": p_main["id"], "lunch": p_lunch["id"], "workshop": p_work["id"], "hall": p_hall["id"], "cardio_main": p2_main["id"]},
         "point_names": {p["id"]: p["name"] for p in (p_main, p_lunch, p_work, p_hall, p2_main)},
-        "booths": {k: {"id": b["id"], "name": b["name"], "slug": b["slug"], "rep_email": reps[k],
+        "booths": {k: {"id": b["id"], "name": b["name"], "slug": b["slug"], "rep_mobile": reps[k],
                        "event_slug": SLUG1 if k in ("neurolens", "cardiosense", "medbot", "genome") else SLUG2}
                    for k, b in booths.items()},
         "tiers": {"general": t_general["id"], "faculty": t_faculty["id"], "student": t_student["id"], "delegate2": t2_delegate["id"]},
@@ -335,8 +356,8 @@ def seed_content(api: Api, creds: dict[str, Any]) -> None:
     creds["people"] = {k: {kk: v for kk, v in p.items() if kk not in ("token",)} for k, p in people.items()
                        if k in {pk for pk, *_ in PERSONAS}}
     creds["operators"] = [
-        {"event_slug": SLUG1, "email": "reception.ai@example.com", "name": "Maryam Bagheri", "password": PASSWORD},
-        {"event_slug": SLUG2, "email": "reception.cardio@example.com", "name": "Reza Operator", "password": PASSWORD}]
+        {"event_slug": SLUG1, "mobile": OPERATOR_MOBILES[SLUG1], "name": "Maryam Bagheri"},
+        {"event_slug": SLUG2, "mobile": OPERATOR_MOBILES[SLUG2], "name": "Reza Operator"}]
     creds["scanner_points"] = [p_main, p_lunch, p_work, p_hall]
     creds["scanner_points_event2"] = [p2_main]
 
@@ -365,13 +386,17 @@ def provision(api: Api, creds_path: Path) -> dict[str, Any]:
             api.call("GET", "/api/events", token=creds["organizers"][0]["api_key"])  # credentials still valid?
             print("Demo data already present: left untouched.")
             return creds
+        if creds.get("seed_version") != SEED_VERSION:
+            raise SeedError(
+                "This demo was seeded by an older version (e-mail and password accounts). Run "
+                "scripts\\demo\\reset.ps1 to start over with mobile-number sign-in.")
         print("Resuming an interrupted seed ...")
     else:
         if api.http.get(f"/api/public/events/{SLUG1}").status_code == 200:
             raise SeedError(
                 "The demo database already contains the demo congress, but .demo/credentials.json (the only place the "
                 "one-time Organizer API keys exist) is missing. Run scripts\\demo\\reset.ps1 to start over.")
-        creds = {"seed_version": SEED_VERSION, "password": PASSWORD, "organizers": []}
+        creds = {"seed_version": SEED_VERSION, "organizers": []}
         for name in (ORG1_NAME, ORG2_NAME):
             o = api.call("POST", "/api/organizers", admin=True, body={"name": name}).json()
             creds["organizers"].append({"name": o["name"], "id": o["id"], "api_key": o["api_key"]})
@@ -389,7 +414,6 @@ def write_guide(creds: dict[str, Any], web: str, api_url: str, path: Path) -> No
     e1, e2 = ids["events"]
     org1, org2 = creds["organizers"]
     p = creds["people"]
-    pw = creds["password"]
     sc = {c["point_id"]: c for c in creds["scanner_credentials"]}
     b = ids["booths"]
     pts = ids["points"]
@@ -400,7 +424,8 @@ def write_guide(creds: dict[str, Any], web: str, api_url: str, path: Path) -> No
     add(f"_Generated {creds['seeded_at']}. Contains credentials: local file, gitignored, synthetic data only. Services listen on 127.0.0.1 only._")
     add("")
     add(f"- Web: **{web}**   API: {api_url}   (API docs: {api_url}/docs)")
-    add(f"- Synthetic password for every demo user (attendees, representatives, reception operators): `{pw}`")
+    add("- Demo users (attendees, representatives, reception operators) sign in with their mobile number and a 6-digit SMS code. "
+        "The development API sends no SMS: the code is printed in the API window (\"SMS (not sent, development)\").")
     add("- Scanner tokens are not printed here. Copy one to the clipboard with `scripts\\demo\\credentials.ps1 -CopyScannerToken main` "
         "(names: main, lunch, workshop, hall, cardio). Tokens are valid 7 days; `start.ps1` renews them when < 48 h remain.")
     add("")
@@ -454,11 +479,11 @@ def write_guide(creds: dict[str, Any], web: str, api_url: str, path: Path) -> No
     for key in ("alice", "bob", "carol", "erin", "frank"):
         x = p[key]
         t2 = f", congress 2: {x['tier2']}" if x["tier2"] else ""
-        add(f"| Attendee {x['name']} | `{x['email']}` / `{pw}` | congress 1: {x['tier1']}{t2} |")
+        add(f"| Attendee {x['name']} | mobile `{x['mobile']}` + SMS code | congress 1: {x['tier1']}{t2} |")
     for op in creds["operators"]:
-        add(f"| Reception operator ({op['event_slug']}) | `{op['email']}` / `{op['password']}` | congress code `{op['event_slug']}` |")
+        add(f"| Reception operator ({op['event_slug']}) | mobile `{op['mobile']}` + SMS code | congress code `{op['event_slug']}` |")
     for k in ("neurolens", "cardiosense", "medbot", "genome", "rhythm", "imaging"):
-        add(f"| BoothStaff: {b[k]['name']} | `{b[k]['rep_email']}` / `{pw}` | authorized for this booth only (other booths answer 403) |")
+        add(f"| BoothStaff: {b[k]['name']} | mobile `{b[k]['rep_mobile']}` + SMS code | authorized for this booth only (other booths answer 403) |")
     add("| Scanner | device credential, not a password | see the clipboard command above; paste it into the scanner's credential field |")
     add("")
     add("## Controlled test badges (manual entry; secrets are QR payloads)")
@@ -474,11 +499,11 @@ def write_guide(creds: dict[str, Any], web: str, api_url: str, path: Path) -> No
     add("## Manual checklist")
     add(f"""### Public
 - [ ] Open {web}/e/{e1['slug']}: event info, tiers with capacity (Student / Resident is nearly full, Early Bird is closed).
-- [ ] Reserve a free pass with a brand-new e-mail address; the pass appears with a QR.
-- [ ] Try the same e-mail again: duplicate feedback.
+- [ ] Reserve a free pass with a brand-new mobile number (e.g. 0900 999 0001): enter the SMS code from the API window, complete the profile; the pass appears with a QR.
+- [ ] Reserve again with the same number: you are signed in to the existing account and told you already hold a pass.
 - [ ] Open the public booth profiles from the table above.
 ### Attendee
-- [ ] Sign in at {web}/c/{e1['slug']}/sign-in as `{p['alice']['email']}`; walk the five destinations (My Congress, My Ticket, My Network, My Profile, Details).
+- [ ] Sign in at {web}/c/{e1['slug']}/sign-in with `{p['alice']['mobile']}` and the SMS code; walk the five destinations (My Congress, My Ticket, My Network, My Profile, Details).
 - [ ] My Ticket shows the tier and a QR; switch to congress 2 (Alice holds a pass in both) and check nothing from congress 1 leaks in.
 - [ ] My Network (congress 1): Alice is connected to Bahram and Cyrus; edit a note; Carol hides her contact details (privacy off), Bob shares them.
 - [ ] Bookmark/unbookmark booths; toggle the profile privacy setting.
@@ -487,11 +512,11 @@ def write_guide(creds: dict[str, Any], web: str, api_url: str, path: Path) -> No
 - [ ] Open Analytics (about 30 admissions, rejections, per-gate bars) and download the CSV.
 - [ ] Sign in with Organizer 2's key in a private window: only congress 2 is visible.
 ### Reception
-- [ ] Open {web}/reception, enter `{e1['slug']}`, sign in as `reception.ai@example.com`.
+- [ ] Open {web}/reception, enter `{e1['slug']}`, sign in with `{OPERATOR_MOBILES[SLUG1]}` and the SMS code.
 - [ ] Search "Alice", review the pass, print it. Issue a walk-in ticket for a new person.
-- [ ] Register `{p['erin']['email']}` again as a walk-in: duplicate feedback offering the existing pass.
+- [ ] Register `{p['erin']['mobile']}` again as a walk-in: duplicate feedback offering the existing pass.
 ### Exhibitor
-- [ ] Open the NeuroLens booth URL, sign in as `rep.neurolens@example.com`.
+- [ ] Open the NeuroLens booth URL, sign in with `{b['neurolens']['rep_mobile']}` and the SMS code.
 - [ ] Capture a badge with manual input (use Frank's or Erin's secret from the table); open leads; change rating, tags and notes; export CSV.
 - [ ] Open the CardioSense booth URL while signed in as the NeuroLens rep: expect a refusal.
 ### Scanner
@@ -503,10 +528,10 @@ def write_guide(creds: dict[str, Any], web: str, api_url: str, path: Path) -> No
 
 ## Known limitations (intentional or not yet built - not setup failures)
 - No payment or paid tiers; registration is free (ADR 0007).
-- No Organizer UI for scanner devices: tokens are issued through the API (done here by the seed) and pasted into the scanner.
+- Scanner devices can also be paired from the organizer's Check-In Gates page (Pair device shows a QR pairing link); the seed issues one token per gate through the API.
 - Scanner tokens expire after 7 days.
 - The camera and USB HID paths cannot be exercised without hardware; manual entry is the simulated path.
-- No e-mail is ever sent; there is no password-reset flow for attendees or operators.
+- No SMS is sent in the demo (console provider): sign-in codes are printed in the API window, ticket confirmations are recorded but not delivered.
 - The development server has the PWA service worker disabled, so offline-install behaviour is not representative.
 - Congress 1 started 5 hours before the demo was first created and ends 14 days after that; congress 2 starts in 21 days. Dates are relative to the moment the demo was created.
 - Congress 2 is upcoming: its analytics and gate history are intentionally empty.

@@ -9,8 +9,9 @@ import { readFileSync } from 'node:fs';
 
 export const EXCEPTIONS = [
   'Organizer + second tenant provisioning (POST /api/organizers with the platform admin token; no UI)',
-  'Registration of two booth representatives, one unrelated User and a second-congress attendee (POST /api/auth/register; the representatives must exist before the Booths tab can authorize them)',
-  'Scanner device token issuance and revocation (POST /api/checkin-points/{id}/token and /devices/{id}/revoke; no Organizer UI for scanner devices exists)',
+  'SMS sign-in codes are read back from the console provider outbox (GET /api/platform/sms-outbox with the platform admin token); no SMS leaves the test stack',
+  'Sign-up of one unrelated User and a second-congress attendee, and API sign-ins used only for authorization probes (POST /api/auth/otp/request, /verify, /complete)',
+  'Scanner device token issuance and revocation through the API (POST /api/checkin-points/{id}/token and /devices/{id}/revoke), so the scanner stage controls its own credential',
   'Camera decoding: a physical camera / keyboard-wedge reader is not available; codes are typed into the supported manual-entry fields',
 ];
 
@@ -44,12 +45,56 @@ export async function runJourney(ctx) {
   const q = (sql) => psql(sql);
   const num = (sql) => Number(q(sql));
 
-  const PW = 'E2e-Passw0rd!';
   const RUN = Date.now().toString(36).slice(-5);
   const S = { slug: `e2e-alpha-${RUN}`, betaSlug: `e2e-beta-${RUN}`, calls: [] };
-  const email = (n) => `${n}.${RUN}@example.com`;
+  // Synthetic mobile numbers in the unassigned 0900 range, unique per run: 090 + person (3) + run (5).
+  const RUN_DIGITS = String(parseInt(RUN, 36) % 100000).padStart(5, '0');
+  const PEOPLE = { rep1: 1, rep2: 2, operator: 3, alice: 4, outsider: 5, wanda: 6, carla: 7, bella: 8 };
+  const mobile = (n) => `090${String(PEOPLE[n]).padStart(3, '0')}${RUN_DIGITS}`;
+  const persian = (digits) => digits.replace(/\d/g, (d) => String.fromCharCode(0x06f0 + Number(d)));
 
-  const browser = await chromium.launch({ channel: 'msedge' });
+  // SMS codes: nothing is sent; the console provider's outbox is read with the platform admin token.
+  // Against a stack with production send limits (one code per number and purpose per minute) we wait them out.
+  const OTP_GAP_MS = ctx.otpCooldownMs ?? 61000;
+  const lastCodeAt = new Map();
+  const waitForResend = async (number, purpose) => {
+    const since = Date.now() - (lastCodeAt.get(`${purpose}:${number}`) ?? 0);
+    if (since < OTP_GAP_MS) await new Promise((r) => setTimeout(r, OTP_GAP_MS - since));
+  };
+  const markCodeRequested = (number, purpose) => lastCodeAt.set(`${purpose}:${number}`, Date.now());
+  const smsCode = async (number) => {
+    const sent = await http('GET', `/api/platform/sms-outbox?mobile=${number}`, { admin: true });
+    eq(sent.status, 200, 'sms outbox (console provider)');
+    const codes = sent.json.map((m) => m.params.CODE).filter(Boolean);
+    assert(codes.length, `no SMS code recorded for ${number}`);
+    return codes[0];
+  };
+  /** API sign-in (sign-up when new) by SMS code; returns { access_token, user }. */
+  const signUp = async (number, full_name, organization = '', title = '') => {
+    await waitForResend(number, 'signin');
+    eq((await http('POST', '/api/auth/otp/request', { body: { mobile: number } })).status, 202, 'otp request');
+    markCodeRequested(number, 'signin');
+    const verified = (await http('POST', '/api/auth/otp/verify', { body: { mobile: number, code: await smsCode(number) } })).json;
+    if (verified.status === 'signed_in') return verified;
+    return (await http('POST', '/api/auth/otp/complete', { body: { signup_token: verified.signup_token, full_name, organization, title } })).json;
+  };
+  /** The real sign-in form (attendee, booth or desk): number, Send code, then the code (it submits itself). */
+  const uiCode = async (scope, number, purpose = 'signin') => {
+    await waitForResend(number, purpose);
+    const field = scope.getByLabel('Mobile number');
+    // Right after a client-side redirect (e.g. Log Out) the form may still be settling: type until it holds.
+    for (let i = 0; i < 20; i++) {
+      await field.fill(number);
+      await new Promise((r) => setTimeout(r, 150));
+      if ((await field.inputValue()) === number) break;
+    }
+    await scope.getByRole('button', { name: 'Send code' }).click();
+    await scope.getByLabel('Code from the SMS').waitFor({ timeout: 10000 });
+    markCodeRequested(number, purpose);
+    await scope.getByLabel('Code from the SMS').fill(await smsCode(number));
+  };
+
+  const browser = await chromium.launch({ channel: process.env.CONGRESS_BROWSER_CHANNEL ?? 'msedge' });
   const actors = {};
   const actor = async (name, viewport = { width: 1280, height: 900 }, extra = {}) => {
     const context = await browser.newContext({ viewport, deviceScaleFactor: 1, acceptDownloads: true, ...extra });
@@ -125,9 +170,6 @@ export async function runJourney(ctx) {
       S.point = q(`select id from checkin_points where event_id='${S.alphaId}' and name='E2E Main Gate'`);
       eq(q(`select policy_type from checkin_points where id='${S.point}'`), 'SINGLE_USE', 'policy');
     });
-    // Booth representatives must be registered Users before the Booths tab can authorize them.
-    const rep1 = (await http('POST', '/api/auth/register', { body: { email: email('rep1'), password: PW, full_name: 'Rep One', organization: 'Alpha Devices', title: 'Sales' } })).json;
-    const rep2 = (await http('POST', '/api/auth/register', { body: { email: email('rep2'), password: PW, full_name: 'Rep Two', organization: 'Pars Cardio', title: 'Sales' } })).json;
     await check('A5 two booths created and their staff authorized through the UI', async () => {
       await openEvent(S.alphaId, '/booths');
       for (const [name, slug] of [[`Alpha Booth One ${RUN}`, `alpha-1-${RUN}`], [`Alpha Booth Two ${RUN}`, `alpha-2-${RUN}`]]) {
@@ -140,31 +182,30 @@ export async function runJourney(ctx) {
       }
       S.booth1 = q(`select id from booths where slug='alpha-1-${RUN}'`);
       S.booth2 = q(`select id from booths where slug='alpha-2-${RUN}'`);
-      for (const [name, mail] of [[`Alpha Booth One ${RUN}`, email('rep1')], [`Alpha Booth Two ${RUN}`, email('rep2')]]) {
+      // Representatives are authorized by mobile number; an account is created for a new number.
+      for (const [name, rep, repName] of [[`Alpha Booth One ${RUN}`, 'rep1', 'Rep One'], [`Alpha Booth Two ${RUN}`, 'rep2', 'Rep Two']]) {
         const card = O.locator('div').filter({ hasText: name }).filter({ has: O.getByRole('button', { name: /Assign Booth Staff/ }) }).last();
         await card.getByRole('button', { name: /Assign Booth Staff/ }).click();
         const d = O.getByRole('dialog');
-        await d.getByPlaceholder('representative@company.com').fill(mail);
+        await d.getByPlaceholder('e.g. Sara Karimi').fill(repName);
+        await d.getByPlaceholder('09xx xxx xxxx').fill(mobile(rep));
         await d.getByRole('button', { name: 'Authorize Representative' }).click();
-        await d.getByText(/assigned successfully/i).waitFor({ timeout: 10000 });
+        await d.getByText(/Representative assigned/).waitFor({ timeout: 10000 });
         await O.keyboard.press('Escape');
       }
       eq(q(`select count(*) from booth_staff where booth_id in ('${S.booth1}','${S.booth2}')`), '2', 'staff rows');
-      eq(q(`select u.email from booth_staff s join users u on u.id=s.user_id where s.booth_id='${S.booth1}'`), email('rep1'), 'booth1 staff');
+      eq(q(`select u.mobile || '|' || u.full_name from booth_staff s join users u on u.id=s.user_id where s.booth_id='${S.booth1}'`), `${mobile('rep1')}|Rep One`, 'booth1 staff');
     });
-    await check('A6 reception operator provisioned through the UI (one-time password shown)', async () => {
+    await check('A6 reception operator authorized by mobile number through the UI (no password to hand over)', async () => {
       await openEvent(S.alphaId, '/operators');
       await O.getByRole('button', { name: /Add Operator/ }).first().click();
       const d = O.getByRole('dialog');
       await d.getByPlaceholder('e.g. Maryam Bagheri').fill('E2E Operator');
-      await d.getByPlaceholder('operator@example.com').fill(email('operator'));
+      await d.getByPlaceholder('09xx xxx xxxx').fill(persian(mobile('operator')));
       await d.locator('button[type=submit]').click();
-      await d.getByText(/desk-[A-Za-z0-9_-]+/).first().waitFor({ timeout: 10000 });
-      const text = await d.innerText();
-      S.opPassword = (text.match(/desk-[A-Za-z0-9_-]+/) ?? [])[0];
-      assert(S.opPassword, 'temporary password not shown: ' + text.slice(0, 200));
-      await O.keyboard.press('Escape');
-      eq(q(`select count(*) from desk_operators where event_id='${S.alphaId}' and is_revoked=false`), '1', 'operator row');
+      await O.getByRole('status').filter({ hasText: 'E2E Operator is authorized' }).waitFor({ timeout: 10000 });
+      assert(!(await O.locator('body').innerText()).match(/temporary password/i), 'a password is still shown');
+      eq(q(`select count(*) from desk_operators o join users u on u.id=o.user_id where o.event_id='${S.alphaId}' and o.is_revoked=false and u.mobile='${mobile('operator')}'`), '1', 'operator row');
     });
     await check('A7 scanner device for the gate issued (supported API, exception) and listed', async () => {
       const t = await http('POST', `/api/checkin-points/${S.point}/token`, { key: S.key, body: { device_name: 'E2E Gate Phone' } });
@@ -207,21 +248,26 @@ export async function runJourney(ctx) {
       await A.getByRole('heading', { name: new RegExp(`E2E Congress Alpha ${RUN}`) }).first().waitFor({ timeout: 10000 });
       await A.getByText(`General Delegate ${RUN}`).first().waitFor();
     });
-    await check('B2 attendee registers and reserves through the real dialog (201), pass shown', async () => {
+    await check('B2 attendee signs up by SMS code and reserves through the real dialog (201), pass shown', async () => {
       await A.getByRole('button', { name: /Reserve Free Pass/ }).first().click();
       const d = A.getByRole('dialog');
-      await d.getByPlaceholder('e.g. Dr. Sarah Jenkins').fill('Dr. Alice Attendee');
-      await d.getByPlaceholder('name@institution.org').fill(email('alice'));
-      await d.getByPlaceholder('Minimum 8 characters').fill(PW);
-      await d.getByRole('button', { name: /Confirm Registration/ }).click();
+      await uiCode(d, mobile('alice'));
+      await d.getByLabel('Full name').fill('Dr. Alice Attendee');
+      await d.getByRole('button', { name: 'Create my account' }).click();
       await A.getByRole('heading', { name: 'Pass Reserved Successfully!' }).waitFor({ timeout: 15000 });
-      eq(q(`select count(*) from tickets t join users u on u.id=t.user_id where u.email='${email('alice')}' and t.event_id='${S.alphaId}'`), '1', 'ticket row');
-      S.aliceTicket = q(`select t.id from tickets t join users u on u.id=t.user_id where u.email='${email('alice')}'`);
+      eq(q(`select count(*) from tickets t join users u on u.id=t.user_id where u.mobile='${mobile('alice')}' and t.event_id='${S.alphaId}'`), '1', 'ticket row');
+      S.aliceTicket = q(`select t.id from tickets t join users u on u.id=t.user_id where u.mobile='${mobile('alice')}'`);
       S.aliceQr = q(`select secret from entity_qrs where entity_id='${S.aliceTicket}' and entity_type='attendee_ticket'`);
       assert(S.aliceQr.length >= 20, 'qr secret');
     });
     await check('B3 capacity changed in the backend and in the Organizer view (reserved 1 of 3)', async () => {
       eq(q(`select reserved_count from ticket_tiers where id='${S.alphaTier}'`), '1', 'reserved_count');
+      // The confirmation SMS was queued with the ticket and delivered by the outbox worker.
+      eq(q(`select count(*) from sms_messages where kind='ticket_confirmation' and ticket_id='${S.aliceTicket}'`), '1', 'confirmation queued once');
+      for (let i = 0; i < 40 && q(`select status from sms_messages where kind='ticket_confirmation' and ticket_id='${S.aliceTicket}'`) !== 'sent'; i++) await new Promise((r) => setTimeout(r, 250));
+      eq(q(`select status from sms_messages where kind='ticket_confirmation' and ticket_id='${S.aliceTicket}'`), 'sent', 'confirmation delivered');
+      const confirmation = (await http('GET', `/api/platform/sms-outbox?mobile=${mobile('alice')}`, { admin: true })).json.find((m) => m.params.LINK);
+      assert(confirmation && confirmation.params.LINK.endsWith(`/c/${S.slug}/my-ticket`) && confirmation.params.NAME === 'Dr. Alice Attendee', 'confirmation SMS content: ' + JSON.stringify(confirmation));
       await openEvent(S.alphaId);
       await O.getByText('1 / 3', { exact: false }).first().waitFor({ timeout: 10000 });
     });
@@ -238,18 +284,17 @@ export async function runJourney(ctx) {
       await shot(A, 'B-attendee-ticket-qr');
     });
     await check('B5 another User cannot see or use the ticket; the same attendee cannot reserve twice', async () => {
-      const outsider = (await http('POST', '/api/auth/register', { body: { email: email('outsider'), password: PW, full_name: 'Out Sider', organization: '', title: '' } })).json;
+      const outsider = await signUp(mobile('outsider'), 'Out Sider');
       S.outsiderToken = outsider.access_token;
       eq((await http('GET', '/api/attendees/me/tickets', { token: S.outsiderToken })).json, [], 'outsider tickets');
       const O2 = await actor('outsider', { width: 390, height: 844 });
       await O2.goto(`${BASE}/c/${S.slug}/sign-in?next=${encodeURIComponent(`/c/${S.slug}/my-ticket`)}`);
-      await O2.getByLabel('Email address').fill(email('outsider'));
-      await O2.getByLabel('Password').fill(PW);
-      await O2.getByRole('button', { name: 'Sign in' }).click();
+      await uiCode(O2, mobile('outsider'));
       await O2.waitForURL(new RegExp(`/c/${S.slug}/my-ticket$`));
       await O2.getByText(/no .*pass|You have no|No Active Tickets/i).first().waitFor({ timeout: 10000 });
       assert(!(await O2.locator('body').innerText()).includes('Alice'), 'alice visible to outsider');
-      const alice = (await http('POST', '/api/auth/login', { body: { email: email('alice'), password: PW } })).json;
+      const alice = await signUp(mobile('alice'), 'Dr. Alice Attendee');
+      eq(alice.user.full_name, 'Dr. Alice Attendee', 'the existing account is signed in, not a new one');
       S.aliceToken = alice.access_token;
       eq((await http('POST', `/api/events/${S.alphaId}/tickets/reserve`, { token: S.aliceToken, body: { ticket_tier_id: S.alphaTier } })).status, 409, 'second reservation');
       eq(q(`select reserved_count from ticket_tiers where id='${S.alphaTier}'`), '1', 'reserved_count unchanged');
@@ -260,17 +305,13 @@ export async function runJourney(ctx) {
       await A.getByText(`General Delegate ${RUN}`).first().waitFor({ timeout: 10000 });
       await A.getByRole('button', { name: 'Log Out' }).click();
       await A.goto(`${BASE}/c/${S.slug}/sign-in?next=${encodeURIComponent(`/c/${S.slug}/my-ticket`)}`);
-      await A.getByLabel('Email address').fill(email('outsider'));
-      await A.getByLabel('Password').fill(PW);
-      await A.getByRole('button', { name: 'Sign in' }).click();
+      await uiCode(A, mobile('outsider'));
       await A.waitForURL(new RegExp(`/c/${S.slug}/my-ticket$`));
       await A.getByText(/no .*pass|You have no|No Active Tickets/i).first().waitFor({ timeout: 10000 });
       assert(!(await A.locator('body').innerText()).includes(`General Delegate ${RUN}`), 'previous account ticket visible');
       await A.getByRole('button', { name: 'Log Out' }).click();
       await A.goto(`${BASE}/c/${S.slug}/sign-in?next=${encodeURIComponent(`/c/${S.slug}/my-ticket`)}`);
-      await A.getByLabel('Email address').fill(email('alice'));
-      await A.getByLabel('Password').fill(PW);
-      await A.getByRole('button', { name: 'Sign in' }).click();
+      await uiCode(A, mobile('alice'));
       await A.getByText(`General Delegate ${RUN}`).first().waitFor({ timeout: 10000 });
     });
 
@@ -282,9 +323,7 @@ export async function runJourney(ctx) {
       await R.getByLabel(/Congress code/).fill(S.slug);
       await R.getByRole('button', { name: 'Continue' }).click();
       await R.waitForURL(`${BASE}/reception/${S.alphaId}`);
-      await R.getByLabel(/Operator Email/).fill(email('operator'));
-      await R.getByLabel('Password').fill(S.opPassword);
-      await R.getByRole('button', { name: 'Sign In to Desk' }).click();
+      await uiCode(R, mobile('operator'), 'desk');
       await R.getByTestId('reception-operator').filter({ hasText: 'E2E Operator' }).waitFor({ timeout: 10000 });
       await R.getByTestId('reception-event').filter({ hasText: 'E2E Congress Alpha' }).waitFor();
       S.deskToken = await R.evaluate((id) => sessionStorage.getItem(`congress_desk_token_${id}`), S.alphaId);
@@ -302,40 +341,41 @@ export async function runJourney(ctx) {
     });
     await check('C3 walk-in ticket issued; ticket, QR, operator attribution and capacity confirmed in PostgreSQL', async () => {
       await R.getByLabel('Full Name').fill('Wanda Walkin');
-      await R.getByLabel(/Email Address/).fill(email('wanda'));
+      await R.getByLabel(/Mobile Number/).fill(mobile('wanda'));
       await R.getByRole('button', { name: /Mint & Present Pass/ }).click();
       await R.getByRole('dialog').getByText('Wanda Walkin').waitFor({ timeout: 10000 });
-      S.wandaTicket = q(`select t.id from tickets t join users u on u.id=t.user_id where u.email='${email('wanda')}'`);
+      S.wandaTicket = q(`select t.id from tickets t join users u on u.id=t.user_id where u.mobile='${mobile('wanda')}'`);
+      eq(q(`select count(*) from sms_messages where kind='ticket_confirmation' and ticket_id='${S.wandaTicket}'`), '1', 'walk-in confirmation queued');
       assert(S.wandaTicket, 'ticket row');
       S.wandaQr = q(`select secret from entity_qrs where entity_id='${S.wandaTicket}'`);
       assert(num(`select count(*) from tickets where id='${S.wandaTicket}' and event_id='${S.alphaId}' and issued_by_operator_id is not null`) === 1, 'operator attribution');
       eq(q(`select reserved_count from ticket_tiers where id='${S.alphaTier}'`), '2', 'reserved_count after walk-in');
       await R.getByRole('dialog').getByRole('button', { name: /Next Attendee/ }).click();
     });
-    await check('C4 duplicate email: backend 409, exact existing pass offered, nothing issued twice', async () => {
+    await check('C4 duplicate mobile number (typed in Persian digits): backend 409, exact existing pass offered, nothing issued twice', async () => {
       await R.getByLabel('Full Name').fill('Someone Else');
-      await R.getByLabel(/Email Address/).fill(email('wanda').toUpperCase());
+      await R.getByLabel(/Mobile Number/).fill(persian(mobile('wanda')));
       await R.getByRole('button', { name: /Mint & Present Pass/ }).click();
       await R.getByRole('alert').filter({ hasText: /already has an active ticket/ }).waitFor({ timeout: 10000 });
       await R.getByRole('button', { name: 'Review existing pass: Wanda Walkin' }).waitFor();
       eq(q(`select count(*) from tickets where event_id='${S.alphaId}'`), '2', 'tickets');
       eq(q(`select reserved_count from ticket_tiers where id='${S.alphaTier}'`), '2', 'reserved_count unchanged');
-      await R.getByLabel('Full Name').fill(''); await R.getByLabel(/Email Address/).fill('');
+      await R.getByLabel('Full Name').fill(''); await R.getByLabel(/Mobile Number/).fill('');
     });
     await check('C4b a walk-in whose response is lost: the UI claims no success, the ticket exists once, retry recovers the existing pass', async () => {
       await R.route('**/desk-registrations', async (route) => { await route.fetch(); await route.abort('failed'); }, { times: 1 });
       await R.getByLabel('Full Name').fill('Carla Lostresponse');
-      await R.getByLabel(/Email Address/).fill(email('carla'));
+      await R.getByLabel(/Mobile Number/).fill(mobile('carla'));
       await R.getByRole('button', { name: /Mint & Present Pass/ }).click();
       await R.getByRole('alert').filter({ hasText: 'not known whether the pass was issued' }).waitFor({ timeout: 10000 });
       assert((await R.getByRole('dialog').count()) === 0, 'success shown for an unconfirmed write');
-      eq(q(`select count(*) from tickets t join users u on u.id=t.user_id where u.email='${email('carla')}'`), '1', 'the write did happen on the server');
+      eq(q(`select count(*) from tickets t join users u on u.id=t.user_id where u.mobile='${mobile('carla')}'`), '1', 'the write did happen on the server');
       await R.getByRole('button', { name: /Mint & Present Pass/ }).click();
       await R.getByRole('button', { name: 'Review existing pass: Carla Lostresponse' }).waitFor({ timeout: 10000 });
       eq(q(`select count(*) from tickets where event_id='${S.alphaId}'`), '3', 'tickets after retry');
       eq(q(`select reserved_count from ticket_tiers where id='${S.alphaTier}'`), '3', 'reserved_count');
-      S.carlaTicket = q(`select t.id from tickets t join users u on u.id=t.user_id where u.email='${email('carla')}'`);
-      await R.getByLabel('Full Name').fill(''); await R.getByLabel(/Email Address/).fill('');
+      S.carlaTicket = q(`select t.id from tickets t join users u on u.id=t.user_id where u.mobile='${mobile('carla')}'`);
+      await R.getByLabel('Full Name').fill(''); await R.getByLabel(/Mobile Number/).fill('');
     });
     await check('C4c capacity is enforced: the tier is full (3 of 3) and a further reservation is refused without changing counts', async () => {
       eq((await http('POST', `/api/events/${S.alphaId}/tickets/reserve`, { token: S.outsiderToken, body: { ticket_tier_id: S.alphaTier } })).status, 410, 'sold out');
@@ -347,9 +387,7 @@ export async function runJourney(ctx) {
       eq((await http('POST', `/api/events/${S.betaId}/desk-registrations`, { token: S.deskToken, body: { full_name: 'X', ticket_tier_id: S.betaTier } })).status, 403, 'beta register');
       await R.goto(`${BASE}/reception/${S.betaId}`);
       await R.getByRole('heading', { name: 'Front Desk Operator Sign-In' }).waitFor();
-      await R.getByLabel(/Operator Email/).fill(email('operator'));
-      await R.getByLabel('Password').fill(S.opPassword);
-      await R.getByRole('button', { name: 'Sign In to Desk' }).click();
+      await uiCode(R, mobile('operator'), 'desk');
       await R.getByRole('alert').filter({ hasText: 'not assigned to this congress' }).waitFor({ timeout: 10000 });
       eq(q(`select count(*) from tickets where event_id='${S.betaId}'`), '0', 'beta tickets');
       assert(!S.calls.some((c) => c.actor === 'reception' && c.p.includes(S.betaId) && c.auth), 'credentialed call to beta');
@@ -369,30 +407,28 @@ export async function runJourney(ctx) {
       await R.goto(`${BASE}/reception/${S.alphaId}`);
       await R.getByRole('heading', { name: 'Front Desk Operator Sign-In' }).waitFor({ timeout: 10000 });
       await R.getByRole('alert').filter({ hasText: 'revoked or session expired' }).waitFor();
-      await R.getByLabel(/Operator Email/).fill(email('operator'));
-      await R.getByLabel('Password').fill(S.opPassword);
-      await R.getByRole('button', { name: 'Sign In to Desk' }).click();
-      await R.getByRole('alert').filter({ hasText: /not assigned to this congress|revoked/ }).waitFor({ timeout: 10000 });
+      // A revoked operator is not even sent a desk code; the newest code on record is an old, used one.
+      await uiCode(R, mobile('operator'), 'desk');
+      await R.getByRole('alert').filter({ hasText: /not assigned to this congress|not an active reception operator/ }).waitFor({ timeout: 10000 });
       // Reactivate through the same Add Operator form.
       await O.getByRole('button', { name: /Add Operator/ }).first().click();
       const d = O.getByRole('dialog');
       await d.getByPlaceholder('e.g. Maryam Bagheri').fill('E2E Operator');
-      await d.getByPlaceholder('operator@example.com').fill(email('operator'));
+      await d.getByPlaceholder('09xx xxx xxxx').fill(mobile('operator'));
       await d.locator('button[type=submit]').click();
       await O.getByText(/E2E Operator/).first().waitFor();
       await O.keyboard.press('Escape');
       await O.waitForTimeout(500);
       eq(q(`select is_revoked from desk_operators where event_id='${S.alphaId}'`), 'f', 'reactivated in DB');
       eq((await http('GET', `/api/events/${S.alphaId}/desk/me`, { token: S.deskToken })).status, 401, 'old token after reactivation');
-      await R.getByLabel(/Operator Email/).fill(email('operator'));
-      await R.getByLabel('Password').fill(S.opPassword);
-      await R.getByRole('button', { name: 'Sign In to Desk' }).click();
+      await R.getByRole('button', { name: 'Change number' }).click();
+      await uiCode(R, mobile('operator'), 'desk');
       await R.getByTestId('reception-operator').filter({ hasText: 'E2E Operator' }).waitFor({ timeout: 10000 });
     });
 
     // ───────────────────────────── Stage D — Gate scanner ─────────────────────────────
     stage('D. Gate scanner (production build, service worker, real API)');
-    const betaAttendee = (await http('POST', '/api/auth/register', { body: { email: email('bella'), password: PW, full_name: 'Bella Beta', organization: '', title: '' } })).json;
+    const betaAttendee = await signUp(mobile('bella'), 'Bella Beta');
     const betaTicket = (await http('POST', `/api/events/${S.betaId}/tickets/reserve`, { token: betaAttendee.access_token, body: { ticket_tier_id: S.betaTier } })).json;
     S.betaQr = betaTicket.qr_secret;
     const G = await actor('scanner', { width: 390, height: 844 });
@@ -490,9 +526,8 @@ export async function runJourney(ctx) {
     await check('E1 booth staff signs in directly and lands in their booth workspace', async () => {
       await X.goto(`${BASE}/booth/${S.booth1}`);
       await X.getByRole('link', { name: /Sign In to Booth Workspace/ }).click();
-      await X.getByLabel('Email address').fill(email('rep1'));
-      await X.getByLabel('Password').fill(PW);
-      await X.getByRole('button', { name: 'Sign in' }).click();
+      // The representative's account was created by the organizer's assignment; the first SMS sign-in uses it.
+      await uiCode(X, mobile('rep1'));
       await X.waitForURL(`${BASE}/booth/${S.booth1}`);
       await X.getByText(`Alpha Booth One ${RUN}`).first().waitFor({ timeout: 10000 });
       await X.getByTestId('booth-event').filter({ hasText: 'E2E Congress Alpha' }).waitFor();
@@ -504,7 +539,7 @@ export async function runJourney(ctx) {
       await X.getByTestId('capture-result').getByText('Attendee lead captured successfully.').waitFor({ timeout: 10000 });
       eq(q(`select count(*) from leads where booth_id='${S.booth1}' and ticket_id='${S.aliceTicket}'`), '1', 'lead row');
       eq(q(`select count(*) from leads where booth_id='${S.booth2}'`), '0', 'other booth leads');
-      eq(q(`select u.email from leads l join users u on u.id=l.captured_by_user_id where l.booth_id='${S.booth1}'`), email('rep1'), 'captured_by');
+      eq(q(`select u.mobile from leads l join users u on u.id=l.captured_by_user_id where l.booth_id='${S.booth1}'`), mobile('rep1'), 'captured_by');
       await shot(X, 'E-exhibitor-captured');
     });
     await check('E3 qualification (HOT, tag, private note) saved; a re-scan with only the badge preserves it', async () => {
@@ -541,7 +576,7 @@ export async function runJourney(ctx) {
       const rows = text.replace('\ufeff', '').trim().split(/\r?\n/);
       eq(rows.length, 2, 'csv rows (header + 1)');
       const leadId = q(`select id from leads where booth_id='${S.booth1}'`);
-      assert(rows[1].includes(leadId) && rows[1].includes('Dr. Alice Attendee') && rows[1].includes(email('alice')) && rows[1].includes('HOT') && rows[1].includes('Send Quotation') && rows[1].includes('Wants 3 units'), 'csv row differs from DB: ' + rows[1]);
+      assert(rows[1].includes(leadId) && rows[1].includes('Dr. Alice Attendee') && rows[1].includes(mobile('alice')) && rows[1].includes('HOT') && rows[1].includes('Send Quotation') && rows[1].includes('Wants 3 units'), 'csv row differs from DB: ' + rows[1]);
       assert(!text.includes('Wanda') && !text.includes('Bella'), 'foreign attendee in csv');
       eq(dl.suggestedFilename(), `alpha-1-${RUN}-leads.csv`, 'filename');
     });
@@ -559,7 +594,7 @@ export async function runJourney(ctx) {
       await X.getByTestId('capture-result').getByRole('button', { name: 'Done' }).click();
     });
     await check('E7 the other booth\'s staff cannot read, scan, update or export these leads (403) and a switched account sees none', async () => {
-      const t2 = (await http('POST', '/api/auth/login', { body: { email: email('rep2'), password: PW } })).json.access_token;
+      const t2 = (await signUp(mobile('rep2'), 'Rep Two')).access_token;
       const leadId = q(`select id from leads where booth_id='${S.booth1}' and ticket_id='${S.aliceTicket}'`);
       for (const [m, p, body] of [['GET', `/api/booths/${S.booth1}/leads`], ['GET', `/api/booths/${S.booth1}/leads/export-csv`], ['POST', `/api/booths/${S.booth1}/leads/scan`, { qr_secret: S.wandaQr }], ['PATCH', `/api/booths/${S.booth1}/leads/${leadId}`, { rating: 'COLD' }]]) {
         eq((await http(m, p, { token: t2, body })).status, 403, `${m} ${p}`);
@@ -568,9 +603,7 @@ export async function runJourney(ctx) {
       assert(!(await http('GET', `/api/booths/${S.booth2}/leads`, { token: t2 })).json.length, 'booth2 sees leads of booth1');
       await X.getByRole('button', { name: 'Log Out' }).click();
       await X.waitForURL(new RegExp(`/booth/${S.booth1}/sign-in`));
-      await X.getByLabel('Email address').fill(email('rep2'));
-      await X.getByLabel('Password').fill(PW);
-      await X.getByRole('button', { name: 'Sign in' }).click();
+      await uiCode(X, mobile('rep2'));
       await X.getByRole('heading', { name: 'Commercial Access Restricted (403)' }).waitFor({ timeout: 10000 });
       assert(!(await X.locator('body').innerText()).includes('Alice'), 'alice visible to rep2');
       eq((await http('GET', `/api/booths/${S.booth1}/leads`, { token: S.aliceToken })).status, 403, 'plain user');
@@ -605,7 +638,7 @@ export async function runJourney(ctx) {
       const rows = text.replace('\ufeff', '').trim().split(/\r?\n/);
       const dbTotal = num(`select count(*) from checkins c join checkin_points p on p.id=c.checkin_point_id where p.event_id='${S.alphaId}'`);
       eq(rows.length - 1, dbTotal, 'csv data rows vs DB check-ins');
-      assert(text.includes('Dr. Alice Attendee') && text.includes('Wanda Walkin') && text.includes('EVENT_MISMATCH') && !text.includes('Bella') && !text.includes(email('bella')), 'csv content: ' + text.slice(0, 600).replace(/\r?\n/g, ' // '));
+      assert(text.includes('Dr. Alice Attendee') && text.includes('Wanda Walkin') && text.includes('EVENT_MISMATCH') && !text.includes('Bella') && !text.includes(mobile('bella')), 'csv content: ' + text.slice(0, 600).replace(/\r?\n/g, ' // '));
       eq(dl.suggestedFilename(), `${S.slug}-attendance.csv`, 'filename');
     });
     await check('F4 switching to Beta shows only Beta numbers; Alpha data never leaks; Beta analytics are zero scans', async () => {

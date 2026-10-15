@@ -1,3 +1,5 @@
+import asyncio
+import contextlib
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -9,6 +11,8 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from app.config import STRICT_ENVIRONMENTS, Settings, describe_settings_error
 from app.rate_limit import FailureLimiter
 from app.schema_guard import assert_schema_current
+from app.sms import build_provider
+from app.sms.outbox import run_outbox
 from app.routes import (
     access,
     analytics,
@@ -23,6 +27,7 @@ from app.routes import (
     organizers,
     pages,
     public,
+    sms_outbox,
     ticket_tiers,
     tickets,
 )
@@ -35,12 +40,25 @@ def create_app(settings: Settings) -> FastAPI:
         if settings.environment in STRICT_ENVIRONMENTS:
             await assert_schema_current(engine)
         app.state.sessionmaker = async_sessionmaker(engine, expire_on_commit=False)
+        outbox = (
+            asyncio.create_task(
+                run_outbox(app.state.sessionmaker, app.state.sms, settings.sms_outbox_poll_seconds)
+            )
+            if settings.sms_outbox_enabled
+            else None
+        )
         yield
+        if outbox is not None:
+            outbox.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await outbox
+        await app.state.sms.aclose()
         await engine.dispose()
 
     app = FastAPI(title="Congress Platform", lifespan=lifespan)
     app.state.settings = settings
     app.state.limiter = FailureLimiter(enabled=settings.auth_rate_limits_enabled)
+    app.state.sms = build_provider(settings)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
@@ -63,6 +81,8 @@ def create_app(settings: Settings) -> FastAPI:
     app.include_router(pages.router)
     app.include_router(public.router)
     app.include_router(public.seo_router)
+    if settings.sms_provider == "console" and settings.environment != "production":
+        app.include_router(sms_outbox.router)
     return app
 
 

@@ -1,27 +1,17 @@
 import uuid
 from httpx import AsyncClient
 
-from tests.helpers import bearer, provision_organizer
+from tests.helpers import bearer, provision_organizer, sign_in
 from tests.test_events import EVENT
 from tests.test_ticket_tiers import create_event, tier
 
 
 async def register_user(
-    client: AsyncClient, email: str, name: str = "Test Attendee"
+    client: AsyncClient, mobile: str, name: str = "Test Attendee"
 ) -> tuple[dict[str, str], str]:
-    resp = await client.post(
-        "/api/auth/register",
-        json={
-            "email": email,
-            "password": "Password123!",
-            "full_name": name,
-            "organization": "Test Org",
-            "title": "Engineer",
-        },
-    )
-    assert resp.status_code == 201, resp.text
-    data = resp.json()
-    return data["user"], data["access_token"]
+    """A signed-in attendee for this mobile number (new numbers complete their profile)."""
+    user, token = await sign_in(client, mobile, name)
+    return user, token
 
 
 async def test_attendee_can_reserve_free_ticket_and_receives_qr(
@@ -36,7 +26,7 @@ async def test_attendee_can_reserve_free_ticket_and_receives_qr(
     )
     tier_id = tier_resp.json()["id"]
 
-    _, user_token = await register_user(client, "attendee1@example.com", "Dr. Ali")
+    _, user_token = await register_user(client, "09121000026", "Dr. Ali")
 
     reserve_resp = await client.post(
         f"/api/events/{event_id}/tickets/reserve",
@@ -68,8 +58,8 @@ async def test_reserving_beyond_quota_is_rejected_as_sold_out(
     )
     tier_id = tier_resp.json()["id"]
 
-    _, user1_token = await register_user(client, "first@example.com")
-    _, user2_token = await register_user(client, "second@example.com")
+    _, user1_token = await register_user(client, "09121000068")
+    _, user2_token = await register_user(client, "09121000069")
 
     # First attendee reserves the only seat
     resp1 = await client.post(
@@ -107,7 +97,7 @@ async def test_user_cannot_reserve_two_tickets_for_the_same_event(
     tier1_id = tier1_resp.json()["id"]
     tier2_id = tier2_resp.json()["id"]
 
-    _, token = await register_user(client, "double@example.com")
+    _, token = await register_user(client, "09121000070")
 
     first_res = await client.post(
         f"/api/events/{event_id}/tickets/reserve",
@@ -137,7 +127,7 @@ async def test_closed_tier_cannot_be_reserved(
     )
     tier_id = tier_resp.json()["id"]
 
-    _, token = await register_user(client, "closed@example.com")
+    _, token = await register_user(client, "09121000071")
 
     res = await client.post(
         f"/api/events/{event_id}/tickets/reserve",
@@ -159,7 +149,7 @@ async def test_attendee_can_retrieve_their_tickets_list(
     )
     tier_id = tier_resp.json()["id"]
 
-    _, token = await register_user(client, "viewer@example.com", "Sara Tehrani")
+    _, token = await register_user(client, "09121000072", "Sara Tehrani")
     await client.post(
         f"/api/events/{event_id}/tickets/reserve",
         json={"ticket_tier_id": tier_id},

@@ -44,7 +44,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/auth/register": {
+    "/api/auth/otp/request": {
         parameters: {
             query?: never;
             header?: never;
@@ -53,15 +53,18 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Register User */
-        post: operations["register_user_api_auth_register_post"];
+        /**
+         * Request Otp
+         * @description Send a one-time code by SMS. The answer never reveals whether the number has an account.
+         */
+        post: operations["request_otp_api_auth_otp_request_post"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/auth/login": {
+    "/api/auth/otp/verify": {
         parameters: {
             query?: never;
             header?: never;
@@ -70,8 +73,28 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Login User */
-        post: operations["login_user_api_auth_login_post"];
+        /** Verify Otp */
+        post: operations["verify_otp_api_auth_otp_verify_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/otp/complete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Complete Signup
+         * @description Create the account for a number verified by /otp/verify.
+         */
+        post: operations["complete_signup_api_auth_otp_complete_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -119,10 +142,49 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /** List Organizers */
+        get: operations["list_organizers_api_organizers_get"];
         put?: never;
         /** Provision Organizer */
         post: operations["provision_organizer_api_organizers_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/organizers/{organizer_id}/rotate-key": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Rotate Organizer Key
+         * @description New key shown once; the previous key is rejected from this commit on. Also reinstates a revoked
+         *     organizer (rotation is how a compromised tenant gets access back).
+         */
+        post: operations["rotate_organizer_key_api_organizers__organizer_id__rotate_key_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/organizers/{organizer_id}/revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Revoke Organizer Key */
+        post: operations["revoke_organizer_key_api_organizers__organizer_id__revoke_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -439,7 +501,10 @@ export interface paths {
         /** List Desk Operators */
         get: operations["list_desk_operators_api_events__event_id__desk_operators_get"];
         put?: never;
-        /** Add Desk Operator */
+        /**
+         * Add Desk Operator
+         * @description Authorize a person (by mobile) for this event's front desk; they sign in with an SMS code.
+         */
         post: operations["add_desk_operator_api_events__event_id__desk_operators_post"];
         delete?: never;
         options?: never;
@@ -1044,6 +1109,63 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/public/seo/e/{slug}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Congress Head
+         * @description `<head>` tags for `/e/{slug}`: published SEO title, description and share image, or neutral defaults.
+         */
+        get: operations["congress_head_api_public_seo_e__slug__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/public/seo/e/{slug}/booths/{booth_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Booth Head */
+        get: operations["booth_head_api_public_seo_e__slug__booths__booth_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/platform/sms-outbox": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Recorded Sms
+         * @description Newest first.
+         */
+        get: operations["recorded_sms_api_platform_sms_outbox_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1166,8 +1288,8 @@ export interface components {
             attendee_id: string;
             /** Attendee Name */
             attendee_name: string;
-            /** Attendee Email */
-            attendee_email: string;
+            /** Attendee Mobile */
+            attendee_mobile: string | null;
             /** Organization */
             organization: string;
             /** Title */
@@ -1202,8 +1324,8 @@ export interface components {
             attendee_id: string;
             /** Attendee Name */
             attendee_name: string;
-            /** Attendee Email */
-            attendee_email: string;
+            /** Attendee Mobile */
+            attendee_mobile: string | null;
             /** Organization */
             organization: string;
             /** Title */
@@ -1261,8 +1383,8 @@ export interface components {
             ticket_tier_name: string;
             /** Attendee Name */
             attendee_name: string;
-            /** Attendee Email */
-            attendee_email: string;
+            /** Attendee Mobile */
+            attendee_mobile: string | null;
             /** Status */
             status: string;
             /** Qr Secret */
@@ -1394,11 +1516,13 @@ export interface components {
         };
         /** BoothStaffAssign */
         BoothStaffAssign: {
+            /** Mobile */
+            mobile: string;
             /**
-             * Email
-             * Format: email
+             * Full Name
+             * @default
              */
-            email: string;
+            full_name: string;
         };
         /** BoothStaffOut */
         BoothStaffOut: {
@@ -1417,8 +1541,8 @@ export interface components {
              * Format: uuid
              */
             user_id: string;
-            /** Email */
-            email: string;
+            /** Mobile */
+            mobile: string | null;
             /** Full Name */
             full_name: string;
         };
@@ -1543,8 +1667,8 @@ export interface components {
             connected_user_id: string;
             /** Full Name */
             full_name: string;
-            /** Email */
-            email?: string | null;
+            /** Mobile */
+            mobile?: string | null;
             /** Organization */
             organization: string;
             /** Title */
@@ -1610,15 +1734,15 @@ export interface components {
              */
             target: "passes" | "exhibitors";
         };
-        /** DeskLoginRequest */
+        /**
+         * DeskLoginRequest
+         * @description Sign-in code requested with POST /api/auth/otp/request (purpose "desk").
+         */
         DeskLoginRequest: {
-            /**
-             * Email
-             * Format: email
-             */
-            email: string;
-            /** Password */
-            password: string;
+            /** Mobile */
+            mobile: string;
+            /** Code */
+            code: string;
         };
         /** DeskLoginResponse */
         DeskLoginResponse: {
@@ -1660,46 +1784,10 @@ export interface components {
         };
         /** DeskOperatorCreate */
         DeskOperatorCreate: {
-            /**
-             * Email
-             * Format: email
-             */
-            email: string;
+            /** Mobile */
+            mobile: string;
             /** Operator Name */
             operator_name: string;
-        };
-        /** DeskOperatorCreated */
-        DeskOperatorCreated: {
-            /**
-             * Id
-             * Format: uuid
-             */
-            id: string;
-            /**
-             * Event Id
-             * Format: uuid
-             */
-            event_id: string;
-            /**
-             * User Id
-             * Format: uuid
-             */
-            user_id: string;
-            /** Operator Name */
-            operator_name: string;
-            /** Email */
-            email: string;
-            /** Is Revoked */
-            is_revoked: boolean;
-            /** Revoked At */
-            revoked_at: string | null;
-            /**
-             * Created At
-             * Format: date-time
-             */
-            created_at: string;
-            /** Temporary Password */
-            temporary_password?: string | null;
         };
         /** DeskOperatorOut */
         DeskOperatorOut: {
@@ -1720,8 +1808,8 @@ export interface components {
             user_id: string;
             /** Operator Name */
             operator_name: string;
-            /** Email */
-            email: string;
+            /** Mobile */
+            mobile: string | null;
             /** Is Revoked */
             is_revoked: boolean;
             /** Revoked At */
@@ -1736,8 +1824,8 @@ export interface components {
         DeskRegistrationCreate: {
             /** Full Name */
             full_name: string;
-            /** Email */
-            email?: string | null;
+            /** Mobile */
+            mobile?: string | null;
             /**
              * Organization
              * @default
@@ -1763,8 +1851,8 @@ export interface components {
             ticket_id: string;
             /** Attendee Name */
             attendee_name: string;
-            /** Attendee Email */
-            attendee_email: string;
+            /** Attendee Mobile */
+            attendee_mobile: string | null;
             /** Organization */
             organization: string;
             /** Title */
@@ -2017,8 +2105,8 @@ export interface components {
             ticket_id: string;
             /** Attendee Name */
             attendee_name: string;
-            /** Attendee Email */
-            attendee_email: string;
+            /** Attendee Mobile */
+            attendee_mobile: string | null;
             /** Organization */
             organization: string;
             /** Title */
@@ -2166,6 +2254,25 @@ export interface components {
             /** Name */
             name: string;
         };
+        /** OrganizerOut */
+        OrganizerOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Revoked At */
+            revoked_at: string | null;
+            /** Key Rotated At */
+            key_rotated_at: string | null;
+        };
         /** OrganizerProvisioned */
         OrganizerProvisioned: {
             /**
@@ -2180,6 +2287,73 @@ export interface components {
              * @description Shown once. Only its hash is stored.
              */
             api_key: string;
+        };
+        /** OtpComplete */
+        OtpComplete: {
+            /** Signup Token */
+            signup_token: string;
+            /** Full Name */
+            full_name: string;
+            /**
+             * Organization
+             * @default
+             */
+            organization: string;
+            /**
+             * Title
+             * @default
+             */
+            title: string;
+        };
+        /** OtpRequest */
+        OtpRequest: {
+            /** Mobile */
+            mobile: string;
+            /**
+             * Purpose
+             * @default signin
+             * @enum {string}
+             */
+            purpose: "signin" | "desk";
+        };
+        /** OtpRequestOut */
+        OtpRequestOut: {
+            /** Mobile */
+            mobile: string;
+            /** Code Length */
+            code_length: number;
+            /** Expires In */
+            expires_in: number;
+            /** Resend After */
+            resend_after: number;
+        };
+        /** OtpVerify */
+        OtpVerify: {
+            /** Mobile */
+            mobile: string;
+            /** Code */
+            code: string;
+        };
+        /**
+         * OtpVerifyOut
+         * @description `signed_in` carries the session; `profile_required` (new number) carries a token for /otp/complete.
+         */
+        OtpVerifyOut: {
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "signed_in" | "profile_required";
+            /** Access Token */
+            access_token?: string | null;
+            /**
+             * Token Type
+             * @default bearer
+             */
+            token_type: string;
+            user?: components["schemas"]["UserOut"] | null;
+            /** Signup Token */
+            signup_token?: string | null;
         };
         /** PageAsset */
         PageAsset: {
@@ -2407,6 +2581,22 @@ export interface components {
             /** Assets */
             assets: components["schemas"]["PageAsset"][];
         };
+        /** RecordedSmsOut */
+        RecordedSmsOut: {
+            /** Mobile */
+            mobile: string;
+            /** Template Id */
+            template_id: number;
+            /** Params */
+            params: {
+                [key: string]: string;
+            };
+            /**
+             * Sent At
+             * Format: date-time
+             */
+            sent_at: string;
+        };
         /** RichTextSection */
         RichTextSection: {
             /** Id */
@@ -2603,8 +2793,8 @@ export interface components {
             ticket_tier_name: string;
             /** Attendee Name */
             attendee_name: string;
-            /** Attendee Email */
-            attendee_email: string;
+            /** Attendee Mobile */
+            attendee_mobile: string | null;
             /** Status */
             status: string;
             /** Qr Secret */
@@ -2672,16 +2862,6 @@ export interface components {
             /** Is Open */
             is_open?: boolean | null;
         };
-        /** UserLogin */
-        UserLogin: {
-            /**
-             * Email
-             * Format: email
-             */
-            email: string;
-            /** Password */
-            password: string;
-        };
         /** UserOut */
         UserOut: {
             /**
@@ -2689,8 +2869,8 @@ export interface components {
              * Format: uuid
              */
             id: string;
-            /** Email */
-            email: string;
+            /** Mobile */
+            mobile: string | null;
             /** Full Name */
             full_name: string;
             /** Organization */
@@ -2702,28 +2882,6 @@ export interface components {
              * @default false
              */
             share_contact_with_peers: boolean;
-        };
-        /** UserRegister */
-        UserRegister: {
-            /**
-             * Email
-             * Format: email
-             */
-            email: string;
-            /** Password */
-            password: string;
-            /** Full Name */
-            full_name: string;
-            /**
-             * Organization
-             * @default
-             */
-            organization: string;
-            /**
-             * Title
-             * @default
-             */
-            title: string;
         };
         /** ValidationError */
         ValidationError: {
@@ -2791,7 +2949,7 @@ export interface operations {
             };
         };
     };
-    register_user_api_auth_register_post: {
+    request_otp_api_auth_otp_request_post: {
         parameters: {
             query?: never;
             header?: never;
@@ -2800,17 +2958,17 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["UserRegister"];
+                "application/json": components["schemas"]["OtpRequest"];
             };
         };
         responses: {
             /** @description Successful Response */
-            201: {
+            202: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["AuthResponse"];
+                    "application/json": components["schemas"]["OtpRequestOut"];
                 };
             };
             /** @description Validation Error */
@@ -2824,7 +2982,7 @@ export interface operations {
             };
         };
     };
-    login_user_api_auth_login_post: {
+    verify_otp_api_auth_otp_verify_post: {
         parameters: {
             query?: never;
             header?: never;
@@ -2833,12 +2991,45 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["UserLogin"];
+                "application/json": components["schemas"]["OtpVerify"];
             };
         };
         responses: {
             /** @description Successful Response */
             200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OtpVerifyOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    complete_signup_api_auth_otp_complete_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OtpComplete"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -2897,6 +3088,37 @@ export interface operations {
             };
         };
     };
+    list_organizers_api_organizers_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-admin-token"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrganizerOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     provision_organizer_api_organizers_post: {
         parameters: {
             query?: never;
@@ -2919,6 +3141,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["OrganizerProvisioned"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    rotate_organizer_key_api_organizers__organizer_id__rotate_key_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-admin-token"?: string | null;
+            };
+            path: {
+                organizer_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrganizerProvisioned"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    revoke_organizer_key_api_organizers__organizer_id__revoke_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-admin-token"?: string | null;
+            };
+            path: {
+                organizer_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrganizerOut"];
                 };
             };
             /** @description Validation Error */
@@ -3654,7 +3942,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["DeskOperatorCreated"];
+                    "application/json": components["schemas"]["DeskOperatorOut"];
                 };
             };
             /** @description Validation Error */
@@ -4921,6 +5209,102 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PublicBoothOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    congress_head_api_public_seo_e__slug__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": string;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    booth_head_api_public_seo_e__slug__booths__booth_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                slug: string;
+                booth_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": string;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    recorded_sms_api_platform_sms_outbox_get: {
+        parameters: {
+            query: {
+                mobile: string;
+            };
+            header?: {
+                "x-admin-token"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecordedSmsOut"][];
                 };
             };
             /** @description Validation Error */

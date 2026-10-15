@@ -20,8 +20,9 @@ const DB = 'congress_reality', PGU = 'congress_reality', PGPW = randomBytes(18).
 const ADMIN = randomBytes(24).toString('hex'), JWTS = randomBytes(32).toString('hex');
 const BASE = 'http://127.0.0.1:4176', API_URL = 'http://127.0.0.1:8000';
 const RUN = Date.now().toString(36).slice(-5);
-const PW = `Synth-${randomBytes(6).toString('hex')}!`;
-const mail = (n) => `${n}.${RUN}@example.com`;
+// Synthetic mobile numbers in the unassigned 0900 range, unique per run.
+const RUN_DIGITS = String(parseInt(randomBytes(3).toString('hex'), 16) % 100000).padStart(5, '0');
+const mobile = (n) => `090${({ one: '011', two: '012' })[n]}${RUN_DIGITS}`;
 
 const sh = (cmd, args, allowFail = false) => {
   const r = spawnSync(cmd, args, { encoding: 'utf8', shell: process.platform === 'win32' && (cmd === 'npx') });
@@ -31,7 +32,8 @@ const sh = (cmd, args, allowFail = false) => {
 const docker = (...a) => sh('docker', a);
 const psql = (sql) => docker('exec', PG, 'psql', '-U', PGU, '-d', DB, '-At', '-c', sql).stdout.trim();
 const wait = async (label, probe, ms = 60000) => { const end = Date.now() + ms; while (Date.now() < end) { try { if (await probe()) return; } catch {} await new Promise((r) => setTimeout(r, 700)); } throw new Error('timeout ' + label); };
-const env = () => ['-e', 'CONGRESS_ENVIRONMENT=production', '-e', 'CONGRESS_MEDIA_ROOT=/tmp/congress-media', '-e', `CONGRESS_DATABASE_URL=postgresql+asyncpg://${PGU}:${PGPW}@${PG}:5432/${DB}`, '-e', `CONGRESS_PLATFORM_ADMIN_TOKEN=${ADMIN}`, '-e', `CONGRESS_JWT_SECRET=${JWTS}`, '-e', 'CONGRESS_CORS_ORIGINS=["http://127.0.0.1:4176"]'];
+// Staging (strict) with the console SMS provider: production requires real sms.ir delivery.
+const env = () => ['-e', 'CONGRESS_ENVIRONMENT=staging', '-e', 'CONGRESS_SMS_PROVIDER=console', '-e', 'CONGRESS_OTP_RESEND_COOLDOWN_SECONDS=0', '-e', 'CONGRESS_OTP_SENDS_PER_MOBILE_PER_HOUR=1000', '-e', 'CONGRESS_OTP_SENDS_PER_IP_PER_HOUR=10000', '-e', 'CONGRESS_MEDIA_ROOT=/tmp/congress-media', '-e', `CONGRESS_DATABASE_URL=postgresql+asyncpg://${PGU}:${PGPW}@${PG}:5432/${DB}`, '-e', `CONGRESS_PLATFORM_ADMIN_TOKEN=${ADMIN}`, '-e', `CONGRESS_JWT_SECRET=${JWTS}`, '-e', 'CONGRESS_CORS_ORIGINS=["http://127.0.0.1:4176"]'];
 const http = async (m, p, { token, key, admin, body } = {}) => {
   const h = { 'Content-Type': 'application/json' };
   if (token) h.Authorization = `Bearer ${token}`;
@@ -40,6 +42,25 @@ const http = async (m, p, { token, key, admin, body } = {}) => {
   const r = await fetch(API_URL + p, { method: m, headers: h, body: body ? JSON.stringify(body) : undefined });
   let json = null; try { json = await r.json(); } catch {}
   return { status: r.status, json };
+};
+// SMS sign-in codes: the console provider records them; read back with the platform admin token.
+const smsCode = async (number) => {
+  const sent = await http('GET', `/api/platform/sms-outbox?mobile=${number}`, { admin: true });
+  const codes = (sent.json ?? []).map((m) => m.params.CODE).filter(Boolean);
+  if (!codes.length) throw new Error(`no SMS code recorded for ${number}`);
+  return codes[0];
+};
+const signUp = async (number, full_name) => {
+  await http('POST', '/api/auth/otp/request', { body: { mobile: number } });
+  const verified = (await http('POST', '/api/auth/otp/verify', { body: { mobile: number, code: await smsCode(number) } })).json;
+  if (verified.status === 'signed_in') return verified;
+  return (await http('POST', '/api/auth/otp/complete', { body: { signup_token: verified.signup_token, full_name, organization: '', title: '' } })).json;
+};
+const uiCode = async (scope, number) => {
+  await scope.getByLabel('Mobile number').fill(number);
+  await scope.getByRole('button', { name: 'Send code' }).click();
+  await scope.getByLabel('Code from the SMS').waitFor({ timeout: 10000 });
+  await scope.getByLabel('Code from the SMS').fill(await smsCode(number));
 };
 const results = [];
 const check = async (name, how, fn) => { try { const note = await fn(); results.push({ ok: true, name, how, note }); console.log(`PASS [${how}] ${name}${note ? ' — ' + note : ''}`); } catch (e) { results.push({ ok: false, name, how }); console.log(`FAIL [${how}] ${name} — ${e.message.split('\n')[0]}`); } };
@@ -132,18 +153,19 @@ try {
     await A.getByRole('heading', { name: new RegExp(`Reality Congress ${RUN}`) }).first().waitFor({ timeout: 10000 });
     await A.getByText(`Delegate ${RUN}`).first().waitFor();
   });
-  await check('New User registers + reserves through the public dialog; rows in PostgreSQL', 'UI', async () => {
+  await check('New User signs up by SMS code + reserves through the public dialog; rows in PostgreSQL', 'UI', async () => {
     await A.getByRole('button', { name: /Reserve Free Pass/ }).first().click();
     const d = A.getByRole('dialog');
-    await d.getByPlaceholder('e.g. Dr. Sarah Jenkins').fill('Synthetic Attendee One');
-    await d.getByPlaceholder('name@institution.org').fill(mail('one'));
-    await d.getByPlaceholder('Minimum 8 characters').fill(PW);
-    await d.getByRole('button', { name: /Confirm Registration/ }).click();
+    await uiCode(d, mobile('one'));
+    await d.getByLabel('Full name').fill('Synthetic Attendee One');
+    await d.getByRole('button', { name: 'Create my account' }).click();
     await A.getByRole('heading', { name: 'Pass Reserved Successfully!' }).waitFor({ timeout: 15000 });
-    eq(psql(`select count(*) from users where email='${mail('one')}'`), '1', 'user row');
-    const hash = psql(`select password_hash from users where email='${mail('one')}'`);
-    if (!hash.startsWith('pbkdf2_sha256$') || hash.includes(PW)) throw new Error('password not hashed');
-    ticketId = psql(`select t.id from tickets t join users u on u.id=t.user_id where u.email='${mail('one')}' and t.event_id='${eventId}' and t.ticket_tier_id='${tierId}'`);
+    eq(psql(`select count(*) from users where mobile='${mobile('one')}'`), '1', 'user row');
+    const code = await smsCode(mobile('one'));
+    if (psql(`select count(*) from otp_challenges where code_hash like '%${code}%'`) !== '0') throw new Error('sign-in code stored in plain text');
+    if (psql(`select count(*) from sms_messages where kind='otp' and params is not null`) !== '0') throw new Error('sign-in code kept in the SMS log');
+    eq(psql(`select count(*) from information_schema.columns where table_name='users' and column_name in ('email','password_hash')`), '0', 'no e-mail or password columns');
+    ticketId = psql(`select t.id from tickets t join users u on u.id=t.user_id where u.mobile='${mobile('one')}' and t.event_id='${eventId}' and t.ticket_tier_id='${tierId}'`);
     secret = psql(`select secret from entity_qrs where entity_id='${ticketId}' and entity_type='attendee_ticket'`);
     eq(psql(`select reserved_count from ticket_tiers where id='${tierId}'`), '1', 'reserved_count');
     const orders = psql(`select count(*) from information_schema.tables where table_name in ('orders','order','payments')`);
@@ -172,9 +194,7 @@ try {
   await check('Sign out, then sign in again through the sign-in page', 'UI', async () => {
     await A.getByRole('button', { name: 'Log Out' }).click();
     await A.goto(`${BASE}/c/${slug}/sign-in?next=${encodeURIComponent(`/c/${slug}/my-ticket`)}`);
-    await A.getByLabel('Email address').fill(mail('one'));
-    await A.getByLabel('Password').fill(PW);
-    await A.getByRole('button', { name: 'Sign in' }).click();
+    await uiCode(A, mobile('one'));
     await A.waitForURL(new RegExp(`/c/${slug}/my-ticket$`));
     await A.getByText(`Delegate ${RUN}`).first().waitFor({ timeout: 10000 });
   });
@@ -185,13 +205,11 @@ try {
     docker('rm', '-f', PG);
     await startPg();
     await startUvicorn();
-    eq(psql(`select count(*) from users where email='${mail('one')}'`), '1', 'user after restart');
+    eq(psql(`select count(*) from users where mobile='${mobile('one')}'`), '1', 'user after restart');
     eq(psql(`select secret from entity_qrs where entity_id='${ticketId}'`), secret, 'qr after restart');
     const B = await page({ width: 390, height: 844 });
     await B.goto(`${BASE}/c/${slug}/sign-in?next=${encodeURIComponent(`/c/${slug}/my-ticket`)}`);
-    await B.getByLabel('Email address').fill(mail('one'));
-    await B.getByLabel('Password').fill(PW);
-    await B.getByRole('button', { name: 'Sign in' }).click();
+    await uiCode(B, mobile('one'));
     await B.getByText(`Delegate ${RUN}`).first().waitFor({ timeout: 10000 });
     eq(await decodeQr(B), secret, 'qr after restart');
     const old = await A.evaluate(() => localStorage.getItem('congress_attendee_token'));
@@ -201,7 +219,7 @@ try {
 
   // ── Isolation ──
   await check('Second User cannot read the first User\'s ticket, attendee record or organizer data', 'UI+API', async () => {
-    const two = (await http('POST', '/api/auth/register', { body: { email: mail('two'), password: PW, full_name: 'Synthetic Attendee Two', organization: '', title: '' } })).json;
+    const two = await signUp(mobile('two'), 'Synthetic Attendee Two');
     eq((await http('GET', '/api/attendees/me/tickets', { token: two.access_token })).json, [], 'own tickets');
     const probes = {
       attendeeRecord: (await http('GET', `/api/events/${eventId}/attendees/${ticketId}`, { token: two.access_token })).status,
@@ -212,9 +230,7 @@ try {
     for (const [k, v] of Object.entries(probes)) if (![401, 403, 404].includes(v)) throw new Error(`${k} -> ${v}`);
     const P = await page({ width: 390, height: 844 });
     await P.goto(`${BASE}/c/${slug}/sign-in?next=${encodeURIComponent(`/c/${slug}/my-ticket`)}`);
-    await P.getByLabel('Email address').fill(mail('two'));
-    await P.getByLabel('Password').fill(PW);
-    await P.getByRole('button', { name: 'Sign in' }).click();
+    await uiCode(P, mobile('two'));
     await P.waitForURL(new RegExp(`/c/${slug}/my-ticket$`));
     await P.getByText(/no .*pass|You have no|No Active Tickets/i).first().waitFor({ timeout: 10000 });
     if ((await P.locator('body').innerText()).includes('Synthetic Attendee One')) throw new Error('user one visible');

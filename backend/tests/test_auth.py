@@ -9,77 +9,65 @@ from httpx import AsyncClient
 
 from app.security import create_access_token
 from tests.conftest import TEST_JWT_SECRET, TEST_URL
-from tests.helpers import bearer as organizer_bearer, provision_organizer
+from tests.helpers import bearer as organizer_bearer, desk_sign_in, provision_organizer, request_code
 from tests.test_ticket_tiers import create_event
 from tests.test_tickets import register_user
 
 
-USER_PAYLOAD = {
-    "email": "dr.rezaei@example.com",
-    "password": "StrongPassword123!",
-    "full_name": "Dr. Mohammad Rezaei",
-    "organization": "Tehran University of Medical Sciences",
-    "title": "Associate Professor",
-}
-
-
-async def test_attendee_can_register_and_receives_access_token(
+async def test_new_number_signs_up_with_sms_code_and_receives_access_token(
     client: AsyncClient,
 ) -> None:
-    response = await client.post("/api/auth/register", json=USER_PAYLOAD)
+    code = await request_code(client, "09121000008")
+    verified = await client.post("/api/auth/otp/verify", json={"mobile": "09121000008", "code": code})
+    assert verified.status_code == 200, verified.text
+    assert verified.json()["status"] == "profile_required"
+    assert verified.json()["access_token"] is None
 
+    response = await client.post(
+        "/api/auth/otp/complete",
+        json={
+            "signup_token": verified.json()["signup_token"],
+            "full_name": "Dr. Mohammad Rezaei",
+            "organization": "Tehran University of Medical Sciences",
+            "title": "Associate Professor",
+        },
+    )
     assert response.status_code == 201
     body = response.json()
-    assert "access_token" in body
     assert body["token_type"] == "bearer"
     user = body["user"]
-    assert user["email"] == "dr.rezaei@example.com"
+    assert user["mobile"] == "09121000008"
     assert user["full_name"] == "Dr. Mohammad Rezaei"
     assert user["organization"] == "Tehran University of Medical Sciences"
     assert user["title"] == "Associate Professor"
-    assert "password" not in user
-    assert "password_hash" not in user
+    assert set(user) == {"id", "mobile", "full_name", "organization", "title", "share_contact_with_peers"}
 
 
-async def test_duplicate_email_registration_is_rejected(
+async def test_known_number_signs_in_with_sms_code(
     client: AsyncClient,
 ) -> None:
-    await client.post("/api/auth/register", json=USER_PAYLOAD)
-    duplicate = await client.post("/api/auth/register", json=USER_PAYLOAD)
+    user, _ = await register_user(client, "09121000008")
+    code = await request_code(client, "۰۹۱۲ ۱۰۰ ۰۰۰۸")  # Persian digits and spaces as typed on a phone
 
-    assert duplicate.status_code == 409
+    signed_in = await client.post("/api/auth/otp/verify", json={"mobile": "+989121000008", "code": code})
 
-
-async def test_attendee_can_login_with_correct_credentials(
-    client: AsyncClient,
-) -> None:
-    await client.post("/api/auth/register", json=USER_PAYLOAD)
-
-    login_resp = await client.post(
-        "/api/auth/login",
-        json={"email": "dr.rezaei@example.com", "password": "StrongPassword123!"},
-    )
-
-    assert login_resp.status_code == 200
-    token = login_resp.json()["access_token"]
-
-    # Verify /api/auth/me using the token
+    assert signed_in.status_code == 200
+    assert signed_in.json()["status"] == "signed_in"
+    token = signed_in.json()["access_token"]
     me_resp = await client.get(
         "/api/auth/me", headers={"Authorization": f"Bearer {token}"}
     )
     assert me_resp.status_code == 200
-    assert me_resp.json()["email"] == "dr.rezaei@example.com"
+    assert me_resp.json() == user
 
 
-async def test_login_with_wrong_password_is_rejected(
+async def test_wrong_sms_code_is_rejected(
     client: AsyncClient,
 ) -> None:
-    await client.post("/api/auth/register", json=USER_PAYLOAD)
+    code = await request_code(client, "09121000008")
+    wrong = "000000" if code != "000000" else "111111"
 
-    wrong_login = await client.post(
-        "/api/auth/login",
-        json={"email": "dr.rezaei@example.com", "password": "WrongPassword!"},
-    )
+    wrong_login = await client.post("/api/auth/otp/verify", json={"mobile": "09121000008", "code": wrong})
 
     assert wrong_login.status_code == 401
     assert "WWW-Authenticate" not in wrong_login.headers
@@ -103,7 +91,7 @@ def bearer(token: str) -> dict[str, str]:
 async def test_user_token_family_preserves_identity_and_consumers(
     client: AsyncClient, typed: bool,
 ) -> None:
-    user, issued = await register_user(client, "family@example.com")
+    user, issued = await register_user(client, "09121000009")
     payload = jwt.decode(issued, TEST_JWT_SECRET, algorithms=["HS256"])
     assert "type" not in payload  # Existing issuance remains compatible.
     if typed:
@@ -129,7 +117,7 @@ async def test_user_token_family_preserves_identity_and_consumers(
     assert "WWW-Authenticate" not in denied.headers
     assignment = await client.post(
         f"/api/events/{event_id}/booths/{booth_id}/staff",
-        json={"email": user["email"]}, headers=organizer_bearer(organizer),
+        json={"mobile": user["mobile"]}, headers=organizer_bearer(organizer),
     )
     assert assignment.status_code == 201
     for path in (f"/api/booths/{booth_id}", f"/api/booths/{booth_id}/leads"):
@@ -150,7 +138,7 @@ async def test_user_token_family_preserves_identity_and_consumers(
 async def test_non_user_types_rejected_with_existing_uuid_subject(
     client: AsyncClient, token_type: Any,
 ) -> None:
-    user, issued = await register_user(client, "type-guard@example.com")
+    user, issued = await register_user(client, "09121000010")
     payload = jwt.decode(issued, TEST_JWT_SECRET, algorithms=["HS256"])
     assert payload["sub"] == user["id"]
     payload["type"] = token_type
@@ -173,7 +161,7 @@ async def test_non_user_types_rejected_with_existing_uuid_subject(
 async def test_user_authentication_failures_challenge_bearer(
     client: AsyncClient, case: str,
 ) -> None:
-    user, token = await register_user(client, "failure@example.com")
+    user, token = await register_user(client, "09121000011")
     headers = bearer(token)
     if case == "missing":
         headers = {}
@@ -185,11 +173,11 @@ async def test_user_authentication_failures_challenge_bearer(
         headers = bearer("not-a-jwt")
     elif case == "signature":
         headers = bearer(create_access_token(
-            uuid.UUID(user["id"]), user["email"], "different-signing-secret-at-least-32-chars",
+            uuid.UUID(user["id"]), "different-signing-secret-at-least-32-chars",
         ))
     elif case == "expired":
         headers = bearer(create_access_token(
-            uuid.UUID(user["id"]), user["email"], TEST_JWT_SECRET,
+            uuid.UUID(user["id"]), TEST_JWT_SECRET,
             expires_delta=timedelta(seconds=-1),
         ))
     elif case in ("missing-sub", "malformed-sub"):
@@ -201,7 +189,7 @@ async def test_user_authentication_failures_challenge_bearer(
         headers = bearer(jwt.encode(payload, TEST_JWT_SECRET, algorithm="HS256"))
     elif case == "missing-user":
         headers = bearer(create_access_token(
-            uuid.uuid4(), user["email"], TEST_JWT_SECRET,
+            uuid.uuid4(), TEST_JWT_SECRET,
         ))
     elif case == "deleted-user":
         connection = await asyncpg.connect(TEST_URL.replace("+asyncpg", ""))
@@ -222,15 +210,11 @@ async def test_actual_issued_credentials_do_not_cross_user_boundary(
     event_id = await create_event(client, organizer)
     operator = await client.post(
         f"/api/events/{event_id}/desk/operators",
-        json={"operator_name": "Family Operator", "email": "operator@example.com"},
+        json={"operator_name": "Family Operator", "mobile": "09121000012"},
         headers=organizer_bearer(organizer),
     )
     assert operator.status_code == 201
-    login = await client.post(
-        f"/api/events/{event_id}/desk/login",
-        json={"email": "operator@example.com",
-              "password": operator.json()["temporary_password"]},
-    )
+    login = await desk_sign_in(client, event_id, "09121000012")
     assert login.status_code == 200
     desk_token = login.json()["access_token"]
     point = await client.post(
@@ -303,19 +287,17 @@ async def test_desk_and_scanner_malformed_identity_challenges_and_lookup_order(
         anonymous = await client.get(path)
         assert anonymous.status_code == 401
         assert anonymous.headers.get("WWW-Authenticate") == "Bearer"
-    user, _ = await register_user(client, "nonmember@example.com")
-    nonmember = await client.post(
-        f"/api/events/{event_id}/desk/login",
-        json={"email": user["email"], "password": "Password123!"},
-    )
-    assert nonmember.status_code == 403
+    user, _ = await register_user(client, "09121000013")
+    # A signed-up attendee who is not an operator never receives a desk code, so the login fails as a wrong code.
+    nonmember = await desk_sign_in(client, event_id, user["mobile"])
+    assert nonmember.status_code == 401
     assert "WWW-Authenticate" not in nonmember.headers
 
 
 async def test_organizer_bearer_and_platform_admin_status_contracts(
     client: AsyncClient,
 ) -> None:
-    _, user_token = await register_user(client, "organizer-negative@example.com")
+    _, user_token = await register_user(client, "09121000014")
     for headers in ({}, bearer("invalid-key"), bearer(user_token)):
         response = await client.get("/api/events", headers=headers)
         assert response.status_code == 401

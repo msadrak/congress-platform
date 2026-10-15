@@ -18,6 +18,7 @@
  *   node scripts/staging/stack.mjs check              operator health check (exit 0 ok, 1 warning, 2 critical)
  *   node scripts/staging/stack.mjs organizer list | create <name> | rotate <id> | revoke <id>
  *                                                     platform administration from inside the API container
+ *   node scripts/staging/stack.mjs sms-code <mobile>  newest SMS sign-in code (CONGRESS_SMS_PROVIDER=console only)
  *
  * Nothing here deletes the staging volumes. The only `down -v` is on the disposable
  * `congress-restore-*` project that restore-verify itself creates.
@@ -352,6 +353,25 @@ except urllib.error.HTTPError as e:
   if (action === 'create' || action === 'rotate') say('The api_key above is shown once. Hand it to the organizer over a secure channel; it cannot be retrieved again.');
 }
 
+/** Newest sign-in code the console SMS provider recorded for a number (staging checks; nothing is sent). */
+export function smsCode(mobile) {
+  requireEnv();
+  if (!mobile) throw new Error('usage: sms-code <mobile>');
+  const script = `
+import json, os, sys, urllib.parse, urllib.request, urllib.error
+url = "http://127.0.0.1:8000/api/platform/sms-outbox?" + urllib.parse.urlencode({"mobile": sys.argv[1]})
+req = urllib.request.Request(url, headers={"X-Admin-Token": os.environ["CONGRESS_PLATFORM_ADMIN_TOKEN"]})
+try:
+    sent = json.load(urllib.request.urlopen(req, timeout=10))
+except urllib.error.HTTPError as e:
+    print(e.code, "(is CONGRESS_SMS_PROVIDER=console?)", file=sys.stderr); sys.exit(1)
+codes = [m["params"]["CODE"] for m in sent if "CODE" in m["params"]]
+if not codes:
+    print("no code recorded for this number", file=sys.stderr); sys.exit(1)
+print(codes[0])`;
+  return compose(PROJECT, ['exec', '-T', 'api', 'python', '-c', script, mobile]).stdout.trim();
+}
+
 function listBackups() {
   if (!existsSync(BACKUPS)) return say('No backups yet.');
   for (const name of readdirSync(BACKUPS).sort()) {
@@ -442,6 +462,7 @@ async function main() {
     case 'scheduled-backup': return scheduledBackup();
     case 'check': process.exitCode = await healthCheck(); return;
     case 'organizer': return organizerAdmin(rest);
+    case 'sms-code': return say(smsCode(rest[0]));
     default: throw new Error(`Unknown command ${cmd}`);
   }
 }

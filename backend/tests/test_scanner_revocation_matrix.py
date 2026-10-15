@@ -63,9 +63,9 @@ def _scanner_auth(token: str) -> dict[str, str]:
 
 
 async def _create_ticket(
-    client: AsyncClient, event_id: str, tier_id: str, email: str, name: str
+    client: AsyncClient, event_id: str, tier_id: str, mobile: str, name: str
 ) -> dict[str, Any]:
-    _, token = await register_user(client, email, name)
+    _, token = await register_user(client, mobile, name)
     resp = await client.post(
         f"/api/events/{event_id}/tickets/reserve",
         json={"ticket_tier_id": tier_id},
@@ -123,7 +123,7 @@ async def test_organizer_emergency_revoke_with_pending_scans(client: AsyncClient
         headers=bearer(org),
     )
     tier_id = str(tier_res.json()["id"])
-    ticket = await _create_ticket(client, event_id, tier_id, "emergency@test.com", "Emergency User")
+    ticket = await _create_ticket(client, event_id, tier_id, "09121000059", "Emergency User")
     issued = await _issue_scanner(client, org, point_id)
 
     # Submit scans (simulating offline queue that would sync later)
@@ -269,7 +269,7 @@ async def test_revoke_rejects_attendee_token(client: AsyncClient) -> None:
     org = await provision_organizer(client, "Attendee Token Org")
     event_id = await _create_event(client, org)
     point_id = await _create_point(client, org, event_id, "Attendee Gate")
-    _, attendee_token = await register_user(client, "attendee@test.com", "Attendee User")
+    _, attendee_token = await register_user(client, "09121000060", "Attendee User")
 
     res = await client.post(
         f"/api/checkin-points/{point_id}/devices/self/revoke",
@@ -417,7 +417,7 @@ async def test_old_token_rejected_for_all_operations(client: AsyncClient) -> Non
         headers=bearer(org),
     )
     tier_id = str(tier_res.json()["id"])
-    ticket = await _create_ticket(client, event_id, tier_id, "oldtoken@test.com", "Old Token User")
+    ticket = await _create_ticket(client, event_id, tier_id, "09121000061", "Old Token User")
     issued = await _issue_scanner(client, org, point_id)
 
     # Confirm revocation
@@ -461,7 +461,7 @@ async def test_scan_ids_preserved_after_revocation(client: AsyncClient) -> None:
         headers=bearer(org),
     )
     tier_id = str(tier_res.json()["id"])
-    ticket = await _create_ticket(client, event_id, tier_id, "preserve@test.com", "Preserve User")
+    ticket = await _create_ticket(client, event_id, tier_id, "09121000062", "Preserve User")
     issued = await _issue_scanner(client, org, point_id)
 
     # Submit scans with known IDs

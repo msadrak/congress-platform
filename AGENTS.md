@@ -6,6 +6,7 @@
   - Run dev server: `CONGRESS_ENVIRONMENT=development CONGRESS_PLATFORM_ADMIN_TOKEN=dev CONGRESS_JWT_SECRET=<32+ random chars> uv run uvicorn app.main:create_app_from_env --factory --port 8000` (an unset `CONGRESS_ENVIRONMENT` means `production`, which requires explicit `CONGRESS_DATABASE_URL`, `CONGRESS_MEDIA_ROOT` and a generated 32+ character admin token)
   - Run tests: `uv run pytest` (only ever targets a marked `*_test` database), or on disposable Docker infrastructure: `node scripts/integration/backend-tests.mjs`
   - Run typecheck: `uv run mypy`
+  - SMS (sign-in codes, ticket confirmations; ADR 0012): `development`/`test` use the `console` provider, so nothing is sent and codes are printed in the API log; staging/production default to `smsir` and need `CONGRESS_SMSIR_API_KEY` plus the two approved template ids
 - **`web/`**: React 19 + TypeScript + Vite SPA & PWA frontend with Tailwind CSS.
   - Run dev server: `npm run dev`
   - Run unit tests: `npm test`

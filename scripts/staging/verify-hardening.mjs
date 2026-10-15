@@ -18,7 +18,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import https from 'node:https';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { compose, readEnv, run } from './stack.mjs';
+import { compose, readEnv, run, smsCode } from './stack.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const env = readEnv();
@@ -69,19 +69,22 @@ try {
   });
 
   // ── 2. Throttling through the proxy ──
-  await check('02 repeated failed logins through Caddy are throttled (429 + Retry-After); other accounts unaffected', async () => {
-    const email = `throttle.${RUN}@example.com`;
-    eq((await api('POST', '/api/auth/register', { body: { email, password: 'Correct-Passw0rd!', full_name: 'Throttle Test', organization: '', title: '' } })).status, 201, 'register');
+  await check('02 repeated wrong SMS codes through Caddy are throttled (429 + Retry-After); other numbers unaffected', async () => {
+    // Synthetic numbers in the unassigned 0900 range (staging must run CONGRESS_SMS_PROVIDER=console).
+    const number = `0900888${String(parseInt(RUN, 16) % 10000).padStart(4, '0')}`;
+    eq((await api('POST', '/api/auth/otp/request', { body: { mobile: number } })).status, 202, 'code requested');
+    const real = smsCode(number);
+    const wrong = real === '000000' ? '111111' : '000000';
     const codes = [];
-    for (let i = 0; i < 10; i++) codes.push((await api('POST', '/api/auth/login', { body: { email, password: 'wrong-password' } })).status);
-    const locked = await api('POST', '/api/auth/login', { body: { email, password: 'Correct-Passw0rd!' } });
+    for (let i = 0; i < 10; i++) codes.push((await api('POST', '/api/auth/otp/verify', { body: { mobile: number, code: wrong } })).status);
+    const locked = await api('POST', '/api/auth/otp/verify', { body: { mobile: number, code: real } });
     eq(codes, Array(10).fill(401), 'failures');
     eq(locked.status, 429, 'locked');
     assert(Number(locked.headers.get('retry-after')) > 0, 'retry-after');
-    const other = `other.${RUN}@example.com`;
-    await api('POST', '/api/auth/register', { body: { email: other, password: 'Correct-Passw0rd!', full_name: 'Other', organization: '', title: '' } });
-    eq((await api('POST', '/api/auth/login', { body: { email: other, password: 'Correct-Passw0rd!' } })).status, 200, 'other account');
-    return `10×401 then 429 (Retry-After ${locked.headers.get('retry-after')} s); another account still signs in`;
+    const other = `0900777${String(parseInt(RUN, 16) % 10000).padStart(4, '0')}`;
+    eq((await api('POST', '/api/auth/otp/request', { body: { mobile: other } })).status, 202, 'other number code');
+    eq((await api('POST', '/api/auth/otp/verify', { body: { mobile: other, code: smsCode(other) } })).status, 200, 'other number');
+    return `10×401 then 429 (Retry-After ${locked.headers.get('retry-after')} s); another number still signs in`;
   });
 
   // ── 3. Hosted-mode Caddy simulation ──

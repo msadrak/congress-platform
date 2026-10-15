@@ -218,7 +218,7 @@ async def test_unpublish_hides_the_page_but_not_the_operations(client: AsyncClie
     await publish_page(client, organizer, event_id)
 
     unpublished = await client.post(f"/api/events/{event_id}/page/unpublish", headers=bearer(organizer))
-    _, token = await register_user(client, "late@example.com")
+    _, token = await register_user(client, "09121000057")
     reserved = await client.post(
         f"/api/events/{event_id}/tickets/reserve",
         json={"ticket_tier_id": tier_id},

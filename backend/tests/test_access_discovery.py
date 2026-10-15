@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 from app.models import Ticket
 from tests.conftest import TEST_URL
-from tests.helpers import bearer, provision_organizer
+from tests.helpers import bearer, desk_sign_in, provision_organizer
 from tests.test_events import EVENT
 from tests.test_ticket_tiers import tier
 from tests.test_tickets import register_user
@@ -29,11 +29,11 @@ async def reserve(client: AsyncClient, organizer: dict[str, str], event_id: str,
     return str(resp.json()["id"])
 
 
-async def make_booth(client: AsyncClient, organizer: dict[str, str], event_id: str, slug: str, email: str) -> str:
+async def make_booth(client: AsyncClient, organizer: dict[str, str], event_id: str, slug: str, mobile: str) -> str:
     resp = await client.post(f"/api/events/{event_id}/booths", json={"name": slug, "slug": slug}, headers=bearer(organizer))
     assert resp.status_code == 201, resp.text
     booth_id = str(resp.json()["id"])
-    staff = await client.post(f"/api/events/{event_id}/booths/{booth_id}/staff", json={"email": email}, headers=bearer(organizer))
+    staff = await client.post(f"/api/events/{event_id}/booths/{booth_id}/staff", json={"mobile": mobile}, headers=bearer(organizer))
     assert staff.status_code == 201, staff.text
     return booth_id
 
@@ -45,7 +45,7 @@ async def access(client: AsyncClient, token: str) -> Any:
 
 
 async def test_user_without_memberships_gets_empty_contexts(client: AsyncClient) -> None:
-    user, token = await register_user(client, "nobody@example.com")
+    user, token = await register_user(client, "09121000001")
     body = await access(client, token)
     assert body == {"user_id": user["id"], "events": []}
 
@@ -54,15 +54,15 @@ async def test_multi_role_multi_event_multi_booth_contexts_are_exact(client: Asy
     organizer = await provision_organizer(client, "Access Org")
     event_a = await make_event(client, organizer, "alpha-congress")
     event_b = await make_event(client, organizer, "beta-congress")
-    email = "multi@example.com"
-    user, token = await register_user(client, email)
+    mobile = "09121000002"
+    user, token = await register_user(client, mobile)
 
     ticket_a = await reserve(client, organizer, event_a, token)
-    booth_1 = await make_booth(client, organizer, event_a, "booth-one", email)
-    booth_2 = await make_booth(client, organizer, event_a, "booth-two", email)
+    booth_1 = await make_booth(client, organizer, event_a, "booth-one", mobile)
+    booth_2 = await make_booth(client, organizer, event_a, "booth-two", mobile)
     operator = await client.post(
         f"/api/events/{event_b}/desk/operators",
-        json={"operator_name": "Multi", "email": email},
+        json={"operator_name": "Multi", "mobile": mobile},
         headers=bearer(organizer),
     )
     assert operator.status_code == 201, operator.text
@@ -89,13 +89,13 @@ async def test_multi_role_multi_event_multi_booth_contexts_are_exact(client: Asy
 async def test_revoked_operator_and_inactive_ticket_lose_only_their_eligibility(client: AsyncClient) -> None:
     organizer = await provision_organizer(client, "Revocation Org")
     event_a = await make_event(client, organizer, "gamma-congress")
-    email = "revoked@example.com"
-    _, token = await register_user(client, email)
+    mobile = "09121000003"
+    _, token = await register_user(client, mobile)
     ticket = await reserve(client, organizer, event_a, token)
-    booth = await make_booth(client, organizer, event_a, "booth-keep", email)
+    booth = await make_booth(client, organizer, event_a, "booth-keep", mobile)
     operator = await client.post(
         f"/api/events/{event_a}/desk/operators",
-        json={"operator_name": "Rev", "email": email},
+        json={"operator_name": "Rev", "mobile": mobile},
         headers=bearer(organizer),
     )
     assert (await access(client, token))["events"][0]["roles"] == ["ATTENDEE", "RECEPTION", "PARTNER"]
@@ -118,13 +118,11 @@ async def test_non_user_credentials_are_rejected(client: AsyncClient) -> None:
     event_id = await make_event(client, organizer, "delta-congress")
     operator = await client.post(
         f"/api/events/{event_id}/desk/operators",
-        json={"operator_name": "Desk", "email": "desk.family@example.com"},
+        json={"operator_name": "Desk", "mobile": "09121000004"},
         headers=bearer(organizer),
     )
-    login = await client.post(
-        f"/api/events/{event_id}/desk/login",
-        json={"email": "desk.family@example.com", "password": operator.json()["temporary_password"]},
-    )
+    assert operator.status_code == 201, operator.text
+    login = await desk_sign_in(client, event_id, "09121000004")
     assert login.status_code == 200, login.text
     for headers in ({}, bearer(organizer), {"Authorization": f"Bearer {login.json()['access_token']}"}, {"Authorization": "Bearer not-a-token"}):
         resp = await client.get("/api/me/access", headers=headers)

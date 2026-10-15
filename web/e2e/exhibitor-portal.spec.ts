@@ -12,8 +12,8 @@ const NEW_STAFF = jwt('staff-a-new');
 const ORGANIZER_KEY = 'synthetic-ms05-organizer';
 const bearer = (token: string) => `Bearer ${token}`;
 
-interface FixtureLead { id: string; booth_id: string; ticket_id: string; attendee_name: string; attendee_email: string; organization: string; title: string; ticket_tier_name: string; rating: string; tags: string[]; notes: string; created_at: string; updated_at: string }
-const leadOf = (id: string, booth: string, name: string, rating = 'WARM', notes = ''): FixtureLead => ({ id, booth_id: booth, ticket_id: `ticket-${id}`, attendee_name: name, attendee_email: `${id}@example.test`, organization: 'Heart Center', title: 'Cardiologist', ticket_tier_name: 'General', rating, tags: [], notes, created_at: '2099-01-01T00:00:00Z', updated_at: '2099-01-01T00:00:00Z' });
+interface FixtureLead { id: string; booth_id: string; ticket_id: string; attendee_name: string; attendee_mobile: string | null; organization: string; title: string; ticket_tier_name: string; rating: string; tags: string[]; notes: string; created_at: string; updated_at: string }
+const leadOf = (id: string, booth: string, name: string, rating = 'WARM', notes = ''): FixtureLead => ({ id, booth_id: booth, ticket_id: `ticket-${id}`, attendee_name: name, attendee_mobile: '09121231111', organization: 'Heart Center', title: 'Cardiologist', ticket_tier_name: 'General', rating, tags: [], notes, created_at: '2099-01-01T00:00:00Z', updated_at: '2099-01-01T00:00:00Z' });
 
 type Recorded = { method: string; path: string; auth: string | undefined; body: unknown };
 interface Options {
@@ -38,12 +38,14 @@ async function fixture(page: Page, options: Options = {}) {
     const raw = request.postData();
     requests.push({ method, path, auth, body: raw ? JSON.parse(raw) : undefined });
     const json = (status: number, body: unknown) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
-    if (path === '/api/auth/login') {
-      const body = JSON.parse(raw ?? '{}') as { email: string; password: string };
-      if (body.password !== 'correct-password') return json(401, { detail: 'Invalid email or password' });
-      return json(200, { access_token: body.email.startsWith('outsider') ? OUTSIDER : STAFF, token_type: 'bearer', user: { id: 'u', email: body.email, full_name: 'Rep', organization: '', title: '', share_contact_with_peers: false } });
+    if (path === '/api/auth/otp/request') return json(202, { mobile: JSON.parse(raw ?? '{}').mobile, code_length: 6, expires_in: 120, resend_after: 60 });
+    if (path === '/api/auth/otp/verify') {
+      const body = JSON.parse(raw ?? '{}') as { mobile: string; code: string };
+      if (body.code !== CODE) return json(401, { detail: 'The code is wrong or has expired.' });
+      const user = { id: 'u', mobile: body.mobile, full_name: 'Rep', organization: '', title: '', share_contact_with_peers: false };
+      return json(200, { status: 'signed_in', access_token: body.mobile === OUTSIDER_MOBILE ? OUTSIDER : STAFF, token_type: 'bearer', user, signup_token: null });
     }
-    if (path === '/api/auth/me') return json(200, { id: 'u', email: 'staff@example.test', full_name: 'Rep', organization: '', title: '', share_contact_with_peers: false });
+    if (path === '/api/auth/me') return json(200, { id: 'u', mobile: STAFF_MOBILE, full_name: 'Rep', organization: '', title: '', share_contact_with_peers: false });
     const isStaff = auth === bearer(STAFF) || auth === bearer(NEW_STAFF);
     if (path === '/api/me/access') {
       if (!auth) return json(401, { detail: 'Missing authorization token' });
@@ -102,6 +104,14 @@ async function seed(page: Page, token?: string, locale = 'en') {
 }
 const storedToken = (page: Page) => page.evaluate(() => localStorage.getItem('congress_attendee_token'));
 const overflow = (page: Page) => page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+const CODE = '482913';
+const STAFF_MOBILE = '09121112222';
+const OUTSIDER_MOBILE = '09129990000';
+async function signInWithCode(page: Page, mobile = STAFF_MOBILE) {
+  await page.getByLabel('Mobile number').fill(mobile);
+  await page.getByRole('button', { name: 'Send code' }).click();
+  await page.getByLabel('Code from the SMS').fill(CODE);
+}
 const codeInput = (page: Page) => page.getByPlaceholder('e.g. ABC123XYZ...');
 const openCapture = (page: Page) => page.getByRole('button', { name: /Capture Attendee Lead/ }).first().click();
 const saveLead = (page: Page) => page.getByRole('button', { name: 'Record Lead to Booth CRM' }).click();
@@ -117,21 +127,17 @@ test.describe('entry and access', () => {
     await page.getByRole('link', { name: /Sign In to Booth Workspace/ }).click();
     await expect(page).toHaveURL(/\/booth\/booth-a\/sign-in\?next=%2Fbooth%2Fbooth-a$/);
     await expect(page.getByRole('heading', { name: 'Sign in to your booth workspace' })).toBeVisible();
-    await page.getByLabel('Email address').fill('staff@example.test');
-    await page.getByLabel('Password').fill('correct-password');
-    await page.getByRole('button', { name: 'Sign in' }).click();
+    await signInWithCode(page);
     await expect(page).toHaveURL(/\/booth\/booth-a$/);
     await expect(page.getByText('Lead One').first()).toBeVisible();
-    expect(requests.find(r => r.path === '/api/auth/login')?.auth).toBeUndefined();
+    expect(requests.find(r => r.path === '/api/auth/otp/verify')?.auth).toBeUndefined();
     expect(requests.filter(r => r.path.startsWith('/api/booths/')).every(r => r.auth === bearer(STAFF))).toBe(true);
     expect(requests.some(r => r.auth === bearer(ORGANIZER_KEY))).toBe(false);
 
     await page.evaluate(() => localStorage.removeItem('congress_attendee_token'));
     for (const next of ['/organizer', 'https://evil.example/', '//evil.example', '/booth/booth-a/../../organizer']) {
       await page.goto(`/booth/booth-a/sign-in?next=${encodeURIComponent(next)}`);
-      await page.getByLabel('Email address').fill('staff@example.test');
-      await page.getByLabel('Password').fill('correct-password');
-      await page.getByRole('button', { name: 'Sign in' }).click();
+      await signInWithCode(page);
       await expect(page).toHaveURL(/\/booth\/booth-a$/);
       await page.evaluate(() => localStorage.removeItem('congress_attendee_token'));
     }

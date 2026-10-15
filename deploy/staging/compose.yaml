@@ -27,6 +27,10 @@ x-backend: &backend
     CONGRESS_MEDIA_ROOT: /data/media
     CONGRESS_PUBLIC_ORIGIN: ${CONGRESS_PUBLIC_ORIGIN:?set CONGRESS_PUBLIC_ORIGIN}
     CONGRESS_CORS_ORIGINS: '["${CONGRESS_PUBLIC_ORIGIN}"]'
+    CONGRESS_SMS_PROVIDER: ${CONGRESS_SMS_PROVIDER:?set CONGRESS_SMS_PROVIDER (smsir or console)}
+    CONGRESS_SMSIR_API_KEY: ${CONGRESS_SMSIR_API_KEY:-}
+    CONGRESS_SMSIR_OTP_TEMPLATE_ID: ${CONGRESS_SMSIR_OTP_TEMPLATE_ID:-}
+    CONGRESS_SMSIR_TICKET_TEMPLATE_ID: ${CONGRESS_SMSIR_TICKET_TEMPLATE_ID:-}
 
 services:
   db:
@@ -85,6 +89,7 @@ services:
       CONGRESS_LOCAL_HTTP: ${CONGRESS_LOCAL_HTTP:-on}
       CONGRESS_HSTS: ${CONGRESS_HSTS:-off}
       CONGRESS_ADMIN_ALLOW: ${CONGRESS_ADMIN_ALLOW:-private_ranges}
+      CONGRESS_DEFAULT_SNI: ${CONGRESS_DEFAULT_SNI:-localhost}
     ports:
       - "${CONGRESS_BIND:-127.0.0.1}:${CONGRESS_HTTPS_PORT:-8443}:443"
       - "${CONGRESS_BIND:-127.0.0.1}:${CONGRESS_HTTP_PORT:-18080}:80"
@@ -95,7 +100,7 @@ services:
       api:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget -q -O /dev/null --header 'Host: localhost' http://127.0.0.1/api/ready && wget -q -O /dev/null --header 'Host: localhost' http://127.0.0.1/"]
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8081/api/ready && wget -q -O /dev/null http://127.0.0.1:8081/"]
       interval: 15s
       timeout: 5s
       retries: 5

@@ -160,7 +160,7 @@ async def test_all_scanner_security_controls() -> None:
         assert e.status_code == 401, f"Expected 401, got {e.status_code}"
 
     # 4. Standard attendee token (non-scanner role) MUST return 403
-    attendee_token = create_access_token(uuid.uuid4(), "user@example.com", jwt_secret)
+    attendee_token = create_access_token(uuid.uuid4(), jwt_secret)
     try:
         await authorized_checkin_point(
             point1_id,

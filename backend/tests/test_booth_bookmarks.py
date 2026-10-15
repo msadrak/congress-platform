@@ -51,7 +51,7 @@ async def test_authenticated_attendee_bookmarks_and_unbookmarks_booth(
     _, event_id, booth = await setup_event_and_booth(client)
     booth_id = booth["id"]
 
-    _, token = await register_user(client, "bookmark.user@example.com")
+    _, token = await register_user(client, "09121000015")
 
     # 1. Bookmark booth
     add_resp = await client.post(
@@ -108,7 +108,7 @@ async def test_attendee_can_list_bookmarked_booths(
         )
     ).json()
 
-    _, token = await register_user(client, "collector@example.com")
+    _, token = await register_user(client, "09121000016")
 
     # Bookmark both
     await client.post(

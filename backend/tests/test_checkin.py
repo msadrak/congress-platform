@@ -9,9 +9,9 @@ from tests.test_tickets import register_user
 
 
 async def create_attendee_with_ticket(
-    client: AsyncClient, event_id: str, tier_id: str, email: str, name: str
+    client: AsyncClient, event_id: str, tier_id: str, mobile: str, name: str
 ) -> dict[str, Any]:
-    _, token = await register_user(client, email, name)
+    _, token = await register_user(client, mobile, name)
     resp = await client.post(
         f"/api/events/{event_id}/tickets/reserve",
         json={"ticket_tier_id": tier_id},
@@ -105,10 +105,10 @@ async def test_compact_manifest_snapshot_returns_valid_tickets_and_status(
 
     # Issue tickets to 2 attendees
     t1 = await create_attendee_with_ticket(
-        client, event_id, tier_id, "user1@example.com", "Attendee One"
+        client, event_id, tier_id, "09121000021", "Attendee One"
     )
     t2 = await create_attendee_with_ticket(
-        client, event_id, tier_id, "user2@example.com", "Attendee Two"
+        client, event_id, tier_id, "09121000022", "Attendee Two"
     )
 
     # Fetch manifest with authorized organizer credentials
@@ -125,8 +125,8 @@ async def test_compact_manifest_snapshot_returns_valid_tickets_and_status(
     assert t2["qr_secret"] in secrets
     assert secrets[t1["qr_secret"]]["attendee_name"] == "Attendee One"
     assert secrets[t1["qr_secret"]]["is_admitted"] is False
-    # Data minimization check: PII (email) is not leaked in offline manifest
-    assert "attendee_email" not in manifest["tickets"][0]
+    # Data minimization check: PII (mobile) is not leaked in offline manifest
+    assert "attendee_mobile" not in manifest["tickets"][0]
 
 async def test_single_use_admission_policy_enforcement(
     client: AsyncClient,
@@ -148,7 +148,7 @@ async def test_single_use_admission_policy_enforcement(
     point_id = point_resp.json()["id"]
 
     ticket = await create_attendee_with_ticket(
-        client, event_id, tier_id, "lunch_eater@example.com", "Lunch Eater"
+        client, event_id, tier_id, "09121000023", "Lunch Eater"
     )
 
     # Scan 1: First scan at lunch -> ADMITTED
@@ -222,10 +222,10 @@ async def test_tier_restricted_admission_policy_enforcement(
     point_id = point_resp.json()["id"]
 
     gen_ticket = await create_attendee_with_ticket(
-        client, event_id, gen_tier.json()["id"], "gen@example.com", "General User"
+        client, event_id, gen_tier.json()["id"], "09121000024", "General User"
     )
     vip_ticket = await create_attendee_with_ticket(
-        client, event_id, vip_tier.json()["id"], "vip@example.com", "VIP User"
+        client, event_id, vip_tier.json()["id"], "09121000007", "VIP User"
     )
 
     # General ticket scanned at VIP gate -> REJECTED
@@ -302,7 +302,7 @@ async def test_idempotent_batch_replay_with_identical_scan_id(
     )
     point_id = point_resp.json()["id"]
     ticket = await create_attendee_with_ticket(
-        client, event_id, tier_resp.json()["id"], "replay@example.com", "Replay User"
+        client, event_id, tier_resp.json()["id"], "09121000025", "Replay User"
     )
 
     scan_id = str(uuid.uuid4())
@@ -375,7 +375,7 @@ async def test_scanner_endpoint_authentication_and_authorization_controls(
     point2_id = point2_resp.json()["id"]
 
     t1 = await create_attendee_with_ticket(
-        client, event1_id, tier1_resp.json()["id"], "attendee1@example.com", "Attendee 1"
+        client, event1_id, tier1_resp.json()["id"], "09121000026", "Attendee 1"
     )
 
     scan_payload = {
@@ -414,7 +414,7 @@ async def test_scanner_endpoint_authentication_and_authorization_controls(
 
     # 4. Standard attendee token (non-scanner role) rejected (403)
     _, attendee_token = await register_user(
-        client, f"plain_attendee_{uuid.uuid4().hex[:6]}@test.com", "Plain Attendee"
+        client, f"0936{uuid.uuid4().int % 10**7:07d}", "Plain Attendee"
     )
     attendee_manifest = await client.get(
         f"/api/checkin-points/{point1_id}/manifest",
@@ -440,8 +440,8 @@ async def test_scanner_endpoint_authentication_and_authorization_controls(
     manifest_data = ok_manifest.json()
     assert manifest_data["checkin_point"]["id"] == point1_id
     assert len(manifest_data["tickets"]) >= 1
-    # Verify attendee_email is minimized / not leaked
-    assert "attendee_email" not in manifest_data["tickets"][0]
+    # Verify attendee_mobile is minimized / not leaked
+    assert "attendee_mobile" not in manifest_data["tickets"][0]
 
     ok_batch = await client.post(
         f"/api/checkin-points/{point1_id}/scans/batch",

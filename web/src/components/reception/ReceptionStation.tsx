@@ -12,6 +12,8 @@ import {
   type TicketTierOut,
 } from "../../api/client";
 import { eventAccentStyle } from "../../lib/eventAccent";
+import { formatMobile, mobileSearchDigits, normalizeIranMobile } from "../../lib/mobile";
+import { MobileOtpForm } from "../auth/MobileOtpForm";
 import { formatLocalizedDate, formatLocalizedNumber, type AttendeeLocale, type TranslationDictionary } from "../../lib/i18n";
 import { ArcMotif } from "../brand/Aiteb";
 import { CongressSignature } from "../brand/CongressSignature";
@@ -48,17 +50,17 @@ type CardState =
 
 type DuplicateState =
   | { status: "none" }
-  | { status: "looking"; email: string }
-  | { status: "found"; email: string; candidates: AttendeeSearchItem[] }
-  | { status: "missing"; email: string }
-  | { status: "failed"; email: string };
+  | { status: "looking"; mobile: string }
+  | { status: "found"; mobile: string; candidates: AttendeeSearchItem[] }
+  | { status: "missing"; mobile: string }
+  | { status: "failed"; mobile: string };
 
 /** The reception work surface: search, review, walk-in issuance, print. Authority is explicit and never falls back. */
 export function ReceptionStation({ eventId, organizer, locale, t, isRtl }: ReceptionStationProps) {
   const standalone = organizer === null;
   const apiKey = organizer?.apiKey ?? null;
   const onKeyRejected = organizer?.onKeyRejected;
-  const ids = { name: useId(), email: useId(), org: useId(), title: useId(), tier: useId(), search: useId(), loginEmail: useId(), loginPassword: useId() };
+  const ids = { name: useId(), mobile: useId(), org: useId(), title: useId(), tier: useId(), search: useId() };
   const nameInputRef = useRef<HTMLInputElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const reviewHeadingRef = useRef<HTMLHeadingElement>(null);
@@ -87,14 +89,10 @@ export function ReceptionStation({ eventId, organizer, locale, t, isRtl }: Recep
   }, [signature]);
 
   const [operatorProfile, setOperatorProfile] = useState<DeskMeOut | null>(null);
-  const [loginEmail, setLoginEmail] = useState("");
-  const [loginPassword, setLoginPassword] = useState("");
-  const [loggingIn, setLoggingIn] = useState(false);
-  const [loginError, setLoginError] = useState<string | null>(null);
 
   // Walk-in draft: in memory only, kept across recoverable failures and re-authentication.
   const [fullName, setFullName] = useState("");
-  const [email, setEmail] = useState("");
+  const [mobile, setMobile] = useState("");
   const [organization, setOrganization] = useState("");
   const [title, setTitle] = useState("");
   const [selectedTierId, setSelectedTierId] = useState("");
@@ -113,7 +111,7 @@ export function ReceptionStation({ eventId, organizer, locale, t, isRtl }: Recep
   const [review, setReview] = useState<CardState>({ status: "idle" });
   const reviewRequest = useRef(0);
 
-  const hasDraft = Boolean(fullName.trim() || email.trim() || organization.trim() || title.trim());
+  const hasDraft = Boolean(fullName.trim() || mobile.trim() || organization.trim() || title.trim());
 
   // 401 invalidates only the exact credential that was sent; a newer session or the other mode's
   // credential is never touched. 403/404/5xx/network failures never reach this function.
@@ -231,54 +229,44 @@ export function ReceptionStation({ eventId, organizer, locale, t, isRtl }: Recep
     if (review.status === "ready") reviewHeadingRef.current?.focus();
   }, [review.status]);
 
-  const handleDeskLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (loggingIn) return;
-    setLoginError(null);
-    if (!loginEmail.trim() || !loginPassword) {
-      setLoginError(isRtl ? "لطفاً ایمیل و کلمه عبور را وارد نمایید." : "Please enter email and password.");
-      return;
-    }
-    setLoggingIn(true);
-    try {
-      const { data, response } = await createApiClient({ kind: "anonymous" }).POST("/api/events/{event_id}/desk/login", {
-        params: { path: { event_id: eventId } },
-        body: { email: loginEmail.trim().toLowerCase(), password: loginPassword },
+  // Desk sign-in: the operator's mobile number and SMS code (purpose "desk"); returns the message to show, or null.
+  const verifyDeskCode = async (operatorMobile: string, code: string): Promise<string | null> => {
+    const { data, response } = await createApiClient({ kind: "anonymous" }).POST("/api/events/{event_id}/desk/login", {
+      params: { path: { event_id: eventId } },
+      body: { mobile: operatorMobile, code },
+    });
+    if (data) {
+      sessionStorage.setItem(`congress_desk_token_${eventId}`, data.access_token);
+      setDeskToken(data.access_token);
+      setMode("operator");
+      if (sessionRejected && hasDraft) setDraftRecovered(true);
+      setSessionRejected(false);
+      setOperatorProfile({
+        operator_id: data.operator.id,
+        operator_name: data.operator.operator_name,
+        event_id: data.event_id,
+        event_name: data.event_name,
+        event_slug: data.event_slug,
+        is_organizer_admin: false,
       });
-      if (data) {
-        sessionStorage.setItem(`congress_desk_token_${eventId}`, data.access_token);
-        setDeskToken(data.access_token);
-        setMode("operator");
-        if (sessionRejected && hasDraft) setDraftRecovered(true);
-        setSessionRejected(false);
-        setOperatorProfile({
-          operator_id: data.operator.id,
-          operator_name: data.operator.operator_name,
-          event_id: data.event_id,
-          event_name: data.event_name,
-          event_slug: data.event_slug,
-          is_organizer_admin: false,
-        });
-        setLoginEmail("");
-        setLoginPassword("");
-      } else if (response.status === 401) {
-        setLoginError(isRtl ? "ایمیل یا کلمه عبور نادرست است." : "Invalid email or password");
-      } else if (response.status === 403) {
-        setLoginError(isRtl ? "این حساب به میز پذیرش این همایش اختصاص ندارد یا دسترسی آن لغو شده است." : "This account is not assigned to this congress's reception, or its access was revoked.");
-      } else if (response.status === 404) {
-        setLoginError(isRtl ? "همایش پیدا نشد." : "Congress not found.");
-      } else {
-        setLoginError(isRtl ? "ورود اکنون ممکن نیست. کمی بعد دوباره تلاش کنید." : "Sign-in is unavailable right now. Please try again shortly.");
-      }
-    } catch {
-      setLoginError(isRtl ? "اتصال برقرار نشد. اینترنت را بررسی و دوباره تلاش کنید." : "Could not reach the server. Check the connection and try again.");
+      return null;
     }
-    setLoggingIn(false);
+    if (response.status === 401 || response.status === 422) {
+      return isRtl
+        ? "کد نادرست است یا منقضی شده. اگر پیامکی نرسید، این شماره اپراتور فعال پذیرش نیست."
+        : "The code is wrong or has expired. If no SMS arrived, this number is not an active reception operator.";
+    }
+    if (response.status === 403) {
+      return isRtl ? "این شماره به میز پذیرش این همایش اختصاص ندارد یا دسترسی آن لغو شده است." : "This number is not assigned to this congress's reception, or its access was revoked.";
+    }
+    if (response.status === 404) return isRtl ? "همایش پیدا نشد." : "Congress not found.";
+    if (response.status === 429) return isRtl ? "تلاش‌های زیادی انجام شد. کمی بعد دوباره تلاش کنید." : "Too many attempts. Please try again shortly.";
+    return isRtl ? "ورود اکنون ممکن نیست. کمی بعد دوباره تلاش کنید." : "Sign-in is unavailable right now. Please try again shortly.";
   };
 
   const clearWorkspace = () => {
     setFullName("");
-    setEmail("");
+    setMobile("");
     setOrganization("");
     setTitle("");
     setFormError(null);
@@ -307,17 +295,21 @@ export function ReceptionStation({ eventId, organizer, locale, t, isRtl }: Recep
       setFormError(isRtl ? "نام و نام خانوادگی شرکت‌کننده الزامی است." : "Attendee full name is required.");
       return;
     }
+    const sentMobile = mobile.trim() ? normalizeIranMobile(mobile) : null;
+    if (mobile.trim() && !sentMobile) {
+      setFormError(isRtl ? "شماره موبایل معتبر نیست؛ مثلاً ۰۹۱۲ ۳۴۵ ۶۷۸۹، یا آن را خالی بگذارید." : "The mobile number is not valid (e.g. 0912 345 6789); correct it or leave it empty.");
+      return;
+    }
     submittingRef.current = true;
     setSubmitting(true);
     const sent = authority;
-    const sentEmail = email.trim().toLowerCase();
     try {
       const client = createDeskApiClient(sent, eventId);
       const { data, error: err, response } = await client.POST("/api/events/{event_id}/desk-registrations", {
         params: { path: { event_id: eventId } },
         body: {
           full_name: fullName.trim(),
-          email: email.trim() || undefined,
+          mobile: sentMobile,
           organization: organization.trim(),
           title: title.trim(),
           ticket_tier_id: selectedTierId,
@@ -328,12 +320,12 @@ export function ReceptionStation({ eventId, organizer, locale, t, isRtl }: Recep
       if (err) {
         if (response.status === 401) return;
         setFormError(formatApiError(err));
-        if (response.status === 409 && sentEmail) void lookupDuplicate(sent, sentEmail);
+        if (response.status === 409 && sentMobile) void lookupDuplicate(sent, sentMobile);
       } else if (data) {
         // Only a backend-confirmed issuance is presented as success.
         setMintedPass(data);
         setFullName("");
-        setEmail("");
+        setMobile("");
         setOrganization("");
         setTitle("");
         setSearchQuery("");
@@ -352,12 +344,12 @@ export function ReceptionStation({ eventId, organizer, locale, t, isRtl }: Recep
     }
   };
 
-  // 409 recovery: offer the existing ticket only for an exact normalized email match; never auto-select or resubmit.
-  const lookupDuplicate = async (sent: DeskAuthority, normalizedEmail: string) => {
-    setDuplicate({ status: "looking", email: normalizedEmail });
+  // 409 recovery: offer the existing ticket only for an exact normalized mobile match; never auto-select or resubmit.
+  const lookupDuplicate = async (sent: DeskAuthority, normalizedMobile: string) => {
+    setDuplicate({ status: "looking", mobile: normalizedMobile });
     try {
       const { data, response } = await createDeskApiClient(sent, eventId).GET("/api/events/{event_id}/attendees", {
-        params: { path: { event_id: eventId }, query: { q: normalizedEmail, limit: 30 } },
+        params: { path: { event_id: eventId }, query: { q: normalizedMobile, limit: 30 } },
       });
       if (response.status === 401) {
         rejectAuthority(sent);
@@ -365,13 +357,13 @@ export function ReceptionStation({ eventId, organizer, locale, t, isRtl }: Recep
       }
       if (signatureRef.current !== `${sent.kind}:${sent.token}`) return;
       if (!data) {
-        setDuplicate({ status: "failed", email: normalizedEmail });
+        setDuplicate({ status: "failed", mobile: normalizedMobile });
         return;
       }
-      const exact = data.filter((a) => a.attendee_email.trim().toLowerCase() === normalizedEmail);
-      setDuplicate(exact.length > 0 ? { status: "found", email: normalizedEmail, candidates: exact } : { status: "missing", email: normalizedEmail });
+      const exact = data.filter((a) => a.attendee_mobile === normalizedMobile);
+      setDuplicate(exact.length > 0 ? { status: "found", mobile: normalizedMobile, candidates: exact } : { status: "missing", mobile: normalizedMobile });
     } catch {
-      setDuplicate({ status: "failed", email: normalizedEmail });
+      setDuplicate({ status: "failed", mobile: normalizedMobile });
     }
   };
 
@@ -428,7 +420,7 @@ export function ReceptionStation({ eventId, organizer, locale, t, isRtl }: Recep
 
   const registerFromSearch = () => {
     const q = searchQuery.trim();
-    if (q.includes("@")) setEmail(q);
+    if (mobileSearchDigits(q)) setMobile(q);
     else setFullName(q);
     setTimeout(() => nameInputRef.current?.focus(), 0);
   };
@@ -489,8 +481,8 @@ export function ReceptionStation({ eventId, organizer, locale, t, isRtl }: Recep
 
   if (!authority) {
     const steps = isRtl
-      ? ["جستجوی شرکت‌کننده با نام یا ایمیل", "بررسی و چاپ کارت ورود", "صدور کارت برای ثبت‌نام حضوری"]
-      : ["Find an attendee by name or email", "Review and print their pass", "Issue a pass to a walk-in guest"];
+      ? ["جستجوی شرکت‌کننده با نام یا شماره موبایل", "بررسی و چاپ کارت ورود", "صدور کارت برای ثبت‌نام حضوری"]
+      : ["Find an attendee by name or mobile number", "Review and print their pass", "Issue a pass to a walk-in guest"];
     return (
       <div className="rx-station mx-auto max-w-4xl sm:my-6">
         <div className="grid overflow-hidden shape-arc-lg border border-border-default bg-surface-panel shadow-lift md:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
@@ -523,12 +515,12 @@ export function ReceptionStation({ eventId, organizer, locale, t, isRtl }: Recep
               <p className="text-sm leading-relaxed text-text-secondary">{t.deskLoginSubtitle}</p>
             </div>
 
-            {(loginError || sessionRejected) && (
+            {sessionRejected && (
               <div role="alert" aria-live="assertive" className="flex items-start gap-3 rounded-xl border border-status-danger-border bg-status-danger-bg p-3.5 text-sm leading-relaxed text-status-danger-text">
                 <Icon name="alert" size={18} className="mt-0.5" />
                 <span>
-                  {loginError ?? (isRtl ? "دسترسی اپراتور لغو شده یا نشست کاری منقضی گردیده است." : "Operator access revoked or session expired.")}
-                  {!loginError && hasDraft && (
+                  {isRtl ? "دسترسی اپراتور لغو شده یا نشست کاری منقضی گردیده است." : "Operator access revoked or session expired."}
+                  {hasDraft && (
                     <span className="mt-1 block text-xs">
                       {isRtl ? "اطلاعات واردشده برای ثبت حضوری حفظ شده و پس از ورود خودکار ارسال نمی‌شود." : "Your unsent walk-in entry is kept and is not submitted automatically after you sign in."}
                     </span>
@@ -537,32 +529,15 @@ export function ReceptionStation({ eventId, organizer, locale, t, isRtl }: Recep
               </div>
             )}
 
-            <form onSubmit={handleDeskLogin} className="space-y-4">
-              <div>
-                <label htmlFor={ids.loginEmail} className="ui-label">
-                  {t.deskLoginEmailLabel} <span aria-hidden="true" className="text-status-danger-solid">*</span>
-                </label>
-                <input id={ids.loginEmail} type="email" required autoComplete="username" inputMode="email" dir="ltr" value={loginEmail} onChange={(e) => setLoginEmail(e.target.value)} placeholder="operator@example.com" className="ui-input font-mono min-h-[50px]" />
+            <MobileOtpForm locale={locale} purpose="desk" verifyDesk={verifyDeskCode} verifyLabel={t.deskLoginButton} />
+            {!standalone && (
+              <div className="border-t border-border-subtle pt-4 text-center">
+                <Link to="/organizer" className={`inline-flex min-h-[40px] items-center gap-1.5 rounded-lg px-2 text-sm font-medium text-action-primary hover:underline ${focusRing}`}>
+                  <Icon name="arrow-left" size={16} />
+                  <span>{isRtl ? "ورود با کلید مدیر ارشد" : "Back to Organizer Console"}</span>
+                </Link>
               </div>
-              <div>
-                <label htmlFor={ids.loginPassword} className="ui-label">
-                  {t.deskLoginPasswordLabel} <span aria-hidden="true" className="text-status-danger-solid">*</span>
-                </label>
-                <input id={ids.loginPassword} type="password" required autoComplete="current-password" dir="ltr" value={loginPassword} onChange={(e) => setLoginPassword(e.target.value)} placeholder="••••••••" className="ui-input font-mono min-h-[50px]" />
-              </div>
-              <Button type="submit" variant="primary" size="lg" isFullWidth disabled={loggingIn} aria-busy={loggingIn}>
-                {loggingIn ? "..." : t.deskLoginButton}
-                {!loggingIn && <Icon name="arrow-right" size={18} />}
-              </Button>
-              {!standalone && (
-                <div className="border-t border-border-subtle pt-4 text-center">
-                  <Link to="/organizer" className={`inline-flex min-h-[40px] items-center gap-1.5 rounded-lg px-2 text-sm font-medium text-action-primary hover:underline ${focusRing}`}>
-                    <Icon name="arrow-left" size={16} />
-                    <span>{isRtl ? "ورود با کلید مدیر ارشد" : "Back to Organizer Console"}</span>
-                  </Link>
-                </div>
-              )}
-            </form>
+            )}
           </div>
         </div>
       </div>
@@ -757,7 +732,7 @@ export function ReceptionStation({ eventId, organizer, locale, t, isRtl }: Recep
               </div>
             ) : searchResults.length === 0 ? (
               <p className="px-5 py-9 text-center text-sm text-text-muted">
-                {isRtl ? "نام یا ایمیل شرکت‌کننده را جستجو کنید." : "Type a name or email to find an attendee."}
+                {isRtl ? "نام یا شماره موبایل شرکت‌کننده را جستجو کنید." : "Type a name or mobile number to find an attendee."}
               </p>
             ) : (
               <ul className="divide-y divide-border-subtle">
@@ -774,9 +749,9 @@ export function ReceptionStation({ eventId, organizer, locale, t, isRtl }: Recep
                       >
                         <span className="min-w-0 space-y-1">
                           <span className="block text-[15px] font-semibold leading-snug text-text-primary break-words">{att.attendee_name}</span>
-                          {att.attendee_email && (
+                          {att.attendee_mobile && (
                             <span className="block truncate font-mono text-xs text-text-secondary">
-                              <bdi dir="ltr">{att.attendee_email}</bdi>
+                              <bdi dir="ltr">{formatMobile(att.attendee_mobile, locale)}</bdi>
                             </span>
                           )}
                           <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-text-muted">
@@ -871,10 +846,10 @@ export function ReceptionStation({ eventId, organizer, locale, t, isRtl }: Recep
                       </div>
                       <div className="min-w-0 space-y-5">
                         <dl className="divide-y divide-border-subtle border-y border-border-subtle text-sm">
-                          {review.card.attendee_email && (
+                          {review.card.attendee_mobile && (
                             <div className="grid gap-0.5 py-2.5">
-                              <dt className="text-xs text-text-muted">{isRtl ? "ایمیل" : "Email"}</dt>
-                              <dd className="truncate font-mono text-[13px] text-text-primary"><bdi dir="ltr">{review.card.attendee_email}</bdi></dd>
+                              <dt className="text-xs text-text-muted">{isRtl ? "موبایل" : "Mobile"}</dt>
+                              <dd className="truncate font-mono text-[13px] text-text-primary"><bdi dir="ltr">{formatMobile(review.card.attendee_mobile, locale)}</bdi></dd>
                             </div>
                           )}
                           {review.card.organization && (
@@ -959,8 +934,11 @@ export function ReceptionStation({ eventId, organizer, locale, t, isRtl }: Recep
               <input id={ids.name} ref={nameInputRef} type="text" required value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder={isRtl ? "مثال: دکتر مهدی احمدی" : "e.g. Dr. Mahdi Ahmadi"} className="ui-input" />
             </div>
             <div>
-              <label htmlFor={ids.email} className="ui-label">{isRtl ? "آدرس ایمیل (اختیاری)" : "Email Address (Optional)"}</label>
-              <input id={ids.email} type="email" dir="ltr" inputMode="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="name@institution.com" className="ui-input font-mono" />
+              <label htmlFor={ids.mobile} className="ui-label">{isRtl ? "شماره موبایل (اختیاری)" : "Mobile Number (Optional)"}</label>
+              <input id={ids.mobile} type="tel" dir="ltr" inputMode="tel" autoComplete="off" value={mobile} onChange={(e) => setMobile(e.target.value)} placeholder="09xx xxx xxxx" className="ui-input font-mono" />
+              <p className="mt-1.5 text-xs text-text-muted">
+                {isRtl ? "با شماره موبایل، لینک کارت ورود پیامک می‌شود و شرکت‌کننده بعداً می‌تواند وارد شود." : "With a number, the pass link is sent by SMS and the attendee can sign in later."}
+              </p>
             </div>
             <div className="grid grid-cols-1 gap-4 @sm:grid-cols-2">
               <div>
@@ -995,10 +973,10 @@ export function ReceptionStation({ eventId, organizer, locale, t, isRtl }: Recep
               <div role="status" className="space-y-3 rounded-xl border border-status-warning-border bg-status-warning-bg p-3.5 text-[13px] leading-relaxed text-status-warning-text">
                 {duplicate.status === "looking" && <p className="flex items-center gap-2"><Icon name="sync" size={16} className="motion-safe:animate-spin" />{isRtl ? "در حال جستجوی کارت موجود..." : "Looking for the existing pass..."}</p>}
                 {duplicate.status === "failed" && <p>{isRtl ? "کارت موجود پیدا نشد (خطای جستجو). با جستجوی دستی بررسی کنید." : "The existing pass could not be looked up. Check with the search box."}</p>}
-                {duplicate.status === "missing" && <p>{isRtl ? "کارت دقیقاً مطابق این ایمیل پیدا نشد. با جستجوی دستی بررسی کنید." : "No pass with exactly this email was found. Check with the search box."}</p>}
+                {duplicate.status === "missing" && <p>{isRtl ? "کارت دقیقاً مطابق این شماره پیدا نشد. با جستجوی دستی بررسی کنید." : "No pass with exactly this mobile number was found. Check with the search box."}</p>}
                 {duplicate.status === "found" && (
                   <>
-                    <p className="flex items-start gap-2"><Icon name="ticket" size={16} className="mt-0.5" /><span>{isRtl ? "این ایمیل قبلاً کارت دارد. برای بررسی کارت موجود، آن را انتخاب کنید:" : "This email already has a pass. Choose it to review the existing pass:"}</span></p>
+                    <p className="flex items-start gap-2"><Icon name="ticket" size={16} className="mt-0.5" /><span>{isRtl ? "این شماره قبلاً کارت دارد. برای بررسی کارت موجود، آن را انتخاب کنید:" : "This mobile number already has a pass. Choose it to review the existing pass:"}</span></p>
                     {duplicate.candidates.map((c) => (
                       <Button key={c.ticket_id} type="button" variant="secondary" size="md" isFullWidth className="h-auto justify-between whitespace-normal text-start" onClick={() => void openReview(c.ticket_id)}>
                         <span className="min-w-0 break-words">{isRtl ? `بررسی کارت ${c.attendee_name}` : `Review existing pass: ${c.attendee_name}`}</span>

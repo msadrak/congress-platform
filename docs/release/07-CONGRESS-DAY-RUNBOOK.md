@@ -13,7 +13,8 @@
 - [ ] Database backup executed (`pg_dump -Fc congress_production > backup_pre_event.dump`).
 - [ ] Event ticket tiers and quotas locked.
 - [ ] Check-in points established: Main Entrance (`MULTI_ENTRY`), Catering/Lunch (`SINGLE_USE`), Workshops (`TIER_RESTRICTED`), Auditorium (`CAPACITY_CAPPED`).
-- [ ] Exhibition booths created; staff assignment emails sent.
+- [ ] Exhibition booths created; representatives assigned by mobile number (they sign in with an SMS code).
+- [ ] sms.ir: API key and both verify templates (OTP, ticket confirmation) configured; panel credit checked; a test sign-in code received on a real phone.
 
 ### T-2 Hours: Hardware & Device Pairing Station
 - [ ] Power on all scanner tablets and gate laptops; connect to venue primary Wi-Fi.

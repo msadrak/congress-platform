@@ -426,7 +426,7 @@ export default function MyTickets() {
               {/* Stub: holder, tier, reference */}
               <div className="grid grid-cols-2 gap-x-5 gap-y-5 px-6 pt-6 pb-7 sm:px-7">
                 <div className="col-span-2 flex items-center gap-3">
-                  <Monogram name={currentTicket.attendee_name} seed={currentTicket.attendee_email} size="md" className="at-print-hide" />
+                  <Monogram name={currentTicket.attendee_name} seed={currentTicket.id} size="md" className="at-print-hide" />
                   <div className="min-w-0">
                     <span className="block text-[11px] font-medium text-ink-400">{holderLabel}</span>
                     <span className="block truncate text-lg font-semibold tracking-[-0.02em] text-white">{currentTicket.attendee_name}</span>

@@ -5,6 +5,9 @@ from pydantic import Field, ValidationError, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 Environment = Literal["development", "test", "staging", "production"]
+# smsir: real delivery through sms.ir. console: nothing is sent, messages are kept in memory (development,
+# automated staging checks, tests); refused in production.
+SmsProviderName = Literal["smsir", "console"]
 
 # Deployed environments: every secret, the database and the media volume must be given explicitly.
 STRICT_ENVIRONMENTS: frozenset[str] = frozenset({"staging", "production"})
@@ -52,12 +55,32 @@ class Settings(BaseSettings):
     public_origin: str | None = None
     media_max_bytes: int = Field(default=5 * 1024 * 1024, gt=0, le=20 * 1024 * 1024)
 
+    # SMS (sign-in codes and ticket confirmations). Defaults to smsir in staging/production, console elsewhere.
+    sms_provider: SmsProviderName = "console"
+    smsir_api_key: str = ""
+    # sms.ir "verify" templates, approved in the panel: OTP with #CODE#, ticket with #NAME# #EVENT# #LINK#.
+    smsir_otp_template_id: int | None = Field(default=None, gt=0)
+    smsir_ticket_template_id: int | None = Field(default=None, gt=0)
+    smsir_timeout_seconds: float = Field(default=10.0, gt=0, le=60)
+    otp_length: int = Field(default=6, ge=4, le=8)
+    otp_ttl_seconds: int = Field(default=120, ge=60, le=600)
+    # SMS send limits: codes cost money and reach a real phone. A congress venue puts many people behind one IP.
+    otp_resend_cooldown_seconds: int = Field(default=60, ge=0, le=600)
+    otp_sends_per_mobile_per_hour: int = Field(default=5, ge=1)
+    otp_sends_per_ip_per_hour: int = Field(default=100, ge=1)
+    # Background delivery of queued SMS (ticket confirmations); the test suite drives it explicitly.
+    sms_outbox_enabled: bool = True
+    sms_outbox_poll_seconds: float = Field(default=5.0, gt=0, le=300)
+
     @model_validator(mode="before")
     @classmethod
     def _environment_defaults(cls, data: Any) -> Any:
         if not isinstance(data, dict):
             return data
         environment = str(data.get("environment") or "production").strip().lower()
+        if not str(data.get("sms_provider") or "").strip():
+            data = dict(data)
+            data["sms_provider"] = "smsir" if environment in STRICT_ENVIRONMENTS else "console"
         if environment in STRICT_ENVIRONMENTS:
             missing = [
                 f"CONGRESS_{name.upper()}"
@@ -76,6 +99,12 @@ class Settings(BaseSettings):
         if not str(data.get("media_root") or "").strip():
             data["media_root"] = DEV_MEDIA_ROOT
         return data
+
+    @field_validator("smsir_otp_template_id", "smsir_ticket_template_id", mode="before")
+    @classmethod
+    def _blank_template_is_unset(cls, v: Any) -> Any:
+        # Compose passes an unset optional variable as an empty string.
+        return None if isinstance(v, str) and not v.strip() else v
 
     @field_validator("jwt_secret")
     @classmethod
@@ -115,6 +144,35 @@ class Settings(BaseSettings):
                 "CONGRESS_MEDIA_ROOT must be an absolute path to a durable volume when "
                 f"CONGRESS_ENVIRONMENT={self.environment}."
             )
+        return self
+
+    @model_validator(mode="after")
+    def _sms_configuration(self) -> "Settings":
+        if self.sms_provider == "smsir":
+            key = self.smsir_api_key.strip()
+            if not key or _is_placeholder(key):
+                raise ValueError(
+                    "CONGRESS_SMSIR_API_KEY must be the API key from the sms.ir panel when CONGRESS_SMS_PROVIDER=smsir."
+                )
+            missing = [
+                f"CONGRESS_{name.upper()}"
+                for name in ("smsir_otp_template_id", "smsir_ticket_template_id")
+                if getattr(self, name) is None
+            ]
+            if missing:
+                raise ValueError(
+                    f"{', '.join(missing)} must be the ids of approved sms.ir verify templates when "
+                    "CONGRESS_SMS_PROVIDER=smsir."
+                )
+        if self.environment == "production":
+            if self.sms_provider != "smsir":
+                raise ValueError(
+                    "CONGRESS_SMS_PROVIDER must be smsir in production; the console provider sends nothing."
+                )
+            if not (self.public_origin or "").strip():
+                raise ValueError(
+                    "CONGRESS_PUBLIC_ORIGIN must be set in production: SMS messages link attendees to their pass."
+                )
         return self
 
 

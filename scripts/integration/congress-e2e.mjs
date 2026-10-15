@@ -6,7 +6,7 @@
  *   node scripts/integration/congress-e2e.mjs [--keep] [--skip-build] [--skip-scanner-spec]
  *
  * Safety: everything is created with fixed `congress-e2e-*` names on a private --internal Docker
- * network. PostgreSQL has no published port; only the API is published, on 127.0.0.1:8000. The
+ * network. PostgreSQL has no published port; only the API is published, on 127.0.0.1:8000 (or CONGRESS_E2E_API_PORT). The
  * script refuses to continue unless the API's effective database is the dedicated `congress_e2e`
  * database inside its own PostgreSQL container. Nothing outside those containers is touched.
  *
@@ -34,7 +34,9 @@ const PG_PASSWORD = randomBytes(18).toString('hex');
 const ADMIN_TOKEN = randomBytes(24).toString('hex');
 const JWT_SECRET = randomBytes(24).toString('hex');
 const BASE = 'http://127.0.0.1:4175';
-const API_URL = 'http://127.0.0.1:8000';
+// Host port for the disposable API (8000 by default; override when another service holds it).
+const API_PORT = process.env.CONGRESS_E2E_API_PORT ?? '8000';
+const API_URL = `http://127.0.0.1:${API_PORT}`;
 const SHOT_DIR = resolve(root, 'docs/architecture/portal-redesign/congress-e2e');
 
 const run = (cmd, argv, opts = {}) => {
@@ -74,7 +76,7 @@ async function up() {
   docker('exec', PG, 'psql', '-U', PG_USER, '-d', 'postgres', '-c', `CREATE DATABASE ${DB}`);
 
   const dbUrl = `postgresql+asyncpg://${PG_USER}:${PG_PASSWORD}@${PG}:5432/${DB}`;
-  docker('run', '-d', '--name', API, '-p', '127.0.0.1:8000:8000', '--entrypoint', 'sleep', IMAGE, 'infinity');
+  docker('run', '-d', '--name', API, '-p', `127.0.0.1:${API_PORT}:8000`, '--entrypoint', 'sleep', IMAGE, 'infinity');
   docker('network', 'connect', NET, API);
   for (const d of ['app', 'migrations']) {
     docker('exec', API, 'rm', '-rf', `/app/${d}`);
@@ -83,8 +85,10 @@ async function up() {
   for (const f of ['alembic.ini', 'pyproject.toml', 'uv.lock']) docker('cp', resolve(root, 'backend', f), `${API}:/app/${f}`);
   // The image predates some dependencies (Pillow): sync the venv to the lock file while the container is still online.
   docker('exec', '-e', 'UV_PROJECT_ENVIRONMENT=/app/.venv', '-w', '/app', API, 'uv', 'sync', '--frozen', '--no-dev', '--quiet');
-  // Production mode: the hardened configuration (explicit database, media volume, generated secrets) must hold.
-  const env = ['-e', 'CONGRESS_ENVIRONMENT=production', '-e', `CONGRESS_DATABASE_URL=${dbUrl}`, '-e', 'CONGRESS_MEDIA_ROOT=/tmp/congress-media', '-e', `CONGRESS_PLATFORM_ADMIN_TOKEN=${ADMIN_TOKEN}`, '-e', `CONGRESS_JWT_SECRET=${JWT_SECRET}`, '-e', 'CONGRESS_CORS_ORIGINS=["http://127.0.0.1:4175"]'];
+  // Staging mode: the hardened configuration (explicit database, media volume, generated secrets) must hold. Not
+  // production, which requires real sms.ir delivery: the console provider records SMS for the journey to read, and
+  // the send limits are relaxed because the journey signs the same numbers in repeatedly within seconds.
+  const env = ['-e', 'CONGRESS_ENVIRONMENT=staging', '-e', 'CONGRESS_SMS_PROVIDER=console', '-e', 'CONGRESS_OTP_RESEND_COOLDOWN_SECONDS=0', '-e', 'CONGRESS_OTP_SENDS_PER_MOBILE_PER_HOUR=1000', '-e', 'CONGRESS_OTP_SENDS_PER_IP_PER_HOUR=10000', '-e', `CONGRESS_DATABASE_URL=${dbUrl}`, '-e', 'CONGRESS_MEDIA_ROOT=/tmp/congress-media', '-e', `CONGRESS_PLATFORM_ADMIN_TOKEN=${ADMIN_TOKEN}`, '-e', `CONGRESS_JWT_SECRET=${JWT_SECRET}`, '-e', 'CONGRESS_CORS_ORIGINS=["http://127.0.0.1:4175"]'];
   docker('exec', ...env, API, 'sh', '-c', 'cd /app && .venv/bin/alembic upgrade head');
   docker('exec', '-d', ...env, API, 'sh', '-c', 'cd /app && .venv/bin/uvicorn app.main:create_app_from_env --factory --host 0.0.0.0 --port 8000 > /tmp/api.log 2>&1');
   await waitFor('API', async () => (await fetch(`${API_URL}/api/ready`)).status === 200);
@@ -97,7 +101,7 @@ async function up() {
   if (!cfg.includes(`@${PG}:5432/${DB}`) || dbName !== DB) throw new Error(`Refusing to continue: effective database is ${cfg} / ${dbName}`);
   const published = docker('port', PG).stdout.trim();
   if (published) throw new Error('PostgreSQL unexpectedly publishes a port');
-  console.log(`environment ok: db=${dbName} alembic=${alembicHead} api=127.0.0.1:8000 (pg unpublished, network ${NET} internal)`);
+  console.log(`environment ok: db=${dbName} alembic=${alembicHead} api=127.0.0.1:${API_PORT} (pg unpublished, network ${NET} internal)`);
 }
 
 async function main() {
@@ -107,10 +111,10 @@ async function main() {
   try {
     await up();
     if (!args.has('--skip-build') || !existsSync(resolve(root, 'web/dist'))) run('npm', ['run', 'build'], { cwd: resolve(root, 'web') });
-    preview = spawn(process.platform === 'win32' ? 'npx.cmd' : 'npx', ['vite', 'preview', '--host', '127.0.0.1', '--port', '4175', '--strictPort'], { cwd: resolve(root, 'web'), stdio: 'ignore', shell: process.platform === 'win32' });
+    preview = spawn(process.platform === 'win32' ? 'npx.cmd' : 'npx', ['vite', 'preview', '--host', '127.0.0.1', '--port', '4175', '--strictPort'], { cwd: resolve(root, 'web'), stdio: 'ignore', shell: process.platform === 'win32', env: { ...process.env, CONGRESS_API_PROXY_TARGET: API_URL } });
     await waitFor('preview server', async () => (await fetch(BASE)).ok);
 
-    const ctx = { root, BASE, API_URL, ADMIN_TOKEN, JWT_SECRET, SHOT_DIR, psql, docker, dockerQuiet, names: { API, PG, DB } };
+    const ctx = { root, BASE, API_URL, ADMIN_TOKEN, JWT_SECRET, SHOT_DIR, psql, docker, dockerQuiet, names: { API, PG, DB }, otpCooldownMs: 0 };
     const result = await runJourney(ctx);
     writeFileSync(resolve(SHOT_DIR, 'last-run.json'), JSON.stringify(result, null, 2));
     failed = result.failed > 0;

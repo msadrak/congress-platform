@@ -105,8 +105,8 @@ describe("explicit-authority API transport", () => {
     const fixture = installBrowserFixture();
     const transport = captureTransport();
     try {
-      await createApiClient(null, transport.options).POST("/api/auth/login", {
-        body: { email: "fixture@example.test", password: "fixture-password" },
+      await createApiClient(null, transport.options).POST("/api/auth/otp/verify", {
+        body: { mobile: "09000000001", code: "123456" },
       });
       assert.equal(transport.requests[0].headers.has("authorization"), false);
       const incomplete = [

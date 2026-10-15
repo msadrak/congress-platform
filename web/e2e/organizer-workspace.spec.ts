@@ -30,7 +30,9 @@ async function fixture(page: Page, options: Options = {}) {
     'event-a': options.tiersA ?? [tierOf('tier-a1', 'Alpha Delegate', 100, 40), tierOf('tier-a2', 'Alpha Student', 20, 20, false)],
     'event-b': [tierOf('tier-b1', 'Beta Delegate', 50, 5)],
   };
-  const operators = [{ id: 'op-1', event_id: 'event-a', user_id: 'u1', operator_name: 'Operator One', email: 'op1@example.test', is_revoked: false, created_at: '2099-01-01T00:00:00Z' }];
+  const points = [{ id: 'point-a1', event_id: 'event-a', name: 'Main Gate', location: 'North entrance', policy_type: 'MULTI_ENTRY', allowed_tier_ids: [], max_capacity: null, created_at: '2099-01-01T00:00:00Z' }];
+  const devices = [{ id: 'device-old', checkin_point_id: 'point-a1', event_id: 'event-a', device_name: 'Old tablet', is_revoked: false, revoked_at: null, created_at: '2099-01-01T00:00:00Z', last_seen_at: null }];
+  const operators = [{ id: 'op-1', event_id: 'event-a', user_id: 'u1', operator_name: 'Operator One', mobile: '09121110001', is_revoked: false, created_at: '2099-01-01T00:00:00Z' }];
   await page.route(/^https?:\/\/[^/]+\/api\//, async route => {
     const request = route.request();
     const path = new URL(request.url()).pathname;
@@ -39,6 +41,22 @@ async function fixture(page: Page, options: Options = {}) {
     requests.push({ method, path, auth: request.headers().authorization, body: raw ? JSON.parse(raw) : undefined });
     const json = (status: number, body: unknown) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
     if (path === '/api/events') return json(200, Object.values(events));
+    const point = path.match(/^\/api\/checkin-points\/point-a1(\/.*)$/);
+    if (point) {
+      const [, sub] = point;
+      if (sub === '/devices' && method === 'GET') return json(200, devices);
+      if (sub === '/token' && method === 'POST') {
+        const created = { ...devices[0], id: 'device-new', device_name: JSON.parse(raw ?? '{}').device_name, is_revoked: false, created_at: '2099-01-02T00:00:00Z' };
+        devices.unshift(created);
+        return json(201, { scanner_token: 'synthetic.scanner.token', token_type: 'Bearer', point_id: 'point-a1', event_id: 'event-a', device_id: created.id, expires_at: '2099-01-09T00:00:00Z' });
+      }
+      const revoke = sub.match(/^\/devices\/([^/]+)\/revoke$/);
+      if (revoke && method === 'POST') {
+        const index = devices.findIndex(d => d.id === revoke[1]);
+        devices[index] = { ...devices[index], is_revoked: true, revoked_at: '2099-01-02T00:00:00Z' };
+        return json(200, devices[index]);
+      }
+    }
     const match = path.match(/^\/api\/events\/([^/]+)(\/.*)?$/);
     if (!match) return json(404, { detail: 'Not found' });
     const [, id, rest = ''] = match;
@@ -62,6 +80,7 @@ async function fixture(page: Page, options: Options = {}) {
       tiers[id][index] = { ...tiers[id][index], ...JSON.parse(raw ?? '{}') };
       return json(200, tiers[id][index]);
     }
+    if (rest === '/checkin-points') return json(200, id === 'event-a' ? points : []);
     if (rest === '/desk/operators') return json(200, id === 'event-a' ? operators : []);
     if (rest === '/desk/operators/op-1/revoke') {
       if (options.revokeStatus) return json(options.revokeStatus, { detail: 'Server error' });
@@ -220,6 +239,50 @@ for (const failing of [false, true]) {
     else await expect(page.getByRole('status').filter({ hasText: 'Access revoked for Operator One' })).toBeVisible();
   });
 }
+
+test('pairing a scanner device issues a point token, shows its pairing link once and can revoke devices', async ({ page }) => {
+  const requests = await fixture(page);
+  await seed(page);
+  await page.goto('/organizer/events/event-a/check-in');
+  await page.getByRole('article').filter({ hasText: 'Main Gate' }).getByRole('button', { name: 'Pair device' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Pair a scanner device' });
+  await expect(dialog.getByText('Old tablet')).toBeVisible();
+  await expect(dialog.getByText('1 active')).toBeVisible();
+
+  // A nameless device is refused locally; nothing is issued.
+  await dialog.getByRole('textbox', { name: /Device name/ }).fill('   ');
+  await dialog.getByRole('button', { name: 'Create pairing link' }).click();
+  await expect(dialog.getByRole('alert')).toContainText('Give the device a name');
+  expect(requests.some(r => r.path.endsWith('/token'))).toBe(false);
+
+  await dialog.getByRole('textbox', { name: /Device name/ }).fill('Gate phone 1');
+  await dialog.getByRole('button', { name: 'Create pairing link' }).click();
+  await expect(dialog.getByText('Device ready to pair.')).toBeVisible();
+  const origin = new URL(page.url()).origin;
+  await expect(dialog.getByTestId('pairing-link')).toHaveText(`${origin}/scan/point-a1?token=synthetic.scanner.token`);
+  await expect(dialog.getByRole('img', { name: 'Scanner pairing link QR code' })).toBeVisible();
+  await expect(dialog.getByText('2 active')).toBeVisible();
+  const issue = requests.find(r => r.method === 'POST' && r.path === '/api/checkin-points/point-a1/token');
+  expect(issue?.auth).toBe(bearer);
+  expect(issue?.body).toEqual({ device_name: 'Gate phone 1' });
+  // Opened on 127.0.0.1: the console warns that the link cannot work on a phone.
+  await expect(dialog.getByRole('note')).toContainText('localhost');
+
+  // Revoking the device whose link is on screen asks first, then withdraws the link.
+  await dialog.getByRole('button', { name: 'Revoke Gate phone 1' }).click();
+  const confirm = page.getByRole('dialog', { name: 'Revoke this device?' });
+  await page.keyboard.press('Escape');
+  await expect(confirm).toBeHidden();
+  await expect(dialog).toBeVisible();
+  expect(requests.some(r => r.path.endsWith('/revoke'))).toBe(false);
+
+  await dialog.getByRole('button', { name: 'Revoke Gate phone 1' }).click();
+  await page.getByRole('dialog', { name: 'Revoke this device?' }).getByRole('button', { name: 'Revoke device' }).click();
+  await expect(dialog.getByText('1 active')).toBeVisible();
+  await expect(dialog.getByTestId('pairing-link')).toHaveCount(0);
+  const revoke = requests.find(r => r.path === '/api/checkin-points/point-a1/devices/device-new/revoke');
+  expect(revoke?.auth).toBe(bearer);
+});
 
 test('analytics keeps its export and says the CSV is not filtered', async ({ page }) => {
   const requests = await fixture(page);

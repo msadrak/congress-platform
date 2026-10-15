@@ -13,7 +13,7 @@ An organization or administrative body that owns, configures, and manages one or
 _Avoid_: Admin, host, client
 
 **User**:
-An authenticated account on the platform identified by an email address and credentials.
+An authenticated account on the platform identified by an Iranian mobile number, proven by a one-time SMS code (ADR 0012).
 _Avoid_: Member, login, profile, account
 
 **Buyer**:
