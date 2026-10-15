@@ -9,6 +9,8 @@
  *   node scripts/staging/stack.mjs stop | start       stop / start containers (data untouched)
  *   node scripts/staging/stack.mjs migrate            run the one-shot migration service explicitly
  *   node scripts/staging/stack.mjs ca                 export Caddy's local root CA to .staging/caddy-root.crt
+ *   node scripts/staging/stack.mjs lan [<ip> | off]   serve the stack on this computer's current network address
+ *                                                     (detected; run again after joining another network)
  *   node scripts/staging/stack.mjs backup             timestamped database + media backup in .staging/backups
  *   node scripts/staging/stack.mjs backups            list backups
  *   node scripts/staging/stack.mjs restore-verify <name> [--keep]
@@ -28,6 +30,8 @@
 import { spawnSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import https from 'node:https';
+import { networkInterfaces } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -118,6 +122,92 @@ async function up() {
   }
   say(`migrations: ${psql(PROJECT, 'select version_num from alembic_version')}`);
   await status();
+}
+
+// ───────────────────────────── LAN access ─────────────────────────────
+
+const PRIVATE_IPV4 = /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/;
+// VPN tunnels, Docker/VM bridges and other virtual adapters are never what phones on the Wi-Fi can reach.
+const VIRTUAL_INTERFACE = /^(lo|utun|tun|tap|ipsec|ppp|gif|stf|awdl|llw|bridge|docker|br-|veth|vmnet|vboxnet|virbr|zt|tailscale|wg|anpi|ap\d)|vEthernet|VirtualBox|VMware|Hyper-V|Loopback/i;
+const PHYSICAL_INTERFACE = /^(en|eth|wlan|wl|Wi-?Fi|Ethernet)/i;
+
+/** This computer's address on the local network: private IPv4 on a physical interface, Wi-Fi/Ethernet first. */
+export function detectLanAddress() {
+  const candidates = [];
+  for (const [name, addresses] of Object.entries(networkInterfaces())) {
+    if (VIRTUAL_INTERFACE.test(name)) continue;
+    for (const a of addresses ?? []) {
+      if (a.family !== 'IPv4' || a.internal || !PRIVATE_IPV4.test(a.address)) continue;
+      candidates.push({ name, address: a.address, physical: PHYSICAL_INTERFACE.test(name) });
+    }
+  }
+  candidates.sort((x, y) => Number(y.physical) - Number(x.physical) || x.name.localeCompare(y.name));
+  return candidates;
+}
+
+/** Replace KEY=value lines in .staging/staging.env (appending missing keys), keeping every other line. */
+function setEnvValues(values) {
+  let text = readFileSync(ENV_FILE, 'utf8');
+  for (const [key, value] of Object.entries(values)) {
+    const line = `${key}=${value}`;
+    const pattern = new RegExp(`^${key}=.*$`, 'm');
+    text = pattern.test(text) ? text.replace(pattern, line) : `${text.replace(/\n*$/, '\n')}${line}\n`;
+  }
+  writeFileSync(ENV_FILE, text, { mode: 0o600 });
+}
+
+function httpsStatus(url, ca) {
+  return new Promise((done) => {
+    const req = https.get(url, { ca, agent: false, timeout: 10000 }, (res) => { res.resume(); done(String(res.statusCode)); });
+    req.on('timeout', () => req.destroy(new Error('timeout')));
+    req.on('error', (e) => done(e.code || e.message));
+  });
+}
+
+async function lan(arg) {
+  requireEnv();
+  const env = readEnv();
+  const port = env.CONGRESS_HTTPS_PORT || 8443;
+  let values;
+  if (arg === 'off') {
+    values = {
+      CONGRESS_BIND: '127.0.0.1',
+      CONGRESS_SITE_ADDRESS: 'https://localhost',
+      CONGRESS_DEFAULT_SNI: 'localhost',
+      CONGRESS_PUBLIC_ORIGIN: `https://localhost:${port}`,
+    };
+  } else {
+    let address = arg;
+    if (address) {
+      if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(address)) throw new Error('usage: lan [<ipv4 address> | off]');
+    } else {
+      const found = detectLanAddress();
+      if (!found.length) throw new Error('No private network address found. Connect to Wi-Fi/Ethernet, or pass one: lan <ip>');
+      address = found[0].address;
+      say(`Network address: ${address} (${found[0].name})${found.length > 1 ? `; others: ${found.slice(1).map((c) => `${c.address} (${c.name})`).join(', ')}` : ''}`);
+    }
+    values = {
+      CONGRESS_BIND: '0.0.0.0',
+      CONGRESS_SITE_ADDRESS: `https://localhost, https://${address}`,
+      // Clients connecting to a bare IP send no SNI; they get this address's certificate.
+      CONGRESS_DEFAULT_SNI: address,
+      CONGRESS_PUBLIC_ORIGIN: `https://${address}:${port}`,
+    };
+  }
+  if (Object.entries(values).every(([k, v]) => env[k] === v)) {
+    say(`Already serving ${values.CONGRESS_PUBLIC_ORIGIN}; nothing to change.`);
+  } else {
+    setEnvValues(values);
+    say(`Updated ${ENV_FILE}; restarting the edge and the API ...`);
+    // Only the services that read these values: Caddy (address, certificate, binding) and the API (links, CORS).
+    const r = compose(PROJECT, ['up', '-d', '--wait', '--wait-timeout', '300', 'api', 'web'], { allowFail: true });
+    if (r.status !== 0) throw new Error(`Restart failed:\n${r.stderr}`);
+  }
+  const caPath = join(STATE, 'caddy-root.crt');
+  if (!existsSync(caPath)) exportCa();
+  const ready = await httpsStatus(`${values.CONGRESS_PUBLIC_ORIGIN}/api/ready`, readFileSync(caPath));
+  say(`\n  Open on phones/tablets: ${values.CONGRESS_PUBLIC_ORIGIN}   (HTTPS check: ${ready === '200' ? 'ok' : ready})`);
+  if (arg !== 'off') say('  Devices trust it once .staging/caddy-root.crt is installed; the certificate authority does not change with the address.');
 }
 
 function exportCa() {
@@ -486,6 +576,7 @@ async function main() {
     case 'start': requireEnv(); compose(PROJECT, ['up', '-d', '--wait', '--wait-timeout', '300']); return status();
     case 'migrate': requireEnv(); return say(compose(PROJECT, ['run', '--rm', 'migrate']).stderr);
     case 'ca': return exportCa();
+    case 'lan': return lan(rest[0]);
     case 'backup': return backup();
     case 'backups': return listBackups();
     case 'restore-verify': return restoreVerify(rest[0], { keep: rest.includes('--keep') });
