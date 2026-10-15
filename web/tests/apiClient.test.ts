@@ -238,3 +238,24 @@ describe("legacy credential heuristic removal", () => {
     assert.throws(() => Reflect.apply(clientModule.createApiClient, undefined, [undefined]), ApiContextError);
   });
 });
+
+describe("platform authority", () => {
+  it("sends the admin token only as X-Admin-Token, never as Authorization", async () => {
+    const fixture = installBrowserFixture();
+    const transport = captureTransport();
+    try {
+      await createApiClient({ kind: "platform", token: "platform-fixture" }, transport.options).GET("/api/platform/status", {
+        headers: { Authorization: "Bearer conflicting", "X-Admin-Token": "conflicting" },
+      });
+      const [request] = transport.requests;
+      assert.equal(request.headers.get("x-admin-token"), "platform-fixture");
+      assert.equal(request.headers.has("authorization"), false);
+      await createApiClient({ kind: "organizer", token: "organizer-fixture" }, transport.options).GET("/api/events", {
+        headers: { "X-Admin-Token": "leak" },
+      });
+      assert.equal(transport.requests[1].headers.has("x-admin-token"), false);
+    } finally {
+      fixture.restore();
+    }
+  });
+});

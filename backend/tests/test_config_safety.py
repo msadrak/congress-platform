@@ -19,8 +19,7 @@ def no_ambient_configuration(monkeypatch: pytest.MonkeyPatch) -> None:
     for name in (
         "CONGRESS_ENVIRONMENT", "CONGRESS_DATABASE_URL", "CONGRESS_MEDIA_ROOT",
         "CONGRESS_PLATFORM_ADMIN_TOKEN", "CONGRESS_JWT_SECRET", "CONGRESS_PUBLIC_ORIGIN",
-        "CONGRESS_SMS_PROVIDER", "CONGRESS_SMSIR_API_KEY", "CONGRESS_SMSIR_OTP_TEMPLATE_ID",
-        "CONGRESS_SMSIR_TICKET_TEMPLATE_ID",
+        "CONGRESS_SMS_PROVIDER", "CONGRESS_SMSIR_API_KEY", "CONGRESS_SMSIR_LINE_NUMBER",
     ):
         monkeypatch.delenv(name, raising=False)
 
@@ -34,8 +33,7 @@ def production(**overrides: object) -> Settings:
         "media_root": Path("/srv/congress/media").resolve(),
         "public_origin": "https://congress.example.org",
         "smsir_api_key": SMSIR_KEY,
-        "smsir_otp_template_id": 100001,
-        "smsir_ticket_template_id": 100002,
+        "smsir_line_number": 30001234,
     }
     values.update(overrides)
     return Settings(**values)  # type: ignore[arg-type]
@@ -120,19 +118,17 @@ def test_production_sends_real_sms_through_smsir() -> None:
     assert "CONGRESS_SMS_PROVIDER must be smsir in production" in str(exc.value)
 
 
-@pytest.mark.parametrize("key", ["", "   ", "<generate in the sms.ir panel>", "replace-me"])
-def test_smsir_requires_a_real_api_key(key: str) -> None:
+@pytest.mark.parametrize("key", ["<generate in the sms.ir panel>", "replace-me"])
+def test_a_placeholder_smsir_api_key_is_refused(key: str) -> None:
     with pytest.raises(ValidationError) as exc:
         production(smsir_api_key=key)
     assert "CONGRESS_SMSIR_API_KEY" in str(exc.value)
     assert SMSIR_KEY not in describe_settings_error(exc.value)
 
 
-@pytest.mark.parametrize("missing", ["smsir_otp_template_id", "smsir_ticket_template_id"])
-def test_smsir_requires_both_approved_template_ids(missing: str) -> None:
-    with pytest.raises(ValidationError) as exc:
-        production(**{missing: None})
-    assert f"CONGRESS_{missing.upper()}" in str(exc.value)
+def test_production_may_start_before_sms_is_configured_in_the_platform_console() -> None:
+    settings = production(smsir_api_key="", smsir_line_number=None)
+    assert settings.sms_provider == "smsir" and settings.smsir_line_number is None
 
 
 def test_production_requires_the_public_origin_for_pass_links() -> None:
@@ -142,9 +138,7 @@ def test_production_requires_the_public_origin_for_pass_links() -> None:
 
 
 def test_staging_defaults_to_smsir_but_may_opt_into_the_console_provider() -> None:
-    with pytest.raises(ValidationError) as exc:
-        production(environment="staging", smsir_api_key="")
-    assert "CONGRESS_SMSIR_API_KEY" in str(exc.value)
+    assert production(environment="staging").sms_provider == "smsir"
     settings = production(environment="staging", sms_provider="console", smsir_api_key="")
     assert settings.sms_provider == "console"
 
@@ -154,9 +148,8 @@ def test_development_sends_nothing_by_default() -> None:
     assert settings.sms_provider == "console"
 
 
-def test_blank_template_variables_from_compose_count_as_unset(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("CONGRESS_SMSIR_OTP_TEMPLATE_ID", "")
-    monkeypatch.setenv("CONGRESS_SMSIR_TICKET_TEMPLATE_ID", " ")
+def test_a_blank_line_number_from_compose_counts_as_unset(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("CONGRESS_SMSIR_LINE_NUMBER", " ")
     settings = Settings(environment="staging", database_url=DB_URL, platform_admin_token=STRONG_TOKEN,
                         jwt_secret=STRONG_JWT, media_root=Path("/srv/media").resolve(), sms_provider="console")
-    assert settings.smsir_otp_template_id is None and settings.smsir_ticket_template_id is None
+    assert settings.smsir_line_number is None

@@ -65,7 +65,7 @@ export async function runJourney(ctx) {
   const smsCode = async (number) => {
     const sent = await http('GET', `/api/platform/sms-outbox?mobile=${number}`, { admin: true });
     eq(sent.status, 200, 'sms outbox (console provider)');
-    const codes = sent.json.map((m) => m.params.CODE).filter(Boolean);
+    const codes = sent.json.map((m) => m.code).filter(Boolean);
     assert(codes.length, `no SMS code recorded for ${number}`);
     return codes[0];
   };
@@ -266,8 +266,8 @@ export async function runJourney(ctx) {
       eq(q(`select count(*) from sms_messages where kind='ticket_confirmation' and ticket_id='${S.aliceTicket}'`), '1', 'confirmation queued once');
       for (let i = 0; i < 40 && q(`select status from sms_messages where kind='ticket_confirmation' and ticket_id='${S.aliceTicket}'`) !== 'sent'; i++) await new Promise((r) => setTimeout(r, 250));
       eq(q(`select status from sms_messages where kind='ticket_confirmation' and ticket_id='${S.aliceTicket}'`), 'sent', 'confirmation delivered');
-      const confirmation = (await http('GET', `/api/platform/sms-outbox?mobile=${mobile('alice')}`, { admin: true })).json.find((m) => m.params.LINK);
-      assert(confirmation && confirmation.params.LINK.endsWith(`/c/${S.slug}/my-ticket`) && confirmation.params.NAME === 'Dr. Alice Attendee', 'confirmation SMS content: ' + JSON.stringify(confirmation));
+      const confirmation = (await http('GET', `/api/platform/sms-outbox?mobile=${mobile('alice')}`, { admin: true })).json.find((m) => m.kind === 'ticket_confirmation');
+      assert(confirmation && confirmation.text.includes(`/c/${S.slug}/my-ticket`) && confirmation.text.startsWith('Dr. Alice Attendee'), 'confirmation SMS content: ' + JSON.stringify(confirmation));
       await openEvent(S.alphaId);
       await O.getByText('1 / 3', { exact: false }).first().waitFor({ timeout: 10000 });
     });

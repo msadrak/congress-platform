@@ -14,6 +14,16 @@ export type AuthResponse = components["schemas"]["AuthResponse"];
 export type UserOut = components["schemas"]["UserOut"];
 export type OtpRequestOut = components["schemas"]["OtpRequestOut"];
 export type OtpVerifyOut = components["schemas"]["OtpVerifyOut"];
+export type SmsPanelOut = components["schemas"]["SmsPanelOut"];
+export type SmsTemplateOut = components["schemas"]["SmsTemplateOut"];
+export type SmsMessageOut = components["schemas"]["SmsMessageOut"];
+export type SmsTestOut = components["schemas"]["SmsTestOut"];
+export type PlatformStatusOut = components["schemas"]["PlatformStatusOut"];
+export type SmsSettingsOut = components["schemas"]["SmsSettingsOut"];
+export type SmsCheckOut = components["schemas"]["SmsCheckOut"];
+export type SignInOut = components["schemas"]["SignInOut"];
+export type OrganizerOut = components["schemas"]["OrganizerOut"];
+export type OrganizerProvisioned = components["schemas"]["OrganizerProvisioned"];
 export type CheckInPointOut = components["schemas"]["CheckInPointOut"];
 export type CheckInPointCreate = components["schemas"]["CheckInPointCreate"];
 export type CheckInPointUpdate = components["schemas"]["CheckInPointUpdate"];
@@ -59,6 +69,8 @@ export type PagePreview = components["schemas"]["PagePreview"];
 export type MediaAssetOut = components["schemas"]["MediaAssetOut"];
 export const ORGANIZER_KEY_STORAGE = "congress_organizer_api_key";
 export const ATTENDEE_TOKEN_STORAGE = "congress_attendee_token";
+/** Tab-scoped (sessionStorage): the most powerful credential is never kept across browser sessions. */
+export const PLATFORM_TOKEN_STORAGE = "congress_platform_admin_token";
 
 /** Descriptive request context, never proof of server permission. */
 export type ApiAuthority =
@@ -66,7 +78,9 @@ export type ApiAuthority =
   | { readonly kind: "user"; readonly token: string }
   | { readonly kind: "organizer"; readonly token: string }
   | { readonly kind: "desk"; readonly token: string; readonly eventId: string }
-  | { readonly kind: "scanner"; readonly token: string; readonly pointId: string; readonly eventId?: string };
+  | { readonly kind: "scanner"; readonly token: string; readonly pointId: string; readonly eventId?: string }
+  /** Platform administration: the admin token travels as X-Admin-Token, never as a Bearer credential. */
+  | { readonly kind: "platform"; readonly token: string };
 
 export interface ApiClientOptions {
   readonly baseUrl?: string;
@@ -98,6 +112,7 @@ export function createApiClient(authority: ApiAuthority | null, options: ApiClie
       break;
     case "user":
     case "organizer":
+    case "platform":
       requireContext(context.token, "credential");
       break;
     case "desk":
@@ -125,8 +140,12 @@ export function createApiClient(authority: ApiAuthority | null, options: ApiClie
         throw new ApiContextError("Scanner resource context mismatch");
       }
       // Override caller headers too: authority is selected once, not per header.
+      request.headers.delete("X-Admin-Token");
       if (context.kind === "anonymous") request.headers.delete("Authorization");
-      else request.headers.set("Authorization", `Bearer ${context.token}`);
+      else if (context.kind === "platform") {
+        request.headers.delete("Authorization");
+        request.headers.set("X-Admin-Token", context.token);
+      } else request.headers.set("Authorization", `Bearer ${context.token}`);
     },
   });
   return client;

@@ -3,17 +3,17 @@
 from fastapi import Request
 
 from app.config import Settings
-from app.sms.provider import RecordingProvider, SmsIrProvider, SmsProvider
+from app.sms.gateway import SmsGateway
+from app.sms.provider import SmsProvider
 
-__all__ = ["SmsProvider", "build_provider", "sms_provider"]
-
-
-def build_provider(settings: Settings) -> SmsProvider:
-    if settings.sms_provider == "smsir":
-        return SmsIrProvider(settings.smsir_api_key.strip(), timeout=settings.smsir_timeout_seconds)
-    return RecordingProvider(log_parameters=settings.environment == "development")
+__all__ = ["SmsGateway", "SmsProvider", "build_gateway", "sms_provider"]
 
 
-def sms_provider(request: Request) -> SmsProvider:
-    provider: SmsProvider = request.app.state.sms
-    return provider
+def build_gateway(settings: Settings) -> SmsGateway:
+    """Configured from the platform settings at startup (app/platform_config.py)."""
+    return SmsGateway(timeout=settings.smsir_timeout_seconds, log_text=settings.environment == "development")
+
+
+def sms_provider(request: Request) -> SmsGateway:
+    gateway: SmsGateway = request.app.state.sms
+    return gateway

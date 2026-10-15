@@ -80,10 +80,10 @@ async def test_schema_guard_accepts_head_and_refuses_anything_else(tmp_path: Pat
         await assert_schema_current(engine)  # the session fixture migrated to head
     finally:
         await engine.dispose()
-    assert expected_revision() == "0015"
+    assert expected_revision() == "0017"
     missing = create_async_engine(TEST_URL.rsplit("/", 1)[0] + "/postgres")
     try:
-        with pytest.raises(RuntimeError, match="requires 0015"):
+        with pytest.raises(RuntimeError, match="requires 0017"):
             await assert_schema_current(missing)
     finally:
         await missing.dispose()

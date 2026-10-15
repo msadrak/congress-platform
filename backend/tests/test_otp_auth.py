@@ -13,6 +13,7 @@ from sqlalchemy import select, update
 from app.main import create_app
 from app.models import OtpChallenge, SmsMessage
 from app.security import create_signup_token
+from app.sms.gateway import SmsGateway
 from app.sms.provider import RecordingProvider, SmsResult
 from tests.conftest import TEST_JWT_SECRET, _truncate_all, make_test_settings
 from tests.helpers import bearer, provision_organizer, request_code, sign_in, sms_code
@@ -22,9 +23,8 @@ MOBILE = "09121112233"
 
 
 def recorder(app: FastAPI) -> RecordingProvider:
-    provider = app.state.sms
-    assert isinstance(provider, RecordingProvider)
-    return provider
+    gateway: SmsGateway = app.state.sms
+    return gateway.recorder
 
 
 async def verify(client: AsyncClient, code: str, mobile: str = MOBILE) -> Any:
@@ -55,12 +55,14 @@ async def test_request_sends_a_six_digit_code_and_logs_the_sms_without_it(app: F
     assert response.status_code == 202
     assert response.json() == {"mobile": MOBILE, "code_length": 6, "expires_in": 120, "resend_after": 0}
     (sent,) = recorder(app).sent_to(MOBILE)
-    assert sent.params["CODE"].isdigit() and len(sent.params["CODE"]) == 6
+    assert sent.code is not None and sent.code.isdigit() and len(sent.code) == 6
+    assert sent.kind == "otp"
+    assert sent.text == f"کد ورود شما به سامانه همایش: {sent.code}\nاین کد تا 2 دقیقه معتبر است؛ آن را به کسی ندهید."
     async with app.state.sessionmaker() as session:
         (log,) = (await session.scalars(select(SmsMessage))).all()
         challenge = await session.scalar(select(OtpChallenge))
-    assert (log.kind, log.mobile, log.status, log.params) == ("otp", MOBILE, "sent", None)
-    assert challenge is not None and sent.params["CODE"] not in challenge.code_hash
+    assert (log.kind, log.mobile, log.status, log.body, log.event_id) == ("otp", MOBILE, "sent", None, None)
+    assert challenge is not None and sent.code not in challenge.code_hash
 
 
 async def test_known_and_unknown_numbers_get_the_same_answer(client: AsyncClient) -> None:

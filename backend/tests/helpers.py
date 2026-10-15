@@ -11,7 +11,7 @@ async def sms_code(client: AsyncClient, mobile: str) -> str:
         "/api/platform/sms-outbox", params={"mobile": mobile}, headers={"X-Admin-Token": ADMIN_TOKEN}
     )
     assert response.status_code == 200, response.text
-    codes = [m["params"]["CODE"] for m in response.json() if "CODE" in m["params"]]
+    codes = [m["code"] for m in response.json() if m["code"]]
     assert codes, f"no sign-in code was sent to {mobile}"
     code: str = codes[0]
     return code
@@ -52,7 +52,7 @@ async def desk_sign_in(client: AsyncClient, event_id: str, mobile: str) -> Any:
     response = await client.get(
         "/api/platform/sms-outbox", params={"mobile": mobile}, headers={"X-Admin-Token": ADMIN_TOKEN}
     )
-    codes = [m["params"]["CODE"] for m in response.json() if "CODE" in m["params"]]
+    codes = [m["code"] for m in response.json() if m["code"]]
     # Desk codes are only sent to active operators; a made-up code gets the same 401 as a wrong one.
     code = codes[0] if codes else "000000"
     return await client.post(f"/api/events/{event_id}/desk/login", json={"mobile": mobile, "code": code})

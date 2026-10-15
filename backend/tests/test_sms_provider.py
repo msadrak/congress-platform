@@ -18,33 +18,33 @@ async def send(handler: Handler) -> tuple[SmsResult, list[httpx.Request]]:
         seen.append(request)
         return handler(request)
 
-    provider = SmsIrProvider("panel-key", transport=httpx.MockTransport(record))
+    provider = SmsIrProvider("panel-key", 30001234, transport=httpx.MockTransport(record))
     try:
-        result = await provider.send_template("09121234567", 123456, {"CODE": "482913"})
+        result = await provider.send_text("09121234567", "کد ورود: 482913", kind="otp", code="482913")
     finally:
         await provider.aclose()
     return result, seen
 
 
-async def test_verify_request_matches_the_smsir_contract() -> None:
+async def test_text_request_matches_the_smsir_bulk_contract() -> None:
     result, seen = await send(
-        lambda _: httpx.Response(200, json={"status": 1, "message": "موفق", "data": {"messageId": 98765, "cost": 1.0}})
+        lambda _: httpx.Response(200, json={"status": 1, "message": "موفق", "data": {"packId": "p-1", "messageIds": [98765], "cost": 1.0}})
     )
 
     assert result == SmsResult(ok=True, message_id=98765)
     (request,) = seen
     assert request.method == "POST"
-    assert str(request.url) == "https://api.sms.ir/v1/send/verify"
+    assert str(request.url) == "https://api.sms.ir/v1/send/bulk"
     assert request.headers["x-api-key"] == "panel-key"
     assert json.loads(request.content) == {
-        "mobile": "09121234567",
-        "templateId": 123456,
-        "parameters": [{"name": "CODE", "value": "482913"}],
+        "lineNumber": 30001234,
+        "messageText": "کد ورود: 482913",
+        "mobiles": ["09121234567"],
     }
 
 
 async def test_http_200_with_a_failure_status_is_a_refusal_not_a_success() -> None:
-    result, _ = await send(lambda _: httpx.Response(200, json={"status": 0, "message": "invalid template"}))
+    result, _ = await send(lambda _: httpx.Response(200, json={"status": 0, "message": "invalid line number"}))
     assert result.ok is False
     assert result.error == "REJECTED_0"
     assert result.retryable is False and result.unknown is False

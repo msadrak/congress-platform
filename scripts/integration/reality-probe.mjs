@@ -46,7 +46,7 @@ const http = async (m, p, { token, key, admin, body } = {}) => {
 // SMS sign-in codes: the console provider records them; read back with the platform admin token.
 const smsCode = async (number) => {
   const sent = await http('GET', `/api/platform/sms-outbox?mobile=${number}`, { admin: true });
-  const codes = (sent.json ?? []).map((m) => m.params.CODE).filter(Boolean);
+  const codes = (sent.json ?? []).map((m) => m.code).filter(Boolean);
   if (!codes.length) throw new Error(`no SMS code recorded for ${number}`);
   return codes[0];
 };

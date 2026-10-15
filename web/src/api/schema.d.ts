@@ -1146,6 +1146,215 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/events/{event_id}/sms": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Sms Panel */
+        get: operations["get_sms_panel_api_events__event_id__sms_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/events/{event_id}/sms/templates/{kind}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Update Event Template */
+        put: operations["update_event_template_api_events__event_id__sms_templates__kind__put"];
+        post?: never;
+        /**
+         * Reset Event Template
+         * @description Back to the platform wording.
+         */
+        delete: operations["reset_event_template_api_events__event_id__sms_templates__kind__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/events/{event_id}/sms/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Send Test Sms
+         * @description Send the message, filled with sample values, to one number (a real SMS from the service line).
+         */
+        post: operations["send_test_sms_api_events__event_id__sms_test_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/events/{event_id}/sms/messages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Event Sms
+         * @description Newest first. Numbers are masked; the attendee list and CSV export carry the full numbers.
+         */
+        get: operations["list_event_sms_api_events__event_id__sms_messages_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/platform/sms-templates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Platform Templates */
+        get: operations["list_platform_templates_api_platform_sms_templates_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/platform/sms-templates/{kind}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Update Platform Template */
+        put: operations["update_platform_template_api_platform_sms_templates__kind__put"];
+        post?: never;
+        /**
+         * Reset Platform Template
+         * @description Back to the built-in wording.
+         */
+        delete: operations["reset_platform_template_api_platform_sms_templates__kind__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/platform/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Platform Status */
+        get: operations["platform_status_api_platform_status_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/platform/sms": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Sms Settings */
+        get: operations["get_sms_settings_api_platform_sms_get"];
+        /** Update Sms Settings */
+        put: operations["update_sms_settings_api_platform_sms_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/platform/sms/check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Check Sms Connection
+         * @description Ask sms.ir for the account credit and lines with the given (or current) key; sends nothing.
+         */
+        post: operations["check_sms_connection_api_platform_sms_check_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/platform/sms/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Send Platform Test Sms
+         * @description Send a sample of a platform message through the gateway as it is configured now.
+         */
+        post: operations["send_platform_test_sms_api_platform_sms_test_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/platform/sign-in": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Sign In Rules */
+        get: operations["get_sign_in_rules_api_platform_sign_in_get"];
+        /** Update Sign In Rules */
+        put: operations["update_sign_in_rules_api_platform_sign_in_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/platform/sms-outbox": {
         parameters: {
             query?: never;
@@ -2484,6 +2693,40 @@ export interface components {
             type: "passes";
             lead?: components["schemas"]["LocalizedLine"];
         };
+        /** PlatformSmsTestOut */
+        PlatformSmsTestOut: {
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "sent" | "failed" | "unknown";
+            /** Text */
+            text: string;
+            /** Error */
+            error?: string | null;
+        };
+        /** PlatformSmsTestRequest */
+        PlatformSmsTestRequest: {
+            /** Mobile */
+            mobile: string;
+            /**
+             * Kind
+             * @default otp
+             * @enum {string}
+             */
+            kind: "otp" | "ticket_confirmation";
+            /** Body */
+            body?: string | null;
+        };
+        /** PlatformStatusOut */
+        PlatformStatusOut: {
+            /** Environment */
+            environment: string;
+            /** Public Origin */
+            public_origin: string | null;
+            sms: components["schemas"]["SmsSettingsOut"];
+            sign_in: components["schemas"]["SignInOut"];
+        };
         /** PrivacyPreferenceOut */
         PrivacyPreferenceOut: {
             /** Share Contact With Peers */
@@ -2585,12 +2828,12 @@ export interface components {
         RecordedSmsOut: {
             /** Mobile */
             mobile: string;
-            /** Template Id */
-            template_id: number;
-            /** Params */
-            params: {
-                [key: string]: string;
-            };
+            /** Kind */
+            kind: string;
+            /** Text */
+            text: string;
+            /** Code */
+            code: string | null;
             /**
              * Sent At
              * Format: date-time
@@ -2743,6 +2986,199 @@ export interface components {
             description?: components["schemas"]["LocalizedLine"];
             /** Share Image Asset Id */
             share_image_asset_id?: string | null;
+        };
+        /** SignInOut */
+        SignInOut: {
+            /** Otp Length */
+            otp_length: number;
+            /** Otp Ttl Seconds */
+            otp_ttl_seconds: number;
+            /** Otp Resend Cooldown Seconds */
+            otp_resend_cooldown_seconds: number;
+            /** Otp Sends Per Mobile Per Hour */
+            otp_sends_per_mobile_per_hour: number;
+            /** Otp Sends Per Ip Per Hour */
+            otp_sends_per_ip_per_hour: number;
+            /** Sources */
+            sources: {
+                [key: string]: "console" | "environment";
+            };
+        };
+        /** SignInUpdate */
+        SignInUpdate: {
+            /** Otp Length */
+            otp_length?: number | null;
+            /** Otp Ttl Seconds */
+            otp_ttl_seconds?: number | null;
+            /** Otp Resend Cooldown Seconds */
+            otp_resend_cooldown_seconds?: number | null;
+            /** Otp Sends Per Mobile Per Hour */
+            otp_sends_per_mobile_per_hour?: number | null;
+            /** Otp Sends Per Ip Per Hour */
+            otp_sends_per_ip_per_hour?: number | null;
+            /**
+             * Reset
+             * @default []
+             */
+            reset: ("otp_length" | "otp_ttl_seconds" | "otp_resend_cooldown_seconds" | "otp_sends_per_mobile_per_hour" | "otp_sends_per_ip_per_hour")[];
+        };
+        /** SmsCheckOut */
+        SmsCheckOut: {
+            /** Ok */
+            ok: boolean;
+            /** Credit */
+            credit?: number | null;
+            /**
+             * Lines
+             * @default []
+             */
+            lines: number[];
+            /** Line Ok */
+            line_ok?: boolean | null;
+            /** Error */
+            error?: string | null;
+        };
+        /** SmsCheckRequest */
+        SmsCheckRequest: {
+            /** Api Key */
+            api_key?: string | null;
+            /** Line Number */
+            line_number?: number | null;
+        };
+        /** SmsMessageOut */
+        SmsMessageOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Kind */
+            kind: string;
+            /** Mobile */
+            mobile: string;
+            /** Body */
+            body: string | null;
+            /** Status */
+            status: string;
+            /** Attempts */
+            attempts: number;
+            /** Last Error */
+            last_error: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Sent At */
+            sent_at: string | null;
+        };
+        /** SmsPanelOut */
+        SmsPanelOut: {
+            /**
+             * Delivery
+             * @enum {string}
+             */
+            delivery: "smsir" | "console";
+            /** Templates */
+            templates: components["schemas"]["SmsTemplateOut"][];
+            /** Sample */
+            sample: {
+                [key: string]: string;
+            };
+        };
+        /** SmsSettingsOut */
+        SmsSettingsOut: {
+            /**
+             * Mode
+             * @enum {string}
+             */
+            mode: "smsir" | "console";
+            /**
+             * Mode Source
+             * @enum {string}
+             */
+            mode_source: "console" | "environment";
+            /**
+             * Effective
+             * @enum {string}
+             */
+            effective: "smsir" | "console" | "unconfigured";
+            /** Api Key Set */
+            api_key_set: boolean;
+            /** Api Key Hint */
+            api_key_hint: string | null;
+            /** Api Key Source */
+            api_key_source: ("console" | "environment") | null;
+            /** Api Key Unreadable */
+            api_key_unreadable: boolean;
+            /** Line Number */
+            line_number: number | null;
+            /** Line Number Source */
+            line_number_source: ("console" | "environment") | null;
+            /** Console Allowed */
+            console_allowed: boolean;
+        };
+        /** SmsSettingsUpdate */
+        SmsSettingsUpdate: {
+            /** Mode */
+            mode?: ("smsir" | "console") | null;
+            /** Api Key */
+            api_key?: string | null;
+            /** Line Number */
+            line_number?: number | null;
+            /**
+             * Reset
+             * @default []
+             */
+            reset: ("mode" | "api_key" | "line_number")[];
+        };
+        /** SmsTemplateOut */
+        SmsTemplateOut: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "otp" | "ticket_confirmation";
+            /** Body */
+            body: string;
+            /** Is Custom */
+            is_custom: boolean;
+            /** Default Body */
+            default_body: string;
+            /** Placeholders */
+            placeholders: string[];
+            /** Required */
+            required: string[];
+        };
+        /** SmsTemplateUpdate */
+        SmsTemplateUpdate: {
+            /** Body */
+            body: string;
+        };
+        /** SmsTestOut */
+        SmsTestOut: {
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "sent" | "failed" | "unknown";
+            /** Text */
+            text: string;
+            /** Error */
+            error?: string | null;
+        };
+        /** SmsTestRequest */
+        SmsTestRequest: {
+            /** Mobile */
+            mobile: string;
+            /**
+             * Kind
+             * @default ticket_confirmation
+             * @constant
+             */
+            kind: "ticket_confirmation";
+            /** Body */
+            body?: string | null;
         };
         /** Speaker */
         Speaker: {
@@ -5272,6 +5708,507 @@ export interface operations {
                 };
                 content: {
                     "text/html": string;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_sms_panel_api_events__event_id__sms_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SmsPanelOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_event_template_api_events__event_id__sms_templates__kind__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                kind: "ticket_confirmation";
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SmsTemplateUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SmsTemplateOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reset_event_template_api_events__event_id__sms_templates__kind__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                kind: "ticket_confirmation";
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SmsTemplateOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    send_test_sms_api_events__event_id__sms_test_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SmsTestRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SmsTestOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_event_sms_api_events__event_id__sms_messages_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SmsMessageOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_platform_templates_api_platform_sms_templates_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-admin-token"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SmsTemplateOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_platform_template_api_platform_sms_templates__kind__put: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-admin-token"?: string | null;
+            };
+            path: {
+                kind: "otp" | "ticket_confirmation";
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SmsTemplateUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SmsTemplateOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reset_platform_template_api_platform_sms_templates__kind__delete: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-admin-token"?: string | null;
+            };
+            path: {
+                kind: "otp" | "ticket_confirmation";
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SmsTemplateOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    platform_status_api_platform_status_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-admin-token"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlatformStatusOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_sms_settings_api_platform_sms_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-admin-token"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SmsSettingsOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_sms_settings_api_platform_sms_put: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-admin-token"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SmsSettingsUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SmsSettingsOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    check_sms_connection_api_platform_sms_check_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-admin-token"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SmsCheckRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SmsCheckOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    send_platform_test_sms_api_platform_sms_test_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-admin-token"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PlatformSmsTestRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlatformSmsTestOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_sign_in_rules_api_platform_sign_in_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-admin-token"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SignInOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_sign_in_rules_api_platform_sign_in_put: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-admin-token"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SignInUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SignInOut"];
                 };
             };
             /** @description Validation Error */

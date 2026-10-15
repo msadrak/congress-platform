@@ -39,6 +39,7 @@ const SECTION_ICONS: Record<(typeof EVENT_SETUP_SECTIONS)[number]["key"], IconNa
   booths: "booth",
   operators: "users",
   page: "web",
+  sms: "mail",
 };
 
 export default function OrganizerLayout() {
@@ -120,6 +121,7 @@ export default function OrganizerLayout() {
     booths: t.tabBooths,
     operators: t.tabOperators,
     page: isRtl ? "صفحهٔ عمومی" : "Public page",
+    sms: isRtl ? "پیامک" : "SMS",
   };
 
   const showGate = !apiKey && !isDesk;

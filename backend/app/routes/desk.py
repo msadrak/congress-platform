@@ -574,7 +574,7 @@ async def create_desk_registration(
         is_active=True,
     )
     session.add(qr)
-    queue_ticket_confirmation(
+    await queue_ticket_confirmation(
         session, request.app.state.settings, str(request.base_url), user=user, event=event, ticket=ticket
     )
     await session.commit()

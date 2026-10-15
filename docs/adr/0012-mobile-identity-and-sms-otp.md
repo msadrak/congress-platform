@@ -21,10 +21,14 @@ booth representatives created by an assignment had an unusable password. Walk-in
 3. **Abuse limits**: one code per number and purpose per 60 s, 5 per number per hour, 100 per IP per hour (a venue puts
    many attendees behind one IP), and failed verifications are throttled per number and per IP. Answers never reveal
    whether a number has an account.
-4. **Delivery through sms.ir "verify" templates** (`POST https://api.sms.ir/v1/send/verify`, header `x-api-key`): an
-   OTP template with `#CODE#` and a ticket-confirmation template with `#NAME#`, `#EVENT#`, `#LINK#`, approved once in
-   the panel. A small httpx client is used instead of the vendored SDK (which pulls in aiohttp, opens its session at
-   construction and duplicates log handlers). Success requires HTTP 200 **and** an envelope `status` of 1.
+4. **Delivery as plain text from the platform's sms.ir service line** (`POST https://api.sms.ir/v1/send/bulk` with
+   `lineNumber`, `messageText` and one mobile; header `x-api-key`). The wording is **not** kept in the sms.ir panel
+   (new panel templates cannot be added) but in the app (`sms_templates`, migration `0016`): built-in Persian
+   defaults, a platform-wide override per kind set by the platform admin (`stack.mjs sms-template`), and for the
+   ticket confirmation a per-event override edited by the organizer in the event workspace (Organizer → SMS), with
+   `{name}`-style placeholders validated on save, a live preview, a test send and the event's delivery log. A small
+   httpx client is used instead of the vendored SDK (which pulls in aiohttp, opens its session at construction and
+   duplicates log handlers). Success requires HTTP 200 **and** an envelope `status` of 1.
 5. **Ticket confirmation SMS with the pass link** after online reservation and desk walk-in, through a transactional
    outbox (`sms_messages`): the message is written in the ticket's transaction and delivered by a background task with
    exponential backoff, so a reservation never waits for or fails because of SMS. A timeout after sending is recorded
@@ -36,9 +40,10 @@ booth representatives created by an assignment had an unusable password. Walk-in
 ## Consequences
 - One credential for everyone; no passwords to store, reset or hand over. Booth representatives and desk operators
   are authorized by number and sign in immediately; walk-ins with a number can later sign in and see their pass.
-- A deployment needs an sms.ir account, an API key, credit and two approved templates before go-live
-  (`CONGRESS_SMS_PROVIDER`, `CONGRESS_SMSIR_API_KEY`, `CONGRESS_SMSIR_OTP_TEMPLATE_ID`,
-  `CONGRESS_SMSIR_TICKET_TEMPLATE_ID`); production refuses to start without them.
+- A deployment needs an sms.ir account with a service line, an API key and credit before go-live
+  (`CONGRESS_SMS_PROVIDER`, `CONGRESS_SMSIR_API_KEY`, `CONGRESS_SMSIR_LINE_NUMBER`); production refuses to start
+  without them. Free text on a service line is still subject to the operators' content rules (no advertising);
+  the defaults are transactional on purpose.
 - Peer networking and lead cards share the mobile number (consent-gated for peers) as `tel:`/`sms:` links and a
   vCard `TEL` line, where they used to share an e-mail address.
 - Throttling and the outbox worker are in-process, which matches the one-API-process deployment; a multi-process

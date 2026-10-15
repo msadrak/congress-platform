@@ -21,6 +21,9 @@ from app.security import create_access_token, create_signup_token, decode_access
 from app.sms import SmsProvider, sms_provider
 from app.sms.otp import OtpPurpose, consume_challenge, issue_challenge
 from app.sms.phone import IranMobile, ascii_digits
+from app.platform_config import platform_config
+from app.sms.gateway import NOT_CONFIGURED
+from app.sms.templates import platform_body, render
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 _bearer = HTTPBearer(auto_error=False)
@@ -163,6 +166,7 @@ async def request_otp(
 ) -> OtpRequestOut:
     """Send a one-time code by SMS. The answer never reveals whether the number has an account."""
     settings = request.app.state.settings
+    rules = platform_config(request).sign_in
     throttle = limiter(request)
     cooldown, per_mobile, per_ip = (
         f"otp:cooldown:{body.purpose}:{body.mobile}",
@@ -170,23 +174,27 @@ async def request_otp(
         f"otp:send-ip:{client_ip(request)}",
     )
     throttle.check(
-        (cooldown, Budget(1, settings.otp_resend_cooldown_seconds)),
-        (per_mobile, Budget(settings.otp_sends_per_mobile_per_hour, LONGEST_WINDOW_SECONDS)),
-        (per_ip, Budget(settings.otp_sends_per_ip_per_hour, LONGEST_WINDOW_SECONDS)),
+        (cooldown, Budget(1, rules.otp_resend_cooldown_seconds)),
+        (per_mobile, Budget(rules.otp_sends_per_mobile_per_hour, LONGEST_WINDOW_SECONDS)),
+        (per_ip, Budget(rules.otp_sends_per_ip_per_hour, LONGEST_WINDOW_SECONDS)),
         detail="Too many codes requested. Wait before asking for another one.",
     )
     throttle.hit(cooldown, per_mobile, per_ip)
 
     if await _should_send(session, body.mobile, body.purpose):
-        code = await issue_challenge(session, settings, body.mobile, body.purpose)
-        template_id = settings.smsir_otp_template_id or 0
-        result = await provider.send_template(body.mobile, template_id, {"CODE": code})
+        code = await issue_challenge(
+            session, settings, body.mobile, body.purpose, length=rules.otp_length, ttl_seconds=rules.otp_ttl_seconds
+        )
+        text = render(
+            await platform_body(session, "otp"),
+            {"code": code, "minutes": str(max(1, rules.otp_ttl_seconds // 60))},
+        )
+        result = await provider.send_text(body.mobile, text, kind="otp", code=code)
         session.add(
             SmsMessage(
                 kind="otp",
                 mobile=body.mobile,
-                template_id=template_id,
-                params=None,
+                body=None,  # never kept: it contains the code
                 status="sent" if result.ok else "unknown" if result.unknown else "failed",
                 provider_message_id=result.message_id,
                 attempts=1,
@@ -197,14 +205,17 @@ async def request_otp(
         if not result.ok and not result.unknown:
             # Nothing reached the phone: let the person retry without waiting out the resend cooldown.
             throttle.succeed(cooldown)
-            raise HTTPException(
-                status.HTTP_503_SERVICE_UNAVAILABLE, "The SMS could not be sent. Try again in a moment."
+            detail = (
+                "SMS delivery is not configured yet. Please try again later."
+                if result.error == NOT_CONFIGURED
+                else "The SMS could not be sent. Try again in a moment."
             )
+            raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail)
     return OtpRequestOut(
         mobile=body.mobile,
-        code_length=settings.otp_length,
-        expires_in=settings.otp_ttl_seconds,
-        resend_after=settings.otp_resend_cooldown_seconds,
+        code_length=rules.otp_length,
+        expires_in=rules.otp_ttl_seconds,
+        resend_after=rules.otp_resend_cooldown_seconds,
     )
 
 

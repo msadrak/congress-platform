@@ -102,7 +102,7 @@ def log(msg: str) -> None:
 def sms_code(api: Api, mobile: str) -> str:
     """The newest sign-in code the development (console) SMS provider recorded for this number."""
     sent = api.call("GET", "/api/platform/sms-outbox", admin=True, params={"mobile": mobile}).json()
-    codes = [m["params"]["CODE"] for m in sent if "CODE" in m["params"]]
+    codes = [m["code"] for m in sent if m["code"]]
     if not codes:
         raise SeedError(f"No sign-in code was recorded for {mobile}; is the API running with CONGRESS_SMS_PROVIDER=console?")
     return str(codes[0])

@@ -13,6 +13,7 @@ from sqlalchemy.exc import IntegrityError
 from app.main import create_app
 from app.models import SmsMessage
 from app.sms.outbox import MAX_ATTEMPTS, deliver_due
+from app.sms.gateway import SmsGateway
 from app.sms.provider import RecordingProvider, SmsResult
 from tests.conftest import _truncate_all, make_test_settings
 from tests.helpers import bearer, provision_organizer, sign_in
@@ -47,9 +48,8 @@ async def confirmations(app: FastAPI) -> list[SmsMessage]:
 
 
 def recorder(app: FastAPI) -> RecordingProvider:
-    provider = app.state.sms
-    assert isinstance(provider, RecordingProvider)
-    return provider
+    gateway: SmsGateway = app.state.sms
+    return gateway.recorder
 
 
 async def test_reservation_queues_a_confirmation_with_the_pass_link(app: FastAPI, client: AsyncClient) -> None:
@@ -57,17 +57,18 @@ async def test_reservation_queues_a_confirmation_with_the_pass_link(app: FastAPI
 
     (queued,) = await confirmations(app)
     assert queued.status == "pending" and str(queued.ticket_id) == ticket_id
-    assert queued.params == {
-        "NAME": "Dr. Neda Karimi",
-        "EVENT": EVENT["name"],
-        "LINK": f"http://test/c/{EVENT['slug']}/my-ticket",
-    }
-    assert recorder(app).sent_to(MOBILE)[-1].params.keys() == {"CODE"}  # only the sign-in code so far
+    assert queued.body == (
+        f"Dr. Neda Karimi عزیز، ثبت‌نام شما در «{EVENT['name']}» تأیید شد.\n"
+        f"کارت ورود: http://test/c/{EVENT['slug']}/my-ticket"
+    )
+    assert queued.event_id is not None
+    assert recorder(app).sent_to(MOBILE)[-1].kind == "otp"  # only the sign-in code so far
 
     assert await deliver_due(app.state.sessionmaker, app.state.sms) == 1
     (sent,) = await confirmations(app)
     assert (sent.status, sent.attempts) == ("sent", 1) and sent.sent_at is not None
-    assert recorder(app).sent_to(MOBILE)[-1].params["LINK"].endswith("/my-ticket")
+    delivered = recorder(app).sent_to(MOBILE)[-1]
+    assert (delivered.kind, delivered.text, delivered.code) == ("ticket_confirmation", queued.body, None)
     assert await deliver_due(app.state.sessionmaker, app.state.sms) == 0
 
 
@@ -76,7 +77,7 @@ async def test_a_ticket_is_confirmed_at_most_once(app: FastAPI, client: AsyncCli
     (queued,) = await confirmations(app)
     async with app.state.sessionmaker() as session:
         session.add(
-            SmsMessage(kind="ticket_confirmation", mobile=MOBILE, template_id=0, ticket_id=queued.ticket_id, status="pending")
+            SmsMessage(kind="ticket_confirmation", mobile=MOBILE, body="x", ticket_id=queued.ticket_id, status="pending")
         )
         with pytest.raises(IntegrityError):
             await session.commit()
@@ -126,7 +127,7 @@ async def test_walk_ins_are_confirmed_only_when_they_give_a_number(app: FastAPI,
 
     (queued,) = await confirmations(app)
     assert queued.mobile == "09351234567"
-    assert queued.params is not None and queued.params["NAME"] == "Has Number"
+    assert queued.body is not None and queued.body.startswith("Has Number عزیز")
 
     # The walk-in can now sign in with that number and finds the pass.
     _, token = await sign_in(client, "09351234567")
@@ -134,11 +135,12 @@ async def test_walk_ins_are_confirmed_only_when_they_give_a_number(app: FastAPI,
     assert [p["attendee_name"] for p in passes.json()] == ["Has Number"]
 
 
-async def test_long_names_are_shortened_for_the_template(app: FastAPI, client: AsyncClient) -> None:
+async def test_long_names_are_shortened_in_the_message(app: FastAPI, client: AsyncClient) -> None:
     await reserve(client, name="Professor " + "Very Long Family Name " * 5)
     (queued,) = await confirmations(app)
-    assert queued.params is not None
-    assert len(queued.params["NAME"]) == 50 and queued.params["NAME"].endswith("…")
+    assert queued.body is not None
+    name = queued.body.split(" عزیز")[0]
+    assert len(name) == 60 and name.endswith("…")
 
 
 async def test_the_background_task_delivers_without_being_asked(media_root: Path) -> None:

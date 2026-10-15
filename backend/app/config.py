@@ -58,9 +58,8 @@ class Settings(BaseSettings):
     # SMS (sign-in codes and ticket confirmations). Defaults to smsir in staging/production, console elsewhere.
     sms_provider: SmsProviderName = "console"
     smsir_api_key: str = ""
-    # sms.ir "verify" templates, approved in the panel: OTP with #CODE#, ticket with #NAME# #EVENT# #LINK#.
-    smsir_otp_template_id: int | None = Field(default=None, gt=0)
-    smsir_ticket_template_id: int | None = Field(default=None, gt=0)
+    # The sms.ir service line (خط خدماتی) messages are sent from. The wording is the app's own templates.
+    smsir_line_number: int | None = Field(default=None, gt=0)
     smsir_timeout_seconds: float = Field(default=10.0, gt=0, le=60)
     otp_length: int = Field(default=6, ge=4, le=8)
     otp_ttl_seconds: int = Field(default=120, ge=60, le=600)
@@ -100,9 +99,9 @@ class Settings(BaseSettings):
             data["media_root"] = DEV_MEDIA_ROOT
         return data
 
-    @field_validator("smsir_otp_template_id", "smsir_ticket_template_id", mode="before")
+    @field_validator("smsir_line_number", mode="before")
     @classmethod
-    def _blank_template_is_unset(cls, v: Any) -> Any:
+    def _blank_line_is_unset(cls, v: Any) -> Any:
         # Compose passes an unset optional variable as an empty string.
         return None if isinstance(v, str) and not v.strip() else v
 
@@ -148,22 +147,10 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _sms_configuration(self) -> "Settings":
-        if self.sms_provider == "smsir":
-            key = self.smsir_api_key.strip()
-            if not key or _is_placeholder(key):
-                raise ValueError(
-                    "CONGRESS_SMSIR_API_KEY must be the API key from the sms.ir panel when CONGRESS_SMS_PROVIDER=smsir."
-                )
-            missing = [
-                f"CONGRESS_{name.upper()}"
-                for name in ("smsir_otp_template_id", "smsir_ticket_template_id")
-                if getattr(self, name) is None
-            ]
-            if missing:
-                raise ValueError(
-                    f"{', '.join(missing)} must be the ids of approved sms.ir verify templates when "
-                    "CONGRESS_SMS_PROVIDER=smsir."
-                )
+        # The sms.ir key and line may also be set later in the platform console; a key given here must be real.
+        key = self.smsir_api_key.strip()
+        if key and _is_placeholder(key):
+            raise ValueError("CONGRESS_SMSIR_API_KEY must be the API key from the sms.ir panel, not a placeholder.")
         if self.environment == "production":
             if self.sms_provider != "smsir":
                 raise ValueError(

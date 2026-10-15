@@ -19,6 +19,8 @@
  *   node scripts/staging/stack.mjs organizer list | create <name> | rotate <id> | revoke <id>
  *                                                     platform administration from inside the API container
  *   node scripts/staging/stack.mjs sms-code <mobile>  newest SMS sign-in code (CONGRESS_SMS_PROVIDER=console only)
+ *   node scripts/staging/stack.mjs sms-template list | set <otp|ticket_confirmation> (<text> | --file <path>) | reset <kind>
+ *                                                     platform-wide SMS wording (organizers override the confirmation per event)
  *
  * Nothing here deletes the staging volumes. The only `down -v` is on the disposable
  * `congress-restore-*` project that restore-verify itself creates.
@@ -365,11 +367,39 @@ try:
     sent = json.load(urllib.request.urlopen(req, timeout=10))
 except urllib.error.HTTPError as e:
     print(e.code, "(is CONGRESS_SMS_PROVIDER=console?)", file=sys.stderr); sys.exit(1)
-codes = [m["params"]["CODE"] for m in sent if "CODE" in m["params"]]
+codes = [m["code"] for m in sent if m["code"]]
 if not codes:
     print("no code recorded for this number", file=sys.stderr); sys.exit(1)
 print(codes[0])`;
   return compose(PROJECT, ['exec', '-T', 'api', 'python', '-c', script, mobile]).stdout.trim();
+}
+
+/** Platform-wide SMS wording (sign-in code, default ticket confirmation), from inside the API container. */
+function smsTemplateAdmin(args) {
+  requireEnv();
+  const [action, kind, ...rest] = args;
+  const usage = 'usage: sms-template list | set <otp|ticket_confirmation> (<text> | --file <path>) | reset <otp|ticket_confirmation>';
+  if (!['list', 'set', 'reset'].includes(action) || (action !== 'list' && !['otp', 'ticket_confirmation'].includes(kind))) throw new Error(usage);
+  let body = null;
+  if (action === 'set') {
+    body = rest[0] === '--file' ? readFileSync(rest[1], 'utf8') : rest.join(' ');
+    if (!body.trim()) throw new Error(usage);
+  }
+  const [method, path] = { list: ['GET', ''], set: ['PUT', `/${kind}`], reset: ['DELETE', `/${kind}`] }[action];
+  const script = `
+import json, os, sys, urllib.request, urllib.error
+data = sys.stdin.buffer.read()
+req = urllib.request.Request("http://127.0.0.1:8000/api/platform/sms-templates" + sys.argv[1], method=sys.argv[2],
+    data=data or None, headers={"X-Admin-Token": os.environ["CONGRESS_PLATFORM_ADMIN_TOKEN"], "Content-Type": "application/json"})
+try:
+    out = json.load(urllib.request.urlopen(req, timeout=10))
+except urllib.error.HTTPError as e:
+    print(e.code, e.read().decode(), file=sys.stderr); sys.exit(1)
+for t in (out if isinstance(out, list) else [out]):
+    print(f"--- {t['kind']} ({'custom' if t['is_custom'] else 'built-in default'}); placeholders: " + ", ".join("{" + p + "}" for p in t["placeholders"]))
+    print(t["body"])`;
+  const input = body === null ? '' : JSON.stringify({ body });
+  return compose(PROJECT, ['exec', '-T', 'api', 'python', '-c', script, path, method], { input }).stdout;
 }
 
 function listBackups() {
@@ -463,6 +493,7 @@ async function main() {
     case 'check': process.exitCode = await healthCheck(); return;
     case 'organizer': return organizerAdmin(rest);
     case 'sms-code': return say(smsCode(rest[0]));
+    case 'sms-template': return say(smsTemplateAdmin(rest));
     default: throw new Error(`Unknown command ${cmd}`);
   }
 }

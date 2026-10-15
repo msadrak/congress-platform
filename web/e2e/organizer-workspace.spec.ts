@@ -32,6 +32,9 @@ async function fixture(page: Page, options: Options = {}) {
   };
   const points = [{ id: 'point-a1', event_id: 'event-a', name: 'Main Gate', location: 'North entrance', policy_type: 'MULTI_ENTRY', allowed_tier_ids: [], max_capacity: null, created_at: '2099-01-01T00:00:00Z' }];
   const devices = [{ id: 'device-old', checkin_point_id: 'point-a1', event_id: 'event-a', device_name: 'Old tablet', is_revoked: false, revoked_at: null, created_at: '2099-01-01T00:00:00Z', last_seen_at: null }];
+  const SMS_DEFAULT = '{name} عزیز، ثبت‌نام شما در «{event}» تأیید شد.\nکارت ورود: {link}';
+  let smsTemplate = { kind: 'ticket_confirmation', body: SMS_DEFAULT, is_custom: false, default_body: SMS_DEFAULT, placeholders: ['name', 'event', 'tier', 'location', 'link'], required: [] };
+  const smsLog: Record<string, unknown>[] = [{ id: 'm-0', kind: 'ticket_confirmation', mobile: '0912***2233', body: 'Sara عزیز…', status: 'pending', attempts: 0, last_error: null, created_at: '2099-01-01T00:00:00Z', sent_at: null }];
   const operators = [{ id: 'op-1', event_id: 'event-a', user_id: 'u1', operator_name: 'Operator One', mobile: '09121110001', is_revoked: false, created_at: '2099-01-01T00:00:00Z' }];
   await page.route(/^https?:\/\/[^/]+\/api\//, async route => {
     const request = route.request();
@@ -81,6 +84,19 @@ async function fixture(page: Page, options: Options = {}) {
       return json(200, tiers[id][index]);
     }
     if (rest === '/checkin-points') return json(200, id === 'event-a' ? points : []);
+    if (rest === '/sms') return json(200, { delivery: 'console', templates: [smsTemplate], sample: { name: 'نام شرکت‌کننده', event: events[id].name, tier: 'Alpha Delegate', location: events[id].location, link: `http://test/c/${id}/my-ticket` } });
+    if (rest === '/sms/templates/ticket_confirmation') {
+      if (method === 'PUT') smsTemplate = { ...smsTemplate, body: JSON.parse(raw ?? '{}').body.trim(), is_custom: true };
+      else smsTemplate = { ...smsTemplate, body: SMS_DEFAULT, is_custom: false };
+      return json(200, smsTemplate);
+    }
+    if (rest === '/sms/test') {
+      const body = JSON.parse(raw ?? '{}');
+      const text = String(body.body).replace('{name}', 'نام شرکت‌کننده').replace('{event}', events[id].name).replace('{link}', `http://test/c/${id}/my-ticket`);
+      smsLog.unshift({ id: `m-${smsLog.length}`, kind: 'test', mobile: '0935***4567', body: text, status: 'sent', attempts: 1, last_error: null, created_at: '2099-01-02T00:00:00Z', sent_at: '2099-01-02T00:00:00Z' });
+      return json(200, { status: 'sent', text, error: null });
+    }
+    if (rest.startsWith('/sms/messages')) return json(200, smsLog);
     if (rest === '/desk/operators') return json(200, id === 'event-a' ? operators : []);
     if (rest === '/desk/operators/op-1/revoke') {
       if (options.revokeStatus) return json(options.revokeStatus, { detail: 'Server error' });
@@ -125,7 +141,7 @@ test('one workspace navigation addresses every section of the selected event by 
   await seed(page);
   await page.goto('/organizer/events/event-a');
   await expect(page.getByTestId('active-event')).toHaveText('Alpha Congress');
-  await expect(workspaceNav(page).getByRole('link')).toHaveText([/Overview/, /Ticket Tiers/, /Check-In Gates/, /Exhibition Booths/, /Desk Staff/, /Public page/, /Analytics/, /Front Desk/]);
+  await expect(workspaceNav(page).getByRole('link')).toHaveText([/Overview/, /Ticket Tiers/, /Check-In Gates/, /Exhibition Booths/, /Desk Staff/, /Public page/, /SMS/, /Analytics/, /Front Desk/]);
   await expect(workspaceNav(page).getByRole('link', { name: /Overview/ })).toHaveAttribute('aria-current', 'page');
 
   const eventReads = () => requests.filter(r => r.method === 'GET' && r.path === '/api/events/event-a').length;
@@ -282,6 +298,51 @@ test('pairing a scanner device issues a point token, shows its pairing link once
   await expect(dialog.getByTestId('pairing-link')).toHaveCount(0);
   const revoke = requests.find(r => r.path === '/api/checkin-points/point-a1/devices/device-new/revoke');
   expect(revoke?.auth).toBe(bearer);
+});
+
+test('SMS: the organizer edits the confirmation with placeholders, sees the preview and SMS count, saves, tests and resets', async ({ page }) => {
+  const requests = await fixture(page);
+  await seed(page);
+  await page.goto('/organizer/events/event-a/sms');
+  await expect(page.getByRole('heading', { name: 'SMS', level: 1 })).toBeVisible();
+  await expect(page.getByTestId('sms-delivery')).toContainText('Test mode');
+  await expect(page.getByText('Default text')).toBeVisible();
+  await expect(page.getByTestId('sms-preview')).toContainText('نام شرکت‌کننده عزیز، ثبت‌نام شما در «Alpha Congress» تأیید شد.');
+  await expect(page.getByTestId('sms-size')).toContainText('2 SMS (Persian/Unicode, 67 per SMS)');
+  await expect(page.getByRole('button', { name: 'Save text' })).toBeDisabled();
+  await expect(page.getByText('Queued')).toBeVisible();
+
+  const editor = page.getByLabel('Message text');
+  await editor.fill('Hello {nmae}');
+  await expect(page.getByRole('alert')).toContainText('Unknown placeholder: {nmae}');
+  await expect(page.getByRole('button', { name: 'Save text' })).toBeDisabled();
+  await editor.fill('Hello ');
+  await page.getByRole('button', { name: /Attendee name/ }).click();
+  await editor.press('End');
+  await editor.pressSequentially(' — ');
+  await page.getByRole('button', { name: /Pass link/ }).click();
+  await expect(editor).toHaveValue('Hello {name} — {link}');
+  await expect(page.getByTestId('sms-preview')).toHaveText('Hello نام شرکت‌کننده — http://test/c/event-a/my-ticket');
+
+  await page.getByLabel('Send a test to').fill('۰۹۳۵ ۱۲۳ ۴۵۶۷');
+  await page.getByRole('button', { name: 'Send test SMS' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Test message sent.' })).toBeVisible();
+  const test = requests.find(r => r.path === '/api/events/event-a/sms/test');
+  expect(test?.body).toEqual({ mobile: '09351234567', kind: 'ticket_confirmation', body: 'Hello {name} — {link}' });
+  expect(test?.auth).toBe(bearer);
+  await expect(page.getByText('0935***4567')).toBeVisible();
+
+  await page.getByRole('button', { name: 'Save text' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Saved.' })).toBeVisible();
+  await expect(page.getByText('Custom for this congress')).toBeVisible();
+  expect(requests.find(r => r.method === 'PUT' && r.path.endsWith('/sms/templates/ticket_confirmation'))?.body).toEqual({ body: 'Hello {name} — {link}' });
+
+  await page.getByRole('button', { name: 'Use the default text' }).click();
+  await page.getByRole('dialog', { name: 'Use the default text?' }).getByRole('button', { name: 'Use default' }).click();
+  await expect(page.getByText('Default text')).toBeVisible();
+  await expect(editor).toHaveValue(/عزیز/);
+  expect(requests.some(r => r.method === 'DELETE' && r.path.endsWith('/sms/templates/ticket_confirmation'))).toBe(true);
+  expect(requests.every(r => r.auth === bearer)).toBe(true);
 });
 
 test('analytics keeps its export and says the CSV is not filtered', async ({ page }) => {

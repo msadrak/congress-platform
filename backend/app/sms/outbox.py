@@ -17,47 +17,55 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.config import Settings
-from app.models import Event, SmsMessage, Ticket, User
+from app.models import Event, SmsMessage, Ticket, TicketTier, User
 from app.sms.phone import mask_mobile
 from app.sms.provider import SmsProvider
+from app.sms.templates import effective_body, render
 
 logger = logging.getLogger("congress.sms")
 
 MAX_ATTEMPTS = 6
 BATCH_SIZE = 20
-# sms.ir limits template parameter values; long event names are shortened rather than rejected.
-MAX_PARAM_LENGTH = 50
 
 
 def backoff(attempts: int) -> timedelta:
     return timedelta(seconds=min(60 * 2 ** (attempts - 1), 3600))
 
 
-def _short(value: str) -> str:
-    value = " ".join(value.split())
-    return value if len(value) <= MAX_PARAM_LENGTH else value[: MAX_PARAM_LENGTH - 1] + "…"
-
-
 def pass_link(origin: str, event: Event) -> str:
     return f"{origin.rstrip('/')}/c/{event.slug}/my-ticket"
 
 
-def queue_ticket_confirmation(
+def confirmation_values(origin: str, *, name: str, event: Event, tier_name: str) -> dict[str, str]:
+    """The placeholder values of a ticket confirmation (also used for previews and test sends)."""
+    return {
+        "name": name,
+        "event": event.name,
+        "tier": tier_name,
+        "location": event.location,
+        "link": pass_link(origin, event),
+    }
+
+
+async def queue_ticket_confirmation(
     session: AsyncSession, settings: Settings, origin: str, *, user: User, event: Event, ticket: Ticket
 ) -> None:
-    """Queue "your ticket is confirmed" with the pass link; a no-op for an attendee without a mobile."""
+    """Queue "your ticket is confirmed" in the event's wording; a no-op for an attendee without a mobile.
+
+    The text is rendered now, so it says what the template said when the ticket was issued.
+    """
     if not user.mobile:
         return
+    tier = await session.get(TicketTier, ticket.ticket_tier_id)
+    values = confirmation_values(
+        settings.public_origin or origin, name=user.full_name, event=event, tier_name=tier.name if tier else ""
+    )
     session.add(
         SmsMessage(
             kind="ticket_confirmation",
             mobile=user.mobile,
-            template_id=settings.smsir_ticket_template_id or 0,
-            params={
-                "NAME": _short(user.full_name),
-                "EVENT": _short(event.name),
-                "LINK": pass_link(settings.public_origin or origin, event),
-            },
+            body=render(await effective_body(session, "ticket_confirmation", event.id), values),
+            event_id=event.id,
             ticket_id=ticket.id,
             status="pending",
             send_after=datetime.now(timezone.utc),
@@ -81,7 +89,7 @@ async def deliver_due(
             )
         )
         for message in messages:
-            result = await provider.send_template(message.mobile, message.template_id, message.params or {})
+            result = await provider.send_text(message.mobile, message.body or "", kind=message.kind)
             message.attempts += 1
             if result.ok:
                 message.status = "sent"

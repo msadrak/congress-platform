@@ -30,7 +30,9 @@ def hash_code(secret: str, mobile: str, purpose: str, code: str) -> str:
     return hmac.new(secret.encode(), message, hashlib.sha256).hexdigest()
 
 
-async def issue_challenge(session: AsyncSession, settings: Settings, mobile: str, purpose: OtpPurpose) -> str:
+async def issue_challenge(
+    session: AsyncSession, settings: Settings, mobile: str, purpose: OtpPurpose, *, length: int, ttl_seconds: int
+) -> str:
     """Store a new challenge (committed) and return its plain code for sending."""
     now = datetime.now(timezone.utc)
     # Only the newest code works: a resend makes the previous SMS useless.
@@ -43,13 +45,13 @@ async def issue_challenge(session: AsyncSession, settings: Settings, mobile: str
         )
         .values(consumed_at=now)
     )
-    code = generate_code(settings.otp_length)
+    code = generate_code(length)
     session.add(
         OtpChallenge(
             mobile=mobile,
             purpose=purpose,
             code_hash=hash_code(settings.jwt_secret, mobile, purpose, code),
-            expires_at=now + timedelta(seconds=settings.otp_ttl_seconds),
+            expires_at=now + timedelta(seconds=ttl_seconds),
         )
     )
     await session.commit()

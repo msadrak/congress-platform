@@ -47,7 +47,7 @@ async function smsCode(mobile, purpose) {
   await post('/api/auth/otp/request', { mobile, purpose });
   const r = await fetch(`${BASE}/api/platform/sms-outbox?mobile=${mobile}`, { headers: { 'X-Admin-Token': ADMIN_TOKEN } });
   if (!r.ok) throw new Error(`sms outbox -> ${r.status} (is the demo API running with CONGRESS_SMS_PROVIDER=console?)`);
-  const code = (await r.json()).map((m) => m.params.CODE).find(Boolean);
+  const code = (await r.json()).map((m) => m.code).find(Boolean);
   if (!code) throw new Error(`no SMS code recorded for ${mobile}`);
   return code;
 }

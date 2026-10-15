@@ -1,15 +1,14 @@
 """SMS delivery through sms.ir (https://api.sms.ir, REST v1), plus a recording provider for development.
 
-Only template ("verify") messages are sent: they go out on sms.ir's service line, are not blocked as
-advertising, and the panel approves the wording once. A provider call never raises; it returns an
-`SmsResult` the caller can act on. Logs carry the masked number and the outcome, never message parameters
-(an OTP code is a credential).
+Messages are plain text sent from the platform's sms.ir service line (`POST /v1/send/bulk` with one mobile);
+the wording comes from the app's own templates (app/sms/templates.py), not from sms.ir panel templates. A
+provider call never raises; it returns an `SmsResult` the caller can act on. Logs carry the masked number and
+the outcome, never the text (a sign-in code is a credential).
 """
 
 import logging
 import time
 from collections import deque
-from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
@@ -35,15 +34,25 @@ class SmsResult:
 
 
 class SmsProvider(Protocol):
-    async def send_template(self, mobile: str, template_id: int, params: Mapping[str, str]) -> SmsResult: ...
+    async def send_text(self, mobile: str, text: str, *, kind: str, code: str | None = None) -> SmsResult:
+        """`kind` labels the message in logs; `code` (sign-in codes only) is kept solely by the recording provider."""
+        ...
 
     async def aclose(self) -> None: ...
 
 
 class SmsIrProvider:
-    """sms.ir `POST /v1/send/verify`. Success needs HTTP 200 *and* an envelope `status` of 1."""
+    """sms.ir `POST /v1/send/bulk` from a service line. Success needs HTTP 200 *and* an envelope `status` of 1."""
 
-    def __init__(self, api_key: str, *, timeout: float = 10.0, transport: httpx.AsyncBaseTransport | None = None) -> None:
+    def __init__(
+        self,
+        api_key: str,
+        line_number: int,
+        *,
+        timeout: float = 10.0,
+        transport: httpx.AsyncBaseTransport | None = None,
+    ) -> None:
+        self._line_number = line_number
         self._client = httpx.AsyncClient(
             base_url=SMS_IR_ENDPOINT,
             headers={"x-api-key": api_key, "Accept": "application/json"},
@@ -54,18 +63,39 @@ class SmsIrProvider:
     async def aclose(self) -> None:
         await self._client.aclose()
 
-    async def send_template(self, mobile: str, template_id: int, params: Mapping[str, str]) -> SmsResult:
-        payload = {
-            "mobile": mobile,
-            "templateId": template_id,
-            "parameters": [{"name": name, "value": value} for name, value in params.items()],
-        }
-        result = await self._post("/v1/send/verify", payload)
-        logger.info(
-            "sms.ir verify to %s template %s: %s",
-            mask_mobile(mobile), template_id, "accepted" if result.ok else result.error,
-        )
+    async def send_text(self, mobile: str, text: str, *, kind: str, code: str | None = None) -> SmsResult:
+        payload = {"lineNumber": self._line_number, "messageText": text, "mobiles": [mobile]}
+        result = await self._post("/v1/send/bulk", payload)
+        logger.info("sms.ir %s to %s: %s", kind, mask_mobile(mobile), "accepted" if result.ok else result.error)
         return result
+
+    async def account(self) -> tuple[SmsResult, float | None, list[int]]:
+        """Credit and the account's line numbers (`GET /v1/credit`, `GET /v1/line`), for the console's check."""
+        credit_result, credit_body = await self._get("/v1/credit")
+        if not credit_result.ok:
+            return credit_result, None, []
+        credit = credit_body.get("data") if isinstance(credit_body, dict) else None
+        lines_result, lines_body = await self._get("/v1/line")
+        raw = lines_body.get("data") if lines_result.ok and isinstance(lines_body, dict) else None
+        lines = [int(n) for n in raw if str(n).isdigit()] if isinstance(raw, list) else []
+        return credit_result, float(credit) if isinstance(credit, (int, float)) else None, lines
+
+    async def _get(self, path: str) -> tuple[SmsResult, Any]:
+        try:
+            response = await self._client.get(path)
+        except httpx.TimeoutException:
+            return SmsResult(ok=False, error="TIMEOUT", unknown=True), None
+        except httpx.HTTPError:
+            return SmsResult(ok=False, error="NETWORK", retryable=True), None
+        if response.status_code != 200:
+            return SmsResult(ok=False, error=f"HTTP_{response.status_code}"), None
+        try:
+            body = response.json()
+        except ValueError:
+            return SmsResult(ok=False, error="PARSE"), None
+        if not isinstance(body, dict) or body.get("status") != 1:
+            return SmsResult(ok=False, error=f"REJECTED_{body.get('status') if isinstance(body, dict) else None}"), None
+        return SmsResult(ok=True), body
 
     async def _post(self, path: str, payload: dict[str, Any]) -> SmsResult:
         try:
@@ -90,15 +120,17 @@ class SmsIrProvider:
         if status != 1:
             return SmsResult(ok=False, error=f"REJECTED_{status}")
         data = body.get("data") if isinstance(body.get("data"), dict) else {}
-        message_id = data.get("messageId") if isinstance(data, dict) else None
-        return SmsResult(ok=True, message_id=message_id if isinstance(message_id, int) else None)
+        ids = data.get("messageIds") if isinstance(data, dict) else None
+        first = ids[0] if isinstance(ids, list) and ids else None
+        return SmsResult(ok=True, message_id=first if isinstance(first, int) else None)
 
 
 @dataclass(frozen=True)
 class RecordedSms:
     mobile: str
-    template_id: int
-    params: dict[str, str]
+    kind: str
+    text: str
+    code: str | None
     at: float
 
 
@@ -106,22 +138,22 @@ class RecordedSms:
 class RecordingProvider:
     """Sends nothing; keeps the last messages in memory (development, automated staging checks, tests).
 
-    `log_parameters` prints parameters (including OTP codes) to the log: development only, so a developer can
-    sign in without an sms.ir account. `queued_results` lets a test script provider failures in order.
+    `log_text` prints the text (including sign-in codes) to the log: development only, so a developer can sign
+    in without an sms.ir account. `queued_results` lets a test script provider failures in order.
     """
 
-    log_parameters: bool = False
+    log_text: bool = False
     messages: deque[RecordedSms] = field(default_factory=lambda: deque(maxlen=500))
     queued_results: deque[SmsResult] = field(default_factory=deque)
 
-    async def send_template(self, mobile: str, template_id: int, params: Mapping[str, str]) -> SmsResult:
+    async def send_text(self, mobile: str, text: str, *, kind: str, code: str | None = None) -> SmsResult:
         result = self.queued_results.popleft() if self.queued_results else SmsResult(ok=True)
         if result.ok:
-            self.messages.append(RecordedSms(mobile, template_id, dict(params), time.time()))
-        if self.log_parameters:
-            logger.warning("SMS (not sent, development) to %s template %s: %s", mobile, template_id, dict(params))
+            self.messages.append(RecordedSms(mobile, kind, text, code, time.time()))
+        if self.log_text:
+            logger.warning("SMS (not sent, development) %s to %s:\n%s", kind, mobile, text)
         else:
-            logger.info("SMS (not sent) to %s template %s", mask_mobile(mobile), template_id)
+            logger.info("SMS (not sent) %s to %s", kind, mask_mobile(mobile))
         return result
 
     def sent_to(self, mobile: str) -> list[RecordedSms]:

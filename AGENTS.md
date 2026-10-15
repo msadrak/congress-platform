@@ -6,7 +6,7 @@
   - Run dev server: `CONGRESS_ENVIRONMENT=development CONGRESS_PLATFORM_ADMIN_TOKEN=dev CONGRESS_JWT_SECRET=<32+ random chars> uv run uvicorn app.main:create_app_from_env --factory --port 8000` (an unset `CONGRESS_ENVIRONMENT` means `production`, which requires explicit `CONGRESS_DATABASE_URL`, `CONGRESS_MEDIA_ROOT` and a generated 32+ character admin token)
   - Run tests: `uv run pytest` (only ever targets a marked `*_test` database), or on disposable Docker infrastructure: `node scripts/integration/backend-tests.mjs`
   - Run typecheck: `uv run mypy`
-  - SMS (sign-in codes, ticket confirmations; ADR 0012): `development`/`test` use the `console` provider, so nothing is sent and codes are printed in the API log; staging/production default to `smsir` and need `CONGRESS_SMSIR_API_KEY` plus the two approved template ids
+  - SMS (sign-in codes, ticket confirmations; ADR 0012): `development`/`test` use the `console` provider, so nothing is sent and codes are printed in the API log; staging/production default to `smsir`; the sms.ir key and service line come from `CONGRESS_SMSIR_API_KEY`/`CONGRESS_SMSIR_LINE_NUMBER` or the platform console (`/platform`, ADR 0013), which overrides the environment at run time
 - **`web/`**: React 19 + TypeScript + Vite SPA & PWA frontend with Tailwind CSS.
   - Run dev server: `npm run dev`
   - Run unit tests: `npm test`
@@ -33,6 +33,8 @@
 | `/organizer/events/:id/page/preview` | Bare preview frame used inside Page Studio (organizer key from the tab session) |
 | `/organizer/events/:id/desk` | Front-desk station: rapid walk-in pass minting and live attendee search |
 | `/organizer/events/:id/analytics` | Real-time analytics: attendance KPIs, gate throughput bars, catering widget, CSV |
+| `/organizer/events/:id/sms` | Event SMS: ticket confirmation wording (placeholders, preview, SMS-part count), test send, delivery log |
+| `/platform` | Platform console (admin token): SMS gateway (sms.ir key, service line, live/test), platform SMS wording; `/platform/sign-in` sign-in code rules; `/platform/organizers` organizer accounts and keys |
 
 ## Verification guardrail
 
