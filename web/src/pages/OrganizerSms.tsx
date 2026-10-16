@@ -88,7 +88,7 @@ function OrganizerSmsContent() {
   const template = panel?.templates.find((t) => t.kind === "ticket_confirmation") ?? null;
 
   const kindLabel = (kind: string) =>
-    kind === "ticket_confirmation" ? (isRtl ? "تأیید ثبت‌نام" : "Ticket confirmation") : kind === "test" ? (isRtl ? "آزمایشی" : "Test") : kind;
+    kind === "ticket_confirmation" ? (isRtl ? "تأیید ثبت‌نام" : "Ticket confirmation") : kind === "ticket_resend" ? (isRtl ? "ارسال دوباره از پذیرش" : "Resent from reception") : kind === "test" ? (isRtl ? "آزمایشی" : "Test") : kind;
   const statusLabel = (status: string) =>
     ({
       sent: isRtl ? "ارسال شد" : "Sent",

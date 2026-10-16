@@ -40,6 +40,7 @@ export type DeskLoginResponse = components["schemas"]["DeskLoginResponse"];
 export type DeskMeOut = components["schemas"]["DeskMeOut"];
 export type AttendeeSearchItem = components["schemas"]["AttendeeSearchItem"];
 export type AttendeeDetailCard = components["schemas"]["AttendeeDetailCard"];
+export type PassSmsResendOut = components["schemas"]["PassSmsResendOut"];
 export type AttendanceAnalyticsResponse = components["schemas"]["AttendanceAnalyticsResponse"];
 export type GateMetric = components["schemas"]["GateMetric"];
 export type CateringMetric = components["schemas"]["CateringMetric"];

@@ -23,6 +23,7 @@ import { Dialog } from "../ui/Dialog";
 import { Icon } from "../ui/Icon";
 import { ModeSwitch, type DeskMode } from "./ModeSwitch";
 import { Kbd, ReceptionPass, TicketStatusChip } from "./ReceptionPass";
+import { ResendPassSms, type ResendOutcome } from "./ResendPassSms";
 import "../../styles/reception.css";
 
 type DeskAuthority = Extract<ApiAuthority, { kind: "desk" | "organizer" }>;
@@ -408,6 +409,28 @@ export function ReceptionStation({ eventId, organizer, locale, t, isRtl }: Recep
     reviewRequest.current++;
     setReview({ status: "idle" });
     searchInputRef.current?.focus();
+  };
+
+  // Each press is a real SMS from the service line; the API spaces presses out per attendee (429 + Retry-After).
+  const resendPassSms = async (ticketId: string): Promise<ResendOutcome> => {
+    if (!authority) return { kind: "unauthorized" };
+    const sent = authority;
+    const { data, error, response } = await createDeskApiClient(sent, eventId).POST("/api/events/{event_id}/attendees/{ticket_id}/resend-sms", {
+      params: { path: { event_id: eventId, ticket_id: ticketId } },
+    });
+    if (response.status === 401) {
+      rejectAuthority(sent);
+      return { kind: "unauthorized" };
+    }
+    if (data) return { kind: "result", data };
+    if (response.status === 429) {
+      const retryAfter = Number(response.headers.get("Retry-After"));
+      return { kind: "throttled", retryAfter: Number.isFinite(retryAfter) && retryAfter > 0 ? Math.ceil(retryAfter) : 60 };
+    }
+    if (response.status === 409) {
+      return { kind: "error", message: isRtl ? "این کارت فعال نیست یا شماره موبایلی برای آن ثبت نشده است." : "This pass is not active, or it has no mobile number." };
+    }
+    return { kind: "error", message: formatApiError(error) };
   };
 
   const handleNextAttendee = () => {
@@ -907,6 +930,15 @@ export function ReceptionStation({ eventId, organizer, locale, t, isRtl }: Recep
                         <Icon name="arrow-right" size={19} />
                       </Button>
                     </div>
+                    {review.card.attendee_mobile && review.card.status === "active" && (
+                      <ResendPassSms
+                        key={review.card.ticket_id}
+                        mobile={review.card.attendee_mobile}
+                        locale={locale}
+                        isRtl={isRtl}
+                        onResend={() => resendPassSms(review.card.ticket_id)}
+                      />
+                    )}
                     <p className="flex items-start gap-2 text-[11px] leading-relaxed text-text-muted">
                       <Icon name="info" size={14} className="mt-px" />
                       <span>{isRtl ? "چاپ از مرورگر انجام می‌شود و کارت جدیدی صادر نمی‌کند. ورود به همایش را همچنان اسکنر گیت ثبت می‌کند." : "Printing uses the browser and issues nothing new. Admission is still recorded by the gate scanner."}</span>
@@ -1014,11 +1046,29 @@ export function ReceptionStation({ eventId, organizer, locale, t, isRtl }: Recep
                 printable
               />
             </div>
+            {mintedPass.attendee_mobile && (
+              <p className="flex items-start gap-2 text-xs leading-relaxed text-text-secondary print:hidden">
+                <Icon name="mail" size={15} className="mt-px shrink-0" />
+                <span>
+                  {isRtl ? "لینک کارت به این شماره پیامک می‌شود: " : "The pass link is being sent by SMS to "}
+                  <bdi dir="ltr" className="font-mono">{formatMobile(mintedPass.attendee_mobile, locale)}</bdi>
+                </span>
+              </p>
+            )}
             <div className="grid gap-2.5 print:hidden">
               <Button type="button" variant="secondary" size="lg" isFullWidth onClick={() => window.print()}>
                 <Icon name="print" size={18} />
                 <span>{t.printPassAction}</span>
               </Button>
+              {mintedPass.attendee_mobile && (
+                <ResendPassSms
+                  key={mintedPass.ticket_id}
+                  mobile={mintedPass.attendee_mobile}
+                  locale={locale}
+                  isRtl={isRtl}
+                  onResend={() => resendPassSms(mintedPass.ticket_id)}
+                />
+              )}
               <Button type="button" variant="primary" size="lg" isFullWidth onClick={handleNextAttendee} className="whitespace-normal">
                 <span>{t.nextAttendeeAction}</span>
                 <Icon name="arrow-right" size={18} />

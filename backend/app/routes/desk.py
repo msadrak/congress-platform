@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, timezone
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -17,10 +17,12 @@ from app.models import (
     EntityQR,
     Event,
     Organizer,
+    SmsMessage,
     Ticket,
     TicketTier,
     User,
 )
+from app.rate_limit import LONGEST_WINDOW_SECONDS, Budget, limiter
 from app.routes.events import OwnedEventDep
 from app.routes.ticket_tiers import TicketTierOut
 from app.routes.auth import OtpCode, verify_code
@@ -29,11 +31,17 @@ from app.security import (
     decode_access_token,
     generate_entity_qr_secret,
 )
-from app.sms.outbox import queue_ticket_confirmation
+from app.sms import SmsGateway, sms_provider
+from app.sms.outbox import queue_ticket_confirmation, ticket_confirmation_text
 from app.sms.phone import IranMobile, OptionalIranMobile, ascii_digits, search_digits
 
 _bearer = HTTPBearer(auto_error=False)
 router = APIRouter(tags=["desk"])
+
+# Resending the pass link from the desk: a real SMS each time, so it is spaced out per attendee and capped per event.
+PASS_SMS_COOLDOWN = Budget(1, 60)
+PASS_SMS_PER_TICKET = Budget(5, LONGEST_WINDOW_SECONDS)
+PASS_SMS_PER_EVENT = Budget(300, LONGEST_WINDOW_SECONDS)
 
 
 class DeskOperatorCreate(BaseModel):
@@ -115,6 +123,14 @@ class AttendeeSearchItem(BaseModel):
     status: str
     checkin_count: int
     issued_by: str | None = None
+
+
+class PassSmsResendOut(BaseModel):
+    status: Literal["sent", "failed", "unknown"]
+    mobile: str
+    error: str | None = None
+    # The gateway is in test mode: the message was only recorded, nothing reached a phone.
+    test_mode: bool = False
 
 
 class ScanHistoryItem(BaseModel):
@@ -721,3 +737,61 @@ async def get_attendee_ticket_detail(
         issued_by=op_name,
         scan_history=scan_history,
     )
+
+
+@router.post("/api/events/{event_id}/attendees/{ticket_id}/resend-sms")
+async def resend_pass_sms(
+    desk_ctx: AuthorizedDeskDep,
+    ticket_id: uuid.UUID,
+    request: Request,
+    session: SessionDep,
+    provider: Annotated[SmsGateway, Depends(sms_provider)],
+) -> PassSmsResendOut:
+    """Send the ticket confirmation (with the pass link) again, now, for an attendee who did not get it."""
+    event = desk_ctx.event
+    row = (
+        await session.execute(
+            select(Ticket, User)
+            .join(User, Ticket.user_id == User.id)
+            .where(Ticket.id == ticket_id, Ticket.event_id == event.id)
+        )
+    ).one_or_none()
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Attendee ticket not found")
+    ticket, user = row[0], row[1]
+    if not user.mobile:
+        raise HTTPException(status.HTTP_409_CONFLICT, "This attendee has no mobile number")
+    if ticket.status != "active":
+        raise HTTPException(status.HTTP_409_CONFLICT, "This pass is not active")
+
+    throttle = limiter(request)
+    cooldown, per_ticket, per_event = (
+        f"sms:pass:cooldown:{ticket.id}",
+        f"sms:pass:{ticket.id}",
+        f"sms:pass:event:{event.id}",
+    )
+    throttle.check(
+        (cooldown, PASS_SMS_COOLDOWN),
+        (per_ticket, PASS_SMS_PER_TICKET),
+        (per_event, PASS_SMS_PER_EVENT),
+        detail="The pass link was sent recently. Try again later.",
+    )
+    throttle.hit(cooldown, per_ticket, per_event)
+
+    text = await ticket_confirmation_text(
+        session, request.app.state.settings, str(request.base_url), user=user, event=event, ticket=ticket
+    )
+    result = await provider.send_text(user.mobile, text, kind="ticket_resend")
+    outcome: Literal["sent", "failed", "unknown"] = "sent" if result.ok else "unknown" if result.unknown else "failed"
+    # Sent inline so the desk sees the outcome; logged without ticket_id, which is unique per kind (one
+    # automatic confirmation per ticket) while a ticket may be resent several times.
+    session.add(
+        SmsMessage(
+            kind="ticket_resend", mobile=user.mobile, body=text, event_id=event.id, status=outcome,
+            provider_message_id=result.message_id, attempts=1, last_error=result.error,
+            sent_at=datetime.now(timezone.utc) if result.ok else None,
+        )
+    )
+    await session.commit()
+    test_mode = provider.config is not None and provider.config.effective == "console"
+    return PassSmsResendOut(status=outcome, mobile=user.mobile, error=result.error, test_mode=test_mode)

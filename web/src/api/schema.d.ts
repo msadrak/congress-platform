@@ -597,6 +597,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/events/{event_id}/attendees/{ticket_id}/resend-sms": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Resend Pass Sms
+         * @description Send the ticket confirmation (with the pass link) again, now, for an attendee who did not get it.
+         */
+        post: operations["resend_pass_sms_api_events__event_id__attendees__ticket_id__resend_sms_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/events/{event_id}/analytics/attendance": {
         parameters: {
             query?: never;
@@ -2675,6 +2695,23 @@ export interface components {
             /** Has Unpublished Changes */
             has_unpublished_changes: boolean;
         };
+        /** PassSmsResendOut */
+        PassSmsResendOut: {
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "sent" | "failed" | "unknown";
+            /** Mobile */
+            mobile: string;
+            /** Error */
+            error?: string | null;
+            /**
+             * Test Mode
+             * @default false
+             */
+            test_mode: boolean;
+        };
         /** PassesSection */
         PassesSection: {
             /** Id */
@@ -4554,6 +4591,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AttendeeDetailCard"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    resend_pass_sms_api_events__event_id__attendees__ticket_id__resend_sms_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ticket_id: string;
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PassSmsResendOut"];
                 };
             };
             /** @description Validation Error */

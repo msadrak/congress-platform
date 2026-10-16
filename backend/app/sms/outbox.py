@@ -47,6 +47,17 @@ def confirmation_values(origin: str, *, name: str, event: Event, tier_name: str)
     }
 
 
+async def ticket_confirmation_text(
+    session: AsyncSession, settings: Settings, origin: str, *, user: User, event: Event, ticket: Ticket
+) -> str:
+    """The ticket confirmation for this attendee, in the event's current wording."""
+    tier = await session.get(TicketTier, ticket.ticket_tier_id)
+    values = confirmation_values(
+        settings.public_origin or origin, name=user.full_name, event=event, tier_name=tier.name if tier else ""
+    )
+    return render(await effective_body(session, "ticket_confirmation", event.id), values)
+
+
 async def queue_ticket_confirmation(
     session: AsyncSession, settings: Settings, origin: str, *, user: User, event: Event, ticket: Ticket
 ) -> None:
@@ -56,15 +67,11 @@ async def queue_ticket_confirmation(
     """
     if not user.mobile:
         return
-    tier = await session.get(TicketTier, ticket.ticket_tier_id)
-    values = confirmation_values(
-        settings.public_origin or origin, name=user.full_name, event=event, tier_name=tier.name if tier else ""
-    )
     session.add(
         SmsMessage(
             kind="ticket_confirmation",
             mobile=user.mobile,
-            body=render(await effective_body(session, "ticket_confirmation", event.id), values),
+            body=await ticket_confirmation_text(session, settings, origin, user=user, event=event, ticket=ticket),
             event_id=event.id,
             ticket_id=ticket.id,
             status="pending",
