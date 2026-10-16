@@ -185,7 +185,7 @@ async def test_a_test_send_uses_sample_values_is_logged_and_rate_limited(app: Fa
         headers=bearer(organizer),
     )
     assert draft.status_code == 200, draft.text
-    assert draft.json() == {"status": "sent", "text": "Draft for نام شرکت‌کننده: VIP Pass", "error": None}
+    assert draft.json() == {"status": "sent", "text": "Draft for نام شرکت‌کننده: VIP Pass", "error": None, "test_mode": True}
     assert recorder(app).sent_to("09351234567")[-1].kind == "test"
     # The draft was only tried, not saved.
     panel = (await client.get(f"/api/events/{event_id}/sms", headers=bearer(organizer))).json()

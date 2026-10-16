@@ -21,6 +21,16 @@ const PLACEHOLDER_LABELS: Record<string, { fa: string; en: string }> = {
 
 type Outcome<T> = { data?: T; error?: string };
 
+/** What a failed send means for the person running the platform, from the gateway's error code. */
+function sendFailure(error: string, isRtl: boolean): string {
+  if (error === "NETWORK") return isRtl ? "سرور به sms.ir دسترسی ندارد (شبکه یا فایروال سرور را بررسی کنید)." : "The server cannot reach sms.ir (check the server's network or firewall).";
+  if (error === "TIMEOUT") return isRtl ? "sms.ir پاسخ نداد؛ شاید پیامک ارسال شده باشد." : "sms.ir did not answer in time; the message may or may not have been sent.";
+  if (error === "NOT_CONFIGURED") return isRtl ? "درگاه پیامک تنظیم نشده است (کلید API یا شماره خط)." : "The SMS gateway is not configured (API key or line number).";
+  if (error === "HTTP_401" || error === "HTTP_403") return isRtl ? "sms.ir کلید API را نپذیرفت." : "sms.ir did not accept the API key.";
+  if (error.startsWith("REJECTED")) return isRtl ? `sms.ir پیامک را رد کرد (${error}) — شماره خط، اعتبار یا محتوای پیامک را بررسی کنید.` : `sms.ir refused the message (${error}): check the line number, credit or wording.`;
+  return isRtl ? `ارسال انجام نشد (${error}).` : `Not sent (${error}).`;
+}
+
 export interface SmsTemplateEditorProps {
   template: SmsTemplateOut;
   sample: Record<string, string>;
@@ -266,8 +276,10 @@ export function SmsTemplateEditor(props: SmsTemplateEditorProps) {
             <Icon name={testResult.status === "sent" ? "check-circle" : "alert"} size={18} className="mt-0.5 shrink-0" />
             <span>
               {testResult.status === "sent"
-                ? isRtl ? "پیامک آزمایشی ارسال شد." : "Test message sent."
-                : isRtl ? `ارسال انجام نشد (${testResult.error ?? testResult.status}).` : `Not sent (${testResult.error ?? testResult.status}).`}
+                ? testResult.test_mode
+                  ? isRtl ? "حالت آزمایشی: پیامک فقط ثبت شد و به گوشی ارسال نشد." : "Test mode: the message was only recorded; nothing was sent to the phone."
+                  : isRtl ? "پیامک آزمایشی از طریق sms.ir ارسال شد." : "Test message sent through sms.ir."
+                : sendFailure(testResult.error ?? testResult.status, isRtl)}
             </span>
           </p>
         )}

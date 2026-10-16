@@ -89,6 +89,8 @@ class PlatformSmsTestOut(BaseModel):
     status: Literal["sent", "failed", "unknown"]
     text: str
     error: str | None = None
+    # The gateway is in test mode: the message was only recorded, nothing reached a phone.
+    test_mode: bool = False
 
 
 class SignInOut(BaseModel):
@@ -229,7 +231,8 @@ async def send_platform_test_sms(
     session.add(SmsMessage(kind="test", mobile=body.mobile, body=text, status=outcome,
                            provider_message_id=result.message_id, attempts=1, last_error=result.error))
     await session.commit()
-    return PlatformSmsTestOut(status=outcome, text=text, error=result.error)
+    test_mode = gateway.config is not None and gateway.config.effective == "console"
+    return PlatformSmsTestOut(status=outcome, text=text, error=result.error, test_mode=test_mode)
 
 
 @router.get("/sign-in")

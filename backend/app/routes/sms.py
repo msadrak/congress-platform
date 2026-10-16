@@ -18,7 +18,7 @@ from app.db import SessionDep
 from app.models import SmsMessage, TicketTier
 from app.rate_limit import LONGEST_WINDOW_SECONDS, Budget, limiter
 from app.routes.events import OwnedEventDep
-from app.sms import SmsProvider, sms_provider
+from app.sms import SmsGateway, sms_provider
 from app.sms.outbox import confirmation_values
 from app.sms.phone import IranMobile, mask_mobile
 from app.sms.templates import (
@@ -77,6 +77,8 @@ class SmsTestOut(BaseModel):
     status: Literal["sent", "failed", "unknown"]
     text: str
     error: str | None = None
+    # The gateway is in test mode: the message was only recorded, nothing reached a phone.
+    test_mode: bool = False
 
 
 class SmsMessageOut(BaseModel):
@@ -158,7 +160,7 @@ async def send_test_sms(
     body: SmsTestRequest,
     request: Request,
     session: SessionDep,
-    provider: Annotated[SmsProvider, Depends(sms_provider)],
+    provider: Annotated[SmsGateway, Depends(sms_provider)],
 ) -> SmsTestOut:
     """Send the message, filled with sample values, to one number (a real SMS from the service line)."""
     throttle = limiter(request)
@@ -183,7 +185,8 @@ async def send_test_sms(
         )
     )
     await session.commit()
-    return SmsTestOut(status=outcome, text=text, error=result.error)
+    test_mode = provider.config is not None and provider.config.effective == "console"
+    return SmsTestOut(status=outcome, text=text, error=result.error, test_mode=test_mode)
 
 
 @router.get("/api/events/{event_id}/sms/messages")

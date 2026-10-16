@@ -2704,6 +2704,11 @@ export interface components {
             text: string;
             /** Error */
             error?: string | null;
+            /**
+             * Test Mode
+             * @default false
+             */
+            test_mode: boolean;
         };
         /** PlatformSmsTestRequest */
         PlatformSmsTestRequest: {
@@ -3166,6 +3171,11 @@ export interface components {
             text: string;
             /** Error */
             error?: string | null;
+            /**
+             * Test Mode
+             * @default false
+             */
+            test_mode: boolean;
         };
         /** SmsTestRequest */
         SmsTestRequest: {

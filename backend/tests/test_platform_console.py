@@ -146,7 +146,7 @@ async def test_connection_check_reports_credit_and_whether_the_line_belongs_to_t
 
 async def test_platform_test_send_uses_sample_values(app: FastAPI, client: AsyncClient) -> None:
     sent = await client.post("/api/platform/sms/test", json={"mobile": MOBILE, "body": "Code {code} for {minutes} min"}, headers=ADMIN)
-    assert sent.json() == {"status": "sent", "text": "Code 111111 for 2 min", "error": None}
+    assert sent.json() == {"status": "sent", "text": "Code 111111 for 2 min", "error": None, "test_mode": True}
     assert gateway(app).recorder.sent_to(MOBILE)[-1].kind == "test"
     confirmation = await client.post("/api/platform/sms/test", json={"mobile": MOBILE, "kind": "ticket_confirmation"}, headers=ADMIN)
     assert "همایش نمونه" in confirmation.json()["text"]
@@ -186,3 +186,19 @@ async def test_production_refuses_test_mode_and_fast_resends(media_root: Path) -
         assert (await client.put("/api/platform/sms", json={"mode": "console"}, headers=ADMIN)).status_code == 422
         assert (await client.put("/api/platform/sign-in", json={"otp_resend_cooldown_seconds": 5}, headers=ADMIN)).status_code == 422
         assert (await client.get("/api/platform/sms-outbox", params={"mobile": MOBILE}, headers=ADMIN)).status_code == 404
+
+
+async def test_a_live_test_send_is_reported_as_real_and_a_network_failure_is_named(app: FastAPI, client: AsyncClient) -> None:
+    seen: list[httpx.Request] = []
+    gateway(app).transport = smsir_mock(seen)
+    await client.put("/api/platform/sms", json={"mode": "smsir", "api_key": KEY, "line_number": 30001234}, headers=ADMIN)
+    live = await client.post("/api/platform/sms/test", json={"mobile": MOBILE, "body": "Code {code}"}, headers=ADMIN)
+    assert live.json() == {"status": "sent", "text": "Code 111111", "error": None, "test_mode": False}
+
+    def unreachable(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("no route to api.sms.ir", request=request)
+
+    gateway(app).transport = httpx.MockTransport(unreachable)
+    await client.put("/api/platform/sms", json={"api_key": KEY + "x"}, headers=ADMIN)  # new key: new client
+    failed = await client.post("/api/platform/sms/test", json={"mobile": MOBILE, "body": "Code {code}"}, headers=ADMIN)
+    assert (failed.json()["status"], failed.json()["error"], failed.json()["test_mode"]) == ("failed", "NETWORK", False)

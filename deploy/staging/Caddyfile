@@ -32,9 +32,12 @@
 		output stdout
 		format filter {
 			wrap json
-			# Scanner pairing links carry a token in the query string.
+			# Scanner pairing links carry a token in the query string; searches and the SMS outbox carry names and
+			# mobile numbers. None of them belong in access logs.
 			request>uri query {
 				delete token
+				delete q
+				delete mobile
 			}
 			request>headers>Authorization delete
 			request>headers>X-Admin-Token delete

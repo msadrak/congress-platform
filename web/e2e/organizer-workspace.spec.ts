@@ -94,7 +94,7 @@ async function fixture(page: Page, options: Options = {}) {
       const body = JSON.parse(raw ?? '{}');
       const text = String(body.body).replace('{name}', 'نام شرکت‌کننده').replace('{event}', events[id].name).replace('{link}', `http://test/c/${id}/my-ticket`);
       smsLog.unshift({ id: `m-${smsLog.length}`, kind: 'test', mobile: '0935***4567', body: text, status: 'sent', attempts: 1, last_error: null, created_at: '2099-01-02T00:00:00Z', sent_at: '2099-01-02T00:00:00Z' });
-      return json(200, { status: 'sent', text, error: null });
+      return json(200, { status: 'sent', text, error: null, test_mode: true });
     }
     if (rest.startsWith('/sms/messages')) return json(200, smsLog);
     if (rest === '/desk/operators') return json(200, id === 'event-a' ? operators : []);
@@ -326,7 +326,7 @@ test('SMS: the organizer edits the confirmation with placeholders, sees the prev
 
   await page.getByLabel('Send a test to').fill('۰۹۳۵ ۱۲۳ ۴۵۶۷');
   await page.getByRole('button', { name: 'Send test SMS' }).click();
-  await expect(page.getByRole('status').filter({ hasText: 'Test message sent.' })).toBeVisible();
+  await expect(page.getByRole('status').filter({ hasText: 'Test mode: the message was only recorded' })).toBeVisible();
   const test = requests.find(r => r.path === '/api/events/event-a/sms/test');
   expect(test?.body).toEqual({ mobile: '09351234567', kind: 'ticket_confirmation', body: 'Hello {name} — {link}' });
   expect(test?.auth).toBe(bearer);

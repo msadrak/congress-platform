@@ -72,7 +72,8 @@ services:
       migrate:
         condition: service_completed_successfully
     stop_grace_period: 30s
-    # No ports: Caddy is the only entry point.
+    # No ports: Caddy is the only entry point. `egress` is outbound only (sms.ir); the database stays internal.
+    networks: [backend, egress]
 
   web:
     image: congress-platform/web:${CONGRESS_IMAGE_TAG:-staging}
@@ -109,6 +110,8 @@ networks:
   backend:
     internal: true
   edge: {}
+  # Outbound internet for the API alone (SMS delivery through api.sms.ir); nothing is published on it.
+  egress: {}
 
 volumes:
   pgdata:

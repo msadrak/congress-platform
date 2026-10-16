@@ -39,7 +39,7 @@ async function fixture(page: Page, options: { statusCode?: number } = {}) {
       return json(200, sms);
     }
     if (path === '/api/platform/sms/check') return json(200, { ok: true, credit: 125000, lines: [30001234, 50002222], line_ok: body.line_number === 30001234, error: null });
-    if (path === '/api/platform/sms/test') return json(200, { status: 'sent', text: String(body.body).replace('{code}', '111111'), error: null });
+    if (path === '/api/platform/sms/test') return json(200, { status: 'sent', text: String(body.body).replace('{code}', '111111'), error: null, test_mode: false });
     if (path === '/api/platform/sms-templates') return json(200, Object.values(templates));
     const kind = path.match(/^\/api\/platform\/sms-templates\/([a-z_]+)$/)?.[1];
     if (kind) {
@@ -140,7 +140,7 @@ test('the sign-in text must keep {code}; it is saved and tested from the console
   await expect(editor).toHaveValue('AITeb code {code}');
   await otp.getByLabel('Send a test to').fill('09121112233');
   await otp.getByRole('button', { name: 'Send test SMS' }).click();
-  await expect(otp.getByRole('status').filter({ hasText: 'Test message sent.' })).toBeVisible();
+  await expect(otp.getByRole('status').filter({ hasText: 'Test message sent through sms.ir.' })).toBeVisible();
   expect(requests.find(r => r.path === '/api/platform/sms/test')?.body).toEqual({ mobile: '09121112233', kind: 'otp', body: 'AITeb code {code}' });
   await otp.getByRole('button', { name: 'Save text' }).click();
   await expect(otp.getByText('Custom text')).toBeVisible();
