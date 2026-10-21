@@ -165,6 +165,18 @@ export function buildProxyArgs(env = process.env) {
   return pairs.flatMap(([k, v]) => ['--build-arg', `${k}=${v}`, '--build-arg', `${k.toLowerCase()}=${v}`]);
 }
 
+/** Slow SSH tunnels need longer daemon RPC timeouts and one image at a time. */
+export function buildComposeEnv(env = process.env) {
+  const out = {
+    DOCKER_BUILDKIT: env.DOCKER_BUILDKIT || '1',
+    DOCKER_CLIENT_TIMEOUT: env.DOCKER_CLIENT_TIMEOUT || '600',
+    COMPOSE_HTTP_TIMEOUT: env.COMPOSE_HTTP_TIMEOUT || '600',
+    COMPOSE_PARALLEL_LIMIT: env.CONGRESS_BUILD_PARALLEL_LIMIT || '1',
+  };
+  if (env.CONGRESS_BUILD_PROXY?.trim()) return out;
+  return { DOCKER_BUILDKIT: out.DOCKER_BUILDKIT };
+}
+
 function ensurePersistentHostDirs() {
   const fix = join(root, 'scripts/staging/fix-persistent-permissions.sh');
   if (!existsSync(fix)) return;
@@ -178,7 +190,7 @@ async function up() {
   requireEnv();
   cdnPreflight();
   ensurePersistentHostDirs();
-  compose(PROJECT, ['build', ...buildProxyArgs()], { quiet: false });
+  compose(PROJECT, ['build', ...buildProxyArgs()], { quiet: false, env: buildComposeEnv() });
   // `up --wait` returns once every service is healthy (migrate must have exited 0 for api to start).
   const r = compose(PROJECT, ['up', '-d', '--wait', '--wait-timeout', '300'], { allowFail: true });
   if (r.status !== 0) {

@@ -8,7 +8,7 @@ visitor --HTTPS (ParsPack certificate)--> ParsPack CDN --HTTPS or HTTP--> Caddy 
 
 Good to know:
 
-- **No certificate problems at the origin.** No ACME, no outbound proxy for Caddy, and Let's Encrypt never has to reach this server from abroad. The SSH proxy is still needed for Docker, npm and PyPI at **build** time (`docs/deployment/PROXY.md`).
+- **No certificate problems at the origin.** No ACME, no outbound proxy for Caddy, and Let's Encrypt never has to reach this server from abroad. The SSH proxy is still needed for Docker, npm and PyPI at **build** time (`docs/deployment/PROXY-QUICK-START.md`).
 - **The CDN's IP is not the visitor's IP.** The API throttles per visitor address (100 logins / 15 min, 10 admin-token tries, 50 organizer-key tries). Without the steps below every visitor looks like one of ParsPack's few servers, and a busy venue locks itself out. `stack.mjs cdn parspack` fixes this: only connections from ParsPack's published ranges may state the visitor's address, and it is read from the right of the header, so a value a visitor types in is ignored.
 - **API answers are never cached** by the CDN (`Cache-Control: no-store`, unless the API sets its own header, as it does for public images and page heads).
 

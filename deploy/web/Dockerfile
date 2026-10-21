@@ -5,7 +5,13 @@
 FROM node:24-bookworm-slim AS build
 WORKDIR /web
 COPY web/package.json web/package-lock.json ./
-RUN --mount=type=cache,target=/root/.npm npm ci --no-audit --no-fund
+ARG HTTP_PROXY
+ARG HTTPS_PROXY
+ARG NO_PROXY
+RUN --mount=type=cache,target=/root/.npm \
+    HTTP_PROXY=${HTTP_PROXY} HTTPS_PROXY=${HTTPS_PROXY} NO_PROXY=${NO_PROXY} \
+    http_proxy=${HTTP_PROXY} https_proxy=${HTTPS_PROXY} no_proxy=${NO_PROXY} \
+    npm ci --no-audit --no-fund
 COPY web/ ./
 COPY deploy/web/make-seo-shell.mjs /tools/make-seo-shell.mjs
 RUN npm run build && node /tools/make-seo-shell.mjs dist

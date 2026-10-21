@@ -119,7 +119,7 @@ The template is `deploy/hosted/.env.hosted.example`. On the server it becomes `.
 
 ## 6. Safe deployment procedure
 
-> Server without direct internet (SSH proxy for Docker, apt, npm, PyPI): follow `docs/deployment/PROXY.md`; it replaces steps 1 and 3 with `deploy/proxy/congress-proxy.sh`.
+> Server without direct internet: follow `docs/deployment/PROXY-QUICK-START.md` (`setup` → `verify` → `deploy`, same as DrGibi).
 >
 > CDN (ParsPack) in front, so the CDN issues the visitors' certificate and Caddy does not need Let's Encrypt: follow `docs/deployment/CDN.md`.
 

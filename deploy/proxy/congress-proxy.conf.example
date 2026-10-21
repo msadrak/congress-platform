@@ -1,6 +1,6 @@
-# Congress Platform: SSH proxy settings for a server without direct internet.
-# Copy to congress-proxy.conf (next to congress-proxy.sh; git-ignored) and edit.
-# The values are the same ones DrGibi uses in drgibi-proxy.conf (PROXY_SERVER, PROXY_SSH_PORT, PROXY_PORT).
+# Congress Platform: SSH proxy settings (same bastion as drgibi-proxy.conf).
+# Copy to congress-proxy.conf and run: ./congress-proxy.sh setup && ./congress-proxy.sh verify
+# Guide: docs/deployment/PROXY-QUICK-START.md
 
 # SSH server outside the restricted network. The tunnel is `ssh -D`, so a key login is best.
 PROXY_SERVER=root@YOUR_BASTION_IP_OR_DNS

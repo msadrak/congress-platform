@@ -1,13 +1,17 @@
 #!/usr/bin/env bash
 #
-# Congress Platform: deploy from a server that has no direct internet, through an SSH tunnel.
+# Congress Platform — unified proxy helper (same role as DrGibi drgibi-proxy.sh).
 #
-#   ssh -D (SOCKS, 127.0.0.1)  ->  dockerd image pulls (systemd proxy)
-#                              ->  gost HTTP bridge  ->  apt, curl, npm, uv, docker build RUN steps
+# Quick start:
+#   cp congress-proxy.conf.example congress-proxy.conf   # bastion = same as drgibi-proxy.conf
+#   chmod +x congress-proxy.sh
+#   ./congress-proxy.sh setup
+#   ./congress-proxy.sh verify
+#   ./congress-proxy.sh install-service    # tunnel always on (builds/pulls)
+#   ./congress-proxy.sh deploy             # from repo: deploy/proxy/congress-proxy.sh deploy
 #
-# It needs only bash and ssh to start, so it can be copied to a bare server (scp) before anything else is
-# installed. Settings live in congress-proxy.conf next to this file (see congress-proxy.conf.example).
-# Run it as root on the server; `./congress-proxy.sh help` lists the commands.
+# Two pipes to the internet: SOCKS :1080 (Docker pulls) and HTTP :8118 (docker build npm/uv).
+# See docs/deployment/PROXY-QUICK-START.md
 #
 # Run-time containers use it too, when asked: `containers` points Caddy (certificate requests, renewals, OCSP)
 # at the bridge through host.docker.internal, and `install-service` keeps the tunnel and the bridge running
@@ -445,14 +449,33 @@ bootstrap() {
 	as_root apt-get update || warn "apt-get update reported problems"
 	proxychains_setup || return 1
 	echo
-	ok "Done. Next: install Docker and Node (docs/deployment/PROXY.md), then: $0 docker-setup"
+	ok "Bootstrap done (tunnel, gost, apt, proxychains)."
+}
+
+# DrGibi-style one-shot: bootstrap + Docker daemon SOCKS + firewall (if Docker is installed).
+setup_all() {
+	bootstrap || return 1
+	if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+		docker_setup || return 1
+		firewall_allow_docker
+	else
+		warn "Docker is not running yet — after you install it, run: $0 enable"
+	fi
+	echo
+	ok "One-time proxy setup finished."
+	echo "Next:"
+	echo "  1. Install Docker + Node if needed (docs/deployment/PROXY-QUICK-START.md)"
+	echo "  2. $0 verify"
+	echo "  3. $0 install-service   # optional but recommended"
+	echo "  4. cd ${CONGRESS_ROOT} && $0 deploy"
 }
 
 # ─────────────────────────── checks ───────────────────────────
 
 test_all() {
 	local failed=0
-	if tcp_open 127.0.0.1 "$PROXY_PORT"; then ok "SOCKS port ${PROXY_PORT} is open"; else err "SOCKS port ${PROXY_PORT} is closed (run: $0 start)"; return 1; fi
+	info "Verify (same idea as ./drgibi-proxy.sh verify) — tunnel, bridge, Docker build path"
+	if tcp_open 127.0.0.1 "$PROXY_PORT"; then ok "SOCKS port ${PROXY_PORT} is open"; else err "SOCKS port ${PROXY_PORT} is closed (run: $0 start or install-service)"; return 1; fi
 	if curl -fsS -o /dev/null --max-time 20 --socks5-hostname "127.0.0.1:${PROXY_PORT}" https://registry.npmjs.org/; then ok "npm registry reachable through SOCKS"; else err "npm registry NOT reachable through SOCKS"; failed=1; fi
 	if tcp_open 127.0.0.1 "$CONGRESS_HTTP_BRIDGE_PORT"; then
 		curl -fsS -o /dev/null --max-time 20 -x "$(host_http_proxy)" https://pypi.org/simple/ && ok "PyPI reachable through the HTTP bridge" || { err "PyPI NOT reachable through the HTTP bridge"; failed=1; }
@@ -492,14 +515,76 @@ test_all() {
 	return "$failed"
 }
 
+# Base images for deploy/staging/compose.yaml (pulled through the Docker daemon SOCKS proxy).
+pull_base_images() {
+	ensure_up || return 1
+	if [[ ! -f "$DOCKER_PROXY_CONF" ]]; then
+		warn "Docker daemon proxy is OFF — image pulls may time out. Run: $0 docker-setup"
+	fi
+	local -a images=(
+		ghcr.io/astral-sh/uv:python3.11-bookworm-slim
+		python:3.11-slim-bookworm
+		node:24-bookworm-slim
+		caddy:2-alpine
+	)
+	local img
+	for img in "${images[@]}"; do
+		info "Pulling ${img}..."
+		if ! docker pull "$img"; then
+			err "Could not pull ${img}. Is the tunnel up? Run: $0 docker-setup && $0 start && $0 pull-bases"
+			return 1
+		fi
+	done
+	ok "Base images are on this server"
+}
+
+build_preflight() {
+	ensure_up || return 1
+	firewall_allow_docker
+	local gw bp
+	gw="$(docker_gateway)"
+	bp="$(build_http_proxy)"
+	if ! curl -fsS -o /dev/null --max-time 25 -x "$bp" https://pypi.org/simple/; then
+		err "Build containers cannot use the HTTP bridge at ${bp} (PyPI check failed). Run: $0 firewall && $0 test"
+		return 1
+	fi
+	if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+		if ! docker run --rm --network bridge alpine:3.20 nc -z -w 5 "$gw" "$CONGRESS_HTTP_BRIDGE_PORT" >/dev/null 2>&1; then
+			err "Build containers cannot reach the bridge at ${gw}:${CONGRESS_HTTP_BRIDGE_PORT}. Run as root: $0 firewall"
+			return 1
+		fi
+		if ! docker run --rm --network bridge \
+			-e "HTTP_PROXY=${bp}" -e "HTTPS_PROXY=${bp}" \
+			-e "http_proxy=${bp}" -e "https_proxy=${bp}" \
+			alpine:3.20 wget -q -O /dev/null --timeout=20 https://pypi.org/simple/; then
+			err "Build containers cannot download through ${bp}. Check gost (${GOST_LOG}) and the SOCKS tunnel."
+			return 1
+		fi
+	fi
+	if [[ ! -f "$DOCKER_PROXY_CONF" ]]; then
+		warn "Docker daemon proxy is OFF — run: $0 docker-setup (then restart deploy)"
+	fi
+	return 0
+}
+
 # ─────────────────────────── running things ───────────────────────────
 
 # Exports for the current shell: eval "$(./congress-proxy.sh env)"
 print_env() {
-	local p np
-	p="$(host_http_proxy)"; np="$(no_proxy_list)"
-	for k in HTTP_PROXY HTTPS_PROXY ALL_PROXY http_proxy https_proxy all_proxy; do echo "export ${k}=${p}"; done
+	local socks hp np gw
+	socks="socks5://127.0.0.1:${PROXY_PORT}"
+	hp="$(host_http_proxy)"
+	np="$(no_proxy_list)"
+	gw="$(docker_gateway)"
+	echo "# Shell on this server — apt/curl/git (HTTP bridge)"
+	for k in HTTP_PROXY HTTPS_PROXY ALL_PROXY http_proxy https_proxy all_proxy; do echo "export ${k}=${hp}"; done
 	echo "export NO_PROXY=\"${np}\""; echo "export no_proxy=\"${np}\""
+	echo ""
+	echo "# Docker daemon pulls use SOCKS (after: $0 enable)"
+	echo "# export HTTP_PROXY=${socks}  … set in systemd, not usually in your shell"
+	echo ""
+	echo "# docker build RUN steps use (automatic when you run: $0 deploy)"
+	echo "#   http://${gw}:${CONGRESS_HTTP_BRIDGE_PORT}"
 }
 
 # Any command through the SOCKS tunnel (works for git over ssh, scp, ...).
@@ -516,10 +601,17 @@ run_stack() {
 	local was_up=0
 	tcp_open 127.0.0.1 "$PROXY_PORT" && was_up=1
 	ensure_up || return 1
+	build_preflight || return 1
 	export CONGRESS_BUILD_PROXY="$(build_http_proxy)"
 	export CONGRESS_BUILD_NO_PROXY="$(no_proxy_list)"
+	export DOCKER_BUILDKIT="${DOCKER_BUILDKIT:-1}"
 	info "Build proxy for this run: ${CONGRESS_BUILD_PROXY}"
 	local status=0
+	case "${1:-}" in
+	up | build | start)
+		pull_base_images || return 1
+		;;
+	esac
 	(cd "$CONGRESS_ROOT" && node scripts/staging/stack.mjs "$@") || status=$?
 	# A tunnel opened just for this command is closed again; the permanent services are never stopped here.
 	if [[ "$was_up" -eq 0 ]] && ! services_installed; then tunnel_stop; fi
@@ -528,30 +620,33 @@ run_stack() {
 
 print_help() {
 	cat <<EOF
-Congress Platform proxy helper (config: ${CONF})
+Congress proxy CLI (like drgibi-proxy.sh) — config: ${CONF}
+Docs: docs/deployment/PROXY-QUICK-START.md
 
-First time on a bare server:
-  start            open the SSH tunnel and the HTTP bridge
-  bootstrap        start + apt proxy + proxychains (then install Docker and Node)
-  docker-setup     make Docker pull images through the tunnel (restarts Docker once)
-  test             check the tunnel, the bridge and the build containers
+Configure once (edit congress-proxy.conf — same bastion as DrGibi)
+  config               Show PROXY_SERVER, ports, build URL
 
-Containers at run time (certificates, renewals):
-  install-service  tunnel + bridge as systemd services: always on, restart on failure, start at boot
-  containers       Caddy (web) uses the proxy: writes .staging/staging.env; then run: stack start
-  containers --api also the API (normally not: sms.ir should be reached directly)
-  containers off   containers go direct again
+  setup                One-time: bootstrap + Docker SOCKS + firewall (if Docker installed)
+  enable               Docker pulls through SOCKS (restarts Docker once)
+  disable              Turn Docker SOCKS off
+  install-service      Tunnel + bridge always on (systemd)
+  firewall             Allow Docker networks to reach the HTTP bridge
 
-Every deploy:
-  stack <args>     node scripts/staging/stack.mjs <args> with the build proxy (e.g. stack up)
-  deploy           stack up, then stack check
+  verify               Check tunnel, bridge, npm/PyPI, build containers (alias: doctor, check)
+  status               What is on or off
 
-Other:
-  stop             close the tunnel and the bridge
-  status           what is on or off
-  env              print export lines for this shell:  eval "\$($0 env)"
-  run <command>    run any command through the tunnel (git clone over ssh, scp, ...)
-  apt-setup | apt-off | docker-off | firewall | install-gost | config
+  deploy               Build + start app (stack up + check)
+  stack <args>         stack.mjs with build proxy (e.g. stack start)
+  pull-bases           Pre-pull base images (slow tunnel)
+
+  containers           Caddy uses proxy for Let's Encrypt (skip if CDN — use containers off)
+  containers off       Caddy direct (ParsPack / CDN)
+
+  start | stop         Tunnel + bridge (manual; use install-service for production)
+  run <cmd...>         Any command via proxychains (e.g. git pull)
+  print-env | env      eval "\$($0 print-env)" for apt/curl in this shell
+
+Legacy names still work: bootstrap, docker-setup, test, apt-setup, docker-off, …
 EOF
 }
 
@@ -570,21 +665,24 @@ main() {
 	start | start-tunnel) ensure_up ;;
 	stop | stop-tunnel) tunnel_stop ;;
 	status) docker_status ;;
-	bootstrap | setup) bootstrap ;;
+	setup | init) setup_all ;;
+	bootstrap) bootstrap ;;
 	apt-setup) apt_setup ;;
 	apt-off) apt_off ;;
-	docker-setup | setup-docker) docker_setup ;;
-	docker-off) docker_off ;;
+	enable | docker-setup | setup-docker) docker_setup ;;
+	disable | docker-off) docker_off ;;
 	firewall) firewall_allow_docker ;;
 	install-service) service_install ;;
 	uninstall-service) service_uninstall ;;
 	bridge-foreground) bridge_foreground ;;
 	containers) containers_configure "$@" ;;
 	install-gost) gost_install ;;
-	test | verify) test_all ;;
-	env) print_env ;;
+	test | verify | doctor | check) test_all ;;
+	print-env | env) print_env ;;
 	run) run_proxied "$@" ;;
 	stack) run_stack "$@" ;;
+	pull-bases) pull_base_images ;;
+	build-preflight) build_preflight ;;
 	deploy)
 		run_stack up || return 1
 		(cd "$CONGRESS_ROOT" && node scripts/staging/stack.mjs check)
