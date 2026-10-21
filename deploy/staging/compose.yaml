@@ -17,8 +17,6 @@ x-logging: &logging
 
 x-backend: &backend
   image: congress-platform/api:${CONGRESS_IMAGE_TAG:-staging}
-  build:
-    context: ../../backend
   logging: *logging
   networks: [backend]
   environment:
@@ -55,6 +53,8 @@ services:
 
   migrate:
     <<: *backend
+    # The api image, built once by the api service: Compose with Bake (buildx) refuses to build one image twice.
+    pull_policy: never
     command: ["alembic", "upgrade", "head"]
     restart: "no"
     healthcheck:
@@ -65,6 +65,8 @@ services:
 
   api:
     <<: *backend
+    build:
+      context: ../../backend
     restart: unless-stopped
     volumes:
       - ${CONGRESS_PERSISTENT_DATA_ROOT:?set CONGRESS_PERSISTENT_DATA_ROOT}/data/media:/data/media

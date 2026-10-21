@@ -16,6 +16,7 @@ It is the same design as DrGibi's `drgibi-proxy.sh`:
 - **The tunnel is open only while a command needs it.** `deploy`, `git`, `run` and `verify` open it and close it when they end. Nothing runs between deploys, and the running app never uses the proxy. If a tunnel already listens on the SOCKS port (after `start-tunnel`, or DrGibi's tunnel on the same server), it is used and left running.
 - **Docker pulls** go through the tunnel because of a systemd drop-in, `/etc/systemd/system/docker.service.d/congress-proxy.conf`, written by `setup` (or `enable`).
 - **`npm ci` and `uv sync` inside `docker build`** cannot use a SOCKS proxy, so `gost` (downloaded once, through the tunnel, to `~/.congress-proxy/`) turns HTTP proxy requests into SOCKS. Build containers reach it on the `docker0` address, `http://172.17.0.1:8118`. `deploy` sets `CONGRESS_BUILD_PROXY`, and `stack.mjs up` passes it to the build as `--build-arg HTTP_PROXY=…`; without it, builds go direct. gost listens on `127.0.0.1` and `docker0` only, never on the public address.
+- **The `docker compose` client** gets the bridge too (`HTTP_PROXY=http://127.0.0.1:8118`, only for the duration of `deploy`): BuildKit asks the client to fetch the registry token of every image a build uses (`FROM` images, `# syntax=docker/dockerfile:1`). Without it the build fails with `failed to fetch anonymous token … lookup auth.docker.io`. DrGibi exports the same variables.
 - **git, curl and apt** on the server run through `proxychains4` with a private configuration written from `congress-proxy.conf`; `/etc/proxychains4.conf` is not touched.
 - **Firewall:** UFW usually drops traffic from `docker0` to the host. Run as root, the script adds the same rule DrGibi adds: `iptables -I INPUT -i docker0 -p tcp --dport 8118 -j ACCEPT`.
 
@@ -78,6 +79,7 @@ The GitHub clone needs this server's deploy key on GitHub; the tunnel only carri
 | `verify`: *key login without a password failed* | Every command will ask for the bastion password. Add this server's key to the bastion: `ssh-copy-id -p PORT user@bastion` |
 | *Build containers cannot reach http://172.17.0.1:8118* | Run the command as root (it adds the `docker0` rule), or allow it in UFW: `ufw allow in on docker0 to any port 8118 proto tcp` |
 | `docker pull` hangs or the build stops with `DeadlineExceeded` | `status`: the Docker daemon proxy must be ON (else `enable`). Then `verify`, and run `deploy` again; layers already built are cached |
+| Build fails with `failed to fetch anonymous token` or `lookup auth.docker.io` | The build ran without the proxy: use `congress-proxy.sh deploy` (or `stack <args>`), not plain `stack.mjs up` |
 | `docker pull` returns `403 Forbidden` from Docker Hub | The pull went direct, not through the tunnel: `enable`, then check the *Docker pulls images through the tunnel* line of `verify` |
 | *Port 8118 is in use on 127.0.0.1 …* | Something else listens on 8118: set `CONGRESS_HTTP_BRIDGE_PORT` in `congress-proxy.conf` |
 | Pulls fail on a server that also runs DrGibi | DrGibi's drop-in (`http-proxy.conf`) overrides ours. Use DrGibi's `PROXY_PORT` in `congress-proxy.conf`; `verify` warns about this |

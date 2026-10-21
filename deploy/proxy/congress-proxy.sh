@@ -282,7 +282,8 @@ Environment="NO_PROXY=$(no_proxy_list)"
 EOF
 }
 
-docker_proxy_on() { [[ -f "$DOCKER_DROPIN" || -f "$DRGIBI_DROPIN" ]]; }
+# The proxy the running Docker daemon really uses (empty: none, or Docker is down). A drop-in counts only after a restart.
+docker_daemon_proxy() { docker info --format '{{.HTTPSProxy}}' 2>/dev/null; }
 
 docker_restart() {
 	as_root systemctl daemon-reload && as_root systemctl restart docker || return 1
@@ -297,7 +298,7 @@ docker_restart() {
 
 docker_enable() {
 	command -v docker >/dev/null 2>&1 || { log_err "Docker is not installed yet (docs/deployment/PROXY.md: bare server)"; return 1; }
-	if [[ -f "$DOCKER_DROPIN" && "$(cat "$DOCKER_DROPIN")" == "$(docker_dropin_content)" ]]; then
+	if [[ -f "$DOCKER_DROPIN" && "$(cat "$DOCKER_DROPIN")" == "$(docker_dropin_content)" && -n "$(docker_daemon_proxy)" ]]; then
 		log_ok "Docker proxy already enabled (${DOCKER_DROPIN})"
 		return 0
 	fi
@@ -380,7 +381,7 @@ need_repo() {
 # Open what docker build needs and export the build proxy that stack.mjs passes as --build-arg.
 build_env() {
 	docker_up || { log_err "Docker is not running (or this user may not use it)"; return 1; }
-	docker_proxy_on || log_warn "The Docker daemon proxy is off: image pulls go direct. Turn it on: $0 enable"
+	[[ -n "$(docker_daemon_proxy)" ]] || log_warn "The Docker daemon has no proxy: image pulls go direct. Turn it on: $0 enable"
 	proxy_up || return 1
 	docker image inspect "$PROBE_IMAGE" >/dev/null 2>&1 || docker pull -q "$PROBE_IMAGE" >/dev/null || {
 		log_err "docker pull ${PROBE_IMAGE} failed: Docker cannot pull through the tunnel. Run: $0 enable && $0 verify"
@@ -391,9 +392,17 @@ build_env() {
 		log_err "Run this command as root (it adds the docker0 firewall rule), or allow docker0 -> port ${CONGRESS_HTTP_BRIDGE_PORT}."
 		return 1
 	}
+	# Inside the build (npm ci, uv sync): the bridge on docker0, passed by stack.mjs as --build-arg.
 	export CONGRESS_BUILD_PROXY CONGRESS_BUILD_NO_PROXY
 	CONGRESS_BUILD_PROXY="$(build_proxy_url)"
 	CONGRESS_BUILD_NO_PROXY="$(no_proxy_list)"
+	# The compose/buildx client itself fetches the registry tokens of every image the build needs (BuildKit
+	# session auth: FROM images, `# syntax=docker/dockerfile:1`), so it needs the proxy too, as in DrGibi.
+	export HTTP_PROXY HTTPS_PROXY http_proxy https_proxy NO_PROXY no_proxy
+	HTTP_PROXY="$(bridge_url)"
+	HTTPS_PROXY="$HTTP_PROXY" http_proxy="$HTTP_PROXY" https_proxy="$HTTP_PROXY"
+	NO_PROXY="$(no_proxy_list)"
+	no_proxy="$NO_PROXY"
 	log_info "docker build uses ${CONGRESS_BUILD_PROXY}"
 }
 
@@ -406,7 +415,15 @@ deploy() {
 		log_err "Deploy failed (see above). Fix it and run deploy again; layers already built are cached."
 		return 1
 	fi
-	stack check
+	# stack.mjs check: 0 ok, 1 warnings (e.g. no scheduled backup yet), 2 critical.
+	local st=0
+	stack check || st=$?
+	if [[ "$st" -ge 2 ]]; then
+		log_err "Deployed, but the health check reports a critical problem (see above)"
+		return "$st"
+	fi
+	[[ "$st" -eq 1 ]] && log_warn "Deployed; the health check has warnings (see above)" || log_ok "Deployed"
+	return 0
 }
 
 run_stack() {
@@ -537,14 +554,14 @@ verify() {
 	fi
 
 	log_info "Docker daemon proxy..."
-	if [[ -f "$DRGIBI_DROPIN" ]]; then
-		if grep -q "127.0.0.1:${PROXY_PORT}" "$DRGIBI_DROPIN"; then
-			pass "DrGibi's ${DRGIBI_DROPIN} is in place (same SOCKS port)"
-		else
-			warn "DrGibi's ${DRGIBI_DROPIN} overrides ours with another SOCKS port: use DrGibi's PROXY_PORT in ${CONF}"
-		fi
-	elif [[ -f "$DOCKER_DROPIN" ]]; then
-		pass "enabled (${DOCKER_DROPIN})"
+	local running=""
+	docker_up && running="$(docker_daemon_proxy)"
+	if [[ -n "$running" ]]; then
+		pass "the running Docker daemon pulls through ${running}"
+		[[ "$running" == "$(socks_url)" ]] ||
+			warn "that is not this tunnel ($(socks_url)); DrGibi's ${DRGIBI_DROPIN} wins: use its PROXY_PORT in ${CONF}"
+	elif docker_up && [[ -f "$DOCKER_DROPIN" || -f "$DRGIBI_DROPIN" ]]; then
+		fail "a drop-in is in place but the running Docker daemon does not use it — run: $0 enable"
 	else
 		warn "off — image pulls go direct (turn on: $0 enable)"
 	fi
@@ -588,12 +605,16 @@ show_status() {
 	else
 		log_info "HTTP bridge: stopped"
 	fi
-	if [[ -f "$DOCKER_DROPIN" ]]; then
-		log_ok "Docker daemon proxy: ON (${DOCKER_DROPIN})"
-		sed 's/^/    /' "$DOCKER_DROPIN"
+	local running
+	running="$(docker_daemon_proxy)"
+	if [[ -n "$running" ]]; then
+		log_ok "Docker daemon proxy: ON — the running daemon pulls through ${running}"
+	elif [[ -f "$DOCKER_DROPIN" ]]; then
+		log_warn "Docker daemon proxy: written to ${DOCKER_DROPIN} but not active — run: $0 enable"
 	else
 		log_info "Docker daemon proxy: OFF (direct pulls)"
 	fi
+	[[ -f "$DOCKER_DROPIN" ]] && sed 's/^/    /' "$DOCKER_DROPIN"
 	[[ -f "$DRGIBI_DROPIN" ]] && log_info "DrGibi's Docker proxy is also present (${DRGIBI_DROPIN}); it takes precedence"
 	command -v proxychains4 >/dev/null 2>&1 && log_ok "proxychains4: installed" || log_info "proxychains4: missing (run: $0 setup)"
 	legacy_present && log_warn "Pieces of the previous congress-proxy.sh are still installed — run: $0 setup"
