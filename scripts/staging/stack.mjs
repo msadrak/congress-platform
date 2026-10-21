@@ -110,9 +110,21 @@ async function status() {
   return rows;
 }
 
+// Servers without direct internet build through an HTTP proxy (`deploy/proxy/congress-proxy.sh stack up` sets
+// CONGRESS_BUILD_PROXY). The proxy variables are predefined Docker build arguments: they reach `npm ci` and
+// `uv sync` without being declared in a Dockerfile, are not stored in the image, and never reach the running
+// containers. Without the variable nothing changes.
+export function buildProxyArgs(env = process.env) {
+  const proxy = env.CONGRESS_BUILD_PROXY?.trim();
+  if (!proxy) return [];
+  const noProxy = env.CONGRESS_BUILD_NO_PROXY?.trim() ?? '';
+  const pairs = [['HTTP_PROXY', proxy], ['HTTPS_PROXY', proxy], ['ALL_PROXY', proxy], ['NO_PROXY', noProxy]];
+  return pairs.flatMap(([k, v]) => ['--build-arg', `${k}=${v}`, '--build-arg', `${k.toLowerCase()}=${v}`]);
+}
+
 async function up() {
   requireEnv();
-  compose(PROJECT, ['build'], { quiet: false });
+  compose(PROJECT, ['build', ...buildProxyArgs()], { quiet: false });
   // `up --wait` returns once every service is healthy (migrate must have exited 0 for api to start).
   const r = compose(PROJECT, ['up', '-d', '--wait', '--wait-timeout', '300'], { allowFail: true });
   if (r.status !== 0) {

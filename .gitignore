@@ -22,6 +22,8 @@ build/
 .env.*
 !.env.example
 !.env.staging.example
+# Server-specific SSH proxy settings (deploy/proxy)
+deploy/proxy/congress-proxy.conf
 demo_credentials.json
 *.local.json
 # IDE & OS

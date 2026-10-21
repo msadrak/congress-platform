@@ -119,6 +119,8 @@ The template is `deploy/hosted/.env.hosted.example`. On the server it becomes `.
 
 ## 6. Safe deployment procedure
 
+> Server without direct internet (SSH proxy for Docker, apt, npm, PyPI): follow `docs/deployment/PROXY.md`; it replaces steps 1 and 3 with `deploy/proxy/congress-proxy.sh`.
+
 1. Install Docker Engine + Compose v2 and Node 22. Create an unprivileged `congress` user in the `docker` group. Clone the reviewed commit to `/opt/congress-platform`.
 2. Copy `deploy/hosted/.env.hosted.example` to `.staging/staging.env` (mode 600). Fill in every `<…>` and generate the secrets on the server.
 3. With DNS pointing at the server and ports 80/443 open: `node scripts/staging/stack.mjs up`. Watch the `web` log for certificate issuance with `stack.mjs logs web`.

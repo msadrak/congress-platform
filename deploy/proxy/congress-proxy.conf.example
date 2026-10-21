@@ -1,0 +1,29 @@
+# Congress Platform: SSH proxy settings for a server without direct internet.
+# Copy to congress-proxy.conf (next to congress-proxy.sh; git-ignored) and edit.
+# The values are the same ones DrGibi uses in drgibi-proxy.conf (PROXY_SERVER, PROXY_SSH_PORT, PROXY_PORT).
+
+# SSH server outside the restricted network. The tunnel is `ssh -D`, so a key login is best.
+PROXY_SERVER=root@YOUR_BASTION_IP_OR_DNS
+PROXY_SSH_PORT=22
+# Optional private key for that server.
+# PROXY_SSH_KEY=/root/.ssh/id_ed25519
+
+# Local SOCKS port opened by the tunnel (127.0.0.1 only).
+PROXY_PORT=1080
+
+# HTTP proxy port of the bridge (gost: HTTP -> SOCKS). Image builds (npm, uv) and apt use it.
+# It listens on 127.0.0.1 and on the Docker bridge address only, never on the public address.
+# CONGRESS_HTTP_BRIDGE_PORT=8118
+
+# Hosts that must NOT go through the proxy (comma separated), for example your own registry or Iranian sites.
+# Private networks and localhost are always excluded.
+# CONGRESS_EXTRA_NO_PROXY=*.aiteb.app,aiteb.ir,api.sms.ir
+
+# Where the repository lives on the server (used by the `stack` and `deploy` commands).
+# CONGRESS_ROOT=/opt/congress-platform
+
+# Where the downloaded gost binary, pid files and logs are kept.
+# CONGRESS_PROXY_STATE=$HOME/.congress-proxy
+
+# gost release to download (through the tunnel) the first time.
+# GOST_RELEASE=3.2.6
