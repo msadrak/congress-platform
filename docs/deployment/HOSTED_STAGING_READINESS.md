@@ -120,6 +120,8 @@ The template is `deploy/hosted/.env.hosted.example`. On the server it becomes `.
 ## 6. Safe deployment procedure
 
 > Server without direct internet (SSH proxy for Docker, apt, npm, PyPI): follow `docs/deployment/PROXY.md`; it replaces steps 1 and 3 with `deploy/proxy/congress-proxy.sh`.
+>
+> CDN (ParsPack) in front, so the CDN issues the visitors' certificate and Caddy does not need Let's Encrypt: follow `docs/deployment/CDN.md`.
 
 1. Install Docker Engine + Compose v2 and Node 22. Create an unprivileged `congress` user in the `docker` group. Clone the reviewed commit to `/opt/congress-platform`.
 2. Copy `deploy/hosted/.env.hosted.example` to `.staging/staging.env` (mode 600). Fill in every `<…>` and generate the secrets on the server.

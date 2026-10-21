@@ -11,6 +11,8 @@
  *   node scripts/staging/stack.mjs ca                 export Caddy's local root CA to .staging/caddy-root.crt
  *   node scripts/staging/stack.mjs lan [<ip> | off]   serve the stack on this computer's current network address
  *                                                     (detected; run again after joining another network)
+ *   node scripts/staging/stack.mjs cdn <status|check|sync|parspack|origin|only|off>
+ *                                                     a CDN (ParsPack) in front: trusted ranges, real visitor address, origin protocol
  *   node scripts/staging/stack.mjs backup             timestamped database + media backup in .staging/backups
  *   node scripts/staging/stack.mjs backups            list backups
  *   node scripts/staging/stack.mjs restore-verify <name> [--keep]
@@ -31,6 +33,7 @@ import { spawnSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import https from 'node:https';
+import { isIP } from 'node:net';
 import { networkInterfaces } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -107,7 +110,11 @@ async function status() {
       const r = compose(PROJECT, ['exec', '-T', 'api', 'python', '-c', `import urllib.request;print(urllib.request.urlopen('http://127.0.0.1:8000${p}',timeout=5).status)`], { allowFail: true });
       say(`  ${p.padEnd(12)} ${r.stdout.trim() || 'unreachable'}   (inside the API container)`);
     }
-    say(`\n  Public: ${env.CONGRESS_PUBLIC_ORIGIN}   (certificate from ${env.CONGRESS_TLS === 'internal' ? "Caddy's local CA" : 'Let\'s Encrypt/ZeroSSL'}; check: curl -I ${env.CONGRESS_PUBLIC_ORIGIN}/api/ready)`);
+    if ((env.CONGRESS_CDN || 'off') === 'on') {
+      say(`\n  Public: ${env.CONGRESS_PUBLIC_ORIGIN}   (visitors' certificate comes from the CDN; check: curl -I ${env.CONGRESS_PUBLIC_ORIGIN}/api/ready)\n  ${describeCdn(env)}`);
+    } else {
+      say(`\n  Public: ${env.CONGRESS_PUBLIC_ORIGIN}   (certificate from ${env.CONGRESS_TLS === 'internal' ? "Caddy's local CA" : 'Let\'s Encrypt/ZeroSSL'}; check: curl -I ${env.CONGRESS_PUBLIC_ORIGIN}/api/ready)`);
+    }
     return rows;
   }
   const http = `http://localhost:${env.CONGRESS_HTTP_PORT || 18080}`;
@@ -134,6 +141,7 @@ export function buildProxyArgs(env = process.env) {
 
 async function up() {
   requireEnv();
+  cdnPreflight();
   compose(PROJECT, ['build', ...buildProxyArgs()], { quiet: false });
   // `up --wait` returns once every service is healthy (migrate must have exited 0 for api to start).
   const r = compose(PROJECT, ['up', '-d', '--wait', '--wait-timeout', '300'], { allowFail: true });
@@ -230,6 +238,192 @@ async function lan(arg) {
   const ready = await httpsStatus(`${values.CONGRESS_PUBLIC_ORIGIN}/api/ready`, readFileSync(caPath));
   say(`\n  Open on phones/tablets: ${values.CONGRESS_PUBLIC_ORIGIN}   (HTTPS check: ${ready === '200' ? 'ok' : ready})`);
   if (arg !== 'off') say('  Devices trust it once .staging/caddy-root.crt is installed; the certificate authority does not change with the address.');
+}
+
+// ───────────────────────────── CDN in front (ParsPack) ─────────────────────────────
+// The CDN terminates the visitors' HTTPS with its own certificate and connects to this server (the origin). Caddy
+// then needs the CDN's address ranges: only connections from them may tell us who the visitor is
+// (docs/deployment/CDN.md). The settings live in .staging/staging.env and are read by deploy/staging/compose.yaml.
+
+const PARSPACK_IP_LIST = 'https://parspack.com/cdnips.txt';
+/** Vendored copy (DrGibi drgibi-gateway/cdnips.txt). Updated by `cdn sync` or a successful `cdn parspack` fetch. */
+export const CDN_IPS_VENDORED = join(root, 'deploy/staging/cdn/cdnips.txt');
+
+export async function loadParsPackCdnIpListText({ offline = false } = {}) {
+  if (!offline) {
+    try {
+      const r = await fetch(PARSPACK_IP_LIST, { signal: AbortSignal.timeout(20000) });
+      if (r.ok) return { text: await r.text(), source: 'network' };
+    } catch { /* use vendored */ }
+  }
+  if (!existsSync(CDN_IPS_VENDORED)) {
+    throw new Error(`Missing ${CDN_IPS_VENDORED}. On a machine with internet run: node scripts/staging/stack.mjs cdn sync`);
+  }
+  return { text: readFileSync(CDN_IPS_VENDORED, 'utf8'), source: 'vendored' };
+}
+
+export function writeVendoredCdnIpList(text) {
+  const ranges = parseAddressRanges(text);
+  writeFileSync(CDN_IPS_VENDORED, `${ranges.join('\n')}\n`, { mode: 0o644 });
+  return ranges;
+}
+
+/**
+ * One IPv4/IPv6 address or CIDR range per line (blank lines and # comments allowed). Everything else is refused,
+ * and so are ranges so wide that "trusted" would mean "everybody": a bad list would let any visitor forge the
+ * address the rate limits and logs rely on.
+ */
+export function parseAddressRanges(text, { max = 500 } = {}) {
+  const ranges = [];
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.replace(/#.*/, '').trim();
+    if (!line) continue;
+    const [address, prefix, ...extra] = line.split('/');
+    const family = isIP(address);
+    const bits = family === 4 ? 32 : 128;
+    const length = prefix === undefined ? bits : /^\d{1,3}$/.test(prefix) ? Number(prefix) : NaN;
+    if (!family || extra.length || !(length >= 0 && length <= bits)) throw new Error(`Not an address or range: ${JSON.stringify(line.slice(0, 60))}`);
+    if (length < (family === 4 ? 16 : 32)) throw new Error(`Refusing ${line}: far too wide to be a CDN's address range.`);
+    ranges.push(prefix === undefined ? address : `${address}/${length}`);
+  }
+  const unique = [...new Set(ranges)];
+  if (unique.length > max) throw new Error(`${unique.length} ranges: more than ${max}, which is not a CDN list.`);
+  return unique;
+}
+
+/** The setting combinations Caddy cannot run, caught before containers are touched. */
+export function cdnProblems(env) {
+  const problems = [];
+  const on = (k) => (env[k] || 'off') === 'on';
+  const site = env.CONGRESS_SITE_ADDRESS || '';
+  const httpOrigin = (env.CONGRESS_ORIGIN_TLS || 'on') === 'off';
+  if ((on('CONGRESS_CDN') || on('CONGRESS_CDN_ONLY')) && !(env.CONGRESS_TRUSTED_PROXIES || '').trim()) {
+    problems.push('CONGRESS_CDN/CONGRESS_CDN_ONLY is on but CONGRESS_TRUSTED_PROXIES is empty. Run: node scripts/staging/stack.mjs cdn parspack');
+  }
+  if (on('CONGRESS_CDN_ONLY') && !on('CONGRESS_CDN')) problems.push('CONGRESS_CDN_ONLY needs CONGRESS_CDN=on.');
+  if (httpOrigin && !/^http:\/\//.test(site)) problems.push('CONGRESS_ORIGIN_TLS=off needs CONGRESS_SITE_ADDRESS to start with http:// (run: stack.mjs cdn origin http).');
+  if (!httpOrigin && /^http:\/\//.test(site)) problems.push('CONGRESS_SITE_ADDRESS starts with http:// but CONGRESS_ORIGIN_TLS is not off (run: stack.mjs cdn origin https).');
+  return problems;
+}
+
+function cdnPreflight(env = readEnv()) {
+  const problems = cdnProblems(env);
+  if (problems.length) throw new Error(`CDN settings in ${ENV_FILE}:\n  - ${problems.join('\n  - ')}`);
+}
+
+function describeCdn(env) {
+  const on = (k) => (env[k] || 'off') === 'on';
+  if (!on('CONGRESS_CDN')) return 'CDN: off (visitors connect directly)';
+  const n = (env.CONGRESS_TRUSTED_PROXIES || '').split(/\s+/).filter(Boolean).length;
+  const direct = on('CONGRESS_CDN_ONLY') ? 'blocked at Caddy (403; CDN + private nets only, like DrGibi)' : 'allowed';
+  return `CDN: on, ${n} trusted ranges, visitor address from ${env.CONGRESS_CLIENT_IP_HEADER || 'X-Forwarded-For'}; origin ${(env.CONGRESS_ORIGIN_TLS || 'on') === 'off' ? 'HTTP' : `HTTPS (${env.CONGRESS_TLS === 'internal' ? "Caddy's own certificate" : 'public certificate'})`}; public direct visits ${direct}`;
+}
+
+async function cdn(args) {
+  requireEnv();
+  const [action = 'status', ...rest] = args;
+  const env = readEnv();
+  const hostOf = () => {
+    try { return new URL(env.CONGRESS_PUBLIC_ORIGIN).host; } catch { throw new Error('CONGRESS_PUBLIC_ORIGIN must be a URL like https://congress.example.org'); }
+  };
+  const apply = (values) => {
+    const next = { ...env, ...values };
+    cdnPreflight(next);
+    setEnvValues(values);
+    say(`Updated ${ENV_FILE}. Restarting the edge (Caddy) ...`);
+    const r = compose(PROJECT, ['up', '-d', '--wait', '--wait-timeout', '300', 'web'], { allowFail: true });
+    if (r.status !== 0) throw new Error(`Restart failed:\n${r.stderr}\nLook at: node scripts/staging/stack.mjs logs web`);
+    say(`  ${describeCdn(readEnv())}`);
+  };
+  switch (action) {
+    case 'status':
+      say(`  ${describeCdn(env)}`);
+      for (const p of cdnProblems(env)) say(`  PROBLEM: ${p}`);
+      return;
+    case 'check': {
+      // After sending a few requests through the CDN: did Caddy find the visitor's address?
+      const lines = compose(PROJECT, ['logs', '--since', '30m', '--no-log-prefix', 'web'], { allowFail: true }).stdout.split(/\r?\n/);
+      const seen = [];
+      for (const line of lines) {
+        let j;
+        try { j = JSON.parse(line); } catch { continue; }
+        if (j.logger !== 'http.log.access' || !j.request || j.request.host === '127.0.0.1:8081') continue;
+        const h = j.request.headers || {};
+        const pick = (n) => Object.entries(h).find(([k]) => k.toLowerCase() === n)?.[1]?.join(', ');
+        seen.push({ path: String(j.request.uri).split('?')[0], remote: j.request.remote_ip, client: j.request.client_ip, xff: pick('x-forwarded-for'), real: pick('x-real-ip') || pick('true-client-ip') || pick('cdn-real-ip') });
+      }
+      if (!seen.length) return say('  No requests in the last 30 minutes. Open the site through its public address, then run this again.');
+      for (const r of seen.slice(-8)) say(`  ${r.path.padEnd(28).slice(0, 28)} connecting ${String(r.remote).padEnd(16)} visitor ${String(r.client).padEnd(16)} X-Forwarded-For: ${r.xff ?? '-'}${r.real ? `  other: ${r.real}` : ''}`);
+      const resolved = seen.filter((r) => r.remote !== r.client).length;
+      if (resolved) say(`\n  OK: for ${resolved}/${seen.length} requests the visitor address differs from the CDN's, so it was read from the header.`);
+      else if (env.CONGRESS_CDN === 'on' && seen.some((r) => r.xff || r.real)) {
+        say('\n  PROBLEM: the CDN sends an address header, but Caddy does not use it. Either the connecting address is not in the trusted list');
+        say('  (run `stack.mjs cdn parspack` again, or ask ParsPack for the current ranges) or the header has another name (see "other:" above; then `cdn parspack --header <name>`).');
+      } else if (env.CONGRESS_CDN === 'on') say('\n  The requests carry no forwarded address. Were they sent through the CDN, or straight to the server?');
+      else say('\n  CDN mode is off, so the connecting address is the visitor. Run `stack.mjs cdn parspack` first.');
+      return;
+    }
+    case 'sync': {
+      const r = await fetch(PARSPACK_IP_LIST, { signal: AbortSignal.timeout(20000) });
+      if (!r.ok) throw new Error(`${PARSPACK_IP_LIST} answered ${r.status}`);
+      const ranges = writeVendoredCdnIpList(await r.text());
+      say(`Wrote ${ranges.length} ranges to ${CDN_IPS_VENDORED} (commit this file after review, like DrGibi cdnips.txt).`);
+      return;
+    }
+    case 'parspack': {
+      const file = rest.indexOf('--file');
+      const header = rest.indexOf('--header');
+      const allowDirect = rest.includes('--allow-direct');
+      const offline = rest.includes('--offline');
+      let text;
+      let source = 'file';
+      if (file >= 0) {
+        if (!rest[file + 1]) throw new Error('usage: cdn parspack [--offline] [--allow-direct] [--file <path>] [--header <name>]');
+        text = readFileSync(rest[file + 1], 'utf8');
+      } else {
+        ({ text, source } = await loadParsPackCdnIpListText({ offline }));
+        if (source === 'vendored') say(`Using vendored list ${CDN_IPS_VENDORED} (fetch failed or --offline).`);
+      }
+      const ranges = parseAddressRanges(text);
+      if (!ranges.length) throw new Error('The list has no address ranges.');
+      if (source === 'network') {
+        writeVendoredCdnIpList(text);
+        say(`Updated ${CDN_IPS_VENDORED} from parspack.com.`);
+      }
+      const name = header >= 0 ? rest[header + 1] : env.CONGRESS_CLIENT_IP_HEADER || 'X-Forwarded-For';
+      if (!/^[A-Za-z0-9-]{1,64}$/.test(name || '')) throw new Error('--header must be a header name such as X-Forwarded-For');
+      say(`${ranges.length} ParsPack address ranges. CONGRESS_CDN_ONLY=${allowDirect ? 'off' : 'on'} (DrGibi production default: direct public access denied).`);
+      say('Then on the server: sudo deploy/staging/cdn/configure-firewall-cdn.sh');
+      return apply({
+        CONGRESS_CDN: 'on',
+        CONGRESS_TRUSTED_PROXIES: ranges.join(' '),
+        CONGRESS_CLIENT_IP_HEADER: name,
+        CONGRESS_CDN_ONLY: allowDirect ? 'off' : 'on',
+      });
+    }
+    case 'origin': {
+      const host = hostOf();
+      if (rest[0] === 'https') {
+        // The CDN already shows visitors a trusted certificate; the origin only needs an encrypted hop, so Caddy
+        // uses its own CA and never asks Let's Encrypt (no outbound proxy needed for certificates).
+        return apply({ CONGRESS_ORIGIN_TLS: 'on', CONGRESS_SITE_ADDRESS: host, CONGRESS_TLS: 'internal', CONGRESS_DEFAULT_SNI: host });
+      }
+      if (rest[0] === 'http') return apply({ CONGRESS_ORIGIN_TLS: 'off', CONGRESS_SITE_ADDRESS: `http://${host}` });
+      throw new Error('usage: cdn origin https | http');
+    }
+    case 'only':
+      if (!['on', 'off'].includes(rest[0])) throw new Error('usage: cdn only on | off');
+      return apply({ CONGRESS_CDN_ONLY: rest[0] });
+    case 'off': {
+      const host = hostOf();
+      const values = { CONGRESS_CDN: 'off', CONGRESS_CDN_ONLY: 'off' };
+      if ((env.CONGRESS_ORIGIN_TLS || 'on') === 'off') Object.assign(values, { CONGRESS_ORIGIN_TLS: 'on', CONGRESS_SITE_ADDRESS: host });
+      if (env.CONGRESS_TLS === 'internal') say('Note: CONGRESS_TLS is still "internal". For a public certificate set it to your e-mail address and run `stack.mjs start`.');
+      return apply(values);
+    }
+    default:
+      throw new Error('usage: cdn status | check | sync | parspack [--offline] [--allow-direct] [--file <path>] [--header <name>] | origin https|http | only on|off | off');
+  }
 }
 
 function exportCa() {
@@ -595,10 +789,11 @@ async function main() {
     case 'status': return status();
     case 'logs': return say(compose(PROJECT, ['logs', '--tail', '200', ...rest]).stdout);
     case 'stop': requireEnv(); compose(PROJECT, ['stop']); return say('Stopped (containers and volumes kept).');
-    case 'start': requireEnv(); compose(PROJECT, ['up', '-d', '--wait', '--wait-timeout', '300']); return status();
+    case 'start': requireEnv(); cdnPreflight(); compose(PROJECT, ['up', '-d', '--wait', '--wait-timeout', '300']); return status();
     case 'migrate': requireEnv(); return say(compose(PROJECT, ['run', '--rm', 'migrate']).stderr);
     case 'ca': return exportCa();
     case 'lan': return lan(rest[0]);
+    case 'cdn': return cdn(rest);
     case 'backup': return backup();
     case 'backups': return listBackups();
     case 'restore-verify': return restoreVerify(rest[0], { keep: rest.includes('--keep') });

@@ -475,6 +475,19 @@ test_all() {
 		else
 			err "containers on '${net}' can NOT reach host.docker.internal:${CONGRESS_HTTP_BRIDGE_PORT} (firewall: $0 firewall)"; failed=1
 		fi
+		# Is the running Caddy container really configured to use it? (Its certificate requests depend on this.)
+		local web hp
+		web="$(docker ps -q --filter label=com.docker.compose.project=congress-staging --filter label=com.docker.compose.service=web | head -1)"
+		if [[ -n "$web" ]]; then
+			hp="$(docker exec "$web" printenv HTTPS_PROXY 2>/dev/null || true)"
+			if [[ -n "$hp" ]]; then
+				ok "the Caddy (web) container uses the proxy: ${hp}"
+			else
+				warn "the Caddy (web) container runs WITHOUT a proxy: certificate requests go direct and will time out."
+				warn "Fix: $0 containers   then   $0 stack start"
+				failed=1
+			fi
+		fi
 	fi
 	return "$failed"
 }

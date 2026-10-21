@@ -101,6 +101,12 @@ services:
       CONGRESS_HSTS: ${CONGRESS_HSTS:-off}
       CONGRESS_ADMIN_ALLOW: ${CONGRESS_ADMIN_ALLOW:-private_ranges}
       CONGRESS_DEFAULT_SNI: ${CONGRESS_DEFAULT_SNI:-localhost}
+      # CDN in front (docs/deployment/CDN.md). `node scripts/staging/stack.mjs cdn ...` writes these; all off by default.
+      CONGRESS_CDN: ${CONGRESS_CDN:-off}
+      CONGRESS_CDN_ONLY: ${CONGRESS_CDN_ONLY:-off}
+      CONGRESS_TRUSTED_PROXIES: ${CONGRESS_TRUSTED_PROXIES:-}
+      CONGRESS_CLIENT_IP_HEADER: ${CONGRESS_CLIENT_IP_HEADER:-X-Forwarded-For}
+      CONGRESS_ORIGIN_TLS: ${CONGRESS_ORIGIN_TLS:-on}
       # Outbound proxy for Caddy (certificate requests, renewals, OCSP) on servers without direct internet.
       # Empty = direct. `deploy/proxy/congress-proxy.sh containers` sets it; see docs/deployment/PROXY.md.
       # NO_PROXY keeps Caddy -> api (and the loopback health check) off the proxy.

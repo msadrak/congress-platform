@@ -7,11 +7,17 @@
 #                          (local staging: private_ranges; hosted: 127.0.0.1/32 = nobody, use stack.mjs)
 #   CONGRESS_DEFAULT_SNI   certificate name for clients that send no SNI, i.e. that connect to a bare IP
 #                          address (LAN access: the machine's IP, which must also be in CONGRESS_SITE_ADDRESS)
+# CDN in front (docs/deployment/CDN.md), all off by default:
+#   CONGRESS_CDN           on  = read the visitor's address from CONGRESS_CLIENT_IP_HEADER, but only on connections
+#                          from CONGRESS_TRUSTED_PROXIES (the CDN's address ranges, space separated)
+#   CONGRESS_CDN_ONLY      on  = connections from anyone but the CDN get 403
+#   CONGRESS_ORIGIN_TLS    off = plain-HTTP origin (CONGRESS_SITE_ADDRESS must then start with http://)
 {
 	admin off
 	default_sni {$CONGRESS_DEFAULT_SNI:localhost}
 	servers {
 		protocols h1 h2
+		import /etc/caddy/options/cdn-{$CONGRESS_CDN:off}.caddy
 	}
 }
 
@@ -44,7 +50,13 @@
 		}
 	}
 
+	# With CONGRESS_CDN_ONLY=on, anyone but the CDN gets 403 here (before every other handler).
+	import /etc/caddy/options/cdn-gate-{$CONGRESS_CDN_ONLY:off}.caddy
+
 	handle /api/* {
+		# A CDN must never cache API answers unless the API says so (public images and page heads do).
+		header ?Cache-Control "no-store"
+
 		# Platform administration (organizer provisioning and key lifecycle) is not for the public internet.
 		@adminBlocked {
 			path /api/organizers /api/organizers/* /api/platform/*
@@ -56,6 +68,10 @@
 			max_size 8MB
 		}
 		reverse_proxy api:8000 {
+			# The API throttles per visitor address and reads it from X-Forwarded-For: send exactly one value, the
+			# one worked out above (the connecting address, or behind a trusted CDN the visitor's), never a list a
+			# visitor could have written.
+			header_up X-Forwarded-For {client_ip}
 			# While the API restarts (deploys, rebuilds) hold requests briefly instead of failing them.
 			lb_try_duration 15s
 			lb_try_interval 250ms
@@ -88,7 +104,7 @@
 }
 
 {$CONGRESS_SITE_ADDRESS:https://localhost} {
-	tls {$CONGRESS_TLS:internal}
+	import /etc/caddy/options/origin-tls-{$CONGRESS_ORIGIN_TLS:on}.caddy
 	import congress
 }
 

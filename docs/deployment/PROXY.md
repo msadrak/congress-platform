@@ -17,6 +17,8 @@ Three things use the proxy:
 | Image builds (`npm ci`, `uv sync`) | HTTP bridge, build arguments | on every build (tunnel must be up) |
 | **Running containers** | HTTP bridge through `host.docker.internal`, set in `.staging/staging.env` | **always**: Caddy requests and renews its certificate, and fetches OCSP, months after a deploy |
 
+> **With a CDN (ParsPack) in front, the last row is not needed:** the CDN issues the visitors' certificate and Caddy never asks Let's Encrypt. Use `docs/deployment/CDN.md` and run `congress-proxy.sh containers off`. The proxy is then used only for builds and pulls.
+
 Because the last row has no deploy to start the tunnel, the tunnel and the bridge run as **systemd services** (`install-service`): always on, restarted on failure, started at boot.
 
 - **Caddy (`web`)** gets `CONGRESS_WEB_PROXY`. Its traffic to the API (`api`, `db`, `web`, private networks) stays direct through `NO_PROXY`, and the loopback health check ignores the proxy.
