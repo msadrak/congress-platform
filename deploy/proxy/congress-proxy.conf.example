@@ -1,29 +1,27 @@
-# Congress Platform: SSH proxy settings (same bastion as drgibi-proxy.conf).
-# Copy to congress-proxy.conf and run: ./congress-proxy.sh setup && ./congress-proxy.sh verify
-# Guide: docs/deployment/PROXY-QUICK-START.md
+# Copy to congress-proxy.conf (next to congress-proxy.sh, git-ignored) and set your bastion.
+# Loaded automatically by ./congress-proxy.sh unless CONGRESS_PROXY_CONF names another file.
+# Use the same values as DrGibi's drgibi-proxy.conf.
 
-# SSH server outside the restricted network. The tunnel is `ssh -D`, so a key login is best.
+# SSH server outside the restricted network (the tunnel is `ssh -D` to it)
 PROXY_SERVER=root@YOUR_BASTION_IP_OR_DNS
 PROXY_SSH_PORT=22
-# Optional private key for that server.
+# Optional: private key for that server (default: ssh's own keys)
 # PROXY_SSH_KEY=/root/.ssh/id_ed25519
 
-# Local SOCKS port opened by the tunnel (127.0.0.1 only).
+# Local SOCKS port of the tunnel (127.0.0.1 only). Docker pulls, git and `run` use it.
 PROXY_PORT=1080
 
-# HTTP proxy port of the bridge (gost: HTTP -> SOCKS). Image builds (npm, uv) and apt use it.
-# It listens on 127.0.0.1 and on the Docker bridge address only, never on the public address.
+# HTTP bridge port (gost: HTTP -> SOCKS) for npm ci / uv sync inside docker build.
+# It listens on 127.0.0.1 and the docker0 address only.
 # CONGRESS_HTTP_BRIDGE_PORT=8118
 
-# Hosts that must NOT go through the proxy (comma separated), for example your own registry or Iranian sites.
-# Private networks and localhost are always excluded.
-# CONGRESS_EXTRA_NO_PROXY=*.aiteb.app,aiteb.ir,api.sms.ir
+# Optional: extra hosts that must not go through the tunnel (comma separated).
+# Localhost and private networks are always excluded.
+# CONGRESS_EXTRA_NO_PROXY=*.aiteb.app,aiteb.ir
 
-# Where the repository lives on the server (used by the `stack` and `deploy` commands).
+# Optional: where the repository is when the script runs from outside it (default: the repository the script is in)
 # CONGRESS_ROOT=/opt/congress-platform
 
-# Where the downloaded gost binary, pid files and logs are kept.
+# Optional: where gost, its log and the tunnel's control socket are kept
 # CONGRESS_PROXY_STATE=$HOME/.congress-proxy
-
-# gost release to download (through the tunnel) the first time.
 # GOST_RELEASE=3.2.6

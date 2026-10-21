@@ -10,7 +10,7 @@ ENV UV_COMPILE_BYTECODE=1 \
     UV_PROJECT_ENVIRONMENT=/app/.venv
 WORKDIR /app
 COPY pyproject.toml uv.lock ./
-# Build-time proxy (deploy/proxy/congress-proxy.sh stack up). Declared per RUN so layer cache is not tied to proxy env.
+# Build-time proxy (deploy/proxy/congress-proxy.sh deploy). Declared per RUN so layer cache is not tied to proxy env.
 ARG HTTP_PROXY
 ARG HTTPS_PROXY
 ARG NO_PROXY

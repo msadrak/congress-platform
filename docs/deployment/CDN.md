@@ -68,8 +68,7 @@ The list is checked before it is used: anything that is not an address or range 
 
 ```bash
 cd /opt/congress-platform
-deploy/proxy/congress-proxy.sh run git pull
-deploy/proxy/congress-proxy.sh containers off     # Caddy no longer needs the proxy: no certificate requests
+deploy/proxy/congress-proxy.sh git pull
 nano .staging/staging.env                         # set CONGRESS_HSTS=off for now
 deploy/proxy/congress-proxy.sh deploy             # rebuilds the web image and starts
 

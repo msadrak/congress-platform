@@ -153,7 +153,7 @@ async function status() {
   return rows;
 }
 
-// Servers without direct internet build through an HTTP proxy (`deploy/proxy/congress-proxy.sh stack up` sets
+// Servers without direct internet build through an HTTP proxy (`deploy/proxy/congress-proxy.sh deploy` sets
 // CONGRESS_BUILD_PROXY). The proxy variables are predefined Docker build arguments: they reach `npm ci` and
 // `uv sync` without being declared in a Dockerfile, are not stored in the image, and never reach the running
 // containers. Without the variable nothing changes.
