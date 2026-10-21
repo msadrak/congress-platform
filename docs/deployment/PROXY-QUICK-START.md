@@ -99,13 +99,14 @@ Other Congress commands: `stack up`, `stack start`, `pull-bases` (slow tunnel), 
 
 ## If `docker pull` fails with `403 Forbidden` (Docker Hub)
 
-The bastion’s IP is sometimes blocked by Docker Hub. Retry:
+Congress **does not use `docker.io` for builds** anymore: API runtime reuses `ghcr.io/astral-sh/uv`, Node comes from `public.ecr.aws/docker/library`, Caddy from `mirror.gcr.io`. Run:
 
 ```bash
 deploy/proxy/congress-proxy.sh pull-bases
+deploy/proxy/congress-proxy.sh deploy
 ```
 
-Images you already have are skipped. If it keeps failing, pull the same tag from another machine (`docker pull` + `docker save` / `scp` / `docker load`) or add a registry mirror in `/etc/docker/daemon.json` (operator choice).
+If a mirror still fails, retry `pull-bases` or load images from another machine (`docker save` / `docker load`).
 
 ## If build fails with `DeadlineExceeded`
 

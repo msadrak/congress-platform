@@ -573,11 +573,11 @@ pull_base_images() {
 	if [[ ! -f "$DOCKER_PROXY_CONF" ]]; then
 		warn "Docker daemon proxy is OFF — image pulls may time out. Run: $0 enable"
 	fi
+	# Avoid docker.io (CloudFront 403 through many SOCKS exits). Matches backend/Dockerfile + deploy/web/Dockerfile.
 	local -a images=(
 		ghcr.io/astral-sh/uv:python3.11-bookworm-slim
-		python:3.11-slim-bookworm
-		node:24-bookworm-slim
-		caddy:2-alpine
+		public.ecr.aws/docker/library/node:24-bookworm-slim
+		mirror.gcr.io/caddy:2-alpine
 	)
 	local img failed=0
 	for img in "${images[@]}"; do
