@@ -80,7 +80,7 @@ The GitHub clone needs this server's deploy key on GitHub; the tunnel only carri
 | *Build containers cannot reach http://172.17.0.1:8118* | Run the command as root (it adds the `docker0` rule), or allow it in UFW: `ufw allow in on docker0 to any port 8118 proto tcp` |
 | `docker pull` hangs or the build stops with `DeadlineExceeded` | `status`: the Docker daemon proxy must be ON (else `enable`). Then `verify`, and run `deploy` again; layers already built are cached |
 | Build fails with `failed to fetch anonymous token` or `lookup auth.docker.io` | The build ran without the proxy: use `congress-proxy.sh deploy` (or `stack <args>`), not plain `stack.mjs up` |
-| `docker pull` returns `403 Forbidden` from Docker Hub | The pull went direct, not through the tunnel: `enable`, then check the *Docker pulls images through the tunnel* line of `verify` |
+| A pull or build returns `403 Forbidden` from a registry (Docker Hub, `mirror.gcr.io`) | The registry refuses the address it sees (sanctions). Check that `status` shows the Docker daemon proxy ON; if it does, the registry refuses the bastion itself. Use the `public.ecr.aws/docker/library/<image>` copy instead: the same image, with the same digest |
 | *Port 8118 is in use on 127.0.0.1 …* | Something else listens on 8118: set `CONGRESS_HTTP_BRIDGE_PORT` in `congress-proxy.conf` |
 | Pulls fail on a server that also runs DrGibi | DrGibi's drop-in (`http-proxy.conf`) overrides ours. Use DrGibi's `PROXY_PORT` in `congress-proxy.conf`; `verify` warns about this |
 | `git` says `Permission denied (publickey)` | That answer comes from GitHub: the server's deploy key is missing, the tunnel works |

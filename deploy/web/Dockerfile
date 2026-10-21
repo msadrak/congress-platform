@@ -17,7 +17,8 @@ COPY web/ ./
 COPY deploy/web/make-seo-shell.mjs /tools/make-seo-shell.mjs
 RUN npm run build && node /tools/make-seo-shell.mjs dist
 
-FROM mirror.gcr.io/caddy:2-alpine
+# Same image (same digest) as caddy:2-alpine on Docker Hub; mirror.gcr.io answers 403 through the bastion.
+FROM public.ecr.aws/docker/library/caddy:2-alpine
 COPY deploy/staging/Caddyfile /etc/caddy/Caddyfile
 COPY deploy/staging/caddy/ /etc/caddy/options/
 COPY --from=build /web/dist /srv
