@@ -100,6 +100,16 @@ async function status() {
   const env = readEnv();
   const rows = JSON.parse(`[${compose(PROJECT, ['ps', '-a', '--format', 'json']).stdout.trim().split(/\r?\n/).filter(Boolean).join(',')}]`);
   for (const c of rows) say(`  ${c.Service.padEnd(8)} ${c.State.padEnd(9)} ${c.Health || (c.ExitCode !== undefined && c.State === 'exited' ? `exit ${c.ExitCode}` : '')}`);
+  if ((env.CONGRESS_LOCAL_HTTP || 'on') === 'off') {
+    // Hosted server: there is no plain-HTTP localhost site (HTTP redirects to HTTPS on the public name), so ask
+    // the API container directly.
+    for (const p of ['/api/health', '/api/ready']) {
+      const r = compose(PROJECT, ['exec', '-T', 'api', 'python', '-c', `import urllib.request;print(urllib.request.urlopen('http://127.0.0.1:8000${p}',timeout=5).status)`], { allowFail: true });
+      say(`  ${p.padEnd(12)} ${r.stdout.trim() || 'unreachable'}   (inside the API container)`);
+    }
+    say(`\n  Public: ${env.CONGRESS_PUBLIC_ORIGIN}   (certificate from ${env.CONGRESS_TLS === 'internal' ? "Caddy's local CA" : 'Let\'s Encrypt/ZeroSSL'}; check: curl -I ${env.CONGRESS_PUBLIC_ORIGIN}/api/ready)`);
+    return rows;
+  }
   const http = `http://localhost:${env.CONGRESS_HTTP_PORT || 18080}`;
   for (const p of ['/api/health', '/api/ready']) {
     let s = 'unreachable';
