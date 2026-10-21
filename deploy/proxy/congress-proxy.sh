@@ -29,6 +29,8 @@ CONF="${CONGRESS_PROXY_CONF:-${SCRIPT_DIR}/congress-proxy.conf}"
 : "${PROXY_SSH_KEY:=}"
 : "${PROXY_PORT:=1080}"
 : "${CONGRESS_HTTP_BRIDGE_PORT:=8118}"
+# gost listen URI (DrGibi default: all interfaces). UFW/iptables should block the public internet; docker0 + private nets reach :8118.
+: "${CONGRESS_HTTP_BRIDGE_LISTEN_URI:=}"
 : "${CONGRESS_EXTRA_NO_PROXY:=}"
 : "${CONGRESS_PROXY_STATE:=${HOME:-/root}/.congress-proxy}"
 : "${GOST_RELEASE:=3.2.6}"
@@ -173,7 +175,7 @@ gost_install() {
 # 172.16.0.0/12) reach the bridge on the host. A host firewall usually blocks that. The rule allows those
 # private source addresses only; gost itself listens on 127.0.0.1 and the docker0 address, never publicly.
 firewall_allow_docker() {
-	local port="$CONGRESS_HTTP_BRIDGE_PORT" range=172.16.0.0/12
+	local port="$CONGRESS_HTTP_BRIDGE_PORT" socks="$PROXY_PORT" range=172.16.0.0/12
 	[[ -d /sys/class/net/docker0 ]] || return 0
 	if command -v ufw >/dev/null 2>&1 && as_root ufw status 2>/dev/null | grep -q "Status: active"; then
 		as_root ufw status | grep -q "${port}/tcp.*ALLOW.*${range}" ||
@@ -181,6 +183,16 @@ firewall_allow_docker() {
 	elif command -v iptables >/dev/null 2>&1; then
 		as_root iptables -C INPUT -s "$range" -p tcp --dport "$port" -j ACCEPT 2>/dev/null ||
 			as_root iptables -I INPUT -s "$range" -p tcp --dport "$port" -j ACCEPT 2>/dev/null || true
+	fi
+	# BuildKit containers hit the host via docker0 (same as DrGibi drgibi_ensure_docker_bridge_host_access).
+	if command -v iptables >/dev/null 2>&1; then
+		for iface in docker0; do
+			[[ -d "/sys/class/net/${iface}" ]] || continue
+			as_root iptables -C INPUT -i "$iface" -p tcp --dport "$port" -j ACCEPT 2>/dev/null ||
+				as_root iptables -I INPUT -i "$iface" -p tcp --dport "$port" -j ACCEPT 2>/dev/null || true
+			as_root iptables -C INPUT -i "$iface" -p tcp --dport "$socks" -j ACCEPT 2>/dev/null ||
+				as_root iptables -I INPUT -i "$iface" -p tcp --dport "$socks" -j ACCEPT 2>/dev/null || true
+		done
 	fi
 }
 
@@ -192,12 +204,16 @@ bridge_stop() {
 	pkill -f "${GOST} -L http://" >/dev/null 2>&1 || true
 }
 
-# gost arguments. Never 0.0.0.0: the proxy must not be reachable from the internet.
+# gost: HTTP CONNECT → SOCKS. Builds use http://<docker-gateway>:PORT (see drgibi-proxy gost -L).
 gost_args() {
-	local hp="$CONGRESS_HTTP_BRIDGE_PORT" gw
+	local hp="$CONGRESS_HTTP_BRIDGE_PORT" gw listen
 	gw="$(docker_gateway)"
-	GOST_ARGS=(-L "http://127.0.0.1:${hp}")
-	if local_address_exists "$gw"; then GOST_ARGS+=(-L "http://${gw}:${hp}"); fi
+	if [[ -n "$CONGRESS_HTTP_BRIDGE_LISTEN_URI" ]]; then
+		listen="$CONGRESS_HTTP_BRIDGE_LISTEN_URI"
+	else
+		listen="http://0.0.0.0:${hp}"
+	fi
+	GOST_ARGS=(-L "$listen")
 	GOST_ARGS+=(-F "socks5://127.0.0.1:${PROXY_PORT}")
 }
 
@@ -205,7 +221,7 @@ bridge_start() {
 	local hp="$CONGRESS_HTTP_BRIDGE_PORT" gw
 	gw="$(docker_gateway)"
 	tcp_open 127.0.0.1 "$PROXY_PORT" || tunnel_start || return 1
-	if tcp_open 127.0.0.1 "$hp"; then
+	if tcp_open 127.0.0.1 "$hp" || tcp_open "$gw" "$hp"; then
 		firewall_allow_docker
 		return 0
 	fi
@@ -472,6 +488,21 @@ setup_all() {
 
 # ─────────────────────────── checks ───────────────────────────
 
+# ParsPack CDN / `containers off`: Caddy must not use the proxy for Let's Encrypt.
+caddy_proxy_expected() {
+	local f="${CONGRESS_ROOT}/.staging/staging.env"
+	[[ -f "$f" ]] || return 0
+	if grep -qE '^CONGRESS_CDN=on' "$f" 2>/dev/null; then return 1; fi
+	if grep -qE '^CONGRESS_WEB_PROXY=$' "$f" 2>/dev/null; then return 1; fi
+	return 0
+}
+
+bridge_reachable_from_build_container() {
+	local gw="$1" hp="$2"
+	command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1 &&
+		docker run --rm --network bridge alpine:3.20 nc -z -w 5 "$gw" "$hp" >/dev/null 2>&1
+}
+
 test_all() {
 	local failed=0
 	info "Verify (same idea as ./drgibi-proxy.sh verify) — tunnel, bridge, Docker build path"
@@ -486,7 +517,7 @@ test_all() {
 	if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
 		local gw net="bridge"
 		gw="$(docker_gateway)"
-		if docker run --rm --network bridge alpine:3.20 nc -z -w 4 "$gw" "$CONGRESS_HTTP_BRIDGE_PORT" >/dev/null 2>&1; then
+		if bridge_reachable_from_build_container "$gw" "$CONGRESS_HTTP_BRIDGE_PORT"; then
 			ok "build containers can reach the bridge at ${gw}:${CONGRESS_HTTP_BRIDGE_PORT}"
 		else
 			err "build containers can NOT reach ${gw}:${CONGRESS_HTTP_BRIDGE_PORT} (run as root: $0 firewall; also check that the alpine image can be pulled)"; failed=1
@@ -501,25 +532,46 @@ test_all() {
 		# Is the running Caddy container really configured to use it? (Its certificate requests depend on this.)
 		local web hp
 		web="$(docker ps -q --filter label=com.docker.compose.project=congress-staging --filter label=com.docker.compose.service=web | head -1)"
-		if [[ -n "$web" ]]; then
+		if [[ -n "$web" ]] && caddy_proxy_expected; then
 			hp="$(docker exec "$web" printenv HTTPS_PROXY 2>/dev/null || true)"
 			if [[ -n "$hp" ]]; then
 				ok "the Caddy (web) container uses the proxy: ${hp}"
 			else
 				warn "the Caddy (web) container runs WITHOUT a proxy: certificate requests go direct and will time out."
-				warn "Fix: $0 containers   then   $0 stack start"
+				warn "Fix: $0 containers   then   $0 stack start   (skip if you use CDN: $0 containers off)"
 				failed=1
 			fi
+		elif [[ -n "$web" ]]; then
+			ok "Caddy proxy not expected (CDN or containers off) — OK"
 		fi
 	fi
 	return "$failed"
 }
 
 # Base images for deploy/staging/compose.yaml (pulled through the Docker daemon SOCKS proxy).
+pull_one_image() {
+	local img="$1" attempt=0
+	if docker image inspect "$img" >/dev/null 2>&1; then
+		ok "Already have ${img}"
+		return 0
+	fi
+	while [[ "$attempt" -lt 4 ]]; do
+		attempt=$((attempt + 1))
+		info "Pulling ${img} (attempt ${attempt}/4)..."
+		if docker pull "$img"; then
+			return 0
+		fi
+		[[ "$attempt" -lt 4 ]] && warn "Pull failed — retrying in 20s (Docker Hub sometimes returns 403 through the tunnel)"
+		sleep 20
+	done
+	err "Could not pull ${img}. Tunnel up? Run: $0 enable && $0 verify"
+	return 1
+}
+
 pull_base_images() {
 	ensure_up || return 1
 	if [[ ! -f "$DOCKER_PROXY_CONF" ]]; then
-		warn "Docker daemon proxy is OFF — image pulls may time out. Run: $0 docker-setup"
+		warn "Docker daemon proxy is OFF — image pulls may time out. Run: $0 enable"
 	fi
 	local -a images=(
 		ghcr.io/astral-sh/uv:python3.11-bookworm-slim
@@ -527,14 +579,11 @@ pull_base_images() {
 		node:24-bookworm-slim
 		caddy:2-alpine
 	)
-	local img
+	local img failed=0
 	for img in "${images[@]}"; do
-		info "Pulling ${img}..."
-		if ! docker pull "$img"; then
-			err "Could not pull ${img}. Is the tunnel up? Run: $0 docker-setup && $0 start && $0 pull-bases"
-			return 1
-		fi
+		pull_one_image "$img" || failed=1
 	done
+	[[ "$failed" -eq 0 ]] || return 1
 	ok "Base images are on this server"
 }
 
@@ -544,25 +593,18 @@ build_preflight() {
 	local gw bp
 	gw="$(docker_gateway)"
 	bp="$(build_http_proxy)"
-	if ! curl -fsS -o /dev/null --max-time 25 -x "$bp" https://pypi.org/simple/; then
-		err "Build containers cannot use the HTTP bridge at ${bp} (PyPI check failed). Run: $0 firewall && $0 test"
+	if ! curl -fsS -o /dev/null --max-time 25 -x "$(host_http_proxy)" https://pypi.org/simple/; then
+		err "HTTP bridge PyPI check failed ($(host_http_proxy)). Run: $0 start && $0 firewall"
 		return 1
 	fi
 	if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
-		if ! docker run --rm --network bridge alpine:3.20 nc -z -w 5 "$gw" "$CONGRESS_HTTP_BRIDGE_PORT" >/dev/null 2>&1; then
-			err "Build containers cannot reach the bridge at ${gw}:${CONGRESS_HTTP_BRIDGE_PORT}. Run as root: $0 firewall"
-			return 1
-		fi
-		if ! docker run --rm --network bridge \
-			-e "HTTP_PROXY=${bp}" -e "HTTPS_PROXY=${bp}" \
-			-e "http_proxy=${bp}" -e "https_proxy=${bp}" \
-			alpine:3.20 wget -q -O /dev/null --timeout=20 https://pypi.org/simple/; then
-			err "Build containers cannot download through ${bp}. Check gost (${GOST_LOG}) and the SOCKS tunnel."
+		if ! bridge_reachable_from_build_container "$gw" "$CONGRESS_HTTP_BRIDGE_PORT"; then
+			err "Build containers cannot reach ${gw}:${CONGRESS_HTTP_BRIDGE_PORT}. Run as root: $0 firewall"
 			return 1
 		fi
 	fi
 	if [[ ! -f "$DOCKER_PROXY_CONF" ]]; then
-		warn "Docker daemon proxy is OFF — run: $0 docker-setup (then restart deploy)"
+		warn "Docker daemon proxy is OFF — run: $0 enable"
 	fi
 	return 0
 }
@@ -662,7 +704,7 @@ main() {
 	local cmd="${1:-help}"
 	[[ $# -gt 0 ]] && shift
 	case "$cmd" in
-	start | start-tunnel) ensure_up ;;
+	start | start-tunnel | start-proxy) ensure_up ;;
 	stop | stop-tunnel) tunnel_stop ;;
 	status) docker_status ;;
 	setup | init) setup_all ;;

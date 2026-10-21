@@ -97,6 +97,16 @@ Other Congress commands: `stack up`, `stack start`, `pull-bases` (slow tunnel), 
 
 ---
 
+## If `docker pull` fails with `403 Forbidden` (Docker Hub)
+
+The bastion’s IP is sometimes blocked by Docker Hub. Retry:
+
+```bash
+deploy/proxy/congress-proxy.sh pull-bases
+```
+
+Images you already have are skipped. If it keeps failing, pull the same tag from another machine (`docker pull` + `docker save` / `scp` / `docker load`) or add a registry mirror in `/etc/docker/daemon.json` (operator choice).
+
 ## If build fails with `DeadlineExceeded`
 
 The tunnel or Docker SOCKS is usually not ready:
