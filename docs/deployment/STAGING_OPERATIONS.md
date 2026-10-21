@@ -4,10 +4,10 @@ One Docker Compose project (`congress-staging`, file `deploy/staging/compose.yam
 
 | Service | Image | Role | Exposed |
 |---|---|---|---|
-| `db` | `postgres:16-alpine` | PostgreSQL; volume `congress-staging_pgdata` | internal network only |
+| `db` | `postgres:16-alpine` | PostgreSQL; host `${CONGRESS_PERSISTENT_DATA_ROOT}/data/postgres` | internal network only |
 | `migrate` | `congress-platform/api` | One-shot `alembic upgrade head`, then exits 0 | — |
-| `api` | `congress-platform/api` | FastAPI/uvicorn as uid 10001; volume `congress-staging_media` → `/data/media` | internal network only |
-| `web` | `congress-platform/web` | Caddy: production SPA, `/api` reverse proxy, HTTPS, server-side `<head>` for `/e/*`; volumes `caddy_data`, `caddy_config` | `127.0.0.1:8443` (HTTPS), `127.0.0.1:18080` (HTTP, localhost) |
+| `api` | `congress-platform/api` | FastAPI/uvicorn as uid 10001; host `…/data/media` → `/data/media` | internal network only |
+| `web` | `congress-platform/web` | Caddy; host `…/data/caddy/data` and `…/data/caddy/config` | `127.0.0.1:8443` (HTTPS), `127.0.0.1:18080` (HTTP, localhost) |
 
 - **Start order:** `db` healthy → `migrate` exits 0 → `api` healthy → `web`.
 - **Schema guard:** in `staging`/`production` the API refuses to start unless the database is at the Alembic head of its own build.
@@ -17,7 +17,7 @@ One Docker Compose project (`congress-staging`, file `deploy/staging/compose.yam
 
 - Docker Desktop (Windows/macOS) or Docker Engine + Compose v2 (Linux).
 - Node.js 22+ for the operations tool. Playwright/Edge are needed only for `verify.mjs`.
-- About 3 GB of disk for images. Data volumes grow with uploads (≤ 200 images per event, ≤ 5 MB each before re-encoding).
+- About 3 GB of disk for images. Persistent data grows under `CONGRESS_PERSISTENT_DATA_ROOT` (default `~/congress-persistent-data`, DrGibi-style). Run `scripts/staging/fix-persistent-permissions.sh` before the first start.
 
 ## First start (PowerShell; identical on bash)
 
@@ -75,7 +75,20 @@ node scripts/staging/stack.mjs up               # after pulling new code: rebuil
 
 **Restart policy.** Every long-running service is `unless-stopped`, so the stack returns after a host reboot once Docker starts.
 
-**Never** run `docker compose down -v` on `congress-staging`: it deletes the database, the uploads and the certificates. `stack.mjs` refuses `-v`.
+Data is on the **host** under `CONGRESS_PERSISTENT_DATA_ROOT`, not in Docker named volumes. `docker compose down` (without `-v`) stops containers and **keeps** your data. `stack.mjs` still refuses `-v` on the main project.
+
+**One-time migration** from old named volumes (`congress-staging_pgdata`, etc.):
+
+```bash
+ROOT="${CONGRESS_PERSISTENT_DATA_ROOT:-$HOME/congress-persistent-data}"
+mkdir -p "$ROOT/data/postgres" "$ROOT/data/media" "$ROOT/data/caddy/data" "$ROOT/data/caddy/config"
+docker run --rm -v congress-staging_pgdata:/from -v "$ROOT/data/postgres:/to" alpine sh -c 'cp -a /from/. /to/'
+docker run --rm -v congress-staging_media:/from -v "$ROOT/data/media:/to" alpine sh -c 'cp -a /from/. /to/'
+docker run --rm -v congress-staging_caddy_data:/from -v "$ROOT/data/caddy/data:/to" alpine sh -c 'cp -a /from/. /to/'
+docker run --rm -v congress-staging_caddy_config:/from -v "$ROOT/data/caddy/config:/to" alpine sh -c 'cp -a /from/. /to/'
+scripts/staging/fix-persistent-permissions.sh
+```
+Add `CONGRESS_PERSISTENT_DATA_ROOT=...` to `.staging/staging.env`, then `stack.mjs up`.
 
 ## Health check, scheduled backups, organizer keys
 
@@ -134,8 +147,8 @@ This is deliberately not automated.
 - A backup on the same disk as the volumes is not a disaster-recovery copy.
 
 **Disk.**
-- Watch `docker system df -v`: the volumes `congress-staging_pgdata` and `congress-staging_media`, and `.staging\backups`.
-- Prune only **dangling images** (`docker image prune`), never volumes.
+- Watch disk use under `CONGRESS_PERSISTENT_DATA_ROOT` and `.staging/backups`.
+- Prune only **dangling images** (`docker image prune`). Do not delete the persistent data directory.
 
 ## Moving to a real domain (Linux VPS)
 

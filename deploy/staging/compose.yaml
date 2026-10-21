@@ -3,8 +3,10 @@
 #   node scripts/staging/stack.mjs init   # generates .staging/staging.env (secrets, outside Git)
 #   node scripts/staging/stack.mjs up     # build, migrate, start, wait for health
 #
-# Volumes hold everything that must survive rebuilds: PostgreSQL data, Page Studio media and Caddy's
-# certificates. Never run `docker compose down -v` on this project.
+# Persistent data lives on the host (DrGibi-style), not in anonymous Docker volumes:
+#   ${CONGRESS_PERSISTENT_DATA_ROOT}/data/postgres|media|caddy/...
+# Set CONGRESS_PERSISTENT_DATA_ROOT in .staging/staging.env (default ${HOME}/congress-persistent-data).
+# Run scripts/staging/fix-persistent-permissions.sh once before the first start.
 name: congress-staging
 
 x-logging: &logging
@@ -53,7 +55,7 @@ services:
       POSTGRES_DB: congress
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - ${CONGRESS_PERSISTENT_DATA_ROOT:?set CONGRESS_PERSISTENT_DATA_ROOT in .staging/staging.env}/data/postgres:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U congress -d congress"]
       interval: 5s
@@ -76,7 +78,7 @@ services:
     <<: *backend
     restart: unless-stopped
     volumes:
-      - media:/data/media
+      - ${CONGRESS_PERSISTENT_DATA_ROOT:?set CONGRESS_PERSISTENT_DATA_ROOT}/data/media:/data/media
     depends_on:
       db:
         condition: service_healthy
@@ -122,8 +124,8 @@ services:
       - "${CONGRESS_BIND:-127.0.0.1}:${CONGRESS_HTTPS_PORT:-8443}:443"
       - "${CONGRESS_BIND:-127.0.0.1}:${CONGRESS_HTTP_PORT:-18080}:80"
     volumes:
-      - caddy_data:/data
-      - caddy_config:/config
+      - ${CONGRESS_PERSISTENT_DATA_ROOT:?set CONGRESS_PERSISTENT_DATA_ROOT}/data/caddy/data:/data
+      - ${CONGRESS_PERSISTENT_DATA_ROOT:?set CONGRESS_PERSISTENT_DATA_ROOT}/data/caddy/config:/config
     depends_on:
       api:
         condition: service_healthy
@@ -142,8 +144,3 @@ networks:
   # Outbound internet for the API alone (SMS delivery through api.sms.ir); nothing is published on it.
   egress: {}
 
-volumes:
-  pgdata:
-  media:
-  caddy_data:
-  caddy_config:

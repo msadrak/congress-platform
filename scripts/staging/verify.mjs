@@ -13,13 +13,13 @@
  */
 import { spawnSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import https from 'node:https';
 import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runJourney } from '../integration/journey.mjs';
-import { backup, compose, psql, readEnv, restoreVerify, run, smsCode } from './stack.mjs';
+import { backup, compose, persistentPaths, psql, readEnv, restoreVerify, run, smsCode } from './stack.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const require = createRequire(resolve(root, 'web/package.json'));
@@ -272,10 +272,16 @@ try {
     return `${b.name}: ${checks.length}/${checks.length} restore checks`;
   });
 
-  await check('14 staging volumes untouched by the restore test', async () => {
-    const vols = run('docker', ['volume', 'ls', '--format', '{{.Name}}']).stdout.split(/\r?\n/);
-    for (const v of ['pgdata', 'media', 'caddy_data']) assert(vols.includes(`${PROJECT}_${v}`), `${v} missing`);
-    assert(!vols.some((v) => v.startsWith('congress-restore-')), 'restore volumes left behind');
+  await check('14 staging persistent data untouched by the restore test', async () => {
+    const { postgres, media, caddyData } = persistentPaths();
+    for (const [label, p] of [['postgres', postgres], ['media', media], ['caddy data', caddyData]]) {
+      assert(existsSync(p), `${label} dir missing: ${p}`);
+    }
+    const restores = join(root, '.staging/restores');
+    if (existsSync(restores)) {
+      const left = readdirSync(restores).filter((n) => n.startsWith('congress-restore-'));
+      assert(left.length === 0, `restore data left behind: ${left.join(', ')}`);
+    }
     eq((await api('GET', `/api/public/events/${S.slug}`)).status, 200, 'staging still serves');
   });
 } catch (e) {

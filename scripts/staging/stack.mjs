@@ -26,15 +26,15 @@
  *   node scripts/staging/stack.mjs sms-template list | set <otp|ticket_confirmation> (<text> | --file <path>) | reset <kind>
  *                                                     platform-wide SMS wording (organizers override the confirmation per event)
  *
- * Nothing here deletes the staging volumes. The only `down -v` is on the disposable
- * `congress-restore-*` project that restore-verify itself creates.
+ * Data lives on the host under CONGRESS_PERSISTENT_DATA_ROOT (not Docker named volumes).
+ * `down -v` no longer wipes production data; restore-verify uses a disposable folder under .staging/restores/.
  */
 import { spawnSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import https from 'node:https';
 import { isIP } from 'node:net';
-import { networkInterfaces } from 'node:os';
+import { homedir, networkInterfaces } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -53,7 +53,32 @@ export const run = (cmd, args, { allowFail = false, input, quiet = false, binary
   }
   return r;
 };
-export const compose = (project, args, opts) => run('docker', ['compose', '-p', project, '--env-file', ENV_FILE, '-f', COMPOSE_FILE, ...args], opts);
+function composeEnvFile(override) {
+  if (!override || !Object.keys(override).length) return ENV_FILE;
+  const map = { ...readEnv(), ...override };
+  const body = Object.entries(map).map(([k, v]) => `${k}=${v}`).join('\n') + '\n';
+  const tmp = join(STATE, `.compose-env-${process.pid}-${randomBytes(3).toString('hex')}.tmp`);
+  writeFileSync(tmp, body, { mode: 0o600 });
+  return tmp;
+}
+export const compose = (project, args, opts = {}) =>
+  run('docker', ['compose', '-p', project, '--env-file', composeEnvFile(opts.envOverride), '-f', COMPOSE_FILE, ...args], opts);
+
+/** Host directory for PostgreSQL, media and Caddy state (DrGibi ~/drgibi-persistent-data). */
+export function persistentDataRoot(env = readEnv()) {
+  const v = env.CONGRESS_PERSISTENT_DATA_ROOT?.trim();
+  return v || join(homedir(), 'congress-persistent-data');
+}
+export function persistentPaths(env = readEnv()) {
+  const root = persistentDataRoot(env);
+  return {
+    root,
+    postgres: join(root, 'data/postgres'),
+    media: join(root, 'data/media'),
+    caddyData: join(root, 'data/caddy/data'),
+    caddyConfig: join(root, 'data/caddy/config'),
+  };
+}
 export const readEnv = () => ({
   ...Object.fromEntries(
     readFileSync(ENV_FILE, 'utf8')
@@ -81,8 +106,9 @@ function init() {
     POSTGRES_PASSWORD: randomBytes(24).toString('hex'),
     CONGRESS_PLATFORM_ADMIN_TOKEN: randomBytes(32).toString('base64url'),
     CONGRESS_JWT_SECRET: randomBytes(32).toString('hex'),
+    CONGRESS_PERSISTENT_DATA_ROOT: join(homedir(), 'congress-persistent-data'),
   };
-  const env = template.replace(/^(POSTGRES_PASSWORD|CONGRESS_PLATFORM_ADMIN_TOKEN|CONGRESS_JWT_SECRET)=.*$/gm, (_, k) => `${k}=${values[k]}`);
+  const env = template.replace(/^(POSTGRES_PASSWORD|CONGRESS_PLATFORM_ADMIN_TOKEN|CONGRESS_JWT_SECRET|CONGRESS_PERSISTENT_DATA_ROOT)=.*$/gm, (_, k) => `${k}=${values[k]}`);
   writeFileSync(ENV_FILE, env, { mode: 0o600 });
   say(`Generated ${ENV_FILE} with fresh secrets (git-ignored). The admin token is in that file; it is not printed.`);
 }
@@ -139,9 +165,19 @@ export function buildProxyArgs(env = process.env) {
   return pairs.flatMap(([k, v]) => ['--build-arg', `${k}=${v}`, '--build-arg', `${k.toLowerCase()}=${v}`]);
 }
 
+function ensurePersistentHostDirs() {
+  const fix = join(root, 'scripts/staging/fix-persistent-permissions.sh');
+  if (!existsSync(fix)) return;
+  run(fix, [], {
+    allowFail: true,
+    env: { ...process.env, CONGRESS_PERSISTENT_DATA_ROOT: persistentDataRoot() },
+  });
+}
+
 async function up() {
   requireEnv();
   cdnPreflight();
+  ensurePersistentHostDirs();
   compose(PROJECT, ['build', ...buildProxyArgs()], { quiet: false });
   // `up --wait` returns once every service is healthy (migrate must have exited 0 for api to start).
   const r = compose(PROJECT, ['up', '-d', '--wait', '--wait-timeout', '300'], { allowFail: true });
@@ -452,7 +488,8 @@ export function backup(project = PROJECT) {
   compose(project, ['exec', '-T', 'db', 'rm', '-f', '/tmp/backup.dump']);
   // Media: read-only mount of the volume in a throw-away helper container.
   const helper = `${project}-backup-${randomBytes(3).toString('hex')}`;
-  run('docker', ['run', '-d', '--name', helper, '--network', 'none', '-v', `${project}_media:/data:ro`, 'postgres:16-alpine', 'sleep', '600']);
+  const { media } = persistentPaths(readEnv());
+  run('docker', ['run', '-d', '--name', helper, '--network', 'none', '-v', `${media}:/data:ro`, 'postgres:16-alpine', 'sleep', '600']);
   try {
     run('docker', ['exec', helper, 'tar', 'czf', '/tmp/media.tar.gz', '-C', '/data', '.']);
     run('docker', ['cp', `${helper}:/tmp/media.tar.gz`, join(dir, 'media.tar.gz')]);
@@ -615,7 +652,8 @@ export async function healthCheck() {
   note(apiErrors ? 'WARNING' : 'OK', `API error lines in the last 15 min: ${apiErrors}`);
   // Disk: the filesystem holding Docker volumes, plus each persistent volume.
   const probe = `${PROJECT}-check-${randomBytes(3).toString('hex')}`;
-  const du = run('docker', ['run', '--rm', '--name', probe, '--network', 'none', '-v', `${PROJECT}_pgdata:/v/pgdata:ro`, '-v', `${PROJECT}_media:/v/media:ro`, 'postgres:16-alpine', 'sh', '-c', 'df -Pk /v | tail -1; du -sk /v/pgdata /v/media'], { allowFail: true }).stdout.trim().split('\n');
+  const { postgres, media } = persistentPaths();
+  const du = run('docker', ['run', '--rm', '--name', probe, '--network', 'none', '-v', `${postgres}:/v/pgdata:ro`, '-v', `${media}:/v/media:ro`, 'postgres:16-alpine', 'sh', '-c', 'df -Pk /v | tail -1; du -sk /v/pgdata /v/media'], { allowFail: true }).stdout.trim().split('\n');
   if (du.length >= 3) {
     const [, sizeK, usedK, availK, pct] = du[0].split(/\s+/);
     const used = Number(String(pct).replace('%', ''));
@@ -719,8 +757,8 @@ function listBackups() {
 }
 
 /**
- * Restore a backup into a brand-new, separately named Compose project (its own volumes, no published
- * ports), run the normal migrate + api services against it, and compare everything with the manifest.
+ * Restore a backup into a brand-new, separately named Compose project (its own host data directory under
+ * .staging/restores/, no published ports), run the normal migrate + api services against it, and compare.
  */
 export async function restoreVerify(name, { keep = false } = {}) {
   requireEnv();
@@ -730,16 +768,24 @@ export async function restoreVerify(name, { keep = false } = {}) {
     if (createHash('sha256').update(readFileSync(join(dir, f))).digest('hex') !== sum) throw new Error(`${f} checksum mismatch`);
   }
   const project = `congress-restore-${randomBytes(3).toString('hex')}`;
+  const restoreRoot = join(STATE, 'restores', project);
+  const envOverride = { CONGRESS_PERSISTENT_DATA_ROOT: restoreRoot };
+  mkdirSync(restoreRoot, { recursive: true });
+  run(join(root, 'scripts/staging/fix-persistent-permissions.sh'), [], {
+    allowFail: true,
+    env: { ...process.env, CONGRESS_PERSISTENT_DATA_ROOT: restoreRoot },
+  });
   const checks = [];
   const check = (label, ok, detail = '') => { checks.push({ label, ok }); say(`  ${ok ? 'PASS' : 'FAIL'} ${label}${detail ? ` — ${detail}` : ''}`); };
   say(`Restoring ${name} into disposable project ${project}`);
   try {
-    compose(project, ['up', '-d', '--wait', 'db']);
+    compose(project, ['up', '-d', '--wait', 'db'], { envOverride });
     const dbId = compose(project, ['ps', '-q', 'db']).stdout.trim();
     run('docker', ['cp', join(dir, 'db.dump'), `${dbId}:/tmp/restore.dump`]);
-    compose(project, ['exec', '-T', 'db', 'pg_restore', '-U', 'congress', '-d', 'congress', '--no-owner', '--exit-on-error', '/tmp/restore.dump']);
+    compose(project, ['exec', '-T', 'db', 'pg_restore', '-U', 'congress', '-d', 'congress', '--no-owner', '--exit-on-error', '/tmp/restore.dump'], { envOverride });
     const helper = `${project}-media`;
-    run('docker', ['run', '-d', '--name', helper, '--network', 'none', '-v', `${project}_media:/data`, 'postgres:16-alpine', 'sleep', '600']);
+    const restoreMedia = join(restoreRoot, 'data/media');
+    run('docker', ['run', '-d', '--name', helper, '--network', 'none', '-v', `${restoreMedia}:/data`, 'postgres:16-alpine', 'sleep', '600']);
     try {
       run('docker', ['cp', join(dir, 'media.tar.gz'), `${helper}:/tmp/media.tar.gz`]);
       // The API runs as uid 10001; restored files must stay readable/writable by it.
@@ -750,7 +796,7 @@ export async function restoreVerify(name, { keep = false } = {}) {
       run('docker', ['rm', '-f', helper], { allowFail: true });
     }
     // Normal startup path: migrate (no-op at the same revision) then the API with the schema guard.
-    compose(project, ['up', '-d', '--wait', '--wait-timeout', '180', 'api']);
+    compose(project, ['up', '-d', '--wait', '--wait-timeout', '180', 'api'], { envOverride });
     check('migrate service accepted the restored schema', psql(project, 'select version_num from alembic_version') === manifest.alembic_revision, manifest.alembic_revision);
     for (const [table, expected] of Object.entries(manifest.counts)) {
       const got = Number(psql(project, table === 'published_pages' ? 'select count(*) from event_pages where published is not null' : `select count(*) from ${table}`));
@@ -771,8 +817,11 @@ print(json.dumps(out))`;
     const images = Object.values(served).flatMap((assets) => Object.entries(assets));
     check('published images served by the restored API match the backup', images.every(([id, sum]) => backupSums.get(id) === sum), `${images.length} images`);
   } finally {
-    if (keep) say(`Kept ${project} (remove with: docker compose -p ${project} -f deploy/staging/compose.yaml --env-file .staging/staging.env down -v)`);
-    else if (/^congress-restore-[0-9a-f]{6}$/.test(project)) compose(project, ['down', '-v', '--remove-orphans'], { allowFail: true });
+    if (keep) say(`Kept ${project} (data: ${restoreRoot}; remove with compose down and delete that folder)`);
+    else if (/^congress-restore-[0-9a-f]{6}$/.test(project)) {
+      compose(project, ['down', '--remove-orphans'], { allowFail: true, envOverride });
+      rmSync(restoreRoot, { recursive: true, force: true });
+    }
   }
   const failed = checks.filter((c) => !c.ok).length;
   say(`restore-verify: ${checks.length - failed}/${checks.length} checks passed`);
