@@ -1,7 +1,8 @@
 import { Suspense, lazy, type ReactNode } from "react";
-import { Navigate, Route, Routes } from "react-router-dom";
+import { Navigate, Route, Routes, useParams } from "react-router-dom";
 import { CongressRoute } from "./components/ui/PortalState";
 import { AppUpdatePrompt } from "./components/AppUpdatePrompt";
+import { congressFallbackPath } from "./lib/congressFallback";
 // Public pages are the first impression: shipped in the entry bundle so their first paint never
 // waits for a second request.
 import Home from "./pages/Home";
@@ -18,6 +19,7 @@ const MyCongress = lazy(() => import("./pages/MyCongress"));
 const MyNetwork = lazy(() => import("./pages/MyNetwork"));
 const MyProfile = lazy(() => import("./pages/MyProfile"));
 const MyTickets = lazy(() => import("./pages/MyTickets"));
+const NotFound = lazy(() => import("./pages/NotFound"));
 const OrganizerAnalytics = lazy(() => import("./pages/OrganizerAnalytics"));
 const OrganizerSms = lazy(() => import("./pages/OrganizerSms"));
 const PlatformConsole = lazy(() => import("./pages/PlatformConsole"));
@@ -39,6 +41,12 @@ const ReceptionEntry = lazy(() => import("./pages/ReceptionPortal").then((m) => 
 
 /** Keeps the organizer frame on screen while a section's code loads. */
 const section = (element: ReactNode) => <Suspense fallback={<div role="status" aria-busy="true" className="min-h-[60vh]" />}>{element}</Suspense>;
+
+/** Unknown congress address: a pass link cut short by an SMS opens the pass, anything else the congress home. */
+function CongressFallback() {
+  const { slug = "", "*": rest = "" } = useParams();
+  return <Navigate to={congressFallbackPath(slug, rest)} replace />;
+}
 
 export default function App() {
   return (
@@ -88,6 +96,8 @@ export default function App() {
         <Route path="/sign-in" element={<AttendeeSignIn />} />
         <Route path="/c/:slug/sign-in" element={<CongressRoute page={AttendeeSignIn} />} />
         <Route path="/c/:slug/details" element={<CongressRoute page={CongressDetails} />} />
+        <Route path="/c/:slug/*" element={<CongressFallback />} />
+        <Route path="*" element={<NotFound />} />
       </Routes>
     </Suspense>
   );

@@ -1,0 +1,40 @@
+import { useNavigate } from "react-router-dom";
+import { Button, LinkButton } from "../components/ui/Button";
+import { Icon } from "../components/ui/Icon";
+import { StatusPanel } from "../components/ui/PortalState";
+import { AitebAttribution } from "../components/brand/Aiteb";
+import { useAttendeeLocale } from "../lib/i18n";
+
+/**
+ * Any address the app does not know. Most visitors are attendees following a link, so the way on is
+ * back or the attendee sign-in, never the platform overview.
+ */
+export default function NotFound() {
+  const { locale, t, dir } = useAttendeeLocale();
+  const navigate = useNavigate();
+  // Opened straight from a link there is nothing to go back to; sign-in is the way on.
+  const goBack = () => (window.history.length > 1 ? navigate(-1) : navigate("/sign-in"));
+
+  return (
+    <div dir={dir} lang={locale} className="min-h-screen bg-surface-page text-text-primary font-sans text-start flex flex-col">
+      <main className="mx-auto flex w-full max-w-xl flex-1 flex-col justify-center gap-8 px-4 py-12 sm:px-6">
+        <StatusPanel icon="search" title={t.notFoundTitle}>
+          <p>{t.notFoundDesc}</p>
+          <div className="flex flex-wrap justify-center gap-3">
+            <Button type="button" variant="secondary" onClick={goBack}>
+              <Icon name={dir === "rtl" ? "arrow-right" : "arrow-left"} size={18} />
+              {t.notFoundBack}
+            </Button>
+            <LinkButton to="/sign-in">
+              <Icon name="ticket" size={18} />
+              {t.notFoundSignIn}
+            </LinkButton>
+          </div>
+        </StatusPanel>
+        <div className="flex justify-center">
+          <AitebAttribution locale={locale} />
+        </div>
+      </main>
+    </div>
+  );
+}
