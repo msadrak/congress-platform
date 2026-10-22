@@ -603,12 +603,14 @@ async def create_desk_registration(
     )
     await session.commit()
 
+    # The pass shows what the desk typed. When the number already has an account, the account keeps its own
+    # profile, which is not echoed back: typing a number must not reveal who holds it.
     return DeskRegistrationOut(
         ticket_id=ticket.id,
-        attendee_name=user.full_name,
-        attendee_mobile=user.mobile,
-        organization=user.organization,
-        title=user.title,
+        attendee_name=body.full_name.strip(),
+        attendee_mobile=body.mobile,
+        organization=body.organization.strip(),
+        title=body.title.strip(),
         ticket_tier_name=tier_name,
         qr_secret=secret,
         issued_by=desk_ctx.operator_name,

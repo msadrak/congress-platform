@@ -74,7 +74,15 @@ async def test_organizer_assigns_booth_staff_by_mobile(
     )
     assert assign_resp.status_code == 201
     assert assign_resp.json()["mobile"] == "09121000017"
-    assert assign_resp.json()["full_name"] == "Sarah Siemens"
+    # Typing a number must not reveal who holds it: the answer echoes what was submitted (no name here).
+    assert assign_resp.json()["full_name"] == ""
+    assert "Sarah Siemens" not in assign_resp.text
+    named = await client.post(
+        f"/api/events/{event_id}/booths/{booth_id}/staff",
+        json={"mobile": "09121000017", "full_name": "Typed Name"},
+        headers=bearer(organizer),
+    )
+    assert named.json()["full_name"] == "Typed Name" and "Sarah Siemens" not in named.text
 
     # List assigned staff
     staff_list = await client.get(

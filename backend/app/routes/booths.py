@@ -288,6 +288,9 @@ async def assign_booth_staff(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Booth not found")
 
     user = await session.scalar(select(User).where(User.mobile == body.mobile))
+    # The answer names the representative as submitted: an existing account keeps its own name, which is not
+    # echoed back, so typing a number never reveals who holds it.
+    shown_name = body.full_name
 
     if user is None:
         # The representative signs in later with an SMS code to this number.
@@ -298,6 +301,7 @@ async def assign_booth_staff(
         )
         session.add(user)
         await session.flush()
+        shown_name = user.full_name
 
     existing_staff = await session.scalar(
         select(BoothStaff).where(
@@ -309,8 +313,8 @@ async def assign_booth_staff(
             id=existing_staff.id,
             booth_id=booth.id,
             user_id=user.id,
-            mobile=user.mobile,
-            full_name=user.full_name,
+            mobile=body.mobile,
+            full_name=shown_name,
         )
 
     staff = BoothStaff(booth_id=booth.id, user_id=user.id)
@@ -321,8 +325,8 @@ async def assign_booth_staff(
         id=staff.id,
         booth_id=booth.id,
         user_id=user.id,
-        mobile=user.mobile,
-        full_name=user.full_name,
+        mobile=body.mobile,
+        full_name=shown_name,
     )
 
 
