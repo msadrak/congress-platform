@@ -12,7 +12,7 @@
  * additionally refuses any target that is not a marked `*_test` database. Everything is removed at the end.
  *
  * Requirements: Docker. The runner image is scripts/integration/backend-test.Dockerfile, built on first use
- * and tagged by a hash of that file and backend/uv.lock (scripts/lib/backend-image.mjs); set
+ * and tagged by a hash of that file, backend/pyproject.toml and backend/uv.lock (scripts/lib/backend-image.mjs); set
  * CONGRESS_E2E_BACKEND_IMAGE to use another image that provides Python 3.11 and uv. Dependencies are synced
  * from backend/uv.lock inside the container (a no-op for the hashed image) before it joins the private network.
  */
