@@ -17,6 +17,8 @@ import type { AttendeeTicketDetail } from "../api/client";
 
 export const CACHED_TICKETS_KEY_PREFIX = "congress_cached_tickets_";
 export const LEGACY_CACHED_TICKETS_KEY = "congress_cached_tickets";
+/** The owner of the last saved cache, so a sign-out still finds it after the token was removed. */
+export const CACHED_TICKETS_OWNER_KEY = "congress_ticket_cache_owner";
 
 // Default TTL: 7 days
 export const DEFAULT_TICKET_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -181,6 +183,7 @@ export function saveOwnerScopedTickets(
 
   try {
     storage.setItem(cacheKey, JSON.stringify(envelope));
+    storage.setItem(CACHED_TICKETS_OWNER_KEY, userId);
     return true;
   } catch {
     return false;
@@ -188,7 +191,9 @@ export function saveOwnerScopedTickets(
 }
 
 /**
- * Clear the ticket cache for a specific user upon logout.
+ * Clear the ticket cache upon logout or session rejection: the owner named by `userIdOrToken` and the
+ * remembered owner of the last saved cache. With no (or an unreadable) token, the remembered owner is
+ * still cleared, so passes never outlive a token that was removed first.
  */
 export function clearOwnerScopedTickets(
   userIdOrToken: string | null | undefined,
@@ -197,14 +202,19 @@ export function clearOwnerScopedTickets(
   const storage = resolveStorage(customStorage);
   purgeLegacyUnscopedCache(storage);
 
-  if (!storage || !userIdOrToken) return;
+  if (!storage) return;
 
   // Determine if passed argument is a JWT token or a raw userId
-  const userId = userIdOrToken.includes(".") ? getAuthenticatedUserId(userIdOrToken) : userIdOrToken;
-  if (!userId) return;
+  const userId = !userIdOrToken
+    ? null
+    : userIdOrToken.includes(".") ? getAuthenticatedUserId(userIdOrToken) : userIdOrToken;
 
   try {
-    storage.removeItem(`${CACHED_TICKETS_KEY_PREFIX}${userId}`);
+    const remembered = storage.getItem(CACHED_TICKETS_OWNER_KEY);
+    for (const owner of [userId, remembered]) {
+      if (owner) storage.removeItem(`${CACHED_TICKETS_KEY_PREFIX}${owner}`);
+    }
+    storage.removeItem(CACHED_TICKETS_OWNER_KEY);
   } catch {
     // ignore
   }

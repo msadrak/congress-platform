@@ -3,6 +3,7 @@ import { Navigate, Route, Routes, useParams } from "react-router-dom";
 import { CongressRoute } from "./components/ui/PortalState";
 import { AppUpdatePrompt } from "./components/AppUpdatePrompt";
 import { congressFallbackPath } from "./lib/congressFallback";
+import { useScrollToTop } from "./hooks/useScrollToTop";
 // Public pages are the first impression: shipped in the entry bundle so their first paint never
 // waits for a second request.
 import Home from "./pages/Home";
@@ -49,6 +50,7 @@ function CongressFallback() {
 }
 
 export default function App() {
+  useScrollToTop();
   return (
     <Suspense fallback={<div role="status" aria-busy="true" className="min-h-dvh" />}>
       <AppUpdatePrompt />
