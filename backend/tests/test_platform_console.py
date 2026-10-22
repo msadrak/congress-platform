@@ -13,11 +13,11 @@ from sqlalchemy import select
 
 from app.main import create_app
 from app.models import PlatformSetting, SmsMessage
-from app.platform_config import SMS_API_KEY
-from app.secret_box import seal
+from app.platform_config import SMS_API_KEY, reload_platform
+from app.secret_box import open_sealed, seal
 from app.sms.gateway import SmsGateway
 from app.sms.outbox import deliver_due
-from tests.conftest import ADMIN_TOKEN, _truncate_all, make_test_settings
+from tests.conftest import ADMIN_TOKEN, TEST_JWT_SECRET, _truncate_all, make_test_settings
 from tests.helpers import bearer, provision_organizer, sign_in
 from tests.test_ticket_tiers import create_event, tier
 
@@ -186,6 +186,58 @@ async def test_production_refuses_test_mode_and_fast_resends(media_root: Path) -
         assert (await client.put("/api/platform/sms", json={"mode": "console"}, headers=ADMIN)).status_code == 422
         assert (await client.put("/api/platform/sign-in", json={"otp_resend_cooldown_seconds": 5}, headers=ADMIN)).status_code == 422
         assert (await client.get("/api/platform/sms-outbox", params={"mobile": MOBILE}, headers=ADMIN)).status_code == 404
+
+
+SECRET_BOX_KEY = "7c2e9a4f1b8d3e6a0c5f2b9e4d7a1c8f3e6b0d5a"
+
+
+@asynccontextmanager
+async def secret_box_app(media_root: Path) -> AsyncIterator[tuple[FastAPI, AsyncClient]]:
+    await _truncate_all()
+    app = create_app(make_test_settings(media_root).model_copy(update={"secret_box_key": SECRET_BOX_KEY}))
+    async with app.router.lifespan_context(app):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as http:
+            yield app, http
+
+
+async def _stored_sealed_key(app: FastAPI) -> str:
+    async with app.state.sessionmaker() as session:
+        row = await session.get(PlatformSetting, SMS_API_KEY)
+    assert row is not None
+    return str(row.value["sealed"])
+
+
+async def test_a_dedicated_secret_box_key_seals_new_credentials(media_root: Path) -> None:
+    async with secret_box_app(media_root) as (app, client):
+        saved = await client.put("/api/platform/sms", json={"mode": "smsir", "api_key": KEY, "line_number": 30001234}, headers=ADMIN)
+
+        assert (saved.json()["effective"], saved.json()["api_key_hint"]) == ("smsir", "…1234")
+        sealed = await _stored_sealed_key(app)
+        assert open_sealed(sealed, SECRET_BOX_KEY) == KEY
+        assert open_sealed(sealed, TEST_JWT_SECRET) is None
+
+
+async def test_credentials_sealed_with_the_jwt_secret_still_open_and_are_resealed_on_the_next_save(
+    media_root: Path,
+) -> None:
+    async with secret_box_app(media_root) as (app, client):
+        async with app.state.sessionmaker() as session:
+            session.add(PlatformSetting(key=SMS_API_KEY, value={"sealed": seal(TEST_JWT_SECRET, KEY)}))
+            await session.commit()
+        async with app.state.sessionmaker() as session:
+            await reload_platform(app, session)
+
+        before = (await client.get("/api/platform/sms", headers=ADMIN)).json()
+        assert (before["api_key_set"], before["api_key_unreadable"], before["api_key_hint"]) == (True, False, "…1234")
+        assert open_sealed(await _stored_sealed_key(app), SECRET_BOX_KEY) is None
+
+        await client.put("/api/platform/sms", json={"line_number": 30001234}, headers=ADMIN)
+
+        resealed = await _stored_sealed_key(app)
+        assert open_sealed(resealed, SECRET_BOX_KEY) == KEY
+        assert open_sealed(resealed, TEST_JWT_SECRET) is None
+        after = (await client.get("/api/platform/sms", headers=ADMIN)).json()
+        assert (after["api_key_hint"], after["line_number"]) == ("…1234", 30001234)
 
 
 async def test_a_live_test_send_is_reported_as_real_and_a_network_failure_is_named(app: FastAPI, client: AsyncClient) -> None:

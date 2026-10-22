@@ -1,7 +1,7 @@
 import uuid
 from httpx import AsyncClient
 
-from tests.helpers import bearer, provision_organizer
+from tests.helpers import bearer, provision_organizer, sign_in
 from tests.test_events import EVENT
 from tests.test_ticket_tiers import create_event, tier
 
@@ -70,6 +70,29 @@ async def test_desk_registration_supports_walkin_without_mobile(
     assert data["attendee_name"] == "Walk-in Guest No Mobile"
     assert data["attendee_mobile"] is None
     assert len(data["qr_secret"]) == 26
+
+
+async def test_walkin_for_an_existing_account_echoes_what_the_desk_typed_not_the_stored_profile(
+    client: AsyncClient,
+) -> None:
+    organizer = await provision_organizer(client, "Acme Congress Co")
+    event_id = await create_event(client, organizer)
+    tier_id = (
+        await client.post(f"/api/events/{event_id}/ticket-tiers", json=tier(), headers=bearer(organizer))
+    ).json()["id"]
+    await sign_in(client, "09121000038", "Dr. Stored Name", "Stored Hospital", "Stored Title")
+
+    resp = await client.post(
+        f"/api/events/{event_id}/desk-registrations",
+        json={"full_name": "Typed Name", "mobile": "09121000038", "ticket_tier_id": tier_id},
+        headers=bearer(organizer),
+    )
+
+    assert resp.status_code == 201, resp.text
+    data = resp.json()
+    assert (data["attendee_name"], data["organization"], data["title"]) == ("Typed Name", "", "")
+    assert data["attendee_mobile"] == "09121000038"
+    assert "Stored" not in resp.text
 
 
 async def test_desk_registration_atomic_quota_enforcement(

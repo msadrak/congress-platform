@@ -10,6 +10,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.config import STRICT_ENVIRONMENTS, Settings, describe_settings_error
+from app.errors import ApiError, api_error_handler
 from app.logging_setup import configure_logging
 from app.rate_limit import FailureLimiter
 from app.schema_guard import assert_schema_current
@@ -29,6 +30,7 @@ from app.routes import (
     network,
     organizers,
     pages,
+    passes,
     platform,
     program,
     public,
@@ -70,10 +72,19 @@ def create_app(settings: Settings) -> FastAPI:
         await app.state.sms.aclose()
         await engine.dispose()
 
-    app = FastAPI(title="Congress Platform", lifespan=lifespan)
+    # Interactive docs and the schema only outside production (scripts/gen-api.mjs reads app.openapi() directly).
+    docs = settings.environment != "production"
+    app = FastAPI(
+        title="Congress Platform",
+        lifespan=lifespan,
+        openapi_url="/openapi.json" if docs else None,
+        docs_url="/docs" if docs else None,
+        redoc_url="/redoc" if docs else None,
+    )
     app.state.settings = settings
     app.state.limiter = FailureLimiter(enabled=settings.auth_rate_limits_enabled)
     app.state.sms = build_gateway(settings)
+    app.add_exception_handler(ApiError, api_error_handler)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
@@ -97,6 +108,7 @@ def create_app(settings: Settings) -> FastAPI:
     app.include_router(program.router)
     app.include_router(public.router)
     app.include_router(public.seo_router)
+    app.include_router(passes.router)
     app.include_router(sms.router)
     app.include_router(sms.platform_router)
     app.include_router(platform.router)

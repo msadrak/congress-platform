@@ -88,6 +88,7 @@ The template is `deploy/hosted/.env.hosted.example`. On the server it becomes `.
 |---|---|
 | `CONGRESS_ENVIRONMENT` | `production` |
 | `POSTGRES_PASSWORD`, `CONGRESS_PLATFORM_ADMIN_TOKEN`, `CONGRESS_JWT_SECRET` | generated on the server (hex / url-safe, ≥ 32 chars) |
+| `CONGRESS_SECRET_BOX_KEY` (optional, recommended) | generated on the server (≥ 32 chars, different from the JWT secret); see below |
 | `CONGRESS_PUBLIC_ORIGIN` | `https://<domain>` |
 | `CONGRESS_SITE_ADDRESS` | `<domain>` |
 | `CONGRESS_TLS` | ACME contact e-mail |
@@ -96,6 +97,12 @@ The template is `deploy/hosted/.env.hosted.example`. On the server it becomes `.
 | `CONGRESS_BIND` / `CONGRESS_HTTPS_PORT` / `CONGRESS_HTTP_PORT` | `0.0.0.0` / `443` / `80` |
 | `BACKUP_S3_ENDPOINT`, `_REGION`, `_BUCKET`, `_PREFIX`, `_ACCESS_KEY_ID`, `_SECRET_ACCESS_KEY` | from the backup provider; keep them in `/etc/congress/backup.env` (root-only) for the timer |
 | `BACKUP_KEEP_DAILY` / `_WEEKLY` / `_MONTHLY`, `BACKUP_MAX_AGE_HOURS` | 7 / 4 / 6, 26 |
+
+**Credentials stored in the database (the sms.ir API key saved in the platform console)** are encrypted with a key derived from `CONGRESS_SECRET_BOX_KEY`, or from `CONGRESS_JWT_SECRET` while that is unset. With the dedicated key, rotating the JWT secret (which signs out every session) no longer makes the stored key unreadable.
+
+- Introducing it needs no migration: a key saved before still opens with the JWT secret, and it is encrypted again with the new key the next time the SMS settings are saved in the platform console (any change, for example the line number). Save them once before you rotate the JWT secret.
+- Keep `CONGRESS_SECRET_BOX_KEY` with the other secrets and in the backup of `.staging/staging.env`: without it the stored API key cannot be read, and the console asks for it again.
+- The staging/hosted Compose file does not pass this variable to the API yet; until it does (`CONGRESS_SECRET_BOX_KEY: ${CONGRESS_SECRET_BOX_KEY:-}` in the `x-backend` environment, plus a line in the `.env` examples), the JWT-derived key is used.
 
 ## 4. VPS sizing (measured, not guessed)
 

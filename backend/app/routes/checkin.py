@@ -10,14 +10,13 @@ from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 from sqlalchemy import Select, func, or_, select
 from sqlalchemy.exc import IntegrityError
 
-from app.auth import OrganizerDep, hash_api_key
+from app.auth import OrganizerDep, organizer_is_active, resolve_organizer_key
 from app.db import SessionDep
 from app.models import (
     CheckIn,
     CheckInPoint,
     EntityQR,
     Event,
-    Organizer,
     ScannerDevice,
     Ticket,
     TicketTier,
@@ -319,31 +318,41 @@ async def authorized_checkin_point(
                     status.HTTP_403_FORBIDDEN,
                     "Scanner token is not authorized for this event",
                 )
-            # Check per-device revocation via jti claim
-            jti = payload.get("jti")
-            if jti:
-                try:
-                    device_uuid = uuid.UUID(jti)
-                except (ValueError, TypeError):
-                    raise HTTPException(
-                        status.HTTP_401_UNAUTHORIZED,
-                        "Invalid scanner device identifier in token",
-                        headers={"WWW-Authenticate": "Bearer"},
-                    )
-                device = await session.get(ScannerDevice, device_uuid)
-                if device is not None:
-                    if device.is_revoked:
-                        raise HTTPException(
-                            status.HTTP_401_UNAUTHORIZED,
-                            "Scanner device token has been revoked",
-                            headers={"WWW-Authenticate": "Bearer"},
-                        )
-                    if device.checkin_point_id != point.id:
-                        raise HTTPException(
-                            status.HTTP_403_FORBIDDEN,
-                            "Scanner token is not authorized for this check-in point",
-                        )
-                    device.last_seen_at = datetime.now(timezone.utc)
+            # Every scanner token names its registered device (jti); revocation is per device, so a token
+            # without one, or whose device row is gone, cannot be revoked and is refused.
+            try:
+                device_uuid = uuid.UUID(str(payload.get("jti")))
+            except (ValueError, TypeError):
+                raise HTTPException(
+                    status.HTTP_401_UNAUTHORIZED,
+                    "Invalid scanner device identifier in token",
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
+            device = await session.get(ScannerDevice, device_uuid)
+            if device is None:
+                raise HTTPException(
+                    status.HTTP_401_UNAUTHORIZED,
+                    "Scanner device is not registered",
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
+            if device.is_revoked:
+                raise HTTPException(
+                    status.HTTP_401_UNAUTHORIZED,
+                    "Scanner device token has been revoked",
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
+            if device.checkin_point_id != point.id:
+                raise HTTPException(
+                    status.HTTP_403_FORBIDDEN,
+                    "Scanner token is not authorized for this check-in point",
+                )
+            if not await organizer_is_active(session, event.organizer_id):
+                raise HTTPException(
+                    status.HTTP_401_UNAUTHORIZED,
+                    "Scanner token is no longer valid",
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
+            device.last_seen_at = datetime.now(timezone.utc)
             return point
         else:
             raise HTTPException(
@@ -352,10 +361,7 @@ async def authorized_checkin_point(
             )
 
     # 2. Attempt validation as Organizer API Key
-    key_hash = hash_api_key(token)
-    organizer = await session.scalar(
-        select(Organizer).where(Organizer.api_key_hash == key_hash)
-    )
+    organizer = await resolve_organizer_key(session, request, token)
     if organizer is not None:
         if event.organizer_id != organizer.id:
             # Mask presence of foreign organizer's check-in point with 404
@@ -582,7 +588,8 @@ def _manifest_tickets_stmt(point: CheckInPoint) -> Select[Ticket, TicketTier, Us
         .join(
             EntityQR,
             (EntityQR.entity_id == Ticket.id)
-            & (EntityQR.entity_type == "attendee_ticket"),
+            & (EntityQR.entity_type == "attendee_ticket")
+            & EntityQR.is_active.is_(True),
         )
         .where(Ticket.event_id == point.event_id, Ticket.status == "active")
         .order_by(Ticket.created_at)
@@ -810,6 +817,7 @@ async def _record_scans(
         if (
             target is not None
             and target.ticket.event_id == point.event_id
+            and target.ticket.status == "active"
             and scan.scan_id not in recorded
             and scan.client_verdict != "REJECTED"
         ):
@@ -864,6 +872,10 @@ async def _record_scans(
             # Another event's ticket: recorded against the gate only. The foreign ticket is not linked
             # (this event's reports never join the other congress's attendee) and its holder is not disclosed.
             rejection_reason = "EVENT_MISMATCH"
+        elif linked.ticket.status != "active":
+            # A cancelled or otherwise inactive ticket of this event: recorded against the ticket so the desk
+            # sees the attempt in its scan history, and named like any of this event's verdicts (and replays).
+            rejection_reason = "TICKET_INACTIVE"
         elif (
             point.policy_type == "CAPACITY_CAPPED"
             and point.max_capacity is not None

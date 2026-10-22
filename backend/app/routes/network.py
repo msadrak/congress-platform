@@ -1,6 +1,7 @@
 import re
 import uuid
 from datetime import datetime
+from urllib.parse import quote
 
 from fastapi import APIRouter, HTTPException, Response, status
 from pydantic import BaseModel, ConfigDict
@@ -69,9 +70,9 @@ async def scan_peer_badge(
             status.HTTP_404_NOT_FOUND, "Invalid or unrecognized attendee badge QR"
         )
 
-    # 2. Resolve Ticket & Peer User
+    # 2. Resolve Ticket & Peer User (a cancelled or otherwise inactive ticket is not a badge)
     ticket = await session.get(Ticket, qr.entity_id)
-    if ticket is None:
+    if ticket is None or ticket.status != "active":
         raise HTTPException(
             status.HTTP_404_NOT_FOUND, "Attendee ticket not found"
         )
@@ -252,28 +253,46 @@ async def export_connection_vcard(
     if peer is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Peer profile not found")
 
-    # Format RFC 6350 / vCard 3.0
+    # vCard 3.0. Every value is escaped, so profile text can never start a property of its own.
+    name = _vcard_text(peer.full_name)
     vcard_lines = [
         "BEGIN:VCARD",
         "VERSION:3.0",
-        f"FN:{peer.full_name}",
-        f"ORG:{peer.organization}",
-        f"TITLE:{peer.title}",
+        f"FN:{name}",
+        f"N:;{name};;;",
+        f"ORG:{_vcard_text(peer.organization)}",
+        f"TITLE:{_vcard_text(peer.title)}",
     ]
     if peer.share_contact_with_peers and peer.mobile:
         vcard_lines.append(f"TEL;TYPE=CELL:{to_e164(peer.mobile)}")
     if conn.private_notes:
-        vcard_lines.append(f"NOTE:{conn.private_notes}")
+        vcard_lines.append(f"NOTE:{_vcard_text(conn.private_notes)}")
     vcard_lines.append("END:VCARD")
     vcard_lines.append("")
     vcard_text = "\r\n".join(vcard_lines)
 
-    # Sanitize name for filename
-    clean_name = re.sub(r"[^a-zA-Z0-9]+", "-", peer.full_name.lower()).strip("-")
-    filename = f"{clean_name or 'contact'}.vcf"
+    # An ASCII filename for every client, and the name itself (Persian included) for those that read filename*.
+    ascii_name = re.sub(r"[^a-zA-Z0-9]+", "-", peer.full_name.lower()).strip("-")
+    display_name = " ".join(_UNSAFE_FILENAME.sub(" ", peer.full_name).split())[:100] or "contact"
+    disposition = (
+        f'attachment; filename="{ascii_name or "contact"}.vcf"; '
+        f"filename*=UTF-8''{quote(display_name + '.vcf', safe='')}"
+    )
 
     return Response(
         content=vcard_text,
         media_type="text/vcard; charset=utf-8",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={"Content-Disposition": disposition},
     )
+
+
+# Path separators, characters Windows refuses in filenames, and control characters.
+_UNSAFE_FILENAME = re.compile(r'[\x00-\x1f\x7f\\/:*?"<>|]+')
+
+
+def _vcard_text(value: str) -> str:
+    """A TEXT value escaped per RFC 6350 §3.4: backslash, comma and semicolon escaped, line breaks as \\n, other
+    control characters dropped."""
+    value = value.replace("\\", "\\\\").replace(",", "\\,").replace(";", "\\;")
+    value = value.replace("\r\n", "\n").replace("\r", "\n").replace("\n", "\\n")
+    return re.sub(r"[\x00-\x1f\x7f]", "", value)

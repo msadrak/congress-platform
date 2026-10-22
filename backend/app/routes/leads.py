@@ -101,12 +101,12 @@ async def scan_attendee_lead(
             status.HTTP_404_NOT_FOUND, "Invalid or unrecognized attendee badge QR"
         )
 
-    # 2. Resolve Ticket, Tier, and Attendee User
+    # 2. Resolve Ticket, Tier, and Attendee User (a cancelled or otherwise inactive ticket is not a badge)
     ticket_row = await session.execute(
         select(Ticket, TicketTier, User)
         .join(TicketTier, Ticket.ticket_tier_id == TicketTier.id)
         .join(User, Ticket.user_id == User.id)
-        .where(Ticket.id == qr.entity_id)
+        .where(Ticket.id == qr.entity_id, Ticket.status == "active")
     )
     resolved = ticket_row.one_or_none()
     if resolved is None:
