@@ -36,3 +36,15 @@ the organizer console.
   e.g. to an office or VPN range). The console explains when the edge refuses it.
 - Settings are per deployment and cached in process memory; a multi-process deployment would need a change
   notification (or a short cache lifetime).
+
+## Status / Implementation notes (2026-10-23)
+
+The decision above stands, with one change to point 4.
+
+- **SMS key sealing:** the sms.ir API key is sealed with a key derived from `CONGRESS_SECRET_BOX_KEY` when that is set
+  (a generated secret of at least 32 characters, different from the JWT secret), otherwise from the JWT secret as
+  first described. Values sealed with the JWT secret still open and are sealed again with the dedicated key on the
+  next save, so setting it needs no migration; from then on, rotating `CONGRESS_JWT_SECRET` no longer makes the stored
+  key unreadable (`app/secret_box.py`). Losing the sealing key still does, and the console then asks for the key.
+- The platform console, the settings table and the run-time gateway switch are implemented as described. Sign-in code
+  throttling is still per process (see the status section of ADR 0002; a move to PostgreSQL is in progress elsewhere).
