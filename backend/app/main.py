@@ -10,6 +10,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.config import STRICT_ENVIRONMENTS, Settings, describe_settings_error
+from app.errors import ApiError, api_error_handler
 from app.logging_setup import configure_logging
 from app.rate_limit import FailureLimiter
 from app.schema_guard import assert_schema_current
@@ -74,6 +75,7 @@ def create_app(settings: Settings) -> FastAPI:
     app.state.settings = settings
     app.state.limiter = FailureLimiter(enabled=settings.auth_rate_limits_enabled)
     app.state.sms = build_gateway(settings)
+    app.add_exception_handler(ApiError, api_error_handler)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,

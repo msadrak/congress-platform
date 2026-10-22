@@ -1,12 +1,13 @@
 import uuid
 from datetime import datetime
 
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, Request, status
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 
 from app.db import SessionDep
+from app.errors import ApiError, error_responses
 from app.models import EntityQR, Event, Ticket, TicketTier
 from app.routes.auth import CurrentUserDep
 from app.security import generate_entity_qr_secret
@@ -53,6 +54,9 @@ class AttendeeTicketDetail(BaseModel):
 @router.post(
     "/api/events/{event_id}/tickets/reserve",
     status_code=status.HTTP_201_CREATED,
+    responses=error_responses(
+        status.HTTP_400_BAD_REQUEST, status.HTTP_404_NOT_FOUND, status.HTTP_409_CONFLICT, status.HTTP_410_GONE
+    ),
 )
 async def reserve_ticket(
     event_id: uuid.UUID,
@@ -63,7 +67,7 @@ async def reserve_ticket(
 ) -> TicketOut:
     event = await session.get(Event, event_id)
     if event is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Event not found")
+        raise ApiError(status.HTTP_404_NOT_FOUND, "EVENT_NOT_FOUND", "Event not found")
 
     # Check if user already holds a ticket for this event
     existing = await session.scalar(
@@ -72,8 +76,9 @@ async def reserve_ticket(
         )
     )
     if existing is not None:
-        raise HTTPException(
+        raise ApiError(
             status.HTTP_409_CONFLICT,
+            "ALREADY_REGISTERED",
             "User already holds a ticket for this event",
         )
 
@@ -96,16 +101,12 @@ async def reserve_ticket(
         # Investigate why the update failed
         tier = await session.get(TicketTier, body.ticket_tier_id)
         if tier is None or tier.event_id != event_id:
-            raise HTTPException(
-                status.HTTP_404_NOT_FOUND, "Ticket tier not found"
-            )
+            raise ApiError(status.HTTP_404_NOT_FOUND, "TIER_NOT_FOUND", "Ticket tier not found")
         if not tier.is_open:
-            raise HTTPException(
-                status.HTTP_400_BAD_REQUEST, "Ticket tier is closed for registration"
+            raise ApiError(
+                status.HTTP_400_BAD_REQUEST, "TIER_CLOSED", "Ticket tier is closed for registration"
             )
-        raise HTTPException(
-            status.HTTP_410_GONE, "Ticket tier is sold out / quota exhausted"
-        )
+        raise ApiError(status.HTTP_410_GONE, "TIER_SOLD_OUT", "Ticket tier is sold out / quota exhausted")
 
     ticket = Ticket(
         event_id=event_id,
@@ -117,8 +118,9 @@ async def reserve_ticket(
     try:
         await session.flush()
     except IntegrityError:
-        raise HTTPException(
+        raise ApiError(
             status.HTTP_409_CONFLICT,
+            "ALREADY_REGISTERED",
             "User already holds a ticket for this event",
         ) from None
 
