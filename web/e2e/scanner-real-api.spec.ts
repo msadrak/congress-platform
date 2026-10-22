@@ -45,6 +45,9 @@ test('R01: Real PostgreSQL scanner pairing, manifest access, self-revocation, an
   expect(tokenResponse.status()).toBe(201);
   const issued = await tokenResponse.json() as { scanner_token: string; device_id: string };
 
+  // The scanner defaults to Persian; the assertions below read the English copy.
+  await page.addInitScript(() => localStorage.setItem('congress_attendee_locale', 'en'));
+
   // Exercise the built UI against the same live API used by the setup requests.
   await page.route('**/api/**', async (route) => {
     const requestURL = new URL(route.request().url());
