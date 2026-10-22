@@ -106,4 +106,5 @@ With the `console` provider nothing is sent; codes appear in the API log and the
 | reservation-burst, 50/s × 10 s, 500 attendees | 500/500 × 201, p95 207 ms, p99 470 ms, 0 dropped, 0 5xx |
 | gate-scanning, 10 gates × 20 scans/min (batches of 2), manifests every 30 s, 2 min, 300 tickets | 201 batches all admitted, scan p95 188 ms, manifest p95 217 ms, 0 5xx |
 | sync-backlog, 2000 scans in 20 chunks of 100 | 7.6 s total (chunk p95 682 ms), 0 5xx |
+| otp-burst, full target: 1000 in 15 min (`SPREAD_IPS=1`, default limits) | 1001/1001 × 202, p95 270 ms, p99 679 ms, 0 5xx (the backend test suite was running on the same machine meanwhile) |
 | otp-burst, 200 in 1 min (relaxed limits) and 150 in 30 s (`SPREAD_IPS=1`, default limits) | 100 % 202, p95 43 ms / 39 ms, 0 5xx |
