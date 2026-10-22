@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.config import STRICT_ENVIRONMENTS, Settings, describe_settings_error
 from app.logging_setup import configure_logging
+from app.observability import install_observability
 from app.rate_limit import FailureLimiter
 from app.schema_guard import assert_schema_current
 from app.platform_config import apply_platform, environment_config, keep_loading_platform, reload_platform
@@ -80,6 +81,7 @@ def create_app(settings: Settings) -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    install_observability(app, settings)
     app.include_router(health.router)
     app.include_router(auth.router)
     app.include_router(access.router)
@@ -110,9 +112,10 @@ def create_app_from_env() -> FastAPI:
 
     A misconfigured deployment stops here with a list of what to fix, before it opens any connection.
     """
-    configure_logging()
     try:
         settings = Settings()
     except ValidationError as exc:
+        configure_logging()
         raise SystemExit(describe_settings_error(exc)) from None
+    configure_logging(settings.effective_log_format)
     return create_app(settings)

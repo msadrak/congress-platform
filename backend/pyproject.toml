@@ -13,6 +13,9 @@ dependencies = [
     "pillow>=11",
     "httpx>=0.28",
     "cryptography>=43",
+    # Monitoring (app/observability.py): /api/metrics and optional Sentry/GlitchTip error reporting.
+    "prometheus-client>=0.21",
+    "sentry-sdk>=2.19",
 ]
 
 [dependency-groups]
