@@ -3,10 +3,11 @@
 from pathlib import Path
 
 import pytest
+from httpx import ASGITransport, AsyncClient
 from pydantic import ValidationError
 
 from app.config import DEV_DATABASE_URL, Settings, describe_settings_error
-from app.main import create_app_from_env
+from app.main import create_app, create_app_from_env
 
 STRONG_TOKEN = "q8F3vKz1Lr9XwT2bN5mY7pC0dH4jS6aG"
 STRONG_JWT = "9b1f0e8c7d6a5b4c3d2e1f0a9b8c7d6e5f4a3b2c"
@@ -72,6 +73,16 @@ def test_the_documented_example_jwt_secret_is_refused_everywhere() -> None:
     for environment in ("development", "production"):
         with pytest.raises(ValidationError):
             production(environment=environment, jwt_secret=example)
+
+
+@pytest.mark.parametrize("environment", ["development", "staging", "production"])
+async def test_interactive_api_docs_and_schema_are_not_served_in_production(environment: str) -> None:
+    app = create_app(production(environment=environment))
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        statuses = {path: (await client.get(path)).status_code for path in ("/docs", "/redoc", "/openapi.json")}
+    expected = 404 if environment == "production" else 200
+    assert statuses == dict.fromkeys(("/docs", "/redoc", "/openapi.json"), expected)
+    assert app.openapi()["paths"]  # the schema export (scripts/gen-api.mjs) still reads it in-process
 
 
 def test_unset_environment_is_treated_as_production() -> None:
