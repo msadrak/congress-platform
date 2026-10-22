@@ -17,16 +17,20 @@ An authenticated account on the platform identified by an Iranian mobile number,
 _Avoid_: Member, login, profile, account
 
 **Buyer**:
-A User who places an Order for tickets and manages ticket allocations.
+_Not implemented (see ADR 0003 status)._ A User who would place an Order for tickets and allocate them to others. Today every ticket is reserved by, and bound to, the User who holds it; there is no buyer separate from the attendee.
 _Avoid_: Customer, purchaser
 
 **Attendee**:
 An individual person with an authenticated User account who holds an activated Ticket and attends the event.
-_Avoid_: Participant, customer, guest
+_Avoid_: Customer, guest; Participant except for the organizer's register (see Participant)
 
 **Order**:
-A transaction reserving one or more free tickets for an event.
+_Not implemented (see ADR 0003 status)._ A transaction that would reserve one or more free tickets for an event. Today a reservation creates exactly one Ticket for the signed-in User (one per User per event); there is no order record.
 _Avoid_: Purchase, payment, cart
+
+**Claim Link**:
+_Not implemented (see ADR 0003 and ADR 0005 status)._ A secure one-time link through which a Buyer's ticket would be claimed by its attendee. Not to be confused with the Short link, which opens an existing ticket's pass.
+_Avoid_: Invite link, transfer link
 
 **Ticket**:
 A digital entitlement issued to an attendee granting admission to an event or specific sessions.
@@ -36,6 +40,10 @@ _Avoid_: Pass, voucher, registration (when referring to the ticket)
 The online process where a prospective attendee registers their own account and receives a ticket.
 _Avoid_: Public registration, web signup
 
+**Participant**:
+One registration (Ticket) of an event as the organizer's register lists it: the ticket holder together with the registration's own copy of their details (name, organization, title, mobile), which the organizer can correct without touching the person's User account. _Being introduced by the participants workstream (participant-detail snapshots, cancel, reissue, transfer); not yet on the main line._ Use only for the organizer's register and its exports; elsewhere the person is an Attendee.
+_Avoid_: Registrant, delegate, guest
+
 **Desk Registration**:
 The on-site process where front-desk staff registers an attendee in person and issues their ticket.
 _Avoid_: Walk-in registration, manual entry, admin signup
@@ -43,6 +51,14 @@ _Avoid_: Walk-in registration, manual entry, admin signup
 **Entity QR**:
 A unique, secure identifier and QR payload that can be bound to any platform entity (Attendee, Booth, Hall, Session).
 _Avoid_: Barcode, token, QR code (when referring to the domain concept rather than the visual image)
+
+**Short link**:
+The short address (`/t/{code}`, ADR 0015) in a ticket confirmation SMS. Its 10-character code belongs to one Ticket, expires 30 days after the event, and can be revoked; opening it shows that ticket's Link pass.
+_Avoid_: Claim Link, magic link, URL shortener
+
+**Link pass**:
+The read-only view of a ticket's pass (QR, holder, tier, status) opened from a Short link without a sign-in code, kept on the device until the link expires (ADR 0015). It grants nothing else: networking and the profile still need a sign-in.
+_Avoid_: Guest ticket, anonymous ticket
 
 **Check-In Point**:
 A designated physical station or gate (Hall, Booth, Dining/Catering, Main Entrance) that scans QR codes and evaluates an Admission Policy.
@@ -57,8 +73,12 @@ The verified admission event of an attendee at a Check-In Point.
 _Avoid_: Entry, scan (as an entity), arrival
 
 **Exhibitor**:
-A commercial organization, company, or sponsor presenting products and services at an event.
-_Avoid_: Vendor, seller, partner
+A commercial organization, company, or sponsor presenting products and services at an event from one or more Booths. In the planned Partner model, an Exhibitor is the kind of Partner that operates Booths.
+_Avoid_: Vendor, seller; Partner when the Booth-operating organization is meant
+
+**Partner**:
+_Planned, not implemented (portal redesign D06, FINDING-05)._ A commercial or institutional organization affiliated with an event (exhibitor, sponsor, institutional or scientific partner), possibly without a Booth. Today only Exhibitors with Booths exist: the access API's `PARTNER` role means Booth staff, and its `partner_ids` list is always empty.
+_Avoid_: Vendor, supplier
 
 **Booth**:
 A physical exhibition stall or space assigned to an Exhibitor, represented by an Entity QR code.
@@ -95,3 +115,7 @@ _Avoid_: Room (in the domain model), auditorium, stage
 **Entrance**:
 A way into the venue listed in the event's venue directory with directions for attendees. Informational only; the gate that scans tickets there is a Check-In Point.
 _Avoid_: Gate (when meaning the place), door, entry
+
+**Coded error**:
+An API error that carries a stable machine-readable `code` (for example `TIER_SOLD_OUT`, `LINK_EXPIRED`) next to its English `detail`; clients decide on the code and show a localized message, never the English text (`docs/CODING_STANDARDS.md` §2.F).
+_Avoid_: Error string, error message (when the code is meant)
