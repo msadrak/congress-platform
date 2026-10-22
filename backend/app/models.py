@@ -148,6 +148,14 @@ class User(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
+    # Privacy and account lifecycle (migration 0023). Exhibitors see the mobile on a lead only with consent.
+    share_contact_with_exhibitors: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false"
+    )
+    # Set when the person deleted their account: the row stays (anonymised) so check-in statistics add up.
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
 class DeskOperator(Base):
     """An event-scoped operator authorized for reception, attendee lookup, and walk-in ticket minting."""
 
@@ -174,11 +182,16 @@ class DeskOperator(Base):
 
 
 class Ticket(Base):
-    """A free digital ticket entitlement held by an attendee."""
+    """A free digital ticket entitlement held by an attendee.
+
+    The attendee_* columns are this registration's own copy of the attendee's details: the organizer edits them
+    without touching the person's platform-wide account, which other congresses share (app/ticket_lifecycle.py).
+    """
 
     __tablename__ = "tickets"
     __table_args__ = (
         UniqueConstraint("event_id", "user_id", name="uq_tickets_event_user"),
+        CheckConstraint("status IN ('active', 'cancelled')", name="ck_tickets_status"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
@@ -194,6 +207,19 @@ class Ticket(Base):
     issued_by_operator_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("desk_operators.id"), nullable=True, index=True
     )
+    # Registration details and lifecycle (migration 0023).
+    attendee_full_name: Mapped[str] = mapped_column(String(200))
+    attendee_organization: Mapped[str] = mapped_column(String(200), default="", server_default="")
+    attendee_title: Mapped[str] = mapped_column(String(100), default="", server_default="")
+    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    cancelled_reason: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    # Who cancelled: organizer | attendee | account_deleted.
+    cancelled_by: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    reissued_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
 
 class EntityQR(Base):
     """Universal polymorphic QR registry (attendee_ticket, booth, hall, session)."""
