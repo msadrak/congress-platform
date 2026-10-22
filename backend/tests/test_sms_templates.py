@@ -1,11 +1,14 @@
 """SMS wording managed in the app: event overrides, platform defaults, validation, tests sends and the log."""
 
+import uuid
 from typing import Any
 
 from fastapi import FastAPI
 from httpx import AsyncClient
+from sqlalchemy import select
 
 from app.links import SAMPLE_CODE
+from app.models import ShortLink
 from app.sms.outbox import deliver_due
 from app.sms.gateway import SmsGateway
 from app.sms.provider import RecordingProvider
@@ -208,11 +211,11 @@ async def test_a_test_send_uses_sample_values_is_logged_and_rate_limited(app: Fa
     assert statuses == [200] * 9 + [429]
 
 
-# A real deployment's origin plus a descriptive slug is far longer than the 60 characters other values are
-# shortened to; a shortened link (".../my-tic…") opens no page, so the link is always sent whole.
+# A real deployment's origin alone can exceed the 60 characters other values are shortened to; a shortened
+# link (".../t/k7m…") opens no page, so the link is always sent whole.
 LONG_ORIGIN = "https://congress-registration.example-medical-university.ac.ir"
 LONG_SLUG = "international-congress-of-cardiology-and-vascular-surgery-2027"
-LONG_LINK = f"{LONG_ORIGIN}/c/{LONG_SLUG}/my-ticket"
+LONG_SAMPLE_LINK = f"{LONG_ORIGIN}/t/{SAMPLE_CODE}"
 
 
 async def long_link_event(app: FastAPI, client: AsyncClient) -> tuple[dict[str, str], str, str]:
@@ -228,7 +231,7 @@ async def long_link_event(app: FastAPI, client: AsyncClient) -> tuple[dict[str, 
 
 
 async def test_the_pass_link_is_never_shortened_while_long_values_still_are(app: FastAPI, client: AsyncClient) -> None:
-    assert len(LONG_LINK) > 60
+    assert len(LONG_SAMPLE_LINK) > 60
     organizer, event_id, tier_id = await long_link_event(app, client)
     await client.put(
         f"/api/events/{event_id}/sms/templates/ticket_confirmation",
@@ -243,20 +246,22 @@ async def test_the_pass_link_is_never_shortened_while_long_values_still_are(app:
     await deliver_due(app.state.sessionmaker, app.state.sms)
 
     name, link = recorder(app).sent_to(MOBILE)[-1].text.split("|")
-    assert link == LONG_LINK
+    async with app.state.sessionmaker() as session:
+        code = await session.scalar(select(ShortLink.code).where(ShortLink.ticket_id == uuid.UUID(reserved.json()["id"])))
+    assert link == f"{LONG_ORIGIN}/t/{code}"
     assert len(name) == 60 and name.endswith("…")
 
 
 async def test_the_organizer_preview_and_test_send_show_the_whole_link(app: FastAPI, client: AsyncClient) -> None:
     organizer, event_id, _ = await long_link_event(app, client)
     panel = (await client.get(f"/api/events/{event_id}/sms", headers=bearer(organizer))).json()
-    assert panel["sample"]["link"] == LONG_LINK
+    assert panel["sample"]["link"] == LONG_SAMPLE_LINK
 
     sent = await client.post(
         f"/api/events/{event_id}/sms/test", json={"mobile": MOBILE, "body": "Pass: {link}"}, headers=bearer(organizer)
     )
     assert sent.status_code == 200, sent.text
-    assert sent.json()["text"] == f"Pass: {LONG_LINK}"
+    assert sent.json()["text"] == f"Pass: {LONG_SAMPLE_LINK}"
 
 
 async def test_the_platform_test_send_shows_the_whole_link(app: FastAPI, client: AsyncClient) -> None:
@@ -266,4 +271,4 @@ async def test_the_platform_test_send_shows_the_whole_link(app: FastAPI, client:
         json={"mobile": MOBILE, "kind": "ticket_confirmation", "body": "Pass: {link}"}, headers=ADMIN,
     )
     assert sent.status_code == 200, sent.text
-    assert sent.json()["text"] == f"Pass: {LONG_ORIGIN}/c/sample/my-ticket"
+    assert sent.json()["text"] == f"Pass: {LONG_SAMPLE_LINK}"
