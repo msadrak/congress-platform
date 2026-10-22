@@ -14,7 +14,8 @@
  * --internal network without a published port, named volumes for its data and for the media root,
  * generated secrets, API in CONGRESS_ENVIRONMENT=staging published on 127.0.0.1 and the web preview on
  * 127.0.0.1, both on free ports picked per run. Everything is removed at the
- * end unless --keep. Requires Docker, the backend image used by congress-e2e.mjs, postgres:16, Edge and
+ * end unless --keep. Requires Docker, the backend image used by congress-e2e.mjs, postgres:16, Edge (or the
+ * browser named by CONGRESS_BROWSER_CHANNEL, e.g. chromium or chrome) and
  * the backend virtualenv (to draw the synthetic artwork).
  */
 import { randomBytes } from 'node:crypto';
@@ -125,7 +126,7 @@ try {
   if (!args.has('--skip-build') || !existsSync(resolve(root, 'web/dist'))) sh('npm', ['run', 'build'], false, { cwd: resolve(root, 'web') });
   preview = startPreview({ port: WEB_PORT, apiOrigin: API_URL });
   await wait('web preview', async () => (await fetch(BASE)).ok);
-  browser = await chromium.launch({ channel: 'msedge' });
+  browser = await chromium.launch({ channel: process.env.CONGRESS_BROWSER_CHANNEL ?? 'msedge' });
   const contextFor = async (viewport, locale = 'en') => {
     const ctx = await browser.newContext({ viewport, deviceScaleFactor: 1, serviceWorkers: 'block', reducedMotion: 'reduce' });
     await ctx.addInitScript((l) => localStorage.setItem('congress_attendee_locale', l), locale);
