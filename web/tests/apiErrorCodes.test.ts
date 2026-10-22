@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { ApiResponseError, apiErrorCode, formatApiError, localizedApiError } from "../src/api/client.ts";
-import { errorMessages, isTierUnavailable } from "../src/lib/errorMessages.ts";
+import { errorMessages, isTierUnavailable, networkErrorMessage } from "../src/lib/errorMessages.ts";
 
 const soldOut = { detail: "Ticket tier is sold out / quota exhausted", code: "TIER_SOLD_OUT" };
 
@@ -39,6 +39,7 @@ test("every code has a Persian and an English message", () => {
     assert.ok(errorMessages.en[code]?.trim(), `en ${code}`);
     assert.match(code, /^[A-Z][A-Z0-9_]*$/);
   }
+  assert.ok(networkErrorMessage.fa.trim() && networkErrorMessage.en.trim());
 });
 
 test("sold-out and closed tiers mean the page should reload availability", () => {
