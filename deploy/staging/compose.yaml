@@ -51,7 +51,9 @@ services:
     volumes:
       - ${CONGRESS_PERSISTENT_DATA_ROOT:?set CONGRESS_PERSISTENT_DATA_ROOT in .staging/staging.env}/data/postgres:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U congress -d congress"]
+      # Over TCP: on first start the image runs a temporary socket-only server for initialisation and then stops
+      # it, so a socket check can report healthy just before the database goes away again.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U congress -d congress"]
       interval: 5s
       timeout: 5s
       retries: 20
