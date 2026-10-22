@@ -15,6 +15,8 @@ x-logging: &logging
     max-size: "10m"
     max-file: "5"
 
+# Images: `stack.mjs up` builds under CONGRESS_IMAGE_TAG (the alias the services run) and also tags each build
+# with its commit (congress-platform/api:<sha>); `stack.mjs rollback` points the alias back at an older one.
 x-backend: &backend
   image: congress-platform/api:${CONGRESS_IMAGE_TAG:-staging}
   logging: *logging
@@ -30,6 +32,11 @@ x-backend: &backend
     CONGRESS_SMS_PROVIDER: ${CONGRESS_SMS_PROVIDER:?set CONGRESS_SMS_PROVIDER (smsir or console)}
     CONGRESS_SMSIR_API_KEY: ${CONGRESS_SMSIR_API_KEY:-}
     CONGRESS_SMSIR_LINE_NUMBER: ${CONGRESS_SMSIR_LINE_NUMBER:-}
+    # Monitoring (docs/deployment/STAGING_OPERATIONS.md → Monitoring). Empty = defaults: JSON logs in
+    # staging/production, /api/metrics disabled, no error reporting.
+    CONGRESS_LOG_FORMAT: ${CONGRESS_LOG_FORMAT:-}
+    CONGRESS_METRICS_TOKEN: ${CONGRESS_METRICS_TOKEN:-}
+    CONGRESS_SENTRY_DSN: ${CONGRESS_SENTRY_DSN:-}
 
 services:
   db:
@@ -55,7 +62,9 @@ services:
     <<: *backend
     # The api image, built once by the api service: Compose with Bake (buildx) refuses to build one image twice.
     pull_policy: never
-    command: ["alembic", "upgrade", "head"]
+    # alembic upgrade head, then record the revision chain for older builds (rollback, app/schema_guard.py); a
+    # database already ahead by backward-compatible migrations (after `stack.mjs rollback`) is left as it is.
+    command: ["python", "-m", "app.schema_guard", "migrate"]
     restart: "no"
     healthcheck:
       disable: true
@@ -100,6 +109,8 @@ services:
       CONGRESS_TRUSTED_PROXIES: ${CONGRESS_TRUSTED_PROXIES:-}
       CONGRESS_CLIENT_IP_HEADER: ${CONGRESS_CLIENT_IP_HEADER:-X-Forwarded-For}
       CONGRESS_ORIGIN_TLS: ${CONGRESS_ORIGIN_TLS:-on}
+      # Client ranges that may reach /api/metrics (the API also requires CONGRESS_METRICS_TOKEN).
+      CONGRESS_METRICS_ALLOW: ${CONGRESS_METRICS_ALLOW:-private_ranges}
     ports:
       - "${CONGRESS_BIND:-127.0.0.1}:${CONGRESS_HTTPS_PORT:-8443}:443"
       - "${CONGRESS_BIND:-127.0.0.1}:${CONGRESS_HTTP_PORT:-18080}:80"

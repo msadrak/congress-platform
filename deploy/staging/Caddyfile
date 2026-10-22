@@ -5,6 +5,7 @@
 #   CONGRESS_HSTS          on  = Strict-Transport-Security (real domain with a public certificate)
 #   CONGRESS_ADMIN_ALLOW   client ranges that may reach /api/organizers and /api/platform through the proxy
 #                          (local staging: private_ranges; hosted: 127.0.0.1/32 = nobody, use stack.mjs)
+#   CONGRESS_METRICS_ALLOW client ranges that may reach /api/metrics (hosted: your Prometheus server's address)
 #   CONGRESS_DEFAULT_SNI   certificate name for clients that send no SNI, i.e. that connect to a bare IP
 #                          address (LAN access: the machine's IP, which must also be in CONGRESS_SITE_ADDRESS)
 # CDN in front (docs/deployment/CDN.md), all off by default:
@@ -63,6 +64,13 @@
 			not remote_ip {$CONGRESS_ADMIN_ALLOW:private_ranges}
 		}
 		respond @adminBlocked 404
+
+		# Prometheus metrics: only scrapers in CONGRESS_METRICS_ALLOW (the API also requires its bearer token).
+		@metricsBlocked {
+			path /api/metrics
+			not remote_ip {$CONGRESS_METRICS_ALLOW:private_ranges}
+		}
+		respond @metricsBlocked 404
 
 		request_body {
 			max_size 8MB
