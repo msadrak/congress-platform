@@ -20,6 +20,8 @@ interface PassesPanelProps {
   onReserve: () => void;
   submitting?: boolean;
   alreadyHasTicket?: boolean;
+  /** Why the last reservation failed, shown above the dock until the attendee retries. */
+  error?: string | null;
   /** Set in the Page Studio preview: the dock is shown but cannot reserve. */
   disabledNote?: string;
 }
@@ -35,6 +37,7 @@ export function PassesPanel({
   onReserve,
   submitting = false,
   alreadyHasTicket = false,
+  error = null,
   disabledNote,
 }: PassesPanelProps) {
   const c = publicCopy[locale];
@@ -90,6 +93,17 @@ export function PassesPanel({
             {c.viewMyPass}
             <Icon name="arrow-right" size={16} />
           </LinkButton>
+        </div>
+      )}
+
+      {error && (
+        <div
+          role="alert"
+          aria-live="assertive"
+          className="flex items-start gap-3 rounded-xl border border-status-danger-border bg-status-danger-bg p-3.5 text-sm leading-relaxed text-status-danger-text"
+        >
+          <Icon name="alert" size={18} className="mt-0.5 shrink-0" />
+          <span>{error}</span>
         </div>
       )}
 

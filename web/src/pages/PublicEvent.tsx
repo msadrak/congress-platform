@@ -2,13 +2,15 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   ATTENDEE_TOKEN_STORAGE,
-  formatApiError,
+  apiErrorCode,
   createApiClient,
+  localizedApiError,
   type AuthResponse,
   type PublicEvent as PublicEventType,
 } from "../api/client";
 import { MobileOtpForm } from "../components/auth/MobileOtpForm";
 import { isStoredAttendeeToken, rejectAttendeeToken } from "../lib/attendeeSession";
+import { isTierUnavailable, networkErrorMessage } from "../lib/errorMessages";
 import { PublicLayout } from "../layouts/PublicLayout";
 import { normalizeDocument, standardDocument, type PageImages } from "../lib/pageDocument";
 import { usePageMeta } from "../lib/pageMeta";
@@ -132,13 +134,21 @@ export default function PublicEvent() {
       return;
     }
     const client = createApiClient({ kind: "user", token });
-    const { data, error: err, response } = await client.POST(
-      "/api/events/{event_id}/tickets/reserve",
-      {
+    const result = await client
+      .POST("/api/events/{event_id}/tickets/reserve", {
         params: { path: { event_id: event.id } },
         body: { ticket_tier_id: tierId },
+      })
+      .catch(() => null);
+    if (result === null) {
+      // Network failure: no response to interpret, but the attendee must see that nothing was reserved.
+      if (context.active) {
+        setModalError(networkErrorMessage[locale]);
+        setSubmitting(false);
       }
-    );
+      return;
+    }
+    const { data, error: err, response } = result;
     if (!context.active) return;
     // A response for a session that has since changed must not show success or error for the new one.
     if (!isStoredAttendeeToken(token)) {
@@ -148,9 +158,6 @@ export default function PublicEvent() {
     }
 
     if (err) {
-      const formatted = formatApiError(err);
-      const lower = formatted.toLowerCase();
-
       // Edge case 2: 401 for the exact token that was sent
       if (response.status === 401) {
         rejectAttendeeToken(token);
@@ -161,25 +168,17 @@ export default function PublicEvent() {
         return;
       }
 
+      // Decided by the API's stable error code, never by its English text.
+      const code = apiErrorCode(err);
       // Edge case 4: Duplicate registration conflict
-      if (
-        lower.includes("already holds a ticket") ||
-        lower.includes("already registered")
-      ) {
+      if (code === "ALREADY_REGISTERED") {
         setAlreadyHasTicket(true);
         setIsAuthModalOpen(false);
         setModalError(null);
       } else {
-        // Edge case 3: Tier became unavailable / sold out / closed
-        if (
-          lower.includes("sold out") ||
-          lower.includes("exhausted") ||
-          lower.includes("closed")
-        ) {
-          // Reload event data to reflect latest tier availability
-          refreshEvent(event.slug, context);
-        }
-        setModalError(formatted);
+        // Edge case 3: Tier became unavailable / sold out / closed: reload the latest tier availability
+        if (isTierUnavailable(code)) refreshEvent(event.slug, context);
+        setModalError(localizedApiError(err, locale));
       }
       setSubmitting(false);
     } else if (data) {
@@ -301,10 +300,15 @@ export default function PublicEvent() {
             locale={locale}
             accent={doc.branding.accent}
             selectedTierId={selectedTierId}
-            onSelectTier={setSelectedTierId}
+            onSelectTier={(id) => {
+              setSelectedTierId(id);
+              setModalError(null);
+            }}
             onReserve={handleStartReservation}
             submitting={submitting}
             alreadyHasTicket={alreadyHasTicket}
+            // Signed-in attendees reserve without the dialog, so its errors must show beside the dock.
+            error={isAuthModalOpen ? null : modalError}
           />
         }
       />

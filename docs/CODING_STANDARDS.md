@@ -39,6 +39,12 @@ Mechanical rules live in checks, not here: no `any` (oxlint `typescript/no-expli
 - **Rule:** When writing tests that provision more than one event, every secondary event must randomize or parameterize its slug (e.g. `f"event-b-{uuid.uuid4().hex[:6]}"`).
 - **Why:** Global unique constraints on `events.slug` reject duplicate slugs with `409 Conflict`. Reusing static dictionary fixtures across multiple events causes unforced test failures.
 
+### F. Stable Error Codes (`app/errors.py`)
+- **Rule:** An error a client must react to or show to a person is raised as `ApiError(status, "UPPER_SNAKE_CODE", "English message")`, and the route declares it with `responses=error_responses(...)` so the OpenAPI document and `web/src/api/schema.d.ts` describe the body. The response is `{"detail": "<English message>", "code": "<CODE>"}`; `detail` stays a string, plain `HTTPException`s keep answering `{"detail": ...}`, and 422 validation bodies are unchanged.
+- **Naming:** `SUBJECT_STATE` in upper snake case, describing what happened rather than the status (`TIER_SOLD_OUT`, `TIER_CLOSED`, `ALREADY_REGISTERED`, `EVENT_NOT_FOUND`). A code is a contract: never rename or reuse one; keep its status and `detail` stable when converting an existing error.
+- **Web:** decide with `apiErrorCode(error)` and show `localizedApiError(error, locale)` (both in `web/src/api/client.ts`); add every new code to the fa and en maps in `web/src/lib/errorMessages.ts`. Never match or branch on the English `detail` text.
+- **Why:** Persian readers must not see raw English, and UI behaviour must not break when a message is reworded.
+
 ---
 
 ## 3. Flutter & Dart Standards (`mobile/`)
