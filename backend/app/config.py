@@ -46,6 +46,9 @@ class Settings(BaseSettings):
     platform_admin_token: str
     # Secure signing secret for HS256 JWTs. Deliberately has no default.
     jwt_secret: str
+    # Encrypts credentials stored in the database (app/secret_box.py). Optional: without it they are sealed with
+    # a key derived from the JWT secret, which values sealed that way keep opening with.
+    secret_box_key: str = ""
     cors_origins: list[str] = ["http://localhost:5173"]
     # Uploaded Page Studio images. Must be a durable volume (or mount) outside the application image.
     media_root: Path
@@ -118,6 +121,23 @@ class Settings(BaseSettings):
                 "CONGRESS_JWT_SECRET must be at least 32 characters (256 bits) for secure HS256 signing."
             )
         return trimmed
+
+    @field_validator("secret_box_key")
+    @classmethod
+    def validate_secret_box_key(cls, v: str) -> str:
+        trimmed = v.strip()
+        if trimmed and (_is_placeholder(trimmed) or len(trimmed) < 32):
+            raise ValueError(
+                "CONGRESS_SECRET_BOX_KEY, when set, must be a generated secret of at least 32 characters "
+                "(for example: python -c \"import secrets; print(secrets.token_hex(32))\")."
+            )
+        return trimmed
+
+    @model_validator(mode="after")
+    def _distinct_secret_box_key(self) -> "Settings":
+        if self.secret_box_key and self.secret_box_key == self.jwt_secret:
+            raise ValueError("CONGRESS_SECRET_BOX_KEY must differ from CONGRESS_JWT_SECRET.")
+        return self
 
     @field_validator("platform_admin_token")
     @classmethod

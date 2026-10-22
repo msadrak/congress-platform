@@ -19,7 +19,7 @@ def no_ambient_configuration(monkeypatch: pytest.MonkeyPatch) -> None:
     for name in (
         "CONGRESS_ENVIRONMENT", "CONGRESS_DATABASE_URL", "CONGRESS_MEDIA_ROOT",
         "CONGRESS_PLATFORM_ADMIN_TOKEN", "CONGRESS_JWT_SECRET", "CONGRESS_PUBLIC_ORIGIN",
-        "CONGRESS_SMS_PROVIDER", "CONGRESS_SMSIR_API_KEY", "CONGRESS_SMSIR_LINE_NUMBER",
+        "CONGRESS_SMS_PROVIDER", "CONGRESS_SMSIR_API_KEY", "CONGRESS_SMSIR_LINE_NUMBER", "CONGRESS_SECRET_BOX_KEY",
     ):
         monkeypatch.delenv(name, raising=False)
 
@@ -116,6 +116,19 @@ def test_production_sends_real_sms_through_smsir() -> None:
     with pytest.raises(ValidationError) as exc:
         production(sms_provider="console")
     assert "CONGRESS_SMS_PROVIDER must be smsir in production" in str(exc.value)
+
+
+SECRET_BOX_KEY = "7c2e9a4f1b8d3e6a0c5f2b9e4d7a1c8f3e6b0d5a"
+
+
+def test_the_secret_box_key_is_optional_but_must_be_a_distinct_generated_secret() -> None:
+    assert production().secret_box_key == ""
+    assert production(secret_box_key=f"  {SECRET_BOX_KEY} ").secret_box_key == SECRET_BOX_KEY
+    for weak in ("too-short-secret", "<generate: python -c ...>" + "x" * 32, STRONG_JWT):
+        with pytest.raises(ValidationError) as exc:
+            production(secret_box_key=weak)
+        summary = describe_settings_error(exc.value)
+        assert "CONGRESS_SECRET_BOX_KEY" in summary and weak not in summary
 
 
 @pytest.mark.parametrize("key", ["<generate in the sms.ir panel>", "replace-me"])
