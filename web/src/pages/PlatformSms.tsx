@@ -122,10 +122,11 @@ export default function PlatformSms() {
   }[effective.tone as "success" | "warning" | "danger"];
   const source = (s: "console" | "environment" | null | undefined) =>
     s === "environment" ? (isRtl ? "از فایل .env" : "from .env") : s === "console" ? (isRtl ? "از این پنل" : "set here") : null;
-  const sampleOrigin = (status.public_origin ?? window.location.origin).replace(/\/$/, "");
+  // SMS pass links are short links (ADR 0015); "sample2345" can never be a real code.
+  const sampleOrigin = (status.short_link_origin ?? status.public_origin ?? window.location.origin).replace(/\/$/, "");
   const samples: Record<string, Record<string, string>> = {
     otp: { code: "1".repeat(status.sign_in.otp_length), minutes: String(Math.max(1, Math.floor(status.sign_in.otp_ttl_seconds / 60))) },
-    ticket_confirmation: { name: "نام شرکت‌کننده", event: "همایش نمونه", tier: "عمومی", location: "تهران", link: `${sampleOrigin}/c/sample/my-ticket` },
+    ticket_confirmation: { name: "نام شرکت‌کننده", event: "همایش نمونه", tier: "عمومی", location: "تهران", link: `${sampleOrigin}/t/sample2345` },
   };
 
   return (
