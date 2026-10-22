@@ -11,17 +11,18 @@
  * password, no volume) holds the only database the suite can reach: `congress_test`. The test harness
  * additionally refuses any target that is not a marked `*_test` database. Everything is removed at the end.
  *
- * Requirements: Docker and the local backend image (CONGRESS_E2E_BACKEND_IMAGE, default
- * congress-t0-backend:2c0085137f, which provides Python 3.11 and uv). Dependencies are synced from
- * backend/uv.lock inside the container before it joins the private network.
+ * Requirements: Docker. The runner image is scripts/integration/backend-test.Dockerfile, built on first use
+ * and tagged by a hash of that file and backend/uv.lock (scripts/lib/backend-image.mjs); set
+ * CONGRESS_E2E_BACKEND_IMAGE to use another image that provides Python 3.11 and uv. Dependencies are synced
+ * from backend/uv.lock inside the container (a no-op for the hashed image) before it joins the private network.
  */
 import { randomBytes } from 'node:crypto';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { backendImage, syncBackendDependencies } from '../lib/backend-image.mjs';
 import { run } from '../lib/process.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
-const IMAGE = process.env.CONGRESS_E2E_BACKEND_IMAGE ?? 'congress-t0-backend:2c0085137f';
 const PG_IMAGE = process.env.CONGRESS_E2E_PG_IMAGE ?? 'postgres:16';
 const RUN = randomBytes(3).toString('hex');
 const NET = `congress-pytest-net-${RUN}`, PG = `congress-pytest-pg-${RUN}`, RUNNER = `congress-pytest-runner-${RUN}`;
@@ -37,6 +38,7 @@ const teardown = () => {
 
 let status = 1;
 try {
+  const IMAGE = backendImage();
   docker('network', 'create', '--internal', NET);
   docker('run', '-d', '--name', PG, '--network', NET, '-e', `POSTGRES_USER=${PG_USER}`, '-e', `POSTGRES_PASSWORD=${PG_PASSWORD}`, '-e', 'POSTGRES_DB=postgres', PG_IMAGE);
 
@@ -47,7 +49,7 @@ try {
   }
   docker('cp', resolve(root, 'scripts/diagnostics'), `${RUNNER}:/diagnostics`);
   console.log('syncing backend dependencies from uv.lock …');
-  sh('docker', ['exec', '-e', 'UV_PROJECT_ENVIRONMENT=/app/.venv', '-w', '/app', RUNNER, 'uv', 'sync', '--frozen', '--quiet'], { inherit: true });
+  syncBackendDependencies(RUNNER);
   docker('network', 'disconnect', 'bridge', RUNNER);
   docker('network', 'connect', NET, RUNNER);
 
