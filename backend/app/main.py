@@ -71,7 +71,15 @@ def create_app(settings: Settings) -> FastAPI:
         await app.state.sms.aclose()
         await engine.dispose()
 
-    app = FastAPI(title="Congress Platform", lifespan=lifespan)
+    # Interactive docs and the schema only outside production (scripts/gen-api.mjs reads app.openapi() directly).
+    docs = settings.environment != "production"
+    app = FastAPI(
+        title="Congress Platform",
+        lifespan=lifespan,
+        openapi_url="/openapi.json" if docs else None,
+        docs_url="/docs" if docs else None,
+        redoc_url="/redoc" if docs else None,
+    )
     app.state.settings = settings
     app.state.limiter = FailureLimiter(enabled=settings.auth_rate_limits_enabled)
     app.state.sms = build_gateway(settings)

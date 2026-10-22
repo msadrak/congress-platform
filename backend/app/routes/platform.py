@@ -27,6 +27,7 @@ from app.platform_config import (
     platform_config,
     put_setting,
     reload_platform,
+    reseal_api_key,
     sealed_api_key,
 )
 from app.rate_limit import LONGEST_WINDOW_SECONDS, Budget, limiter
@@ -175,6 +176,8 @@ async def update_sms_settings(body: SmsSettingsUpdate, request: Request, session
         await put_setting(session, SMS_LINE_NUMBER, body.line_number)
     for name in body.reset:
         await delete_setting(session, {"mode": SMS_MODE, "api_key": SMS_API_KEY, "line_number": SMS_LINE_NUMBER}[name])
+    if body.api_key is None and "api_key" not in body.reset:
+        await reseal_api_key(session, settings)
     await session.commit()
     config = await reload_platform(request.app, session)
     return _sms_out(config, settings.environment)

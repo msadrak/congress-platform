@@ -1,10 +1,12 @@
 import hashlib
 import secrets
+import uuid
 from typing import Annotated
 
 from fastapi import Depends, Header, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import SessionDep
 from app.models import Organizer
@@ -33,6 +35,33 @@ def require_platform_admin(
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid admin token")
 
 
+async def resolve_organizer_key(session: AsyncSession, request: Request, token: str) -> Organizer | None:
+    """The active organizer this API key belongs to, or None. Every route that accepts an organizer key goes
+    through here, so a revoked key is refused everywhere and every miss counts toward the per-IP budget.
+    Unknown, rotated-away and revoked keys are indistinguishable."""
+    throttle = limiter(request)
+    key = f"apikey:ip:{client_ip(request)}"
+    throttle.check((key, API_KEY_PER_IP))
+    organizer = await session.scalar(
+        select(Organizer).where(
+            Organizer.api_key_hash == hash_api_key(token),
+            Organizer.revoked_at.is_(None),
+        )
+    )
+    if organizer is None:
+        throttle.fail(key)
+    return organizer
+
+
+async def organizer_is_active(session: AsyncSession, organizer_id: uuid.UUID) -> bool:
+    """False once the platform admin revoked the organizer: the scanner and desk sessions it handed out stop
+    working with its key, and work again only after a rotation reinstates it."""
+    active = await session.scalar(
+        select(Organizer.id).where(Organizer.id == organizer_id, Organizer.revoked_at.is_(None))
+    )
+    return active is not None
+
+
 async def current_organizer(
     request: Request,
     session: SessionDep,
@@ -43,18 +72,8 @@ async def current_organizer(
             status.HTTP_401_UNAUTHORIZED, "Missing API key",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    throttle = limiter(request)
-    key = f"apikey:ip:{client_ip(request)}"
-    throttle.check((key, API_KEY_PER_IP))
-    organizer = await session.scalar(
-        select(Organizer).where(
-            Organizer.api_key_hash == hash_api_key(credentials.credentials),
-            Organizer.revoked_at.is_(None),
-        )
-    )
+    organizer = await resolve_organizer_key(session, request, credentials.credentials)
     if organizer is None:
-        # Unknown, rotated-away and revoked keys are indistinguishable.
-        throttle.fail(key)
         raise HTTPException(
             status.HTTP_401_UNAUTHORIZED, "Invalid API key",
             headers={"WWW-Authenticate": "Bearer"},

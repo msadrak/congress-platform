@@ -7,15 +7,15 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth import OrganizerDep, hash_api_key
+from app.auth import OrganizerDep, organizer_is_active, resolve_organizer_key
 from app.db import SessionDep
 from app.models import (
     CheckIn,
     CheckInPoint,
     EntityQR,
     Event,
-    Organizer,
     ScannerDevice,
     Ticket,
     TicketTier,
@@ -277,31 +277,41 @@ async def authorized_checkin_point(
                     status.HTTP_403_FORBIDDEN,
                     "Scanner token is not authorized for this event",
                 )
-            # Check per-device revocation via jti claim
-            jti = payload.get("jti")
-            if jti:
-                try:
-                    device_uuid = uuid.UUID(jti)
-                except (ValueError, TypeError):
-                    raise HTTPException(
-                        status.HTTP_401_UNAUTHORIZED,
-                        "Invalid scanner device identifier in token",
-                        headers={"WWW-Authenticate": "Bearer"},
-                    )
-                device = await session.get(ScannerDevice, device_uuid)
-                if device is not None:
-                    if device.is_revoked:
-                        raise HTTPException(
-                            status.HTTP_401_UNAUTHORIZED,
-                            "Scanner device token has been revoked",
-                            headers={"WWW-Authenticate": "Bearer"},
-                        )
-                    if device.checkin_point_id != point.id:
-                        raise HTTPException(
-                            status.HTTP_403_FORBIDDEN,
-                            "Scanner token is not authorized for this check-in point",
-                        )
-                    device.last_seen_at = datetime.now(timezone.utc)
+            # Every scanner token names its registered device (jti); revocation is per device, so a token
+            # without one, or whose device row is gone, cannot be revoked and is refused.
+            try:
+                device_uuid = uuid.UUID(str(payload.get("jti")))
+            except (ValueError, TypeError):
+                raise HTTPException(
+                    status.HTTP_401_UNAUTHORIZED,
+                    "Invalid scanner device identifier in token",
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
+            device = await session.get(ScannerDevice, device_uuid)
+            if device is None:
+                raise HTTPException(
+                    status.HTTP_401_UNAUTHORIZED,
+                    "Scanner device is not registered",
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
+            if device.is_revoked:
+                raise HTTPException(
+                    status.HTTP_401_UNAUTHORIZED,
+                    "Scanner device token has been revoked",
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
+            if device.checkin_point_id != point.id:
+                raise HTTPException(
+                    status.HTTP_403_FORBIDDEN,
+                    "Scanner token is not authorized for this check-in point",
+                )
+            if not await organizer_is_active(session, event.organizer_id):
+                raise HTTPException(
+                    status.HTTP_401_UNAUTHORIZED,
+                    "Scanner token is no longer valid",
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
+            device.last_seen_at = datetime.now(timezone.utc)
             return point
         else:
             raise HTTPException(
@@ -310,10 +320,7 @@ async def authorized_checkin_point(
             )
 
     # 2. Attempt validation as Organizer API Key
-    key_hash = hash_api_key(token)
-    organizer = await session.scalar(
-        select(Organizer).where(Organizer.api_key_hash == key_hash)
-    )
+    organizer = await resolve_organizer_key(session, request, token)
     if organizer is not None:
         if event.organizer_id != organizer.id:
             # Mask presence of foreign organizer's check-in point with 404
@@ -523,7 +530,7 @@ async def get_checkin_manifest(
         if row[0] is not None
     }
 
-    # Fetch all valid tickets for this event
+    # Fetch all valid tickets for this event: active tickets, through their active QR only
     tickets_stmt = (
         select(Ticket, TicketTier, User, EntityQR)
         .join(TicketTier, Ticket.ticket_tier_id == TicketTier.id)
@@ -531,7 +538,8 @@ async def get_checkin_manifest(
         .join(
             EntityQR,
             (EntityQR.entity_id == Ticket.id)
-            & (EntityQR.entity_type == "attendee_ticket"),
+            & (EntityQR.entity_type == "attendee_ticket")
+            & EntityQR.is_active.is_(True),
         )
         .where(Ticket.event_id == point.event_id, Ticket.status == "active")
         .order_by(Ticket.created_at)
@@ -557,6 +565,54 @@ async def get_checkin_manifest(
         event_id=point.event_id,
         generated_at=datetime.now(timezone.utc),
         tickets=manifest_tickets,
+    )
+
+
+async def _record_rejection(
+    session: AsyncSession,
+    point: CheckInPoint,
+    scan: ScanSubmission,
+    reason: str,
+    ticket_id: uuid.UUID | None = None,
+) -> ScanResult:
+    """Store a rejected scan. A concurrent duplicate of the same scan_id at this point with the same QR returns
+    the stored verdict; any other holder of that scan_id gets SCAN_ID_CONFLICT and nothing about it."""
+    checkin = CheckIn(
+        id=scan.scan_id,
+        checkin_point_id=point.id,
+        ticket_id=ticket_id,
+        qr_secret=scan.qr_secret,
+        policy_type=point.policy_type,
+        status="REJECTED",
+        rejection_reason=reason,
+        scanned_at=scan.scanned_at,
+    )
+    try:
+        async with session.begin_nested():
+            session.add(checkin)
+            await session.flush()
+    except IntegrityError:
+        existing_pk = await session.get(CheckIn, scan.scan_id)
+        if existing_pk is None:
+            raise
+        if existing_pk.checkin_point_id == point.id and existing_pk.qr_secret == scan.qr_secret:
+            return ScanResult(
+                scan_id=existing_pk.id,
+                qr_secret=existing_pk.qr_secret,
+                status=existing_pk.status,
+                rejection_reason=existing_pk.rejection_reason,
+            )
+        return ScanResult(
+            scan_id=scan.scan_id,
+            qr_secret=scan.qr_secret,
+            status="REJECTED",
+            rejection_reason="SCAN_ID_CONFLICT",
+        )
+    return ScanResult(
+        scan_id=scan.scan_id,
+        qr_secret=scan.qr_secret,
+        status="REJECTED",
+        rejection_reason=reason,
     )
 
 
@@ -621,55 +677,7 @@ async def ingest_scans_batch(
         )
         if qr is None or qr.entity_type != "attendee_ticket":
             # Invalid or unrecognized QR code
-            checkin = CheckIn(
-                id=scan.scan_id,
-                checkin_point_id=point.id,
-                ticket_id=None,
-                qr_secret=scan.qr_secret,
-                policy_type=point.policy_type,
-                status="REJECTED",
-                rejection_reason="INVALID_TICKET",
-                scanned_at=scan.scanned_at,
-            )
-            try:
-                async with session.begin_nested():
-                    session.add(checkin)
-                    await session.flush()
-            except IntegrityError:
-                existing_pk = await session.get(CheckIn, scan.scan_id)
-                if (
-                    existing_pk is not None
-                    and existing_pk.checkin_point_id == point.id
-                    and existing_pk.qr_secret == scan.qr_secret
-                ):
-                    results.append(
-                        ScanResult(
-                            scan_id=existing_pk.id,
-                            qr_secret=existing_pk.qr_secret,
-                            status=existing_pk.status,
-                            rejection_reason=existing_pk.rejection_reason,
-                        )
-                    )
-                    continue
-                elif existing_pk is not None:
-                    results.append(
-                        ScanResult(
-                            scan_id=scan.scan_id,
-                            qr_secret=scan.qr_secret,
-                            status="REJECTED",
-                            rejection_reason="SCAN_ID_CONFLICT",
-                        )
-                    )
-                    continue
-                raise
-            results.append(
-                ScanResult(
-                    scan_id=scan.scan_id,
-                    qr_secret=scan.qr_secret,
-                    status="REJECTED",
-                    rejection_reason="INVALID_TICKET",
-                )
-            )
+            results.append(await _record_rejection(session, point, scan, "INVALID_TICKET"))
             continue
 
         # 3. Look up ticket
@@ -681,55 +689,7 @@ async def ingest_scans_batch(
         )
         ticket_row = ticket_query.one_or_none()
         if ticket_row is None:
-            checkin = CheckIn(
-                id=scan.scan_id,
-                checkin_point_id=point.id,
-                ticket_id=None,
-                qr_secret=scan.qr_secret,
-                policy_type=point.policy_type,
-                status="REJECTED",
-                rejection_reason="INVALID_TICKET",
-                scanned_at=scan.scanned_at,
-            )
-            try:
-                async with session.begin_nested():
-                    session.add(checkin)
-                    await session.flush()
-            except IntegrityError:
-                existing_pk = await session.get(CheckIn, scan.scan_id)
-                if (
-                    existing_pk is not None
-                    and existing_pk.checkin_point_id == point.id
-                    and existing_pk.qr_secret == scan.qr_secret
-                ):
-                    results.append(
-                        ScanResult(
-                            scan_id=existing_pk.id,
-                            qr_secret=existing_pk.qr_secret,
-                            status=existing_pk.status,
-                            rejection_reason=existing_pk.rejection_reason,
-                        )
-                    )
-                    continue
-                elif existing_pk is not None:
-                    results.append(
-                        ScanResult(
-                            scan_id=scan.scan_id,
-                            qr_secret=scan.qr_secret,
-                            status="REJECTED",
-                            rejection_reason="SCAN_ID_CONFLICT",
-                        )
-                    )
-                    continue
-                raise
-            results.append(
-                ScanResult(
-                    scan_id=scan.scan_id,
-                    qr_secret=scan.qr_secret,
-                    status="REJECTED",
-                    rejection_reason="INVALID_TICKET",
-                )
-            )
+            results.append(await _record_rejection(session, point, scan, "INVALID_TICKET"))
             continue
 
         ticket, tier, user = ticket_row[0], ticket_row[1], ticket_row[2]
@@ -738,55 +698,16 @@ async def ingest_scans_batch(
             # Ticket is for another event. The rejection is recorded against the gate only: the
             # foreign ticket is not linked (so this event's reports and exports never join the
             # other congress's attendee) and its holder's identity is never disclosed.
-            checkin = CheckIn(
-                id=scan.scan_id,
-                checkin_point_id=point.id,
-                ticket_id=None,
-                qr_secret=scan.qr_secret,
-                policy_type=point.policy_type,
-                status="REJECTED",
-                rejection_reason="EVENT_MISMATCH",
-                scanned_at=scan.scanned_at,
-            )
-            try:
-                async with session.begin_nested():
-                    session.add(checkin)
-                    await session.flush()
-            except IntegrityError:
-                existing_pk = await session.get(CheckIn, scan.scan_id)
-                if (
-                    existing_pk is not None
-                    and existing_pk.checkin_point_id == point.id
-                    and existing_pk.qr_secret == scan.qr_secret
-                ):
-                    results.append(
-                        ScanResult(
-                            scan_id=existing_pk.id,
-                            qr_secret=existing_pk.qr_secret,
-                            status=existing_pk.status,
-                            rejection_reason=existing_pk.rejection_reason,
-                        )
-                    )
-                    continue
-                elif existing_pk is not None:
-                    results.append(
-                        ScanResult(
-                            scan_id=scan.scan_id,
-                            qr_secret=scan.qr_secret,
-                            status="REJECTED",
-                            rejection_reason="SCAN_ID_CONFLICT",
-                        )
-                    )
-                    continue
-                raise
-            results.append(
-                ScanResult(
-                    scan_id=scan.scan_id,
-                    qr_secret=scan.qr_secret,
-                    status="REJECTED",
-                    rejection_reason="EVENT_MISMATCH",
-                )
-            )
+            results.append(await _record_rejection(session, point, scan, "EVENT_MISMATCH"))
+            continue
+
+        if ticket.status != "active":
+            # A cancelled or otherwise inactive ticket of this event: recorded against the ticket so the desk
+            # sees the attempt in its scan history, and named like any of this event's verdicts (and replays).
+            rejected = await _record_rejection(session, point, scan, "TICKET_INACTIVE", ticket.id)
+            if rejected.rejection_reason != "SCAN_ID_CONFLICT":
+                rejected.attendee_name, rejected.ticket_tier_name = user.full_name, tier.name
+            results.append(rejected)
             continue
 
         # 4. Evaluate Admission Policy with Concurrency Controls
