@@ -40,8 +40,8 @@ export function mutationErrorMessage(error: unknown, locale: AttendeeLocale): st
 
 /** `message: null`: refused because another run is still in flight (nothing to show). */
 export type MutationResult<T> =
-  | { readonly ok: true; readonly value: T }
-  | { readonly ok: false; readonly message: string | null };
+  | { readonly ok: true; readonly value: T; readonly message?: undefined }
+  | { readonly ok: false; readonly value?: undefined; readonly message: string | null };
 
 /**
  * One request at a time with a guaranteed busy reset: `run(task)` sets `busy`, and whatever the task

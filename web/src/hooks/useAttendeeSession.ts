@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from "react";
 import {
+  isAttendeeSessionExpired,
   readAttendeeToken,
   rejectAttendeeToken,
   signOutAttendee,
@@ -11,6 +12,8 @@ export interface AttendeeSession {
   /** The stored token, re-read on this tab's changes and on another tab's `storage` event. */
   readonly token: string | null;
   readonly signedIn: boolean;
+  /** No session because a 401 ended this tab's (show "session expired", not a plain sign-in). */
+  readonly expired: boolean;
   /** Removes the token and every cached pass on this device. */
   readonly signOut: () => void;
   /** After a 401 for `token`: removes it and its owner's cached passes, only if it is still stored. */
@@ -22,9 +25,11 @@ export interface AttendeeSession {
 /** The attendee session as React state. The policy itself lives in lib/attendeeSession.ts. */
 export function useAttendeeSession(): AttendeeSession {
   const token = useSyncExternalStore(subscribeAttendeeSession, readAttendeeToken, () => null);
+  const expired = useSyncExternalStore(subscribeAttendeeSession, isAttendeeSessionExpired, () => false);
   return {
     token,
     signedIn: token !== null,
+    expired,
     signOut: signOutAttendee,
     rejectToken: rejectAttendeeToken,
     signIn: storeAttendeeToken,

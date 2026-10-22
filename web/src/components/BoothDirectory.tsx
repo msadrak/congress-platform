@@ -2,9 +2,10 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { createApiClient, type PublicBoothSummary } from "../api/client";
 import { congressPath, useRevalidateOnFocus } from "../lib/congressContext";
-import { isStoredAttendeeToken, rejectAttendeeToken } from "../lib/attendeeSession";
+import { attendeeResponseState, isStoredAttendeeToken } from "../lib/attendeeSession";
 import { signInPath } from "../lib/safeRedirect";
 import { asciiDigits } from "../lib/mobile";
+import { codeFontClass } from "../lib/i18n";
 import { Button } from "./ui/Button";
 import { Icon } from "./ui/Icon";
 import { SectionHeader } from "./attendee/SectionHeader";
@@ -73,9 +74,10 @@ export function BoothDirectory({ slug, token, isRtl, index, title, lead }: Booth
     createApiClient({ kind: "user", token })
       .GET("/api/attendees/me/bookmarks/booths")
       .then(({ data, response }) => {
-        if (!active || !isStoredAttendeeToken(token)) return;
-        if (response.status === 401) {
-          rejectAttendeeToken(token);
+        if (!active) return;
+        const session = attendeeResponseState(token, response.status);
+        if (session === "changed") return;
+        if (session === "expired") {
           setSessionLost(true);
         } else if (data) {
           setSavedIds(new Set(data.filter((b) => b.event_slug === slug).map((b) => b.booth_id)));
@@ -109,9 +111,9 @@ export function BoothDirectory({ slug, token, isRtl, index, title, lead }: Booth
       const { data, response } = wasSaved
         ? await client.DELETE("/api/attendees/me/bookmarks/booths/{booth_id}", options)
         : await client.POST("/api/attendees/me/bookmarks/booths/{booth_id}", options);
-      if (!isStoredAttendeeToken(token)) return;
-      if (response.status === 401) {
-        rejectAttendeeToken(token);
+      const session = attendeeResponseState(token, response.status);
+      if (session === "changed") return;
+      if (session === "expired") {
         setSessionLost(true);
         setSavedIds(null);
       } else if (data) {
@@ -319,7 +321,7 @@ export function BoothDirectoryView({
                         {b.location && (
                           <p className="inline-flex max-w-full items-center gap-1.5 rounded-md bg-surface-panel-subtle px-2 py-1 text-[11px] font-medium text-text-secondary">
                             <Icon name="pin" size={13} className="text-ink-400" />
-                            <span className="truncate font-mono">{b.location}</span>
+                            <span className={`truncate ${codeFontClass(b.location)}`}>{b.location}</span>
                           </p>
                         )}
                         <p className="text-[15px] font-semibold leading-snug tracking-[-0.01em] text-text-primary break-words">{b.name}</p>

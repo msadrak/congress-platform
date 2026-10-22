@@ -27,6 +27,8 @@ export function sessionChangedMessage(locale: AttendeeLocale): string {
 const listeners = new Set<() => void>();
 /** Tokens this tab rejected, so a page can tell "expired" from "changed in another tab". */
 const rejectedTokens: Record<string, true> = {};
+/** This tab's session ended with a 401 (not a sign-out); cleared by the next sign-in or sign-out. */
+let endedByRejection = false;
 
 function notify(): void {
   for (const listener of listeners) listener();
@@ -67,6 +69,15 @@ export function isStoredAttendeeToken(token: string): boolean {
   return readAttendeeToken() === token;
 }
 
+/**
+ * True while there is no session because a 401 ended this tab's. Pages show "session expired" from
+ * this store state: the rejection re-renders them (ending their in-flight effects) before their own
+ * response handling runs.
+ */
+export function isAttendeeSessionExpired(): boolean {
+  return endedByRejection && readAttendeeToken() === null;
+}
+
 /** Stores a freshly issued token. Another owner's cached passes never survive an account switch. */
 export function storeAttendeeToken(token: string): void {
   const previous = readAttendeeToken();
@@ -74,6 +85,7 @@ export function storeAttendeeToken(token: string): void {
     clearOwnerScopedTickets(previous);
   }
   delete rejectedTokens[token];
+  endedByRejection = false;
   localStorage.setItem(ATTENDEE_TOKEN_STORAGE, token);
   notify();
 }
@@ -81,6 +93,7 @@ export function storeAttendeeToken(token: string): void {
 /** Explicit sign-out on this device: the token and every cached pass go (policy 3). */
 export function signOutAttendee(): void {
   clearOwnerScopedTickets(readAttendeeToken());
+  endedByRejection = false;
   try {
     localStorage.removeItem(ATTENDEE_TOKEN_STORAGE);
   } catch {
@@ -97,6 +110,7 @@ export function signOutAttendee(): void {
 export function rejectAttendeeToken(token: string): boolean {
   if (!isStoredAttendeeToken(token)) return false;
   rejectedTokens[token] = true;
+  endedByRejection = true;
   clearOwnerScopedTickets(token);
   localStorage.removeItem(ATTENDEE_TOKEN_STORAGE);
   notify();

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { ATTENDEE_TOKEN_STORAGE, createApiClient, type AuthResponse, type UserOut } from "../api/client";
+import { createApiClient, type AuthResponse, type UserOut } from "../api/client";
 import { MobileOtpForm } from "../components/auth/MobileOtpForm";
 import { Button, LinkButton } from "../components/ui/Button";
 import { Icon } from "../components/ui/Icon";
@@ -11,12 +11,13 @@ import { Monogram } from "../components/attendee/Monogram";
 import { PhaseBadge } from "../components/attendee/PhaseBadge";
 import { formatDateRange } from "../components/attendee/congressTime";
 import { congressPath, useCongressEvent } from "../lib/congressContext";
-import { isStoredAttendeeToken, rejectAttendeeToken } from "../lib/attendeeSession";
+import { attendeeResponseState } from "../lib/attendeeSession";
+import { useAttendeeSession } from "../hooks/useAttendeeSession";
+import { usePageTitle } from "../hooks/usePageTitle";
 import { eventAccentStyle } from "../lib/eventAccent";
 import { formatMobile } from "../lib/mobile";
 import { useAttendeeLocale } from "../lib/i18n";
 import { safeNextPath } from "../lib/safeRedirect";
-import { clearOwnerScopedTickets } from "../lib/ticketCache";
 
 type SessionCheck =
   | { status: "checking" }
@@ -92,24 +93,19 @@ export default function AttendeeSignIn() {
   const fallback = boothId ? `/booth/${boothId}` : knownSlug ? congressPath(knownSlug, "my-congress") : "/my-tickets";
   const destination = safeNextPath(searchParams.get("next"), fallback);
 
-  const [session, setSession] = useState<SessionCheck>(() =>
-    localStorage.getItem(ATTENDEE_TOKEN_STORAGE) ? { status: "checking" } : { status: "none" }
-  );
+  const { token, signIn, signOut: endSession } = useAttendeeSession();
+  const [checkedSession, setSession] = useState<SessionCheck>(() => (token ? { status: "checking" } : { status: "none" }));
+  // A session removed meanwhile (a 401 here or elsewhere, another tab) is never shown as signed in.
+  const session: SessionCheck = token ? checkedSession : { status: "none" };
 
   useEffect(() => {
-    const token = localStorage.getItem(ATTENDEE_TOKEN_STORAGE);
     if (!token) return;
     let active = true;
     createApiClient({ kind: "user", token })
       .GET("/api/auth/me")
       .then(({ data, response }) => {
-        if (!active || !isStoredAttendeeToken(token)) return;
-        if (data) {
-          setSession({ status: "valid", user: data });
-        } else {
-          if (response.status === 401) rejectAttendeeToken(token);
-          setSession({ status: "none" });
-        }
+        if (!active || attendeeResponseState(token, response.status) === "changed") return;
+        setSession(data ? { status: "valid", user: data } : { status: "none" });
       })
       .catch(() => {
         if (active) setSession({ status: "none" });
@@ -117,20 +113,20 @@ export default function AttendeeSignIn() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [token]);
 
   const signOut = () => {
-    clearOwnerScopedTickets(localStorage.getItem(ATTENDEE_TOKEN_STORAGE));
-    localStorage.removeItem(ATTENDEE_TOKEN_STORAGE);
+    endSession();
     setSession({ status: "none" });
   };
 
   const handleSignedIn = (auth: AuthResponse) => {
-    localStorage.setItem(ATTENDEE_TOKEN_STORAGE, auth.access_token);
+    signIn(auth.access_token);
     navigate(destination, { replace: true });
   };
 
   const congressName = congress.status === "ready" ? congress.event.name : null;
+  usePageTitle(boothId ? copy.boothTitle : copy.title, congressName);
   const seed = boothId ? `booth-${boothId}` : knownSlug ?? "attendee-portal";
 
   return (

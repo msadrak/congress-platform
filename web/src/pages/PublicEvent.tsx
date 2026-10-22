@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
-  ATTENDEE_TOKEN_STORAGE,
   apiErrorCode,
   createApiClient,
   localizedApiError,
@@ -9,7 +8,8 @@ import {
   type PublicEvent as PublicEventType,
 } from "../api/client";
 import { MobileOtpForm } from "../components/auth/MobileOtpForm";
-import { isStoredAttendeeToken, rejectAttendeeToken } from "../lib/attendeeSession";
+import { attendeeResponseState, isStoredAttendeeToken } from "../lib/attendeeSession";
+import { useAttendeeSession } from "../hooks/useAttendeeSession";
 import { isTierUnavailable, networkErrorMessage } from "../lib/errorMessages";
 import { PublicLayout } from "../layouts/PublicLayout";
 import { normalizeDocument, standardDocument, type PageImages } from "../lib/pageDocument";
@@ -43,6 +43,7 @@ export default function PublicEvent() {
   const [submitting, setSubmitting] = useState(false);
   const [modalError, setModalError] = useState<string | null>(null);
   const pageContext = useRef<{ active: boolean } | null>(null);
+  const { token: storedToken, signIn } = useAttendeeSession();
 
   useEffect(() => {
     if (!slug) return;
@@ -150,17 +151,16 @@ export default function PublicEvent() {
     }
     const { data, error: err, response } = result;
     if (!context.active) return;
+    const session = attendeeResponseState(token, response.status);
     // A response for a session that has since changed must not show success or error for the new one.
-    if (!isStoredAttendeeToken(token)) {
-      if (response.status === 401) rejectAttendeeToken(token);
+    if (session === "changed") {
       setSubmitting(false);
       return;
     }
 
     if (err) {
-      // Edge case 2: 401 for the exact token that was sent
-      if (response.status === 401) {
-        rejectAttendeeToken(token);
+      // Edge case 2: 401 for the exact token that was sent (the API client already removed it)
+      if (session === "expired") {
         setAlreadyHasTicket(false);
         setModalError(c.errSessionExpired);
         setIsAuthModalOpen(true);
@@ -194,15 +194,10 @@ export default function PublicEvent() {
     if (!selectedTier || !event || !isSelectedTierAvailable) return;
     setModalError(null);
 
-    const existingToken =
-      typeof window !== "undefined"
-        ? localStorage.getItem(ATTENDEE_TOKEN_STORAGE)
-        : null;
-
-    if (existingToken) {
+    if (storedToken) {
       // User is already logged in: reserve directly
       setSubmitting(true);
-      await executeReservation(existingToken, selectedTier.id);
+      await executeReservation(storedToken, selectedTier.id);
     } else {
       // Needs authentication: open accessible dialog
       setIsAuthModalOpen(true);
@@ -213,7 +208,7 @@ export default function PublicEvent() {
   const handleSignedInAndReserve = async (auth: AuthResponse) => {
     if (!selectedTier || !event) return;
     if (!pageContext.current?.active) return;
-    localStorage.setItem(ATTENDEE_TOKEN_STORAGE, auth.access_token);
+    signIn(auth.access_token);
     setModalError(null);
     setSubmitting(true);
     await executeReservation(auth.access_token, selectedTier.id);

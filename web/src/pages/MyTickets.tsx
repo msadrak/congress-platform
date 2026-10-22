@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import {
-  ATTENDEE_TOKEN_STORAGE,
   createApiClient,
   formatApiError,
   type AttendeeTicketDetail,
@@ -13,9 +12,10 @@ import {
 } from "../lib/ticketCache";
 import {
   isStoredAttendeeToken,
-  rejectAttendeeToken,
+  keepPassOnExpiredSession,
   sessionChangedMessage,
 } from "../lib/attendeeSession";
+import { useAttendeeSession } from "../hooks/useAttendeeSession";
 import {
   useAttendeeLocale,
   formatLocalizedNumber,
@@ -58,10 +58,7 @@ export default function MyTickets() {
   // booths and the pass guide belong to the cross-congress `/my-tickets` page.
   const tickets = slug ? allTickets.filter((tkt) => tkt.event_slug === slug) : allTickets;
 
-  const token =
-    typeof window !== "undefined"
-      ? localStorage.getItem(ATTENDEE_TOKEN_STORAGE)
-      : null;
+  const { token } = useAttendeeSession();
 
   // Track online/offline status
   useEffect(() => {
@@ -102,7 +99,8 @@ export default function MyTickets() {
 
     // 2. Fetch live data if online
     const fetchData = async () => {
-      const client = createApiClient({ kind: "user", token });
+      // This page decides a 401 itself: the session policy's one exception (keepPassOnExpiredSession).
+      const client = createApiClient({ kind: "user", token }, { onUnauthorized: null });
       // Saved booths are listed only on the cross-congress page.
       const [ticketsRes, boothsRes] = await Promise.all([
         client.GET("/api/attendees/me/tickets"),
@@ -119,9 +117,8 @@ export default function MyTickets() {
         const hasCache = currentCache.status === "valid" && currentCache.tickets.length > 0;
         if (ticketsRes.response.status === 401) {
           // Keep the owner's cached pass on screen, labelled non-authoritative; with nothing to
-          // show, invalidate exactly this credential and fall back to the sign-in view.
-          if (hasCache) setSessionRejected(true);
-          else rejectAttendeeToken(token);
+          // show, the session is rejected (token and passes) and the sign-in view returns.
+          if (keepPassOnExpiredSession(token, hasCache)) setSessionRejected(true);
         }
         if (!hasCache) {
           setError(formatApiError(ticketsRes.error));
@@ -166,11 +163,10 @@ export default function MyTickets() {
     const client = createApiClient({ kind: "user", token });
     let failed = false;
     try {
-      const { error: err, response } = await client.DELETE(
+      const { error: err } = await client.DELETE(
         "/api/attendees/me/bookmarks/booths/{booth_id}",
         { params: { path: { booth_id: boothId } } }
       );
-      if (response.status === 401) rejectAttendeeToken(token);
       failed = Boolean(err);
     } catch {
       failed = true;
@@ -196,11 +192,10 @@ export default function MyTickets() {
     const client = createApiClient({ kind: "user", token });
     let failed = false;
     try {
-      const { error: err, response } = await client.POST(
+      const { error: err } = await client.POST(
         "/api/attendees/me/bookmarks/booths/{booth_id}",
         { params: { path: { booth_id: undo.booth.booth_id } } }
       );
-      if (response.status === 401) rejectAttendeeToken(token);
       failed = Boolean(err);
     } catch {
       failed = true;
