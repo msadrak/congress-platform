@@ -25,7 +25,7 @@
  *                                                     writes .staging/backups/last-backup.json, exit 1 on failure
  *   node scripts/staging/stack.mjs base-backup [full|diff|incr]
  *                                                     pgBackRest base backup (BACKUP_WAL=on; full weekly, diff otherwise)
- *   node scripts/staging/stack.mjs pitr-restore --to <time> [--keep]
+ *   node scripts/staging/stack.mjs pitr-restore --to <time|latest> [--keep]
  *                                                     point-in-time recovery drill into a NEW disposable project
  *   node scripts/staging/stack.mjs install-timers [--user <name>] [--dry-run] | uninstall-timers [--dry-run]
  *                                                     systemd timers for backups, base backups and the health check
@@ -905,7 +905,7 @@ export function baseBackup(requested) {
 /** pgBackRest's --target syntax for an ISO-8601 (or any Date-parsable) time. */
 export function pgbackrestTime(input) {
   const ms = Date.parse(input ?? '');
-  if (Number.isNaN(ms)) throw new Error('usage: pitr-restore --to <time>, e.g. --to 2026-10-22T09:41:00Z (UTC unless an offset is given)');
+  if (Number.isNaN(ms)) throw new Error('usage: pitr-restore --to <time> | --to latest, e.g. --to 2026-10-22T09:41:00Z (UTC unless an offset is given)');
   return new Date(ms).toISOString().replace('T', ' ').replace('Z', '+00');
 }
 
@@ -922,7 +922,8 @@ export async function pitrRestore(target, { keep = false } = {}) {
   if (!walEnabled(env)) throw new Error('pitr-restore needs BACKUP_WAL=on (continuous WAL archiving).');
   const problems = walProblems(env);
   if (problems.length) throw new Error(`pitr-restore: ${problems.join('; ')}`);
-  const when = pgbackrestTime(target);
+  const latest = target === 'latest';
+  const when = latest ? 'latest' : pgbackrestTime(target);
   const project = `congress-pitr-${randomBytes(3).toString('hex')}`;
   const restoreRoot = join(STATE, 'restores', project);
   const opts = { envOverride: { CONGRESS_PERSISTENT_DATA_ROOT: restoreRoot }, wal: true };
@@ -930,31 +931,37 @@ export async function pitrRestore(target, { keep = false } = {}) {
   mkdirSync(join(restoreRoot, 'data/media'), { recursive: true });
   const checks = [];
   const check = (label, ok, detail = '') => { checks.push({ label, ok }); say(`  ${ok ? 'PASS' : 'FAIL'} ${label}${detail ? ` — ${detail}` : ''}`); };
-  say(`Restoring the database as it was at ${when} into disposable project ${project} (archiving off)`);
+  say(`Restoring the database as it was at ${latest ? 'the end of the WAL archive' : when} into disposable project ${project} (archiving off)`);
   const started = Date.now();
+  const dbLog = () => say(compose(project, ['logs', '--tail', '30', 'db'], { ...opts, allowFail: true }).stdout);
   try {
+    // `latest`: everything in the archive (pgBackRest's default recovery type); otherwise stop just before `when`.
+    const recovery = latest ? '' : ' --type=time "--target=$1" --target-action=promote';
     compose(project, ['run', '--rm', '--no-deps', '-T', '--entrypoint', 'sh', 'db', '-c',
-      'set -e; chown postgres:postgres "$PGDATA"; chmod 700 "$PGDATA"; exec su-exec postgres pgbackrest restore --type=time "--target=$1" --target-action=promote',
+      `set -e; chown postgres:postgres "$PGDATA"; chmod 700 "$PGDATA"; exec su-exec postgres pgbackrest restore${recovery}`,
       'pitr', when], opts);
     check('pgBackRest restored the base backup', true);
-    compose(project, ['up', '-d', '--wait', '--wait-timeout', '300', 'db'], opts);
+    if (compose(project, ['up', '-d', '--wait', '--wait-timeout', '300', 'db'], { ...opts, allowFail: true }).status !== 0) {
+      dbLog();
+      throw new Error('The recovered database did not start (log above). "recovery ended before configured recovery target was reached" means nothing was committed after the target and archived yet: choose an earlier time, or --to latest.');
+    }
     let state = '';
     for (const end = Date.now() + 900_000; Date.now() < end && state !== 'f';) {
       state = compose(project, ['exec', '-T', 'db', 'psql', '-U', 'congress', '-d', 'congress', '-At', '-c', 'select pg_is_in_recovery()'], { ...opts, allowFail: true }).stdout.trim();
       if (state !== 'f') await sleep(2000);
     }
-    if (state !== 'f') say(compose(project, ['logs', '--tail', '40', 'db'], { ...opts, allowFail: true }).stdout);
-    check('WAL replayed up to the target and the database was promoted', state === 'f', `${Math.round((Date.now() - started) / 1000)} s`);
+    if (state !== 'f') dbLog();
+    check(`WAL replayed up to ${latest ? 'the end of the archive' : 'the target'} and the database was promoted`, state === 'f', `${Math.round((Date.now() - started) / 1000)} s`);
     if (state !== 'f') throw new Error('Recovery did not finish (database log above). Is the target time covered by the archive? See `pgbackrest info`.');
     compose(project, ['up', '-d', '--wait', '--wait-timeout', '180', 'api'], opts);
     const revision = psql(project, 'select version_num from alembic_version', opts);
     const ready = compose(project, ['exec', '-T', 'api', 'python', '-c', "import urllib.request;print(urllib.request.urlopen('http://127.0.0.1:8000/api/ready',timeout=5).status)"], { ...opts, allowFail: true }).stdout.trim();
     check('migrate + API (schema guard) accepted the recovered database', ready === '200', `schema ${revision}`);
-    const limit = Date.parse(target) + 1000;
+    const limit = latest ? Infinity : Date.parse(target) + 1000;
     for (const [table, column] of NEWEST) {
       const newest = psql(project, `select coalesce(max(${column})::text, '') from ${table}`, opts);
       const count = psql(project, `select count(*) from ${table}`, opts);
-      check(`${table}: nothing newer than the target`, !newest || Date.parse(newest.replace(' ', 'T').replace(/([+-]\d\d)$/, '$1:00')) <= limit, `${count} rows, newest ${newest || '-'}`);
+      check(latest ? `${table} recovered` : `${table}: nothing newer than the target`, !newest || Date.parse(newest.replace(' ', 'T').replace(/([+-]\d\d)$/, '$1:00')) <= limit, `${count} rows, newest ${newest || '-'}`);
     }
   } finally {
     if (keep) say(`Kept ${project} (data: ${restoreRoot}). Inspect: docker compose -p ${project} exec db psql -U congress congress; remove: docker compose -p ${project} down, then delete that folder.`);
