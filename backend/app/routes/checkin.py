@@ -1,11 +1,13 @@
+import hashlib
 import uuid
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Annotated
+from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import func, select
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
+from sqlalchemy import Select, func, or_, select
 from sqlalchemy.exc import IntegrityError
 
 from app.auth import OrganizerDep, hash_api_key
@@ -65,7 +67,9 @@ class CheckInPointOut(BaseModel):
 
 
 class ManifestTicket(BaseModel):
-    qr_secret: str
+    qr_hash: str = Field(
+        description="sha256 hex of '<event_id>:<normalized QR secret>'; the raw secret is never sent",
+    )
     ticket_id: uuid.UUID
     attendee_name: str
     ticket_tier_id: uuid.UUID
@@ -104,17 +108,39 @@ class CheckInManifest(BaseModel):
     checkin_point: CheckInPointOut
     event_id: uuid.UUID
     generated_at: datetime
-    tickets: list[ManifestTicket]
+    tickets: list[ManifestTicket] = Field(
+        description="Full manifest: every admissible ticket. Delta: tickets added or whose admission state "
+        "at this point changed since the cursor (upsert by qr_hash)."
+    )
+    cursor: str = Field(description="Pass back as ?since= to receive only what changed after this manifest")
+    is_delta: bool = False
+    removed_qr_hashes: list[str] = Field(
+        default_factory=list,
+        description="Delta only: tickets that are no longer admissible (cancelled ticket or deactivated QR)",
+    )
+
+
+ClientVerdict = Literal["ADMITTED", "PROVISIONAL", "REJECTED"]
 
 
 class ScanSubmission(BaseModel):
     scan_id: uuid.UUID
-    qr_secret: str
-    scanned_at: datetime
+    qr_secret: str = Field(min_length=1, max_length=512, description="The raw scanned code")
+    scanned_at: AwareDatetime = Field(
+        description="Device time of the scan, with a UTC offset. A time later than the server's clock "
+        "plus 5 minutes is not trusted: the scan is recorded at the receive time with clock_skew set."
+    )
+    client_verdict: ClientVerdict | None = Field(
+        default=None,
+        description="What the scanner decided on its own (offline or after a server timeout). REJECTED is "
+        "final: the server records a rejection and never admits. Omitted by server-decided scans and "
+        "by older scanners, whose scans the server evaluates.",
+    )
+    client_rejection_reason: str | None = Field(default=None, max_length=48)
 
 
 class BatchScanRequest(BaseModel):
-    scans: list[ScanSubmission]
+    scans: list[ScanSubmission] = Field(max_length=200)
 
 
 class ScanResult(BaseModel):
@@ -124,6 +150,7 @@ class ScanResult(BaseModel):
     rejection_reason: str | None = None
     attendee_name: str | None = None
     ticket_tier_name: str | None = None
+    clock_skew: bool = False
 
 
 class BatchScanResponse(BaseModel):
@@ -138,6 +165,15 @@ def _admission_policy(raw: str) -> str:
     if policy not in ADMISSION_POLICIES:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Invalid policy_type: {policy}")
     return policy
+
+
+def _require_tiers_for_tier_policy(policy: str, tier_ids: list[str]) -> None:
+    """A tier-restricted point with no tiers would admit nobody (or, on a lenient client, everybody)."""
+    if policy == "TIER_RESTRICTED" and not tier_ids:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            "A TIER_RESTRICTED check-in point needs at least one allowed ticket tier",
+        )
 
 
 async def _require_event_tiers(session: SessionDep, event: Event, tier_ids: list[str]) -> None:
@@ -162,6 +198,7 @@ async def create_checkin_point(
     body: CheckInPointCreate, event: OwnedEventDep, session: SessionDep
 ) -> CheckInPointOut:
     policy = _admission_policy(body.policy_type)
+    _require_tiers_for_tier_policy(policy, body.allowed_tier_ids)
     await _require_event_tiers(session, event, body.allowed_tier_ids)
     point = CheckInPoint(
         event_id=event.id,
@@ -202,6 +239,11 @@ async def update_checkin_point(
     )
     if point is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Check-in point not found")
+
+    _require_tiers_for_tier_policy(
+        _admission_policy(body.policy_type) if body.policy_type is not None else point.policy_type,
+        body.allowed_tier_ids if body.allowed_tier_ids is not None else point.allowed_tier_ids or [],
+    )
 
     # 1. Validate policy_type change safety
     if body.policy_type is not None:
@@ -502,29 +544,38 @@ async def revoke_checkin_point_device(
     return ScannerDeviceOut.model_validate(device)
 
 
-@router.get("/api/checkin-points/{point_id}/manifest")
-async def get_checkin_manifest(
-    point: AuthorizedCheckInPointDep, session: SessionDep
-) -> CheckInManifest:
-    # Fetch count of admissions per ticket at this check-in point
-    admissions_stmt = (
-        select(CheckIn.ticket_id, func.count(CheckIn.id))
-        .where(
-            CheckIn.checkin_point_id == point.id,
-            CheckIn.status == "ADMITTED",
-            CheckIn.ticket_id.is_not(None),
-        )
-        .group_by(CheckIn.ticket_id)
-    )
-    admissions_result = await session.execute(admissions_stmt)
-    admitted_counts: dict[uuid.UUID, int] = {
-        row[0]: row[1]
-        for row in admissions_result.all()
-        if row[0] is not None
-    }
+# --- Offline manifest -------------------------------------------------------------------------------
 
-    # Fetch all valid tickets for this event
-    tickets_stmt = (
+# A delta re-reads this much before its cursor: a ticket or scan committed by a transaction that started
+# before the previous manifest was generated still carries an earlier timestamp. Upserts are idempotent.
+MANIFEST_DELTA_OVERLAP = timedelta(minutes=5)
+
+_PERSIAN_ARABIC_DIGITS = str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789")
+
+
+def normalize_qr_secret(raw: str) -> str:
+    """The form a scanner compares and uploads: trimmed, Latin digits, lower case, at most 64 characters."""
+    return raw.translate(_PERSIAN_ARABIC_DIGITS).strip().lower()[:64]
+
+
+def manifest_qr_hash(event_id: uuid.UUID, secret: str) -> str:
+    """What the manifest carries instead of the secret; scanners hash a scanned code the same way."""
+    return hashlib.sha256(f"{event_id}:{normalize_qr_secret(secret)}".encode()).hexdigest()
+
+
+def _allowed_tier_uuids(point: CheckInPoint) -> list[uuid.UUID]:
+    allowed: list[uuid.UUID] = []
+    for raw in point.allowed_tier_ids or []:
+        try:
+            allowed.append(uuid.UUID(str(raw)))
+        except ValueError:
+            continue
+    return allowed
+
+
+def _manifest_tickets_stmt(point: CheckInPoint) -> Select[Ticket, TicketTier, User, EntityQR]:
+    """Admissible tickets for this point: the one query both the full manifest and a delta start from."""
+    stmt = (
         select(Ticket, TicketTier, User, EntityQR)
         .join(TicketTier, Ticket.ticket_tier_id == TicketTier.id)
         .join(User, Ticket.user_id == User.id)
@@ -536,12 +587,83 @@ async def get_checkin_manifest(
         .where(Ticket.event_id == point.event_id, Ticket.status == "active")
         .order_by(Ticket.created_at)
     )
-    tickets_result = await session.execute(tickets_stmt)
-    rows = tickets_result.all()
+    if point.policy_type == "TIER_RESTRICTED":
+        # A tier-restricted gate only needs (and only gets) the tickets it may admit.
+        stmt = stmt.where(Ticket.ticket_tier_id.in_(_allowed_tier_uuids(point)))
+    return stmt
+
+
+def _parse_manifest_cursor(raw: str | None, now: datetime) -> datetime | None:
+    """The previous manifest's generation time, or None (full manifest) when absent or unusable."""
+    if not raw:
+        return None
+    try:
+        cursor = datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+    if cursor.tzinfo is None or cursor > now:
+        return None
+    return cursor
+
+
+@router.get("/api/checkin-points/{point_id}/manifest")
+async def get_checkin_manifest(
+    point: AuthorizedCheckInPointDep,
+    session: SessionDep,
+    since: Annotated[
+        str | None,
+        Query(max_length=64, description="Cursor of a previous manifest: return only what changed after it"),
+    ] = None,
+) -> CheckInManifest:
+    # Database time, the same clock as the created_at/synced_at timestamps the delta compares against.
+    generated_at: datetime = await session.scalar(select(func.now())) or datetime.now(timezone.utc)
+    since_at = _parse_manifest_cursor(since, generated_at)
+
+    tickets_stmt = _manifest_tickets_stmt(point)
+    removed_qr_hashes: list[str] = []
+    if since_at is not None:
+        window = since_at - MANIFEST_DELTA_OVERLAP
+        admission_changed = select(CheckIn.ticket_id).where(
+            CheckIn.checkin_point_id == point.id,
+            CheckIn.synced_at >= window,
+            CheckIn.ticket_id.is_not(None),
+        )
+        tickets_stmt = tickets_stmt.where(
+            or_(Ticket.created_at >= window, Ticket.id.in_(admission_changed))
+        )
+        # Tickets have no change timestamp, so every no-longer-admissible QR is listed (a small set).
+        inactive = await session.execute(
+            select(EntityQR.secret)
+            .join(Ticket, (EntityQR.entity_id == Ticket.id) & (EntityQR.entity_type == "attendee_ticket"))
+            .where(
+                Ticket.event_id == point.event_id,
+                or_(Ticket.status != "active", EntityQR.is_active.is_(False)),
+            )
+        )
+        removed_qr_hashes = [manifest_qr_hash(point.event_id, secret) for (secret,) in inactive.all()]
+
+    rows = (await session.execute(tickets_stmt)).all()
+
+    admissions_stmt = (
+        select(CheckIn.ticket_id, func.count(CheckIn.id))
+        .where(
+            CheckIn.checkin_point_id == point.id,
+            CheckIn.status == "ADMITTED",
+            CheckIn.ticket_id.is_not(None),
+        )
+        .group_by(CheckIn.ticket_id)
+    )
+    if since_at is not None:
+        admissions_stmt = admissions_stmt.where(CheckIn.ticket_id.in_([row[0].id for row in rows]))
+    admitted_counts: dict[uuid.UUID, int] = {
+        ticket_id: count
+        for ticket_id, count in (await session.execute(admissions_stmt)).all()
+        if ticket_id is not None
+    }
 
     manifest_tickets = [
         ManifestTicket(
-            qr_secret=qr.secret,
+            qr_hash=manifest_qr_hash(point.event_id, qr.secret),
             ticket_id=ticket.id,
             attendee_name=user.full_name,
             ticket_tier_id=tier.id,
@@ -555,370 +677,280 @@ async def get_checkin_manifest(
     return CheckInManifest(
         checkin_point=CheckInPointOut.model_validate(point),
         event_id=point.event_id,
-        generated_at=datetime.now(timezone.utc),
+        generated_at=generated_at,
         tickets=manifest_tickets,
+        cursor=generated_at.isoformat(),
+        is_delta=since_at is not None,
+        removed_qr_hashes=removed_qr_hashes,
     )
+
+
+# --- Scan ingestion -----------------------------------------------------------------------------------
+
+# A device clock may run a little fast; beyond this its scanned_at is not trusted.
+CLOCK_SKEW_TOLERANCE = timedelta(minutes=5)
+
+
+@dataclass
+class _ScanTarget:
+    ticket: Ticket
+    tier: TicketTier
+    user: User
+
+
+async def _load_scan_targets(session: SessionDep, secrets: set[str]) -> dict[str, _ScanTarget]:
+    """Every scanned attendee-ticket QR of a batch, in one query; a secret missing here is INVALID_TICKET."""
+    if not secrets:
+        return {}
+    rows = await session.execute(
+        select(EntityQR.secret, Ticket, TicketTier, User)
+        .join(Ticket, Ticket.id == EntityQR.entity_id)
+        .join(TicketTier, Ticket.ticket_tier_id == TicketTier.id)
+        .join(User, Ticket.user_id == User.id)
+        .where(
+            EntityQR.secret.in_(secrets),
+            EntityQR.is_active.is_(True),
+            EntityQR.entity_type == "attendee_ticket",
+        )
+    )
+    return {secret: _ScanTarget(ticket, tier, user) for secret, ticket, tier, user in rows.all()}
+
+
+async def _ticket_identities(
+    session: SessionDep, ticket_ids: set[uuid.UUID]
+) -> dict[uuid.UUID, tuple[str, str]]:
+    if not ticket_ids:
+        return {}
+    rows = await session.execute(
+        select(Ticket.id, User.full_name, TicketTier.name)
+        .join(User, Ticket.user_id == User.id)
+        .join(TicketTier, Ticket.ticket_tier_id == TicketTier.id)
+        .where(Ticket.id.in_(ticket_ids))
+    )
+    return {ticket_id: (name, tier_name) for ticket_id, name, tier_name in rows.all()}
+
+
+def _trusted_scan_time(claimed: datetime, now: datetime) -> tuple[datetime, bool]:
+    """(time to record, clock_skew): a claim later than the server allows is replaced by the receive time."""
+    if claimed > now + CLOCK_SKEW_TOLERANCE:
+        return now, True
+    return claimed, False
+
+
+def _local_rejection_reason(scan: ScanSubmission) -> str:
+    return f"LOCAL_REJECTED:{(scan.client_rejection_reason or 'UNSPECIFIED').strip()[:48]}"
+
+
+def _replay_result(
+    scan: ScanSubmission,
+    secret: str,
+    point: CheckInPoint,
+    existing: CheckIn,
+    identities: dict[uuid.UUID, tuple[str, str]],
+) -> ScanResult:
+    """An already-recorded scan_id: its original outcome, or SCAN_ID_CONFLICT outside its own scope.
+
+    A scan_id is bound to its check-in point AND its QR secret. A cross-point, cross-event or
+    cross-tenant replay, or a different secret, is rejected without disclosing the original
+    attendee, secret or status.
+    """
+    if existing.checkin_point_id != point.id or existing.qr_secret != secret:
+        return ScanResult(
+            scan_id=scan.scan_id,
+            qr_secret=scan.qr_secret,
+            status="REJECTED",
+            rejection_reason="SCAN_ID_CONFLICT",
+        )
+    identity = identities.get(existing.ticket_id) if existing.ticket_id else None
+    return ScanResult(
+        scan_id=existing.id,
+        qr_secret=existing.qr_secret,
+        status=existing.status,
+        rejection_reason=existing.rejection_reason,
+        attendee_name=identity[0] if identity else None,
+        ticket_tier_name=identity[1] if identity else None,
+        clock_skew=existing.clock_skew,
+    )
+
+
+async def _flush_checkin(session: SessionDep, checkin: CheckIn) -> IntegrityError | None:
+    try:
+        async with session.begin_nested():
+            session.add(checkin)
+            await session.flush()
+    except IntegrityError as exc:
+        return exc
+    return None
+
+
+async def _record_scans(
+    session: SessionDep, point: CheckInPoint, scans: list[ScanSubmission]
+) -> list[ScanResult]:
+    """Evaluate and record scans in order, idempotently by scan_id. The caller commits.
+
+    Concurrency: SINGLE_USE locks the scanned tickets' rows (sorted, all at once) and CAPACITY_CAPPED
+    locks the point row, both until commit, so concurrent batches and single scans serialize on exactly
+    the state they decide on. The partial unique index uq_checkin_single_use_admitted is the backstop.
+    """
+    now = datetime.now(timezone.utc)
+    secrets = {scan.scan_id: normalize_qr_secret(scan.qr_secret) for scan in scans}
+
+    recorded: dict[uuid.UUID, CheckIn] = {
+        c.id: c for c in await session.scalars(select(CheckIn).where(CheckIn.id.in_(list(secrets))))
+    }
+    targets = await _load_scan_targets(session, set(secrets.values()))
+    identities = await _ticket_identities(
+        session, {c.ticket_id for c in recorded.values() if c.ticket_id is not None}
+    )
+
+    # Tickets the server will evaluate: new scans the device did not reject, of this event's tickets.
+    evaluated: set[uuid.UUID] = set()
+    for scan in scans:
+        target = targets.get(secrets[scan.scan_id])
+        if (
+            target is not None
+            and target.ticket.event_id == point.event_id
+            and scan.scan_id not in recorded
+            and scan.client_verdict != "REJECTED"
+        ):
+            evaluated.add(target.ticket.id)
+
+    admitted_tickets: set[uuid.UUID] = set()
+    admitted_count = 0
+    if evaluated and point.policy_type == "SINGLE_USE":
+        await session.execute(
+            select(Ticket.id).where(Ticket.id.in_(evaluated)).order_by(Ticket.id).with_for_update()
+        )
+        admitted_tickets = {
+            ticket_id
+            for ticket_id in await session.scalars(
+                select(CheckIn.ticket_id).where(
+                    CheckIn.checkin_point_id == point.id,
+                    CheckIn.ticket_id.in_(evaluated),
+                    CheckIn.status == "ADMITTED",
+                )
+            )
+            if ticket_id is not None
+        }
+    elif evaluated and point.policy_type == "CAPACITY_CAPPED":
+        await session.execute(
+            select(CheckInPoint.id).where(CheckInPoint.id == point.id).with_for_update()
+        )
+        admitted_count = await session.scalar(
+            select(func.count(CheckIn.id)).where(
+                CheckIn.checkin_point_id == point.id, CheckIn.status == "ADMITTED"
+            )
+        ) or 0
+
+    results: list[ScanResult] = []
+    for scan in scans:
+        secret = secrets[scan.scan_id]
+        existing = recorded.get(scan.scan_id)
+        if existing is not None:
+            results.append(_replay_result(scan, secret, point, existing, identities))
+            continue
+
+        scanned_at, clock_skew = _trusted_scan_time(scan.scanned_at, now)
+        target = targets.get(secret)
+        linked = target if target is not None and target.ticket.event_id == point.event_id else None
+        scan_status = "REJECTED"
+        rejection_reason: str | None
+        if scan.client_verdict == "REJECTED":
+            # The device turned the attendee away: that stays a rejection, whatever the rules say now.
+            rejection_reason = _local_rejection_reason(scan)
+        elif target is None:
+            rejection_reason = "INVALID_TICKET"
+        elif linked is None:
+            # Another event's ticket: recorded against the gate only. The foreign ticket is not linked
+            # (this event's reports never join the other congress's attendee) and its holder is not disclosed.
+            rejection_reason = "EVENT_MISMATCH"
+        elif (
+            point.policy_type == "CAPACITY_CAPPED"
+            and point.max_capacity is not None
+            and admitted_count >= point.max_capacity
+        ):
+            rejection_reason = "CAPACITY_REACHED"
+        elif point.policy_type == "SINGLE_USE" and linked.ticket.id in admitted_tickets:
+            rejection_reason = "ALREADY_ADMITTED"
+        elif (
+            point.policy_type == "TIER_RESTRICTED"
+            and str(linked.ticket.ticket_tier_id) not in (point.allowed_tier_ids or [])
+        ):
+            rejection_reason = "TIER_NOT_ALLOWED"
+        else:
+            scan_status, rejection_reason = "ADMITTED", None
+
+        def build(status_: str, reason: str | None) -> CheckIn:
+            return CheckIn(
+                id=scan.scan_id,
+                checkin_point_id=point.id,
+                ticket_id=linked.ticket.id if linked else None,
+                qr_secret=secret,
+                policy_type=point.policy_type,
+                status=status_,
+                rejection_reason=reason,
+                scanned_at=scanned_at,
+                client_verdict=scan.client_verdict,
+                clock_skew=clock_skew,
+                client_scanned_at=scan.scanned_at if clock_skew else None,
+            )
+
+        checkin = build(scan_status, rejection_reason)
+        failure = await _flush_checkin(session, checkin)
+        if failure is not None:
+            # Case A: the same scan_id was recorded concurrently (primary key collision).
+            concurrent = await session.get(CheckIn, scan.scan_id)
+            if concurrent is not None:
+                recorded[scan.scan_id] = concurrent
+                if concurrent.ticket_id is not None and concurrent.ticket_id not in identities:
+                    identities.update(await _ticket_identities(session, {concurrent.ticket_id}))
+                results.append(_replay_result(scan, secret, point, concurrent, identities))
+                continue
+            # Case B: another admission of this single-use ticket won (uq_checkin_single_use_admitted).
+            if linked is None or scan_status != "ADMITTED" or "unique" not in str(failure).lower():
+                raise failure
+            scan_status, rejection_reason = "REJECTED", "ALREADY_ADMITTED"
+            checkin = build(scan_status, rejection_reason)
+            async with session.begin_nested():
+                session.add(checkin)
+                await session.flush()
+
+        recorded[scan.scan_id] = checkin
+        if linked is not None:
+            identities[linked.ticket.id] = (linked.user.full_name, linked.tier.name)
+            if scan_status == "ADMITTED":
+                admitted_tickets.add(linked.ticket.id)
+                admitted_count += 1
+        results.append(
+            ScanResult(
+                scan_id=scan.scan_id,
+                qr_secret=secret,
+                status=scan_status,
+                rejection_reason=rejection_reason,
+                attendee_name=linked.user.full_name if linked else None,
+                ticket_tier_name=linked.tier.name if linked else None,
+                clock_skew=clock_skew,
+            )
+        )
+    return results
 
 
 @router.post("/api/checkin-points/{point_id}/scans/batch")
 async def ingest_scans_batch(
     body: BatchScanRequest, point: AuthorizedCheckInPointDep, session: SessionDep
 ) -> BatchScanResponse:
-    results: list[ScanResult] = []
-
-    for scan in body.scans:
-        # 1. Idempotent deduplication: check if scan_id already processed
-        existing = await session.get(CheckIn, scan.scan_id)
-        if existing is not None:
-            # Scope & Confidentiality verification:
-            # A scan_id is strictly bound to its checkin_point_id AND qr_secret.
-            # Cross-point, cross-event, cross-tenant replays, or mismatched QR secrets
-            # MUST be rejected without disclosing foreign attendee identity, QR secret, or check-in status!
-            if existing.checkin_point_id != point.id or existing.qr_secret != scan.qr_secret:
-                results.append(
-                    ScanResult(
-                        scan_id=scan.scan_id,
-                        qr_secret=scan.qr_secret,
-                        status="REJECTED",
-                        rejection_reason="SCAN_ID_CONFLICT",
-                        attendee_name=None,
-                        ticket_tier_name=None,
-                    )
-                )
-                continue
-
-            # Legitimate same-point idempotent replay within authorized scope:
-            attendee_name = None
-            tier_name = None
-            if existing.ticket_id:
-                ticket_info = await session.execute(
-                    select(User.full_name, TicketTier.name)
-                    .join(Ticket, Ticket.user_id == User.id)
-                    .join(TicketTier, Ticket.ticket_tier_id == TicketTier.id)
-                    .where(Ticket.id == existing.ticket_id)
-                )
-                t_row = ticket_info.one_or_none()
-                if t_row:
-                    attendee_name, tier_name = t_row[0], t_row[1]
-
-            results.append(
-                ScanResult(
-                    scan_id=existing.id,
-                    qr_secret=existing.qr_secret,
-                    status=existing.status,
-                    rejection_reason=existing.rejection_reason,
-                    attendee_name=attendee_name,
-                    ticket_tier_name=tier_name,
-                )
-            )
-            continue
-
-        # 2. Look up QR secret
-        qr = await session.scalar(
-            select(EntityQR).where(
-                EntityQR.secret == scan.qr_secret, EntityQR.is_active.is_(True)
-            )
-        )
-        if qr is None or qr.entity_type != "attendee_ticket":
-            # Invalid or unrecognized QR code
-            checkin = CheckIn(
-                id=scan.scan_id,
-                checkin_point_id=point.id,
-                ticket_id=None,
-                qr_secret=scan.qr_secret,
-                policy_type=point.policy_type,
-                status="REJECTED",
-                rejection_reason="INVALID_TICKET",
-                scanned_at=scan.scanned_at,
-            )
-            try:
-                async with session.begin_nested():
-                    session.add(checkin)
-                    await session.flush()
-            except IntegrityError:
-                existing_pk = await session.get(CheckIn, scan.scan_id)
-                if (
-                    existing_pk is not None
-                    and existing_pk.checkin_point_id == point.id
-                    and existing_pk.qr_secret == scan.qr_secret
-                ):
-                    results.append(
-                        ScanResult(
-                            scan_id=existing_pk.id,
-                            qr_secret=existing_pk.qr_secret,
-                            status=existing_pk.status,
-                            rejection_reason=existing_pk.rejection_reason,
-                        )
-                    )
-                    continue
-                elif existing_pk is not None:
-                    results.append(
-                        ScanResult(
-                            scan_id=scan.scan_id,
-                            qr_secret=scan.qr_secret,
-                            status="REJECTED",
-                            rejection_reason="SCAN_ID_CONFLICT",
-                        )
-                    )
-                    continue
-                raise
-            results.append(
-                ScanResult(
-                    scan_id=scan.scan_id,
-                    qr_secret=scan.qr_secret,
-                    status="REJECTED",
-                    rejection_reason="INVALID_TICKET",
-                )
-            )
-            continue
-
-        # 3. Look up ticket
-        ticket_query = await session.execute(
-            select(Ticket, TicketTier, User)
-            .join(TicketTier, Ticket.ticket_tier_id == TicketTier.id)
-            .join(User, Ticket.user_id == User.id)
-            .where(Ticket.id == qr.entity_id)
-        )
-        ticket_row = ticket_query.one_or_none()
-        if ticket_row is None:
-            checkin = CheckIn(
-                id=scan.scan_id,
-                checkin_point_id=point.id,
-                ticket_id=None,
-                qr_secret=scan.qr_secret,
-                policy_type=point.policy_type,
-                status="REJECTED",
-                rejection_reason="INVALID_TICKET",
-                scanned_at=scan.scanned_at,
-            )
-            try:
-                async with session.begin_nested():
-                    session.add(checkin)
-                    await session.flush()
-            except IntegrityError:
-                existing_pk = await session.get(CheckIn, scan.scan_id)
-                if (
-                    existing_pk is not None
-                    and existing_pk.checkin_point_id == point.id
-                    and existing_pk.qr_secret == scan.qr_secret
-                ):
-                    results.append(
-                        ScanResult(
-                            scan_id=existing_pk.id,
-                            qr_secret=existing_pk.qr_secret,
-                            status=existing_pk.status,
-                            rejection_reason=existing_pk.rejection_reason,
-                        )
-                    )
-                    continue
-                elif existing_pk is not None:
-                    results.append(
-                        ScanResult(
-                            scan_id=scan.scan_id,
-                            qr_secret=scan.qr_secret,
-                            status="REJECTED",
-                            rejection_reason="SCAN_ID_CONFLICT",
-                        )
-                    )
-                    continue
-                raise
-            results.append(
-                ScanResult(
-                    scan_id=scan.scan_id,
-                    qr_secret=scan.qr_secret,
-                    status="REJECTED",
-                    rejection_reason="INVALID_TICKET",
-                )
-            )
-            continue
-
-        ticket, tier, user = ticket_row[0], ticket_row[1], ticket_row[2]
-
-        if ticket.event_id != point.event_id:
-            # Ticket is for another event. The rejection is recorded against the gate only: the
-            # foreign ticket is not linked (so this event's reports and exports never join the
-            # other congress's attendee) and its holder's identity is never disclosed.
-            checkin = CheckIn(
-                id=scan.scan_id,
-                checkin_point_id=point.id,
-                ticket_id=None,
-                qr_secret=scan.qr_secret,
-                policy_type=point.policy_type,
-                status="REJECTED",
-                rejection_reason="EVENT_MISMATCH",
-                scanned_at=scan.scanned_at,
-            )
-            try:
-                async with session.begin_nested():
-                    session.add(checkin)
-                    await session.flush()
-            except IntegrityError:
-                existing_pk = await session.get(CheckIn, scan.scan_id)
-                if (
-                    existing_pk is not None
-                    and existing_pk.checkin_point_id == point.id
-                    and existing_pk.qr_secret == scan.qr_secret
-                ):
-                    results.append(
-                        ScanResult(
-                            scan_id=existing_pk.id,
-                            qr_secret=existing_pk.qr_secret,
-                            status=existing_pk.status,
-                            rejection_reason=existing_pk.rejection_reason,
-                        )
-                    )
-                    continue
-                elif existing_pk is not None:
-                    results.append(
-                        ScanResult(
-                            scan_id=scan.scan_id,
-                            qr_secret=scan.qr_secret,
-                            status="REJECTED",
-                            rejection_reason="SCAN_ID_CONFLICT",
-                        )
-                    )
-                    continue
-                raise
-            results.append(
-                ScanResult(
-                    scan_id=scan.scan_id,
-                    qr_secret=scan.qr_secret,
-                    status="REJECTED",
-                    rejection_reason="EVENT_MISMATCH",
-                )
-            )
-            continue
-
-        # 4. Evaluate Admission Policy with Concurrency Controls
-        scan_status = "ADMITTED"
-        rejection_reason = None
-
-        if point.policy_type == "CAPACITY_CAPPED":
-            # Pessimistic row lock on CheckInPoint to serialize capacity check and admission
-            await session.scalar(
-                select(CheckInPoint.id)
-                .where(CheckInPoint.id == point.id)
-                .with_for_update()
-            )
-            if point.max_capacity is not None:
-                current_admitted = await session.scalar(
-                    select(func.count(CheckIn.id)).where(
-                        CheckIn.checkin_point_id == point.id,
-                        CheckIn.status == "ADMITTED",
-                    )
-                )
-                if (current_admitted or 0) >= point.max_capacity:
-                    scan_status = "REJECTED"
-                    rejection_reason = "CAPACITY_REACHED"
-
-        elif point.policy_type == "SINGLE_USE":
-            # Pessimistic row lock on Ticket to serialize concurrent single-use scans
-            await session.scalar(
-                select(Ticket.id)
-                .where(Ticket.id == ticket.id)
-                .with_for_update()
-            )
-            already_admitted = await session.scalar(
-                select(CheckIn.id).where(
-                    CheckIn.checkin_point_id == point.id,
-                    CheckIn.ticket_id == ticket.id,
-                    CheckIn.status == "ADMITTED",
-                )
-            )
-            if already_admitted is not None:
-                scan_status = "REJECTED"
-                rejection_reason = "ALREADY_ADMITTED"
-
-        elif point.policy_type == "TIER_RESTRICTED":
-            allowed = point.allowed_tier_ids or []
-            if str(ticket.ticket_tier_id) not in allowed:
-                scan_status = "REJECTED"
-                rejection_reason = "TIER_NOT_ALLOWED"
-
-        # MULTI_ENTRY or passed other policies
-        checkin = CheckIn(
-            id=scan.scan_id,
-            checkin_point_id=point.id,
-            ticket_id=ticket.id,
-            qr_secret=scan.qr_secret,
-            policy_type=point.policy_type,
-            status=scan_status,
-            rejection_reason=rejection_reason,
-            scanned_at=scan.scanned_at,
-        )
-
-        try:
-            async with session.begin_nested():
-                session.add(checkin)
-                await session.flush()
-        except IntegrityError as e:
-            err_str = str(e).lower()
-            # Case A: Concurrent duplicate scan_id (primary key collision)
-            existing_pk = await session.get(CheckIn, scan.scan_id)
-            if (
-                existing_pk is not None
-                and existing_pk.checkin_point_id == point.id
-                and existing_pk.qr_secret == scan.qr_secret
-            ):
-                ticket_info = await session.execute(
-                    select(User.full_name, TicketTier.name)
-                    .join(Ticket, Ticket.user_id == User.id)
-                    .join(TicketTier, Ticket.ticket_tier_id == TicketTier.id)
-                    .where(Ticket.id == existing_pk.ticket_id)
-                )
-                t_row = ticket_info.one_or_none()
-                results.append(
-                    ScanResult(
-                        scan_id=existing_pk.id,
-                        qr_secret=existing_pk.qr_secret,
-                        status=existing_pk.status,
-                        rejection_reason=existing_pk.rejection_reason,
-                        attendee_name=t_row[0] if t_row else None,
-                        ticket_tier_name=t_row[1] if t_row else None,
-                    )
-                )
-                continue
-            elif existing_pk is not None:
-                results.append(
-                    ScanResult(
-                        scan_id=scan.scan_id,
-                        qr_secret=scan.qr_secret,
-                        status="REJECTED",
-                        rejection_reason="SCAN_ID_CONFLICT",
-                    )
-                )
-                continue
-
-            # Case B: Database constraint collision (uq_checkin_single_use_admitted)
-            if "uq_checkin_single_use_admitted" in err_str or "unique" in err_str:
-                scan_status = "REJECTED"
-                rejection_reason = "ALREADY_ADMITTED"
-                rejected_checkin = CheckIn(
-                    id=scan.scan_id,
-                    checkin_point_id=point.id,
-                    ticket_id=ticket.id,
-                    qr_secret=scan.qr_secret,
-                    policy_type=point.policy_type,
-                    status="REJECTED",
-                    rejection_reason="ALREADY_ADMITTED",
-                    scanned_at=scan.scanned_at,
-                )
-                async with session.begin_nested():
-                    session.add(rejected_checkin)
-                    await session.flush()
-            else:
-                raise
-
-        results.append(
-            ScanResult(
-                scan_id=scan.scan_id,
-                qr_secret=scan.qr_secret,
-                status=scan_status,
-                rejection_reason=rejection_reason,
-                attendee_name=user.full_name,
-                ticket_tier_name=tier.name,
-            )
-        )
-
+    """Queued scans (at most 200 per request, in order), idempotent by scan_id."""
+    results = await _record_scans(session, point, body.scans)
     await session.commit()
     return BatchScanResponse(results=results)
+
+
+@router.post("/api/checkin-points/{point_id}/scan")
+async def record_single_scan(
+    body: ScanSubmission, point: AuthorizedCheckInPointDep, session: SessionDep
+) -> ScanResult:
+    """One scan decided by the server while the scanner is online. Same rules, locks and idempotency
+    as the batch, so a scanner that timed out can queue the same scan_id and get this verdict back."""
+    results = await _record_scans(session, point, [body])
+    await session.commit()
+    return results[0]
