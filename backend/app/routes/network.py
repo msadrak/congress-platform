@@ -70,9 +70,9 @@ async def scan_peer_badge(
             status.HTTP_404_NOT_FOUND, "Invalid or unrecognized attendee badge QR"
         )
 
-    # 2. Resolve Ticket & Peer User
+    # 2. Resolve Ticket & Peer User (a cancelled or otherwise inactive ticket is not a badge)
     ticket = await session.get(Ticket, qr.entity_id)
-    if ticket is None:
+    if ticket is None or ticket.status != "active":
         raise HTTPException(
             status.HTTP_404_NOT_FOUND, "Attendee ticket not found"
         )
