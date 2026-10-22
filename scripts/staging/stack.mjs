@@ -266,11 +266,11 @@ export const RELEASE_KEEP = 5;
 const imageAlias = () => readEnv().CONGRESS_IMAGE_TAG || 'staging';
 const imageId = (ref) => run('docker', ['image', 'inspect', '--format', '{{.Id}}', ref]).stdout.trim();
 
-/** The commit being deployed (short SHA); uncommitted changes get a unique -dirty-<time> suffix; no git: a timestamp. */
+/** The commit being deployed (short SHA); uncommitted or untracked files (they are in the build context) get a unique -dirty-<time> suffix; no git: a timestamp. */
 export function releaseId(cwd = root) {
   const sha = run('git', ['rev-parse', '--short', 'HEAD'], { cwd, allowFail: true });
   if (sha.status !== 0) return `build-${stamp()}`;
-  const dirty = run('git', ['status', '--porcelain', '--untracked-files=no'], { cwd, allowFail: true }).stdout.trim();
+  const dirty = run('git', ['status', '--porcelain'], { cwd, allowFail: true }).stdout.trim();
   return dirty ? `${sha.stdout.trim()}-dirty-${stamp()}` : sha.stdout.trim();
 }
 
@@ -909,7 +909,7 @@ export function pgbackrestTime(input) {
   return new Date(ms).toISOString().replace('T', ' ').replace('Z', '+00');
 }
 
-const NEWEST = [['events', 'created_at'], ['users', 'created_at'], ['tickets', 'created_at'], ['checkins', 'synced_at'], ['sms_messages', 'created_at']];
+const NEWEST = [['organizers', 'created_at'], ['events', 'created_at'], ['users', 'created_at'], ['tickets', 'created_at'], ['checkins', 'synced_at'], ['sms_messages', 'created_at']];
 
 /**
  * Point-in-time recovery drill: restore the database as it was at `target` into a brand-new Compose project (own data
