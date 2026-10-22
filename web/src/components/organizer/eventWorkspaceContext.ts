@@ -34,6 +34,18 @@ export const EventWorkspaceContext = createContext<EventWorkspaceContextValue | 
 /**
  * The event workspace of the current `/organizer/events/:eventId` route. The first call loads the event;
  * pages that never call it (they still fetch the event themselves) cost no extra request.
+ *
+ * Adopting it in another event page (Program, Venue, Page Studio, Panel, SMS, Analytics ...):
+ * 1. Its route is already a child of `events/:eventId` in App.tsx, so the provider is above it.
+ * 2. Replace the page's own `GET /api/events/{event_id}` and its `reportEvent` call with
+ *    `const { event, loading, error, client, t, isRtl } = useEventWorkspace()`; the provider reports
+ *    the event to the layout, and `client` carries the organizer key (check `response.status === 401`
+ *    and call `onKeyRejected(apiKey)` as before).
+ * 3. Load the page's own lists with `useEventList(loader)` (pages/organizer/eventLists.ts) and render
+ *    `<EventSectionGate listsLoaded={...} />` (pages/organizer/EventSectionUi.tsx) while
+ *    `!event || error || !listsLoaded`: the same skeleton and failure card as the other sections.
+ * 4. Drop the page's `key={eventId}` wrapper: the layout already remounts the workspace per event.
+ * After saving the event itself, call `replaceEvent(saved)` so every section and the layout show it.
  */
 export function useEventWorkspace(): EventWorkspace {
   const value = useContext(EventWorkspaceContext);

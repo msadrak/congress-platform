@@ -28,7 +28,13 @@ const PlatformSms = lazy(() => import("./pages/PlatformSms"));
 const PlatformSignIn = lazy(() => import("./pages/PlatformSignIn"));
 const PlatformOrganizers = lazy(() => import("./pages/PlatformOrganizers"));
 const OrganizerDesk = lazy(() => import("./pages/OrganizerDesk"));
-const OrganizerEventDetail = lazy(() => import("./pages/OrganizerEventDetail"));
+// The event workspace: a layout route loading the event once, and its sections in one shared chunk.
+const EventWorkspaceLayout = lazy(() => import("./pages/organizer/EventWorkspaceLayout"));
+const EventOverview = lazy(() => import("./pages/organizer").then((m) => ({ default: m.EventOverview })));
+const EventTiers = lazy(() => import("./pages/organizer").then((m) => ({ default: m.EventTiers })));
+const EventCheckIn = lazy(() => import("./pages/organizer").then((m) => ({ default: m.EventCheckIn })));
+const EventBooths = lazy(() => import("./pages/organizer").then((m) => ({ default: m.EventBooths })));
+const EventOperators = lazy(() => import("./pages/organizer").then((m) => ({ default: m.EventOperators })));
 const OrganizerEvents = lazy(() => import("./pages/OrganizerEvents"));
 const OrganizerLayout = lazy(() => import("./pages/OrganizerLayout"));
 const OrganizerPagePreview = lazy(() => import("./pages/OrganizerPagePreview"));
@@ -57,18 +63,21 @@ export default function App() {
         <Route path="/" element={<Home />} />
         <Route path="/organizer" element={<OrganizerLayout />}>
           <Route index element={section(<OrganizerEvents />)} />
-          <Route path="events/:eventId" element={section(<OrganizerEventDetail />)} />
-          <Route path="events/:eventId/program" element={section(<OrganizerProgram />)} />
-          <Route path="events/:eventId/venue" element={section(<OrganizerVenue />)} />
-          <Route path="events/:eventId/tiers" element={section(<OrganizerEventDetail />)} />
-          <Route path="events/:eventId/check-in" element={section(<OrganizerEventDetail />)} />
-          <Route path="events/:eventId/booths" element={section(<OrganizerEventDetail />)} />
-          <Route path="events/:eventId/operators" element={section(<OrganizerEventDetail />)} />
-          <Route path="events/:eventId/page" element={section(<OrganizerPageStudio />)} />
-          <Route path="events/:eventId/panel" element={section(<OrganizerPanel />)} />
-          <Route path="events/:eventId/desk" element={section(<OrganizerDesk />)} />
-          <Route path="events/:eventId/sms" element={section(<OrganizerSms />)} />
-          <Route path="events/:eventId/analytics" element={section(<OrganizerAnalytics />)} />
+          {/* One workspace per event: `useEventWorkspace()` shares the event loaded once by the layout route. */}
+          <Route path="events/:eventId" element={section(<EventWorkspaceLayout />)}>
+            <Route index element={section(<EventOverview />)} />
+            <Route path="program" element={section(<OrganizerProgram />)} />
+            <Route path="venue" element={section(<OrganizerVenue />)} />
+            <Route path="tiers" element={section(<EventTiers />)} />
+            <Route path="check-in" element={section(<EventCheckIn />)} />
+            <Route path="booths" element={section(<EventBooths />)} />
+            <Route path="operators" element={section(<EventOperators />)} />
+            <Route path="page" element={section(<OrganizerPageStudio />)} />
+            <Route path="panel" element={section(<OrganizerPanel />)} />
+            <Route path="desk" element={section(<OrganizerDesk />)} />
+            <Route path="sms" element={section(<OrganizerSms />)} />
+            <Route path="analytics" element={section(<OrganizerAnalytics />)} />
+          </Route>
         </Route>
         {/* Page Studio preview frame: the public page without the organizer shell (key from this tab's session). */}
         <Route path="/organizer/events/:eventId/page/preview" element={<OrganizerPagePreview />} />
