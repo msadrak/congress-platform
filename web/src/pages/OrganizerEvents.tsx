@@ -18,8 +18,8 @@ import {
   Notice,
   SectionHeader,
 } from "../components/organizer/WorkspaceUi";
+import { EventEditDialog } from "../components/organizer/EventEditDialog";
 import { eventTiming } from "../components/organizer/eventTiming";
-import { toDateTimeLocal } from "../components/organizer/sessionTime";
 
 export default function OrganizerEvents() {
   const { apiKey, onKeyRejected, locale, t, isRtl } = useOutletContext<OrganizerOutletContext>();
@@ -43,17 +43,8 @@ export default function OrganizerEvents() {
 
   // Event editing modal state
   const [editingEvent, setEditingEvent] = useState<EventOut | null>(null);
-  const [editName, setEditName] = useState("");
-  const [editLocation, setEditLocation] = useState("");
-  const [editStartsAt, setEditStartsAt] = useState("");
-  const [editEndsAt, setEditEndsAt] = useState("");
-  const [editDescription, setEditDescription] = useState("");
-  const [editSubmitting, setEditSubmitting] = useState(false);
-  const [editError, setEditError] = useState<string | null>(null);
-  const [editInvalid, setEditInvalid] = useState<EventFormField | null>(null);
   // A field is marked invalid only while its form error is on screen.
   const createInvalid = (field: EventFormField) => (formError !== null && formInvalid === field) || undefined;
-  const editFieldInvalid = (field: EventFormField) => (editError !== null && editInvalid === field) || undefined;
   useEffect(() => {
     // Without an organizer key nothing is dispatched; the layout shows the key gate.
     if (!apiKey) return;
@@ -135,56 +126,6 @@ export default function OrganizerEvents() {
       setLocation("");
       setDescription("");
       setIsCreateModalOpen(false);
-    }
-  };
-
-  const openEditModal = (ev: EventOut) => {
-    setEditingEvent(ev);
-    setEditName(ev.name);
-    setEditLocation(ev.location);
-    // `datetime-local` shows the organizer's own wall time; saving reads it back as local time.
-    setEditStartsAt(toDateTimeLocal(ev.starts_at));
-    setEditEndsAt(toDateTimeLocal(ev.ends_at));
-    setEditDescription(ev.description || "");
-    setEditError(null);
-    setEditInvalid(null);
-  };
-
-  const handleUpdateEvent = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!editingEvent) return;
-    setEditError(null);
-    setEditInvalid(null);
-    const problem = eventFormProblem({ name: editName, startsAt: editStartsAt, endsAt: editEndsAt, location: editLocation });
-    if (problem) {
-      setEditInvalid(problem.field);
-      setEditError(t[problem.message]);
-      return;
-    }
-    const startsDate = new Date(editStartsAt);
-    const endsDate = new Date(editEndsAt);
-    if (!apiKey) return;
-    setEditSubmitting(true);
-    const client = createApiClient({ kind: "organizer", token: apiKey });
-    const { data, error: err, response } = await client.PATCH("/api/events/{event_id}", {
-      params: { path: { event_id: editingEvent.id } },
-      body: {
-        name: editName.trim(),
-        location: editLocation.trim(),
-        starts_at: startsDate.toISOString(),
-        ends_at: endsDate.toISOString(),
-        description: editDescription.trim(),
-      },
-    });
-
-    if (response.status === 401) onKeyRejected(apiKey);
-    setEditSubmitting(false);
-    if (err) {
-      setEditError(formatApiError(err));
-    } else if (data) {
-      setEvents((prev) => prev.map((item) => (item.id === data.id ? data : item)));
-      setNotice(isRtl ? `همایش «${data.name}» ذخیره شد.` : `Event “${data.name}” saved.`);
-      setEditingEvent(null);
     }
   };
 
@@ -334,7 +275,7 @@ export default function OrganizerEvents() {
                     <Icon name="sliders" size={16} />
                     <span className="xl:flex-1 xl:text-start">{t.manageEventAction}</span>
                   </LinkButton>
-                  <Button onClick={() => openEditModal(ev)} variant="secondary" size="sm" className="xl:justify-start">
+                  <Button onClick={() => setEditingEvent(ev)} variant="secondary" size="sm" className="xl:justify-start">
                     <Icon name="note" size={16} />
                     <span>{t.editEventAction || (isRtl ? "ویرایش" : "Edit")}</span>
                   </Button>
@@ -451,67 +392,19 @@ export default function OrganizerEvents() {
       </Dialog>
 
       {/* Accessible Event Edit Modal */}
-      <Dialog
-        isOpen={editingEvent !== null}
-        onClose={() => {
-          if (!editSubmitting) {
-            setEditingEvent(null);
-            setEditError(null);
-          }
+      <EventEditDialog
+        event={editingEvent}
+        apiKey={apiKey}
+        onKeyRejected={onKeyRejected}
+        t={t}
+        isRtl={isRtl}
+        onClose={() => setEditingEvent(null)}
+        onSaved={(data) => {
+          setEvents((prev) => prev.map((item) => (item.id === data.id ? data : item)));
+          setNotice(isRtl ? `همایش «${data.name}» ذخیره شد.` : `Event “${data.name}” saved.`);
+          setEditingEvent(null);
         }}
-        title={t.editEventTitle || (isRtl ? "ویرایش مشخصات همایش" : "Edit Event")}
-        description={t.editEventDesc || (isRtl ? "ویرایش عنوان، محل برگزاری، توضیحات و زمان‌بندی همایش." : "Update event details.")}
-        size="lg"
-      >
-        {editingEvent && (
-          <form onSubmit={handleUpdateEvent} className="space-y-5" noValidate>
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <Field label={t.eventNameLabel} required className="sm:col-span-2">
-                <input type="text" required value={editName} onChange={(e) => setEditName(e.target.value)} aria-invalid={editFieldInvalid("name")} className="ui-input" />
-              </Field>
-
-              <Field
-                label={t.eventSlugLabel}
-                className="sm:col-span-2"
-                hint={
-                  isRtl
-                    ? "شناسه اختصاصی اینترنتی (اسلاگ) جهت حفظ پیوند کارت‌ها و آدرس‌های عمومی ثابت می‌ماند."
-                    : "The public URL slug is preserved to protect published links and attendee passes."
-                }
-              >
-                <input type="text" disabled value={editingEvent.slug} dir="ltr" className="ui-input font-mono" />
-              </Field>
-
-              <Field label={t.startsAtLabel} required>
-                <input type="datetime-local" required value={editStartsAt} onChange={(e) => setEditStartsAt(e.target.value)} aria-invalid={editFieldInvalid("startsAt")} className="ui-input font-mono" />
-              </Field>
-
-              <Field label={t.endsAtLabel} required>
-                <input type="datetime-local" required value={editEndsAt} min={editStartsAt || undefined} onChange={(e) => setEditEndsAt(e.target.value)} aria-invalid={editFieldInvalid("endsAt")} className="ui-input font-mono" />
-              </Field>
-
-              <Field label={t.locationLabel} required className="sm:col-span-2">
-                <input type="text" required value={editLocation} onChange={(e) => setEditLocation(e.target.value)} aria-invalid={editFieldInvalid("location")} className="ui-input" />
-              </Field>
-
-              <Field label={t.descriptionLabel} className="sm:col-span-2">
-                <textarea rows={3} value={editDescription} onChange={(e) => setEditDescription(e.target.value)} className="ui-textarea" />
-              </Field>
-            </div>
-
-            {editError && <FormAlert>{editError}</FormAlert>}
-
-            <DialogActions>
-              <Button type="button" variant="ghost" size="md" disabled={editSubmitting} onClick={() => setEditingEvent(null)}>
-                {t.cancelAction || (isRtl ? "انصراف" : "Cancel")}
-              </Button>
-              <Button type="submit" variant="primary" size="md" disabled={editSubmitting} aria-busy={editSubmitting}>
-                {editSubmitting ? t.savingAction : t.saveChangesAction || (isRtl ? "ذخیره تغییرات" : "Save Changes")}
-              </Button>
-            </DialogActions>
-          </form>
-        )}
-      </Dialog>
+      />
     </div>
   );
 }
