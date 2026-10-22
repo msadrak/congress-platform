@@ -5,6 +5,14 @@ on:
     branches: [master, main, 'integration/**', 'feature/**']
   pull_request:
 
+permissions:
+  contents: read
+
+# A newer push to the same branch or pull request supersedes the running checks.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   backend:
     name: Backend (FastAPI & PostgreSQL)
@@ -138,3 +146,111 @@ jobs:
       - name: Dart static analysis
         working-directory: mobile
         run: dart analyze lib/models lib/services test
+
+  e2e:
+    name: Browser end-to-end (Playwright, intercepted API)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install dependencies
+        working-directory: web
+        run: npm ci
+
+      - name: Install Playwright Chromium
+        working-directory: web
+        run: npx playwright install --with-deps chromium
+
+      - name: Production Vite build
+        working-directory: web
+        run: npm run build
+
+      # Every spec in web/e2e runs against the production build served by `vite preview` (CONGRESS_E2E_PREVIEW)
+      # in Playwright's Chromium (CONGRESS_BROWSER_CHANNEL; locally the default is Edge). They intercept /api/
+      # with synthetic responses, so no backend is needed. scanner-real-api.spec.ts needs a live FastAPI +
+      # PostgreSQL and CONGRESS_PLATFORM_ADMIN_TOKEN; without the token it reports itself skipped. It runs in
+      # scripts/integration/congress-e2e.mjs.
+      - name: Playwright specs
+        working-directory: web
+        env:
+          CONGRESS_BROWSER_CHANNEL: chromium
+          CONGRESS_E2E_PREVIEW: '1'
+        run: npx playwright test
+
+      - name: Upload failure context
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-test-results
+          path: web/test-results
+          retention-days: 7
+
+  images:
+    name: Docker images and Caddy configuration
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build the API image (backend/Dockerfile)
+        uses: docker/build-push-action@v6
+        with:
+          context: backend
+          file: backend/Dockerfile
+          push: false
+          cache-from: type=gha,scope=api
+          cache-to: type=gha,mode=max,scope=api
+
+      - name: Build the web edge image (deploy/web/Dockerfile)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/web/Dockerfile
+          push: false
+          cache-from: type=gha,scope=web
+          cache-to: type=gha,mode=max,scope=web
+
+      # caddy validate in the official image for each edge mode (local staging, LAN, hosted, CDN in front).
+      - name: Validate deploy/staging/Caddyfile
+        run: node scripts/ci/validate-caddyfile.mjs
+
+  audit:
+    name: Dependency audit (high and critical fail)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      # Runtime dependencies from backend/uv.lock (what the API image ships). pip-audit exits non-zero on any
+      # finding; the gate looks up each advisory's severity in OSV and fails on high or critical only.
+      - name: Python (pip-audit over backend/uv.lock)
+        working-directory: backend
+        run: |
+          uv export --frozen --no-dev --no-emit-project --format requirements-txt --output-file "$RUNNER_TEMP/requirements.txt"
+          uvx pip-audit --disable-pip --requirement "$RUNNER_TEMP/requirements.txt" --progress-spinner off \
+            --format json --output "$RUNNER_TEMP/pip-audit.json" || true
+          node ../scripts/ci/pip-audit-gate.mjs "$RUNNER_TEMP/pip-audit.json"
+
+      - name: Web (npm audit, production dependencies)
+        if: success() || failure()
+        working-directory: web
+        run: npm audit --omit=dev --audit-level=high
