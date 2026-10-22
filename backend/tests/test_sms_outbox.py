@@ -16,7 +16,7 @@ from app.sms.outbox import MAX_ATTEMPTS, deliver_due
 from app.sms.gateway import SmsGateway
 from app.sms.provider import RecordingProvider, SmsResult
 from tests.conftest import _truncate_all, make_test_settings
-from tests.helpers import bearer, provision_organizer, sign_in
+from tests.helpers import bearer, pass_link, provision_organizer, sign_in
 from tests.test_events import EVENT
 from tests.test_ticket_tiers import create_event, tier
 
@@ -59,7 +59,7 @@ async def test_reservation_queues_a_confirmation_with_the_pass_link(app: FastAPI
     assert queued.status == "pending" and str(queued.ticket_id) == ticket_id
     assert queued.body == (
         f"Dr. Neda Karimi عزیز، ثبت‌نام شما در «{EVENT['name']}» تأیید شد.\n"
-        f"کارت ورود: http://test/c/{EVENT['slug']}/my-ticket"
+        f"کارت ورود: {await pass_link(app, ticket_id)}"
     )
     assert queued.event_id is not None
     assert recorder(app).sent_to(MOBILE)[-1].kind == "otp"  # only the sign-in code so far

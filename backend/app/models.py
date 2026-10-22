@@ -195,6 +195,27 @@ class Ticket(Base):
         ForeignKey("desk_operators.id"), nullable=True, index=True
     )
 
+
+class ShortLink(Base):
+    """The short code in a ticket confirmation SMS: `/t/{code}` opens that ticket's pass read-only (ADR 0015).
+
+    A bearer credential like the pass QR itself: whoever holds the SMS sees the pass. Minted with the ticket
+    (app/links.py), valid until 30 days after the event, revocable; the code never appears in an API URL.
+    """
+
+    __tablename__ = "short_links"
+
+    code: Mapped[str] = mapped_column(String(16), primary_key=True)
+    ticket_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tickets.id", ondelete="CASCADE"), index=True)
+    event_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("events.id", ondelete="CASCADE"), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    first_opened_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_opened_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    open_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+
+
 class EntityQR(Base):
     """Universal polymorphic QR registry (attendee_ticket, booth, hall, session)."""
 

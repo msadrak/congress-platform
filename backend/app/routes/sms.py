@@ -11,15 +11,16 @@ from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.auth import require_platform_admin
 from app.db import SessionDep
-from app.models import SmsMessage, TicketTier
+from app.links import SAMPLE_CODE
+from app.models import ShortLink, SmsMessage, TicketTier
 from app.rate_limit import LONGEST_WINDOW_SECONDS, Budget, limiter
 from app.routes.events import OwnedEventDep
 from app.sms import SmsGateway, sms_provider
-from app.sms.outbox import confirmation_values
+from app.sms.outbox import confirmation_values, link_origin
 from app.sms.phone import IranMobile, mask_mobile
 from app.sms.templates import (
     KINDS,
@@ -91,6 +92,8 @@ class SmsMessageOut(BaseModel):
     last_error: str | None
     created_at: datetime
     sent_at: datetime | None
+    # Ticket confirmations: when the attendee first opened the pass link it carries (ADR 0015); null = not yet.
+    link_opened_at: datetime | None = None
 
 
 def _template_error(exc: TemplateError) -> HTTPException:
@@ -120,8 +123,8 @@ async def _sample(request: Request, session: SessionDep, event: OwnedEventDep) -
     tier = await session.scalar(
         select(TicketTier.name).where(TicketTier.event_id == event.id).order_by(TicketTier.created_at).limit(1)
     )
-    origin = request.app.state.settings.public_origin or str(request.base_url)
-    return confirmation_values(origin, name=SAMPLE_NAME, event=event, tier_name=tier or "")
+    origin = link_origin(request.app.state.settings, str(request.base_url))
+    return confirmation_values(origin, name=SAMPLE_NAME, event=event, tier_name=tier or "", code=SAMPLE_CODE)
 
 
 @router.get("/api/events/{event_id}/sms")
@@ -196,8 +199,14 @@ async def list_event_sms(
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
 ) -> list[SmsMessageOut]:
     """Newest first. Numbers are masked; the attendee list and CSV export carry the full numbers."""
-    rows = await session.scalars(
-        select(SmsMessage)
+    link_opened_at = (
+        select(func.min(ShortLink.first_opened_at))
+        .where(ShortLink.ticket_id == SmsMessage.ticket_id)
+        .correlate(SmsMessage)
+        .scalar_subquery()
+    )
+    rows = await session.execute(
+        select(SmsMessage, link_opened_at)
         .where(SmsMessage.event_id == event.id)
         .order_by(SmsMessage.created_at.desc())
         .limit(limit)
@@ -206,8 +215,9 @@ async def list_event_sms(
         SmsMessageOut(
             id=m.id, kind=m.kind, mobile=mask_mobile(m.mobile), body=m.body, status=m.status,
             attempts=m.attempts, last_error=m.last_error, created_at=m.created_at, sent_at=m.sent_at,
+            link_opened_at=opened,
         )
-        for m in rows
+        for m, opened in rows
     ]
 
 

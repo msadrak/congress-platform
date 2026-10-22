@@ -1,5 +1,6 @@
 from pathlib import Path
 from typing import Any, Literal
+from urllib.parse import urlsplit
 
 from pydantic import Field, ValidationError, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -53,6 +54,9 @@ class Settings(BaseSettings):
     auth_rate_limits_enabled: bool = True
     # Absolute origin visitors use (e.g. https://congress.example.org); used for canonical/og URLs.
     public_origin: str | None = None
+    # Origin of the short pass links in SMS (`{origin}/t/{code}`, ADR 0015), e.g. a shorter domain served by this
+    # deployment; unset means public_origin. An https origin without a path in staging/production.
+    short_link_origin: str | None = None
     media_max_bytes: int = Field(default=5 * 1024 * 1024, gt=0, le=20 * 1024 * 1024)
 
     # SMS (sign-in codes and ticket confirmations). Defaults to smsir in staging/production, console elsewhere.
@@ -105,6 +109,21 @@ class Settings(BaseSettings):
         # Compose passes an unset optional variable as an empty string.
         return None if isinstance(v, str) and not v.strip() else v
 
+    @field_validator("short_link_origin", mode="before")
+    @classmethod
+    def _short_link_origin_shape(cls, v: Any) -> Any:
+        if v is None or (isinstance(v, str) and not v.strip()):
+            return None  # Compose passes an unset optional variable as an empty string.
+        if not isinstance(v, str):
+            return v
+        origin = v.strip().rstrip("/")
+        parts = urlsplit(origin)
+        if parts.scheme not in ("http", "https") or not parts.netloc or parts.path or parts.query or parts.fragment:
+            raise ValueError(
+                "CONGRESS_SHORT_LINK_ORIGIN must be an origin such as https://cngr.example (no path or query)."
+            )
+        return origin
+
     @field_validator("jwt_secret")
     @classmethod
     def validate_jwt_secret(cls, v: str) -> str:
@@ -137,6 +156,10 @@ class Settings(BaseSettings):
                 f"CONGRESS_PLATFORM_ADMIN_TOKEN must be a generated secret of at least "
                 f"{MIN_ADMIN_TOKEN_LENGTH} characters when CONGRESS_ENVIRONMENT={self.environment} "
                 "(for example: python -c \"import secrets; print(secrets.token_urlsafe(32))\")."
+            )
+        if self.short_link_origin and not self.short_link_origin.startswith("https://"):
+            raise ValueError(
+                f"CONGRESS_SHORT_LINK_ORIGIN must use https when CONGRESS_ENVIRONMENT={self.environment}."
             )
         if not self.media_root.is_absolute():
             raise ValueError(

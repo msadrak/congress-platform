@@ -129,7 +129,7 @@ def test_desk_session_migration_has_one_linear_head() -> None:
     config = Config(str(BACKEND_DIR / "alembic.ini"))
     config.set_main_option("script_location", str(BACKEND_DIR / "migrations"))
     scripts = ScriptDirectory.from_config(config)
-    assert scripts.get_heads() == ["0018"]
+    assert scripts.get_heads() == ["0019"]
     revisions = list(scripts.walk_revisions())
     assert [revision.revision for revision in revisions] == [f"{number:04d}" for number in range(18, 0, -1)]
     desk_session = scripts.get_revision("0012")

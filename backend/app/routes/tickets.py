@@ -7,6 +7,7 @@ from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 
 from app.db import SessionDep
+from app.links import mint_ticket_link
 from app.models import EntityQR, Event, Ticket, TicketTier
 from app.routes.auth import CurrentUserDep
 from app.security import generate_entity_qr_secret
@@ -130,8 +131,10 @@ async def reserve_ticket(
         is_active=True,
     )
     session.add(qr)
+    link = await mint_ticket_link(session, ticket, event)
     await queue_ticket_confirmation(
-        session, request.app.state.settings, str(request.base_url), user=user, event=event, ticket=ticket
+        session, request.app.state.settings, str(request.base_url), user=user, event=event, ticket=ticket,
+        code=link.code,
     )
     await session.commit()
 
