@@ -32,6 +32,7 @@ from app.models import Event, EventPage, MediaAsset
 from app.page_document import PageDocument
 from app.page_render import organizer_media_url, render_page
 from app.routes.events import OwnedEventDep, new_event_page
+from app.routes.program import live_program
 from app.routes.public import PublicBoothSummary, PublicEvent, booth_directory, event_tiers
 
 router = APIRouter(tags=["page studio"])
@@ -210,6 +211,7 @@ async def discard_page_draft(body: PageRevision, event: OwnedEventDep, session: 
 async def preview_page(event: OwnedEventDep, session: SessionDep) -> PagePreview:
     page = await _page(session, event)
     draft: dict[str, Any] = page.draft
+    venue, sessions = await live_program(session, event.id)
     preview = PagePreview(
         id=event.id,
         name=event.name,
@@ -220,6 +222,8 @@ async def preview_page(event: OwnedEventDep, session: SessionDep) -> PagePreview
         description=event.description,
         ticket_tiers=await event_tiers(session, event.id),
         page=await render_page(session, event.id, draft, organizer_media_url),
+        venue=venue,
+        sessions=sessions,
         booths=await booth_directory(session, event.id),
     )
     await session.commit()

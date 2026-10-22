@@ -13,6 +13,7 @@ from app.models import Booth, BoothBookmark, Event, EventPage, MediaAsset, Ticke
 from app.page_document import PageDocument
 from app.page_render import PublicPage, public_media_url, render_page
 from app.seo import default_head, page_language, pick, render_head
+from app.routes.program import PublicSession, PublicVenuePlace, live_program
 from app.routes.ticket_tiers import TicketTierOut
 from app.security import decode_access_token
 
@@ -30,6 +31,9 @@ class PublicEvent(BaseModel):
     ticket_tiers: list[TicketTierOut]
     # The published page only; drafts are never part of an anonymous response.
     page: PublicPage
+    # Operational data, live as soon as the organizer saves it (no publish step; ADR 0014).
+    venue: list[PublicVenuePlace]
+    sessions: list[PublicSession]
 
 
 class PublicBoothOut(BaseModel):
@@ -121,6 +125,7 @@ async def optional_user_id(
 @router.get("/{slug}")
 async def get_public_event(published: PublishedEventDep, session: SessionDep) -> PublicEvent:
     event, document = published
+    venue, sessions = await live_program(session, event.id)
     return PublicEvent(
         id=event.id,
         name=event.name,
@@ -131,6 +136,8 @@ async def get_public_event(published: PublishedEventDep, session: SessionDep) ->
         description=event.description,
         ticket_tiers=await event_tiers(session, event.id),
         page=await render_page(session, event.id, document, public_media_url),
+        venue=venue,
+        sessions=sessions,
     )
 
 

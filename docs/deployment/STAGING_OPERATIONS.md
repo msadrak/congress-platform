@@ -49,7 +49,7 @@ The response contains the organizer API key **once**. No demo accounts or demo d
 | Portal | URL (`https://localhost:8443` or `http://localhost:18080`) |
 |---|---|
 | Platform home | `/` |
-| Organizer console | `/organizer` → events → **Public page** (Page Studio), Analytics, Front Desk |
+| Organizer console | `/organizer` → events → **Program** (sessions, CSV timetable upload), **Venue** (entrances, halls), Booths, **Public page** (Page Studio), **Attendee panel** (preview), Analytics, Front Desk |
 | Public congress | `/e/<slug>` (after Publish) and `/e/<slug>/booths/<id>` |
 | Attendee | `/sign-in`, `/my-tickets`, `/my-network`, `/c/<slug>/my-congress` |
 | Reception | `/reception` (congress code) or `/reception/<event-id>` |

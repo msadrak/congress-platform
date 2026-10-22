@@ -4,11 +4,11 @@ from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Response, status
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 
 from app.db import SessionDep
-from app.models import Booth, BoothBookmark, BoothStaff, EntityQR, Event, User
+from app.models import Booth, BoothBookmark, BoothStaff, EntityQR, Event, Lead, User
 from app.routes.auth import CurrentUserDep
 from app.routes.events import OwnedEventDep
 from app.security import generate_entity_qr_secret
@@ -28,6 +28,18 @@ class BoothCreate(BaseModel):
     description: str = ""
     website_url: Annotated[str, Field(max_length=500)] = ""
     brochure_url: Annotated[str, Field(max_length=500)] = ""
+
+
+class BoothUpdate(BaseModel):
+    """Partial update: omitted fields keep their value."""
+
+    name: Annotated[str, Field(min_length=1, max_length=200)] | None = None
+    slug: SlugStr | None = None
+    location: Annotated[str, Field(max_length=100)] | None = None
+    description: str | None = None
+    website_url: Annotated[str, Field(max_length=500)] | None = None
+    brochure_url: Annotated[str, Field(max_length=500)] | None = None
+
 
 
 class BoothOut(BaseModel):
@@ -159,6 +171,84 @@ async def list_event_booths(
         )
         for b, qr in rows
     ]
+
+
+async def _own_booth(session: SessionDep, event: Event, booth_id: uuid.UUID) -> Booth:
+    booth = await session.get(Booth, booth_id)
+    if booth is None or booth.event_id != event.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Booth not found")
+    return booth
+
+
+@router.patch("/api/events/{event_id}/booths/{booth_id}")
+async def update_booth(
+    event: OwnedEventDep,
+    booth_id: uuid.UUID,
+    body: BoothUpdate,
+    session: SessionDep,
+) -> BoothOut:
+    booth = await _own_booth(session, event, booth_id)
+    if body.name is not None:
+        booth.name = body.name.strip()
+    if body.slug is not None:
+        booth.slug = body.slug.strip().lower()
+    if body.location is not None:
+        booth.location = body.location.strip()
+    if body.description is not None:
+        booth.description = body.description.strip()
+    if body.website_url is not None:
+        booth.website_url = body.website_url.strip()
+    if body.brochure_url is not None:
+        booth.brochure_url = body.brochure_url.strip()
+    try:
+        await session.flush()
+    except IntegrityError:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, "Booth slug already in use for this event"
+        ) from None
+    secret = await session.scalar(
+        select(EntityQR.secret).where(
+            EntityQR.entity_id == booth.id, EntityQR.entity_type == "booth"
+        )
+    )
+    await session.commit()
+    await session.refresh(booth)
+
+    return BoothOut(
+        id=booth.id,
+        event_id=booth.event_id,
+        name=booth.name,
+        slug=booth.slug,
+        location=booth.location,
+        description=booth.description,
+        website_url=booth.website_url,
+        brochure_url=booth.brochure_url,
+        qr_secret=secret or "",
+        created_at=booth.created_at,
+    )
+
+
+@router.delete(
+    "/api/events/{event_id}/booths/{booth_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def delete_booth(
+    event: OwnedEventDep,
+    booth_id: uuid.UUID,
+    session: SessionDep,
+) -> Response:
+    """Removes the booth with everything that only exists for it: captured leads, staff assignments,
+    attendee bookmarks and its booth QR (which then no longer resolves)."""
+    booth = await _own_booth(session, event, booth_id)
+    await session.execute(delete(Lead).where(Lead.booth_id == booth.id))
+    await session.execute(delete(BoothStaff).where(BoothStaff.booth_id == booth.id))
+    await session.execute(delete(BoothBookmark).where(BoothBookmark.booth_id == booth.id))
+    await session.execute(
+        delete(EntityQR).where(EntityQR.entity_id == booth.id, EntityQR.entity_type == "booth")
+    )
+    await session.delete(booth)
+    await session.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.post(

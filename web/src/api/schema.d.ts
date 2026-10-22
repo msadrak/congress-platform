@@ -669,6 +669,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/events/{event_id}/booths/{booth_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete Booth
+         * @description Removes the booth with everything that only exists for it: captured leads, staff assignments,
+         *     attendee bookmarks and its booth QR (which then no longer resolves).
+         */
+        delete: operations["delete_booth_api_events__event_id__booths__booth_id__delete"];
+        options?: never;
+        head?: never;
+        /** Update Booth */
+        patch: operations["update_booth_api_events__event_id__booths__booth_id__patch"];
+        trace?: never;
+    };
     "/api/events/{event_id}/booths/{booth_id}/staff": {
         parameters: {
             query?: never;
@@ -1076,6 +1098,98 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/api/events/{event_id}/venue-places": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Venue Places */
+        get: operations["list_venue_places_api_events__event_id__venue_places_get"];
+        put?: never;
+        /** Create Venue Place */
+        post: operations["create_venue_place_api_events__event_id__venue_places_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/events/{event_id}/venue-places/{place_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete Venue Place
+         * @description Sessions held in a deleted hall stay in the program without a hall (FK ON DELETE SET NULL).
+         */
+        delete: operations["delete_venue_place_api_events__event_id__venue_places__place_id__delete"];
+        options?: never;
+        head?: never;
+        /** Update Venue Place */
+        patch: operations["update_venue_place_api_events__event_id__venue_places__place_id__patch"];
+        trace?: never;
+    };
+    "/api/events/{event_id}/sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Sessions */
+        get: operations["list_sessions_api_events__event_id__sessions_get"];
+        put?: never;
+        /** Create Session */
+        post: operations["create_session_api_events__event_id__sessions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/events/{event_id}/sessions/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Import Sessions */
+        post: operations["import_sessions_api_events__event_id__sessions_import_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/events/{event_id}/sessions/{session_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Session */
+        delete: operations["delete_session_api_events__event_id__sessions__session_id__delete"];
+        options?: never;
+        head?: never;
+        /** Update Session */
+        patch: operations["update_session_api_events__event_id__sessions__session_id__patch"];
         trace?: never;
     };
     "/api/public/events/{slug}": {
@@ -1775,6 +1889,24 @@ export interface components {
             /** Full Name */
             full_name: string;
         };
+        /**
+         * BoothUpdate
+         * @description Partial update: omitted fields keep their value.
+         */
+        BoothUpdate: {
+            /** Name */
+            name?: string | null;
+            /** Slug */
+            slug?: string | null;
+            /** Location */
+            location?: string | null;
+            /** Description */
+            description?: string | null;
+            /** Website Url */
+            website_url?: string | null;
+            /** Brochure Url */
+            brochure_url?: string | null;
+        };
         /** Branding */
         Branding: {
             /**
@@ -2147,6 +2279,160 @@ export interface components {
             location: string;
             /** Description */
             description: string;
+        };
+        /** EventSessionCreate */
+        EventSessionCreate: {
+            /** Title */
+            title: string;
+            /**
+             * Track
+             * @default
+             */
+            track: string;
+            /**
+             * Speakers
+             * @default
+             */
+            speakers: string;
+            /**
+             * Description
+             * @default
+             */
+            description: string;
+            /** Hall Id */
+            hall_id?: string | null;
+            /**
+             * Starts At
+             * Format: date-time
+             */
+            starts_at: string;
+            /**
+             * Ends At
+             * Format: date-time
+             */
+            ends_at: string;
+        };
+        /**
+         * EventSessionImport
+         * @description A whole timetable at once: every row is valid or nothing is saved.
+         */
+        EventSessionImport: {
+            /**
+             * Replace
+             * @default false
+             */
+            replace: boolean;
+            /** Sessions */
+            sessions: components["schemas"]["EventSessionImportRow"][];
+        };
+        /** EventSessionImportOut */
+        EventSessionImportOut: {
+            /** Created */
+            created: number;
+            /** Removed */
+            removed: number;
+            /** Halls Created */
+            halls_created: number;
+        };
+        /** EventSessionImportRow */
+        EventSessionImportRow: {
+            /** Title */
+            title: string;
+            /**
+             * Track
+             * @default
+             */
+            track: string;
+            /**
+             * Speakers
+             * @default
+             */
+            speakers: string;
+            /**
+             * Description
+             * @default
+             */
+            description: string;
+            /**
+             * Hall
+             * @default
+             */
+            hall: string;
+            /**
+             * Starts At
+             * Format: date-time
+             */
+            starts_at: string;
+            /**
+             * Ends At
+             * Format: date-time
+             */
+            ends_at: string;
+        };
+        /** EventSessionOut */
+        EventSessionOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Title */
+            title: string;
+            /** Track */
+            track: string;
+            /** Speakers */
+            speakers: string;
+            /** Description */
+            description: string;
+            /** Hall Id */
+            hall_id: string | null;
+            /** Hall Name */
+            hall_name: string;
+            /**
+             * Starts At
+             * Format: date-time
+             */
+            starts_at: string;
+            /**
+             * Ends At
+             * Format: date-time
+             */
+            ends_at: string;
+            /**
+             * Event Id
+             * Format: uuid
+             */
+            event_id: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /**
+         * EventSessionUpdate
+         * @description Partial update: omitted fields keep their value; an explicit `hall_id: null` clears the hall.
+         */
+        EventSessionUpdate: {
+            /** Title */
+            title?: string | null;
+            /** Track */
+            track?: string | null;
+            /** Speakers */
+            speakers?: string | null;
+            /** Description */
+            description?: string | null;
+            /** Hall Id */
+            hall_id?: string | null;
+            /** Starts At */
+            starts_at?: string | null;
+            /** Ends At */
+            ends_at?: string | null;
         };
         /** EventUpdate */
         EventUpdate: {
@@ -2660,6 +2946,10 @@ export interface components {
             /** Ticket Tiers */
             ticket_tiers: components["schemas"]["TicketTierOut"][];
             page: components["schemas"]["PublicPage"];
+            /** Venue */
+            venue: components["schemas"]["PublicVenuePlace"][];
+            /** Sessions */
+            sessions: components["schemas"]["PublicSession"][];
             /** Booths */
             booths: components["schemas"]["PublicBoothSummary"][];
         };
@@ -2859,12 +3149,63 @@ export interface components {
             /** Ticket Tiers */
             ticket_tiers: components["schemas"]["TicketTierOut"][];
             page: components["schemas"]["PublicPage"];
+            /** Venue */
+            venue: components["schemas"]["PublicVenuePlace"][];
+            /** Sessions */
+            sessions: components["schemas"]["PublicSession"][];
         };
         /** PublicPage */
         PublicPage: {
             document: components["schemas"]["PageDocument"];
             /** Assets */
             assets: components["schemas"]["PageAsset"][];
+        };
+        /** PublicSession */
+        PublicSession: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Title */
+            title: string;
+            /** Track */
+            track: string;
+            /** Speakers */
+            speakers: string;
+            /** Description */
+            description: string;
+            /** Hall Id */
+            hall_id: string | null;
+            /** Hall Name */
+            hall_name: string;
+            /**
+             * Starts At
+             * Format: date-time
+             */
+            starts_at: string;
+            /**
+             * Ends At
+             * Format: date-time
+             */
+            ends_at: string;
+        };
+        /** PublicVenuePlace */
+        PublicVenuePlace: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "entrance" | "hall";
+            /** Name */
+            name: string;
+            /** Location */
+            location: string;
         };
         /** RecordedSmsOut */
         RecordedSmsOut: {
@@ -3378,6 +3719,62 @@ export interface components {
             input?: unknown;
             /** Context */
             ctx?: Record<string, never>;
+        };
+        /** VenuePlaceCreate */
+        VenuePlaceCreate: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "entrance" | "hall";
+            /** Name */
+            name: string;
+            /**
+             * Location
+             * @default
+             */
+            location: string;
+        };
+        /** VenuePlaceOut */
+        VenuePlaceOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "entrance" | "hall";
+            /** Name */
+            name: string;
+            /** Location */
+            location: string;
+            /**
+             * Event Id
+             * Format: uuid
+             */
+            event_id: string;
+            /** Position */
+            position: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
+        /**
+         * VenuePlaceUpdate
+         * @description Partial update; the kind of a place never changes (delete and re-add instead).
+         */
+        VenuePlaceUpdate: {
+            /** Name */
+            name?: string | null;
+            /** Location */
+            location?: string | null;
+            /** Position */
+            position?: number | null;
         };
     };
     responses: never;
@@ -4769,6 +5166,72 @@ export interface operations {
             };
         };
     };
+    delete_booth_api_events__event_id__booths__booth_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                booth_id: string;
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_booth_api_events__event_id__booths__booth_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                booth_id: string;
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BoothUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BoothOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_booth_staff_api_events__event_id__booths__booth_id__staff_get: {
         parameters: {
             query?: never;
@@ -5628,6 +6091,305 @@ export interface operations {
                 };
                 content: {
                     "image/*": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_venue_places_api_events__event_id__venue_places_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VenuePlaceOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_venue_place_api_events__event_id__venue_places_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VenuePlaceCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VenuePlaceOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_venue_place_api_events__event_id__venue_places__place_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                place_id: string;
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_venue_place_api_events__event_id__venue_places__place_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                place_id: string;
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VenuePlaceUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VenuePlaceOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_sessions_api_events__event_id__sessions_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EventSessionOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_session_api_events__event_id__sessions_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EventSessionCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EventSessionOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    import_sessions_api_events__event_id__sessions_import_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EventSessionImport"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EventSessionImportOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_session_api_events__event_id__sessions__session_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_session_api_events__event_id__sessions__session_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EventSessionUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EventSessionOut"];
                 };
             };
             /** @description Validation Error */

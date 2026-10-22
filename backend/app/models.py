@@ -373,6 +373,65 @@ class Lead(Base):
     )
 
 
+class VenuePlace(Base):
+    """A place attendees must find at the venue: an entrance or a hall, with directions.
+
+    Informational only; distinct from a Check-In Point, which is a scanning station that admits tickets.
+    Shown to attendees as soon as it is saved (operational data, not part of the Page Studio publish).
+    """
+
+    __tablename__ = "venue_places"
+    __table_args__ = (
+        CheckConstraint("kind IN ('entrance', 'hall')", name="ck_venue_places_kind"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    event_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("events.id", ondelete="CASCADE"), index=True
+    )
+    kind: Mapped[str] = mapped_column(String(16))
+    name: Mapped[str] = mapped_column(String(120))
+    location: Mapped[str] = mapped_column(String(300), default="", server_default="")
+    position: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class EventSession(Base):
+    """A scheduled programme item (talk, keynote, workshop, panel, class) of an event, optionally in a Hall.
+
+    Operational data: attendees see it as soon as it is saved. The Page Studio agenda section is separate,
+    editorial copy.
+    """
+
+    __tablename__ = "event_sessions"
+    __table_args__ = (
+        CheckConstraint("ends_at >= starts_at", name="ck_event_sessions_time_order"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    event_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("events.id", ondelete="CASCADE"), index=True
+    )
+    title: Mapped[str] = mapped_column(String(200))
+    track: Mapped[str] = mapped_column(String(80), default="", server_default="")
+    speakers: Mapped[str] = mapped_column(String(300), default="", server_default="")
+    description: Mapped[str] = mapped_column(Text, default="", server_default="")
+    # Deleting the hall keeps the session, without a hall.
+    hall_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("venue_places.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    ends_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
 class OtpChallenge(Base):
     """A one-time sign-in code sent by SMS. Only an HMAC of the code is stored; a newer code supersedes older ones."""
 

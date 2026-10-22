@@ -81,9 +81,17 @@ The physical identification credential printed for an attendee upon on-site chec
 _Avoid_: Tag, card, nameplate
 
 **Session**:
-A scheduled presentation, keynote, workshop, or panel occurring within an event track and hall.
+A scheduled presentation, keynote, workshop, panel, or class in an event's program, with a start and end time, optionally held in a Hall and labelled with a Track (ADR 0014).
 _Avoid_: Lecture, talk, meeting
 
 **Track**:
-A thematic or physical grouping of sessions across halls and schedules.
+The category label of a session (for example "Seminar", "Workshop", "Exhibition") that attendees filter the program by; a free-text label, not a place.
 _Avoid_: Stream, channel
+
+**Hall**:
+A room or space of the venue where sessions are held, listed in the event's venue directory with directions for attendees. Informational only; a Hall that scans tickets also needs its own Check-In Point.
+_Avoid_: Room (in the domain model), auditorium, stage
+
+**Entrance**:
+A way into the venue listed in the event's venue directory with directions for attendees. Informational only; the gate that scans tickets there is a Check-In Point.
+_Avoid_: Gate (when meaning the place), door, entry

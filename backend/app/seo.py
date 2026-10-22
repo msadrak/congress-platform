@@ -7,9 +7,9 @@ from html import escape
 
 from app.page_document import PageDocument, _Localized as LocalizedText
 
-DEFAULT_TITLE = "AIteb Congress Platform"
+DEFAULT_TITLE = "AI Teb Congress Platform"
 DEFAULT_DESCRIPTION = (
-    "AIteb congress platform: registration, digital passes, gate scanning, reception and exhibitor lead capture."
+    "AI Teb congress platform: registration, digital passes, gate scanning, reception and exhibitor lead capture."
 )
 _PERSIAN = re.compile(r"[\u0600-\u06FF]")
 
@@ -51,7 +51,7 @@ def render_head(
         f'<meta property="og:title" content="{e(title)}" />',
         f'<meta property="og:description" content="{e(description)}" />',
         '<meta property="og:type" content="website" />',
-        '<meta property="og:site_name" content="AIteb Congress Platform" />',
+        '<meta property="og:site_name" content="AI Teb Congress Platform" />',
         f'<meta name="twitter:card" content="{"summary_large_image" if image_url else "summary"}" />',
     ]
     if lang:
