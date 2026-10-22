@@ -20,6 +20,7 @@ import { useParams } from "react-router-dom";
 import { AttendeeLayout } from "../layouts/AttendeeLayout";
 import { congressPath, useCongressEvent } from "../lib/congressContext";
 import { signInPath } from "../lib/safeRedirect";
+import { formatMobile, telHref } from "../lib/mobile";
 import { Button } from "../components/ui/Button";
 import { Dialog } from "../components/ui/Dialog";
 import { Icon } from "../components/ui/Icon";
@@ -376,9 +377,9 @@ export default function MyNetwork() {
                   }`}
                 >
                   <Icon name={sharing ? "eye" : "eye-off"} size={15} />
-                  {sharing ? t.emailSharedStatus : t.emailHiddenStatus}
+                  {sharing ? t.mobileSharedStatus : t.mobileHiddenStatus}
                 </p>
-                <p className="text-xs leading-relaxed text-text-secondary">{t.shareEmailToggleDesc}</p>
+                <p className="text-xs leading-relaxed text-text-secondary">{t.shareMobileToggleDesc}</p>
                 <Button
                   type="button"
                   variant={sharing ? "outline" : "secondary"}
@@ -392,8 +393,8 @@ export default function MyNetwork() {
                   {updatingPrivacy
                     ? "..."
                     : sharing
-                    ? (isRtl ? "تغییر به محرمانه (غیرفعال)" : "Make Email Private")
-                    : (isRtl ? "فعال‌سازی اشتراک ایمیل" : "Enable Email Sharing")}
+                    ? (isRtl ? "تغییر به محرمانه (غیرفعال)" : "Make Mobile Number Private")
+                    : (isRtl ? "فعال‌سازی اشتراک شماره موبایل" : "Enable Mobile Number Sharing")}
                 </Button>
               </div>
             </aside>
@@ -443,20 +444,20 @@ export default function MyNetwork() {
                               {conn.organization && <span className="font-medium text-text-primary">{conn.organization}</span>}
                             </p>
                           )}
-                          {/* Email display with privacy consent logic & bidi isolation */}
+                          {/* Mobile number, only when the peer consented to share it; LTR island inside RTL text */}
                           <div className="pt-1 text-xs">
-                            {conn.email ? (
+                            {conn.mobile ? (
                               <a
-                                href={`mailto:${conn.email}`}
+                                href={telHref(conn.mobile)}
                                 className="inline-flex min-h-8 max-w-full items-center gap-1.5 rounded font-mono text-action-primary underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-focus-ring"
                               >
-                                <Icon name="mail" size={15} />
-                                <bdi dir="ltr" className="truncate">{conn.email}</bdi>
+                                <Icon name="phone" size={15} />
+                                <bdi dir="ltr" className="truncate">{formatMobile(conn.mobile, locale)}</bdi>
                               </a>
                             ) : (
                               <span className="inline-flex items-start gap-1.5 rounded-lg bg-surface-panel-subtle px-2.5 py-1.5 leading-snug text-text-muted">
                                 <Icon name="lock" size={13} className="mt-px" />
-                                <span>{t.emailNotSharedNotice}</span>
+                                <span>{t.mobileNotSharedNotice}</span>
                               </span>
                             )}
                           </div>

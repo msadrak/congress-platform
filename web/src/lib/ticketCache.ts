@@ -4,7 +4,7 @@
  * Threat Model & Security Posture:
  * 1. Web Storage (localStorage) is plaintext client-side storage. It provides NO encryption at rest.
  * 2. On shared devices (e.g. library, internet cafe, borrowed phone), unscoped cache keys permit
- *    subsequent users to inspect prior attendees' full names, email addresses, and reusable QR secrets.
+ *    subsequent users to inspect prior attendees' full names, mobile numbers, and reusable QR secrets.
  * 3. This module implements owner-scoping: cached ticket envelopes are strictly partitioned by the
  *    authenticated attendee's stable User UUID (extracted from the JWT `sub` claim).
  * 4. Failing Closed: Unauthenticated callers (token missing or invalid) CANNOT access any cached tickets.

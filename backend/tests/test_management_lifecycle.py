@@ -98,7 +98,7 @@ async def test_ticket_tier_update_and_quota_constraint(client: AsyncClient) -> N
 
     # Register 3 attendees under this tier
     for i in range(3):
-        _, token = await register_user(client, f"attendee_{i}@example.com")
+        _, token = await register_user(client, f"0938000000{i}")
         res = await client.post(
             f"/api/events/{event_id}/tickets/reserve",
             json={"ticket_tier_id": tier_id},
@@ -140,7 +140,7 @@ async def test_closing_and_reopening_ticket_tier(client: AsyncClient) -> None:
     tier_id = tier_resp.json()["id"]
 
     # Register 1 attendee
-    _, token1 = await register_user(client, "registered_before_close@example.com")
+    _, token1 = await register_user(client, "09121000049")
     t1_res = await client.post(
         f"/api/events/{event_id}/tickets/reserve",
         json={"ticket_tier_id": tier_id},
@@ -165,7 +165,7 @@ async def test_closing_and_reopening_ticket_tier(client: AsyncClient) -> None:
     assert closed_tier_pub["quota"] == 5
 
     # Attempt new registration -> rejected as closed (HTTP 400)
-    _, token2 = await register_user(client, "blocked_during_close@example.com")
+    _, token2 = await register_user(client, "09121000050")
     blocked_res = await client.post(
         f"/api/events/{event_id}/tickets/reserve",
         json={"ticket_tier_id": tier_id},
@@ -252,7 +252,7 @@ async def test_checkin_point_updates_and_policy_safety(client: AsyncClient) -> N
     tok_resp = await client.post(f"/api/checkin-points/{point_id}/token", headers=bearer(organizer))
     scanner_tok = tok_resp.json()["scanner_token"]
 
-    _, att_tok = await register_user(client, "scanned_person@example.com")
+    _, att_tok = await register_user(client, "09121000051")
     ticket = (await client.post(
         f"/api/events/{event_id}/tickets/reserve",
         json={"ticket_tier_id": tier_id},

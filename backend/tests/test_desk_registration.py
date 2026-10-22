@@ -23,7 +23,7 @@ async def test_staff_can_register_walkin_attendee_and_receives_instant_qr(
         f"/api/events/{event_id}/desk-registrations",
         json={
             "full_name": "Dr. Reza Karimi",
-            "email": "reza.karimi@example.com",
+            "mobile": "09121000037",
             "organization": "Tehran Medical Center",
             "title": "Head of Surgery",
             "ticket_tier_id": tier_id,
@@ -34,7 +34,7 @@ async def test_staff_can_register_walkin_attendee_and_receives_instant_qr(
     assert resp.status_code == 201, resp.text
     data = resp.json()
     assert data["attendee_name"] == "Dr. Reza Karimi"
-    assert data["attendee_email"] == "reza.karimi@example.com"
+    assert data["attendee_mobile"] == "09121000037"
     assert data["organization"] == "Tehran Medical Center"
     assert data["title"] == "Head of Surgery"
     assert data["ticket_tier_name"] == "General Admission"
@@ -43,7 +43,7 @@ async def test_staff_can_register_walkin_attendee_and_receives_instant_qr(
     assert len(data["qr_secret"]) == 26
 
 
-async def test_desk_registration_supports_walkin_without_email(
+async def test_desk_registration_supports_walkin_without_mobile(
     client: AsyncClient,
 ) -> None:
     organizer = await provision_organizer(client, "Acme Congress Co")
@@ -55,11 +55,11 @@ async def test_desk_registration_supports_walkin_without_email(
     )
     tier_id = tier_resp.json()["id"]
 
-    # Walk-in without email
+    # Walk-in without a mobile number: the pass works at the gate, but the account cannot sign in
     resp = await client.post(
         f"/api/events/{event_id}/desk-registrations",
         json={
-            "full_name": "Walk-in Guest No Email",
+            "full_name": "Walk-in Guest No Mobile",
             "ticket_tier_id": tier_id,
         },
         headers=bearer(organizer),
@@ -67,8 +67,8 @@ async def test_desk_registration_supports_walkin_without_email(
 
     assert resp.status_code == 201
     data = resp.json()
-    assert data["attendee_name"] == "Walk-in Guest No Email"
-    assert "@" in data["attendee_email"]
+    assert data["attendee_name"] == "Walk-in Guest No Mobile"
+    assert data["attendee_mobile"] is None
     assert len(data["qr_secret"]) == 26
 
 
@@ -118,7 +118,7 @@ async def test_staff_can_search_attendees_by_partial_query(
         f"/api/events/{event_id}/desk-registrations",
         json={
             "full_name": "Dr. Sara Alavi",
-            "email": "sara@hospital.org",
+            "mobile": "09121000038",
             "organization": "Shiraz University",
             "ticket_tier_id": tier_id,
         },
@@ -128,7 +128,7 @@ async def test_staff_can_search_attendees_by_partial_query(
         f"/api/events/{event_id}/desk-registrations",
         json={
             "full_name": "Dr. Ali Hosseini",
-            "email": "ali@clinic.ir",
+            "mobile": "09121000039",
             "organization": "Tehran University",
             "ticket_tier_id": tier_id,
         },
@@ -138,7 +138,7 @@ async def test_staff_can_search_attendees_by_partial_query(
         f"/api/events/{event_id}/desk-registrations",
         json={
             "full_name": "Maryam Rad",
-            "email": "m.rad@tehran.ir",
+            "mobile": "09121000040",
             "organization": "Tehran University",
             "ticket_tier_id": tier_id,
         },
@@ -153,13 +153,14 @@ async def test_staff_can_search_attendees_by_partial_query(
     assert len(res_name.json()) == 1
     assert res_name.json()[0]["attendee_name"] == "Dr. Sara Alavi"
 
-    # Search by partial email "clinic.ir"
-    res_email = await client.get(
-        f"/api/events/{event_id}/attendees?q=clinic.ir", headers=bearer(organizer)
+    # Search by the end of a mobile number, typed with Persian digits ("1000039" -> "۱۰۰۰۰۳۹")
+    res_mobile = await client.get(
+        f"/api/events/{event_id}/attendees", params={"q": "۱۰۰۰۰۳۹"}, headers=bearer(organizer)
     )
-    assert res_email.status_code == 200
-    assert len(res_email.json()) == 1
-    assert res_email.json()[0]["attendee_name"] == "Dr. Ali Hosseini"
+    assert res_mobile.status_code == 200
+    assert len(res_mobile.json()) == 1
+    assert res_mobile.json()[0]["attendee_name"] == "Dr. Ali Hosseini"
+    assert res_mobile.json()[0]["attendee_mobile"] == "09121000039"
 
     # Search by partial organization "Tehran" -> matches Ali and Maryam
     res_org = await client.get(
@@ -188,7 +189,7 @@ async def test_staff_can_view_attendee_ticket_and_scan_history(
         f"/api/events/{event_id}/desk-registrations",
         json={
             "full_name": "Nima Ebadi",
-            "email": "nima@example.com",
+            "mobile": "09121000041",
             "ticket_tier_id": tier_id,
         },
         headers=bearer(organizer),

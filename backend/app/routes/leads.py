@@ -12,6 +12,7 @@ from app.db import SessionDep
 from app.models import Booth, BoothStaff, EntityQR, Event, Lead, Ticket, TicketTier, User
 from app.routes.auth import CurrentUserDep
 from app.security import sanitize_csv_cell
+from app.sms.phone import ascii_digits, search_digits
 
 router = APIRouter(prefix="/api/booths/{booth_id}/leads", tags=["leads"])
 
@@ -36,7 +37,7 @@ class LeadOut(BaseModel):
     booth_id: uuid.UUID
     ticket_id: uuid.UUID
     attendee_name: str
-    attendee_email: str
+    attendee_mobile: str | None
     organization: str
     title: str
     ticket_tier_name: str
@@ -151,7 +152,7 @@ async def scan_attendee_lead(
             booth_id=booth.id,
             ticket_id=ticket.id,
             attendee_name=attendee.full_name,
-            attendee_email=attendee.email,
+            attendee_mobile=attendee.mobile,
             organization=attendee.organization,
             title=attendee.title,
             ticket_tier_name=tier.name,
@@ -183,7 +184,7 @@ async def scan_attendee_lead(
         booth_id=booth.id,
         ticket_id=ticket.id,
         attendee_name=attendee.full_name,
-        attendee_email=attendee.email,
+        attendee_mobile=attendee.mobile,
         organization=attendee.organization,
         title=attendee.title,
         ticket_tier_name=tier.name,
@@ -233,7 +234,7 @@ async def update_lead_qualification(
         booth_id=booth.id,
         ticket_id=ticket.id,
         attendee_name=attendee.full_name,
-        attendee_email=attendee.email,
+        attendee_mobile=attendee.mobile,
         organization=attendee.organization,
         title=attendee.title,
         ticket_tier_name=tier.name,
@@ -266,13 +267,14 @@ async def list_booth_leads(
         query = query.where(Lead.rating == rating)
 
     if term:
-        like_term = f"%{term}%"
+        like_term = f"%{ascii_digits(term)}%"
+        digits = search_digits(term)
         query = query.where(
             or_(
                 User.full_name.ilike(like_term),
-                User.email.ilike(like_term),
                 User.organization.ilike(like_term),
                 Lead.notes.ilike(like_term),
+                *([User.mobile.contains(digits)] if digits else []),
             )
         )
 
@@ -286,7 +288,7 @@ async def list_booth_leads(
             booth_id=booth.id,
             ticket_id=ticket.id,
             attendee_name=attendee.full_name,
-            attendee_email=attendee.email,
+            attendee_mobile=attendee.mobile,
             organization=attendee.organization,
             title=attendee.title,
             ticket_tier_name=tier.name,
@@ -324,7 +326,7 @@ async def export_booth_leads_csv(
         [
             "Lead ID",
             "Attendee Name",
-            "Attendee Email",
+            "Attendee Mobile",
             "Organization",
             "Title",
             "Ticket Tier",
@@ -341,7 +343,7 @@ async def export_booth_leads_csv(
             [
                 str(lead.id),
                 sanitize_csv_cell(attendee.full_name),
-                sanitize_csv_cell(attendee.email),
+                sanitize_csv_cell(attendee.mobile),
                 sanitize_csv_cell(attendee.organization),
                 sanitize_csv_cell(attendee.title),
                 sanitize_csv_cell(tier.name),

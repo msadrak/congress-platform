@@ -21,7 +21,7 @@ async def setup_event_and_attendees(
 
     # Attendee A
     user_a, token_a = await register_user(
-        client, "alice@example.com", "Alice Smith"
+        client, "09121000052", "Alice Smith"
     )
     t_a = (
         await client.post(
@@ -33,7 +33,7 @@ async def setup_event_and_attendees(
 
     # Attendee B
     user_b, token_b = await register_user(
-        client, "bob@hospital.org", "Dr. Bob Jones"
+        client, "09121000053", "Dr. Bob Jones"
     )
     t_b = (
         await client.post(
@@ -66,8 +66,8 @@ async def test_attendee_scans_peer_badge_and_creates_connection(
     assert scan_resp.status_code == 201, scan_resp.text
     data = scan_resp.json()
     assert data["full_name"] == "Dr. Bob Jones"
-    # Issue #19: Default is privacy-preserving (email is None unless peer explicitly opted in)
-    assert data["email"] is None
+    # Issue #19: Default is privacy-preserving (mobile is None unless peer explicitly opted in)
+    assert data["mobile"] is None
     assert data["private_notes"] == "Met during morning keynote."
     assert "id" in data
 
@@ -179,8 +179,8 @@ async def test_vcard_download_returns_rfc_compliant_vcf_file(
     assert "BEGIN:VCARD" in vcard_text
     assert "VERSION:3.0" in vcard_text
     assert "FN:Dr. Bob Jones" in vcard_text
-    # Issue #19: Default privacy-preserving (email omitted from vCard unless peer opted in)
-    assert "EMAIL" not in vcard_text
+    # Issue #19: Default privacy-preserving (mobile omitted from vCard unless peer opted in)
+    assert "TEL" not in vcard_text
     assert "NOTE:Met at keynote" in vcard_text
     assert "END:VCARD" in vcard_text
 
@@ -202,7 +202,7 @@ async def test_authorization_isolation_on_network(
     conn_id = created["id"]
 
     # Charlie (new user) attempts to access Alice's connection -> 404
-    _, token_c = await register_user(client, "charlie@example.com")
+    _, token_c = await register_user(client, "09121000054")
     intruder_resp = await client.get(
         f"/api/attendees/me/network/{conn_id}/vcard",
         headers={"Authorization": f"Bearer {token_c}"},
@@ -224,7 +224,7 @@ async def test_peer_privacy_preference_lifecycle_and_unauthorized_isolation(
     assert unauth_res.status_code == 401
 
     # Register user -> default is False
-    user, token = await register_user(client, "consent_user@test.org", "Consent Tester")
+    user, token = await register_user(client, "09121000055", "Consent Tester")
     auth_header = {"Authorization": f"Bearer {token}"}
 
     get_res = await client.get("/api/attendees/me/network/privacy", headers=auth_header)
@@ -258,12 +258,12 @@ async def test_peer_privacy_preference_lifecycle_and_unauthorized_isolation(
 async def test_peer_consent_toggle_governs_api_and_vcard_disclosure(
     client: AsyncClient,
 ) -> None:
-    """When peer opts in, email is included in ConnectionOut and vCard; when revoked, it is redacted."""
+    """When peer opts in, the mobile number is included in ConnectionOut and vCard; when revoked, it is redacted."""
     event_id, user_a, token_a, t_a, token_b, t_b = await setup_event_and_attendees(client)
     header_a = {"Authorization": f"Bearer {token_a}"}
     header_b = {"Authorization": f"Bearer {token_b}"}
 
-    # 1. Initially Bob has consent=False. Alice scans Bob -> email is None
+    # 1. Initially Bob has consent=False. Alice scans Bob -> mobile is None
     scan1 = await client.post(
         "/api/attendees/me/network/scan",
         json={"qr_secret": t_b["qr_secret"]},
@@ -271,14 +271,14 @@ async def test_peer_consent_toggle_governs_api_and_vcard_disclosure(
     )
     assert scan1.status_code == 201
     conn_id = scan1.json()["id"]
-    assert scan1.json()["email"] is None
+    assert scan1.json()["mobile"] is None
 
-    # Initial vCard export has no email
+    # Initial vCard export has no phone number
     vcard1 = await client.get(f"/api/attendees/me/network/{conn_id}/vcard", headers=header_a)
     assert vcard1.status_code == 200
-    assert "EMAIL" not in vcard1.text
+    assert "TEL" not in vcard1.text
 
-    # 2. Bob grants consent to share email
+    # 2. Bob grants consent to share his mobile number
     opt_in = await client.patch(
         "/api/attendees/me/network/privacy",
         json={"share_contact_with_peers": True},
@@ -287,15 +287,15 @@ async def test_peer_consent_toggle_governs_api_and_vcard_disclosure(
     assert opt_in.status_code == 200
     assert opt_in.json()["share_contact_with_peers"] is True
 
-    # Subsequent list by Alice now includes Bob's email
+    # Subsequent list by Alice now includes Bob's mobile
     list_after = await client.get("/api/attendees/me/network", headers=header_a)
     assert list_after.status_code == 200
     alice_view_of_bob = next(c for c in list_after.json() if c["id"] == conn_id)
-    assert alice_view_of_bob["email"] == "bob@hospital.org"
+    assert alice_view_of_bob["mobile"] == "09121000053"
 
-    # Subsequent vCard export now includes Bob's email
+    # Subsequent vCard export now includes Bob's mobile
     vcard_after = await client.get(f"/api/attendees/me/network/{conn_id}/vcard", headers=header_a)
-    assert "EMAIL;TYPE=INTERNET:bob@hospital.org" in vcard_after.text
+    assert "TEL;TYPE=CELL:+989121000053" in vcard_after.text
 
     # 3. Bob revokes consent
     opt_out = await client.patch(
@@ -306,18 +306,18 @@ async def test_peer_consent_toggle_governs_api_and_vcard_disclosure(
     assert opt_out.status_code == 200
     assert opt_out.json()["share_contact_with_peers"] is False
 
-    # Subsequent list immediately redacts Bob's email
+    # Subsequent list immediately redacts Bob's mobile
     list_revoked = await client.get("/api/attendees/me/network", headers=header_a)
     revoked_bob = next(c for c in list_revoked.json() if c["id"] == conn_id)
-    assert revoked_bob["email"] is None
+    assert revoked_bob["mobile"] is None
 
-    # Subsequent vCard export immediately omits Bob's email
+    # Subsequent vCard export immediately omits Bob's mobile
     vcard_revoked = await client.get(f"/api/attendees/me/network/{conn_id}/vcard", headers=header_a)
-    assert "EMAIL" not in vcard_revoked.text
+    assert "TEL" not in vcard_revoked.text
 
 
 async def _second_event_attendee(
-    client: AsyncClient, email: str
+    client: AsyncClient, mobile: str
 ) -> tuple[str, dict[str, str]]:
     """An attendee holding a ticket in a second congress run by another organizer."""
     organizer = await provision_organizer(client, "Other Congress Co")
@@ -333,7 +333,7 @@ async def _second_event_attendee(
         json=tier(name="General", quota=100),
         headers=bearer(organizer),
     )
-    _, token = await register_user(client, email, "Carol Other")
+    _, token = await register_user(client, mobile, "Carol Other")
     ticket = (
         await client.post(
             f"/api/events/{other_event_id}/tickets/reserve",
@@ -348,7 +348,7 @@ async def test_event_scoped_scan_of_another_congress_badge_writes_nothing(
     client: AsyncClient,
 ) -> None:
     event_id, _, token_a, _, _, _ = await setup_event_and_attendees(client)
-    _, carol_ticket = await _second_event_attendee(client, "carol@example.com")
+    _, carol_ticket = await _second_event_attendee(client, "09121000056")
     header_a = {"Authorization": f"Bearer {token_a}"}
 
     rejected = await client.post(
@@ -369,7 +369,7 @@ async def test_event_scoped_scan_of_another_congress_badge_writes_nothing(
 async def test_event_scoped_scan_of_another_congress_badge_leaves_existing_notes_untouched(
     client: AsyncClient,
 ) -> None:
-    other_event_id, carol_ticket = await _second_event_attendee(client, "carol@example.com")
+    other_event_id, carol_ticket = await _second_event_attendee(client, "09121000056")
     event_id, _, token_a, _, _, _ = await setup_event_and_attendees(client)
     header_a = {"Authorization": f"Bearer {token_a}"}
     legacy = await client.post(

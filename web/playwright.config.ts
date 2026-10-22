@@ -16,7 +16,7 @@ export default defineConfig({
       name: 'msedge',
       use: {
         browserName: 'chromium',
-        channel: 'msedge',
+        channel: process.env.CONGRESS_BROWSER_CHANNEL ?? 'msedge',
         viewport: { width: 412, height: 915 },
       },
     },

@@ -6,12 +6,12 @@ import {
   formatApiError,
   type BoothOut,
   type CheckInPointOut,
-  type DeskOperatorCreated,
   type DeskOperatorOut,
   type EventOut,
   type TicketTierOut,
 } from "../api/client";
 import { formatLocalizedDate, formatLocalizedNumber } from "../lib/i18n";
+import { formatMobile, normalizeIranMobile } from "../lib/mobile";
 import type { OrganizerOutletContext } from "./OrganizerLayout";
 import { Badge } from "../components/ui/Badge";
 import { Button, LinkButton } from "../components/ui/Button";
@@ -31,6 +31,7 @@ import {
   SectionIndex,
 } from "../components/organizer/WorkspaceUi";
 import { eventTiming } from "../components/organizer/eventTiming";
+import { ScannerPairingDialog } from "../components/organizer/ScannerPairingDialog";
 import { eventSectionFromPath, eventTimeStatus, eventWorkspacePath } from "../lib/organizerWorkspace";
 
 type PolicyType =
@@ -75,10 +76,9 @@ function OrganizerEventDetailContent() {
   const [operators, setOperators] = useState<DeskOperatorOut[]>([]);
   const [isOperatorModalOpen, setIsOperatorModalOpen] = useState(false);
   const [newOperatorName, setNewOperatorName] = useState("");
-  const [newOperatorEmail, setNewOperatorEmail] = useState("");
+  const [newOperatorMobile, setNewOperatorMobile] = useState("");
   const [submittingOperator, setSubmittingOperator] = useState(false);
   const [operatorFormError, setOperatorFormError] = useState<string | null>(null);
-  const [createdOperatorResult, setCreatedOperatorResult] = useState<DeskOperatorCreated | null>(null);
   const [revokingOperatorId, setRevokingOperatorId] = useState<string | null>(null);
   const [isTierModalOpen, setIsTierModalOpen] = useState(false);
   const [tierName, setTierName] = useState("");
@@ -111,7 +111,8 @@ function OrganizerEventDetailContent() {
 
   // Assign staff modal state
   const [assigningBooth, setAssigningBooth] = useState<BoothOut | null>(null);
-  const [staffEmail, setStaffEmail] = useState("");
+  const [staffMobile, setStaffMobile] = useState("");
+  const [staffName, setStaffName] = useState("");
   const [assigningStaff, setAssigningStaff] = useState(false);
   const [staffFeedback, setStaffFeedback] = useState<string | null>(null);
   const [staffError, setStaffError] = useState<string | null>(null);
@@ -147,6 +148,9 @@ function OrganizerEventDetailContent() {
   const [editPointMaxCapacity, setEditPointMaxCapacity] = useState<number | undefined>(undefined);
   const [submittingPointEdit, setSubmittingPointEdit] = useState(false);
   const [pointEditError, setPointEditError] = useState<string | null>(null);
+
+  // Scanner device pairing (token issue, QR pairing link, device list)
+  const [pairingPoint, setPairingPoint] = useState<CheckInPointOut | null>(null);
   useEffect(() => {
     // Without an organizer key nothing is dispatched; the layout shows the key gate.
     if (!eventId || !apiKey) return;
@@ -336,19 +340,24 @@ function OrganizerEventDetailContent() {
 
   const handleAssignStaff = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!eventId || !assigningBooth || !staffEmail.trim()) return;
+    if (!eventId || !assigningBooth) return;
+    setStaffError(null);
+    setStaffFeedback(null);
+    const mobile = normalizeIranMobile(staffMobile);
+    if (!mobile) {
+      setStaffError(isRtl ? "یک شماره موبایل معتبر وارد کنید؛ مثلاً ۰۹۱۲ ۳۴۵ ۶۷۸۹." : "Enter a valid Iranian mobile number, e.g. 0912 345 6789.");
+      return;
+    }
 
     if (!apiKey) return;
     setAssigningStaff(true);
-    setStaffError(null);
-    setStaffFeedback(null);
     const client = createApiClient({ kind: "organizer", token: apiKey });
 
     const { data, error: err, response } = await client.POST(
       "/api/events/{event_id}/booths/{booth_id}/staff",
       {
         params: { path: { event_id: eventId, booth_id: assigningBooth.id } },
-        body: { email: staffEmail.trim() },
+        body: { mobile, full_name: staffName.trim() },
       }
     );
 
@@ -357,8 +366,13 @@ function OrganizerEventDetailContent() {
     if (err) {
       setStaffError(formatApiError(err));
     } else if (data) {
-      setStaffFeedback(isRtl ? "نماینده با موفقیت به غرفه تخصیص یافت." : "Representative assigned successfully.");
-      setStaffEmail("");
+      setStaffFeedback(
+        isRtl
+          ? "نماینده تخصیص یافت. او با کد پیامکی به این شماره وارد پورتال غرفه می‌شود."
+          : "Representative assigned. They sign in to the booth portal with an SMS code sent to this number."
+      );
+      setStaffMobile("");
+      setStaffName("");
       setTimeout(() => {
         setAssigningBooth(null);
         setStaffFeedback(null);
@@ -386,8 +400,13 @@ function OrganizerEventDetailContent() {
     e.preventDefault();
     if (!eventId) return;
     setOperatorFormError(null);
-    if (!newOperatorName.trim() || !newOperatorEmail.trim()) {
-      setOperatorFormError(isRtl ? "لطفاً نام و ایمیل اپراتور را وارد نمایید." : "Please enter operator name and email.");
+    const operatorMobile = normalizeIranMobile(newOperatorMobile);
+    if (!newOperatorName.trim() || !operatorMobile) {
+      setOperatorFormError(
+        isRtl
+          ? "نام اپراتور و یک شماره موبایل معتبر (مثلاً ۰۹۱۲ ۳۴۵ ۶۷۸۹) را وارد کنید."
+          : "Enter the operator's name and a valid mobile number (e.g. 0912 345 6789)."
+      );
       return;
     }
     if (!apiKey) return;
@@ -397,7 +416,7 @@ function OrganizerEventDetailContent() {
       params: { path: { event_id: eventId } },
       body: {
         operator_name: newOperatorName.trim(),
-        email: newOperatorEmail.trim().toLowerCase(),
+        mobile: operatorMobile,
       },
     });
     if (response.status === 401) onKeyRejected(apiKey);
@@ -410,12 +429,14 @@ function OrganizerEventDetailContent() {
         return exists ? prev.map((o) => (o.id === data.id ? data : o)) : [...prev, data];
       });
       setNewOperatorName("");
-      setNewOperatorEmail("");
-      if (data.temporary_password) {
-        setCreatedOperatorResult(data);
-      } else {
-        setIsOperatorModalOpen(false);
-      }
+      setNewOperatorMobile("");
+      setIsOperatorModalOpen(false);
+      setNotice({
+        tone: "ok",
+        text: isRtl
+          ? `${data.operator_name} مجاز شد و با کد پیامکی به شماره خود وارد میز پذیرش می‌شود.`
+          : `${data.operator_name} is authorized and signs in to the Front Desk with an SMS code sent to their number.`,
+      });
     }
   };
 
@@ -716,7 +737,6 @@ function OrganizerEventDetailContent() {
           title={t.operatorsHeading}
           description={t.operatorsDesc}
           action={sectionAction(t.addOperatorButton, () => {
-            setCreatedOperatorResult(null);
             setOperatorFormError(null);
             setIsOperatorModalOpen(true);
           })}
@@ -1058,6 +1078,10 @@ function OrganizerEventDetailContent() {
                         <span>{t.openScannerAction}</span>
                         <Icon name="arrow-up-right" size={14} className="opacity-70" />
                       </Link>
+                      <Button type="button" variant="secondary" size="sm" onClick={() => setPairingPoint(pt)}>
+                        <Icon name="smartphone" size={16} />
+                        <span>{isRtl ? "اتصال دستگاه" : "Pair device"}</span>
+                      </Button>
                       <Button type="button" variant="secondary" size="sm" onClick={() => openEditPointModal(pt)}>
                         <Icon name="note" size={16} />
                         <span>{t.editPointAction || (isRtl ? "ویرایش" : "Edit")}</span>
@@ -1112,7 +1136,8 @@ function OrganizerEventDetailContent() {
                       size="sm"
                       onClick={() => {
                         setAssigningBooth(b);
-                        setStaffEmail("");
+                        setStaffMobile("");
+                        setStaffName("");
                         setStaffFeedback(null);
                         setStaffError(null);
                       }}
@@ -1175,9 +1200,11 @@ function OrganizerEventDetailContent() {
                           <h3 className={`break-words text-sm font-semibold ${op.is_revoked ? "text-text-secondary" : "text-text-primary"}`}>
                             <bdi>{op.operator_name}</bdi>
                           </h3>
-                          <p className="break-all font-mono text-xs text-text-muted">
-                            <bdi dir="ltr">{op.email}</bdi>
-                          </p>
+                          {op.mobile && (
+                            <p className="break-all font-mono text-xs text-text-muted">
+                              <bdi dir="ltr">{formatMobile(op.mobile, locale)}</bdi>
+                            </p>
+                          )}
                         </div>
                       </div>
                     </td>
@@ -1216,8 +1243,8 @@ function OrganizerEventDetailContent() {
         <p className="flex max-w-3xl items-start gap-2.5 text-xs leading-relaxed text-text-muted">
           <Icon name="shield" size={16} className="mt-0.5 shrink-0 text-aiteb-slate" />
           {isRtl
-            ? "اپراتورها با ایمیل و کلمه عبور موقتی که هنگام افزودن یک‌بار نمایش داده می‌شود وارد میز پذیرش می‌شوند. لغو دسترسی، نشست فعال آن‌ها را نیز بی‌اعتبار می‌کند."
-            : "Operators sign in to the Front Desk with their email and the temporary password shown once when you add them. Revoking access also ends any active session."}
+            ? "اپراتورها با شماره موبایل خود و کد پیامکی وارد میز پذیرش می‌شوند؛ رمز عبوری برای تحویل وجود ندارد. لغو دسترسی، نشست فعال آن‌ها را نیز بی‌اعتبار می‌کند."
+            : "Operators sign in to the Front Desk with their mobile number and an SMS code; there is no password to hand over. Revoking access also ends any active session."}
         </p>
       )}
 
@@ -1467,22 +1494,35 @@ function OrganizerEventDetailContent() {
         size="sm"
       >
         <form onSubmit={handleAssignStaff} className="space-y-4">
+          <Field label={isRtl ? "نام نماینده" : "Representative name"}>
+            <input
+              type="text"
+              autoComplete="off"
+              maxLength={200}
+              value={staffName}
+              onChange={(e) => setStaffName(e.target.value)}
+              placeholder={isRtl ? "مثال: سارا کریمی" : "e.g. Sara Karimi"}
+              className="ui-input"
+            />
+          </Field>
           <Field
-            label={t.staffEmailLabel}
+            label={t.staffMobileLabel}
             required
             hint={
               isRtl
-                ? "نماینده با این ایمیل به پورتال جمع‌آوری لیدهای تجاری غرفه دسترسی خواهد یافت."
-                : "Authorizes this staff email to access the booth's lead qualification portal."
+                ? "صاحب این شماره با کد پیامکی وارد پورتال لیدهای غرفه می‌شود. اگر از قبل حساب داشته باشد، همان حساب استفاده می‌شود."
+                : "The holder of this number signs in to the booth's lead portal with an SMS code. An existing account keeps its own name."
             }
           >
             <input
-              type="email"
+              type="tel"
               required
               dir="ltr"
-              value={staffEmail}
-              onChange={(e) => setStaffEmail(e.target.value)}
-              placeholder="representative@company.com"
+              inputMode="tel"
+              autoComplete="off"
+              value={staffMobile}
+              onChange={(e) => setStaffMobile(e.target.value)}
+              placeholder="09xx xxx xxxx"
               className="ui-input font-mono"
             />
           </Field>
@@ -1787,50 +1827,12 @@ function OrganizerEventDetailContent() {
           if (!submittingOperator) {
             setIsOperatorModalOpen(false);
             setOperatorFormError(null);
-            setCreatedOperatorResult(null);
           }
         }}
         title={t.addOperatorModalTitle}
         description={t.addOperatorModalDesc}
         size="md"
       >
-        {createdOperatorResult?.temporary_password ? (
-          <div className="space-y-5 py-1">
-            <div className="overflow-hidden shape-arc border border-status-success-border bg-status-success-bg">
-              <div className="space-y-3 p-5 text-status-success-text">
-                <p className="flex items-center gap-2 text-sm font-bold">
-                  <Icon name="check-circle" size={20} />
-                  {isRtl ? "اپراتور با موفقیت ایجاد گردید." : "Operator created successfully."}
-                </p>
-                <p className="text-xs leading-relaxed">{t.operatorTempPasswordNotice}</p>
-              </div>
-              <div className="border-t border-status-success-border bg-white px-5 py-4">
-                <p dir="ltr" className="select-all break-all text-center font-mono text-base font-semibold text-text-primary sm:text-lg">
-                  {createdOperatorResult.temporary_password}
-                </p>
-              </div>
-            </div>
-            <p className="flex items-start gap-2 text-xs leading-relaxed text-text-muted">
-              <Icon name="info" size={16} className="mt-0.5 shrink-0" />
-              {isRtl
-                ? "اپراتور می‌تواند با این ایمیل و کلمه عبور وارد میز پذیرش شود."
-                : "The operator can use this email and temporary password to log into the Front Desk."}
-            </p>
-            <DialogActions>
-              <Button
-                type="button"
-                variant="primary"
-                size="md"
-                onClick={() => {
-                  setCreatedOperatorResult(null);
-                  setIsOperatorModalOpen(false);
-                }}
-              >
-                {isRtl ? "متوجه شدم و بستن" : "Done"}
-              </Button>
-            </DialogActions>
-          </div>
-        ) : (
           <form onSubmit={handleCreateOperator} className="space-y-4">
             <Field label={t.operatorNameLabel} required>
               <input
@@ -1843,14 +1845,20 @@ function OrganizerEventDetailContent() {
               />
             </Field>
 
-            <Field label={t.operatorEmailLabel} required>
+            <Field
+              label={t.operatorMobileLabel}
+              required
+              hint={isRtl ? "اپراتور با کد پیامکی به همین شماره وارد میز پذیرش می‌شود." : "The operator signs in to the Front Desk with an SMS code sent to this number."}
+            >
               <input
-                type="email"
+                type="tel"
                 required
                 dir="ltr"
-                value={newOperatorEmail}
-                onChange={(e) => setNewOperatorEmail(e.target.value)}
-                placeholder="operator@example.com"
+                inputMode="tel"
+                autoComplete="off"
+                value={newOperatorMobile}
+                onChange={(e) => setNewOperatorMobile(e.target.value)}
+                placeholder="09xx xxx xxxx"
                 className="ui-input font-mono"
               />
             </Field>
@@ -1866,8 +1874,19 @@ function OrganizerEventDetailContent() {
               </Button>
             </DialogActions>
           </form>
-        )}
       </Dialog>
+
+      {/* MODAL: Pair Scanner Device */}
+      {apiKey && (
+        <ScannerPairingDialog
+          point={pairingPoint}
+          apiKey={apiKey}
+          locale={locale}
+          isRtl={isRtl}
+          onKeyRejected={onKeyRejected}
+          onClose={() => setPairingPoint(null)}
+        />
+      )}
 
       {/* Confirmations render last so they always stack above any open form dialog. */}
       <ConfirmDialog

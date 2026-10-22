@@ -1,9 +1,9 @@
-"""Organizer key rotation/revocation and throttling of repeated failed authentication."""
+"""Organizer key rotation/revocation and throttling of repeated failed authentication (wrong SMS codes)."""
 
 from httpx import AsyncClient
 
 from tests.conftest import ADMIN_TOKEN
-from tests.helpers import bearer, provision_organizer
+from tests.helpers import bearer, provision_organizer, request_code
 from tests.test_ticket_tiers import create_event
 from tests.test_tickets import register_user
 
@@ -60,18 +60,18 @@ async def test_lifecycle_endpoints_require_the_platform_admin_token(client: Asyn
     assert (await client.get("/api/events", headers=bearer(organizer))).status_code == 200
 
 
-async def test_repeated_failed_logins_lock_the_account_without_affecting_others(client: AsyncClient) -> None:
-    await register_user(client, "victim@example.com")
-    await register_user(client, "bystander@example.com")
-    wrong = {"email": "victim@example.com", "password": "not-the-password"}
+async def test_repeated_wrong_codes_lock_the_number_without_affecting_others(client: AsyncClient) -> None:
+    await register_user(client, "09121000027")
+    wrong = {"mobile": "09121000027", "code": "000000"}
 
-    statuses = [(await client.post("/api/auth/login", json=wrong)).status_code for _ in range(10)]
-    locked = await client.post("/api/auth/login", json={"email": "victim@example.com", "password": "Password123!"})
+    statuses = [(await client.post("/api/auth/otp/verify", json=wrong)).status_code for _ in range(10)]
+    locked = await client.post("/api/auth/otp/verify", json={"mobile": "09121000027", "code": "123456"})
     desk_locked = await client.post(
         "/api/events/00000000-0000-0000-0000-000000000000/desk/login",
-        json={"email": "victim@example.com", "password": "Password123!"},
+        json={"mobile": "09121000027", "code": "123456"},
     )
-    bystander = await client.post("/api/auth/login", json={"email": "bystander@example.com", "password": "Password123!"})
+    bystander_code = await request_code(client, "09121000028")
+    bystander = await client.post("/api/auth/otp/verify", json={"mobile": "09121000028", "code": bystander_code})
 
     assert statuses == [401] * 10
     assert locked.status_code == 429 and int(locked.headers["retry-after"]) > 0
@@ -79,12 +79,16 @@ async def test_repeated_failed_logins_lock_the_account_without_affecting_others(
     assert bystander.status_code == 200
 
 
-async def test_a_successful_login_clears_the_account_failures(client: AsyncClient) -> None:
-    await register_user(client, "typo@example.com")
-    for _ in range(9):
-        await client.post("/api/auth/login", json={"email": "typo@example.com", "password": "wrong-password"})
-    ok = await client.post("/api/auth/login", json={"email": "typo@example.com", "password": "Password123!"})
-    later = [(await client.post("/api/auth/login", json={"email": "typo@example.com", "password": "wrong-password"})).status_code for _ in range(9)]
+async def test_a_successful_sign_in_clears_the_number_failures(client: AsyncClient) -> None:
+    code = await request_code(client, "09121000029")
+    # Below the per-code limit of 5 guesses, so the real code still works afterwards.
+    for _ in range(4):
+        await client.post("/api/auth/otp/verify", json={"mobile": "09121000029", "code": "000000"})
+    ok = await client.post("/api/auth/otp/verify", json={"mobile": "09121000029", "code": code})
+    later = [
+        (await client.post("/api/auth/otp/verify", json={"mobile": "09121000029", "code": "000000"})).status_code
+        for _ in range(9)
+    ]
     assert ok.status_code == 200
     assert later == [401] * 9
 

@@ -30,7 +30,12 @@ async function fixture(page: Page, options: Options = {}) {
     'event-a': options.tiersA ?? [tierOf('tier-a1', 'Alpha Delegate', 100, 40), tierOf('tier-a2', 'Alpha Student', 20, 20, false)],
     'event-b': [tierOf('tier-b1', 'Beta Delegate', 50, 5)],
   };
-  const operators = [{ id: 'op-1', event_id: 'event-a', user_id: 'u1', operator_name: 'Operator One', email: 'op1@example.test', is_revoked: false, created_at: '2099-01-01T00:00:00Z' }];
+  const points = [{ id: 'point-a1', event_id: 'event-a', name: 'Main Gate', location: 'North entrance', policy_type: 'MULTI_ENTRY', allowed_tier_ids: [], max_capacity: null, created_at: '2099-01-01T00:00:00Z' }];
+  const devices = [{ id: 'device-old', checkin_point_id: 'point-a1', event_id: 'event-a', device_name: 'Old tablet', is_revoked: false, revoked_at: null, created_at: '2099-01-01T00:00:00Z', last_seen_at: null }];
+  const SMS_DEFAULT = '{name} عزیز، ثبت‌نام شما در «{event}» تأیید شد.\nکارت ورود: {link}';
+  let smsTemplate = { kind: 'ticket_confirmation', body: SMS_DEFAULT, is_custom: false, default_body: SMS_DEFAULT, placeholders: ['name', 'event', 'tier', 'location', 'link'], required: [] };
+  const smsLog: Record<string, unknown>[] = [{ id: 'm-0', kind: 'ticket_confirmation', mobile: '0912***2233', body: 'Sara عزیز…', status: 'pending', attempts: 0, last_error: null, created_at: '2099-01-01T00:00:00Z', sent_at: null }];
+  const operators = [{ id: 'op-1', event_id: 'event-a', user_id: 'u1', operator_name: 'Operator One', mobile: '09121110001', is_revoked: false, created_at: '2099-01-01T00:00:00Z' }];
   await page.route(/^https?:\/\/[^/]+\/api\//, async route => {
     const request = route.request();
     const path = new URL(request.url()).pathname;
@@ -39,6 +44,22 @@ async function fixture(page: Page, options: Options = {}) {
     requests.push({ method, path, auth: request.headers().authorization, body: raw ? JSON.parse(raw) : undefined });
     const json = (status: number, body: unknown) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
     if (path === '/api/events') return json(200, Object.values(events));
+    const point = path.match(/^\/api\/checkin-points\/point-a1(\/.*)$/);
+    if (point) {
+      const [, sub] = point;
+      if (sub === '/devices' && method === 'GET') return json(200, devices);
+      if (sub === '/token' && method === 'POST') {
+        const created = { ...devices[0], id: 'device-new', device_name: JSON.parse(raw ?? '{}').device_name, is_revoked: false, created_at: '2099-01-02T00:00:00Z' };
+        devices.unshift(created);
+        return json(201, { scanner_token: 'synthetic.scanner.token', token_type: 'Bearer', point_id: 'point-a1', event_id: 'event-a', device_id: created.id, expires_at: '2099-01-09T00:00:00Z' });
+      }
+      const revoke = sub.match(/^\/devices\/([^/]+)\/revoke$/);
+      if (revoke && method === 'POST') {
+        const index = devices.findIndex(d => d.id === revoke[1]);
+        devices[index] = { ...devices[index], is_revoked: true, revoked_at: '2099-01-02T00:00:00Z' };
+        return json(200, devices[index]);
+      }
+    }
     const match = path.match(/^\/api\/events\/([^/]+)(\/.*)?$/);
     if (!match) return json(404, { detail: 'Not found' });
     const [, id, rest = ''] = match;
@@ -62,6 +83,20 @@ async function fixture(page: Page, options: Options = {}) {
       tiers[id][index] = { ...tiers[id][index], ...JSON.parse(raw ?? '{}') };
       return json(200, tiers[id][index]);
     }
+    if (rest === '/checkin-points') return json(200, id === 'event-a' ? points : []);
+    if (rest === '/sms') return json(200, { delivery: 'console', templates: [smsTemplate], sample: { name: 'نام شرکت‌کننده', event: events[id].name, tier: 'Alpha Delegate', location: events[id].location, link: `http://test/c/${id}/my-ticket` } });
+    if (rest === '/sms/templates/ticket_confirmation') {
+      if (method === 'PUT') smsTemplate = { ...smsTemplate, body: JSON.parse(raw ?? '{}').body.trim(), is_custom: true };
+      else smsTemplate = { ...smsTemplate, body: SMS_DEFAULT, is_custom: false };
+      return json(200, smsTemplate);
+    }
+    if (rest === '/sms/test') {
+      const body = JSON.parse(raw ?? '{}');
+      const text = String(body.body).replace('{name}', 'نام شرکت‌کننده').replace('{event}', events[id].name).replace('{link}', `http://test/c/${id}/my-ticket`);
+      smsLog.unshift({ id: `m-${smsLog.length}`, kind: 'test', mobile: '0935***4567', body: text, status: 'sent', attempts: 1, last_error: null, created_at: '2099-01-02T00:00:00Z', sent_at: '2099-01-02T00:00:00Z' });
+      return json(200, { status: 'sent', text, error: null, test_mode: true });
+    }
+    if (rest.startsWith('/sms/messages')) return json(200, smsLog);
     if (rest === '/desk/operators') return json(200, id === 'event-a' ? operators : []);
     if (rest === '/desk/operators/op-1/revoke') {
       if (options.revokeStatus) return json(options.revokeStatus, { detail: 'Server error' });
@@ -106,7 +141,7 @@ test('one workspace navigation addresses every section of the selected event by 
   await seed(page);
   await page.goto('/organizer/events/event-a');
   await expect(page.getByTestId('active-event')).toHaveText('Alpha Congress');
-  await expect(workspaceNav(page).getByRole('link')).toHaveText([/Overview/, /Ticket Tiers/, /Check-In Gates/, /Exhibition Booths/, /Desk Staff/, /Public page/, /Analytics/, /Front Desk/]);
+  await expect(workspaceNav(page).getByRole('link')).toHaveText([/Overview/, /Ticket Tiers/, /Check-In Gates/, /Exhibition Booths/, /Desk Staff/, /Public page/, /SMS/, /Analytics/, /Front Desk/]);
   await expect(workspaceNav(page).getByRole('link', { name: /Overview/ })).toHaveAttribute('aria-current', 'page');
 
   const eventReads = () => requests.filter(r => r.method === 'GET' && r.path === '/api/events/event-a').length;
@@ -220,6 +255,95 @@ for (const failing of [false, true]) {
     else await expect(page.getByRole('status').filter({ hasText: 'Access revoked for Operator One' })).toBeVisible();
   });
 }
+
+test('pairing a scanner device issues a point token, shows its pairing link once and can revoke devices', async ({ page }) => {
+  const requests = await fixture(page);
+  await seed(page);
+  await page.goto('/organizer/events/event-a/check-in');
+  await page.getByRole('article').filter({ hasText: 'Main Gate' }).getByRole('button', { name: 'Pair device' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Pair a scanner device' });
+  await expect(dialog.getByText('Old tablet')).toBeVisible();
+  await expect(dialog.getByText('1 active')).toBeVisible();
+
+  // A nameless device is refused locally; nothing is issued.
+  await dialog.getByRole('textbox', { name: /Device name/ }).fill('   ');
+  await dialog.getByRole('button', { name: 'Create pairing link' }).click();
+  await expect(dialog.getByRole('alert')).toContainText('Give the device a name');
+  expect(requests.some(r => r.path.endsWith('/token'))).toBe(false);
+
+  await dialog.getByRole('textbox', { name: /Device name/ }).fill('Gate phone 1');
+  await dialog.getByRole('button', { name: 'Create pairing link' }).click();
+  await expect(dialog.getByText('Device ready to pair.')).toBeVisible();
+  const origin = new URL(page.url()).origin;
+  await expect(dialog.getByTestId('pairing-link')).toHaveText(`${origin}/scan/point-a1?token=synthetic.scanner.token`);
+  await expect(dialog.getByRole('img', { name: 'Scanner pairing link QR code' })).toBeVisible();
+  await expect(dialog.getByText('2 active')).toBeVisible();
+  const issue = requests.find(r => r.method === 'POST' && r.path === '/api/checkin-points/point-a1/token');
+  expect(issue?.auth).toBe(bearer);
+  expect(issue?.body).toEqual({ device_name: 'Gate phone 1' });
+  // Opened on 127.0.0.1: the console warns that the link cannot work on a phone.
+  await expect(dialog.getByRole('note')).toContainText('localhost');
+
+  // Revoking the device whose link is on screen asks first, then withdraws the link.
+  await dialog.getByRole('button', { name: 'Revoke Gate phone 1' }).click();
+  const confirm = page.getByRole('dialog', { name: 'Revoke this device?' });
+  await page.keyboard.press('Escape');
+  await expect(confirm).toBeHidden();
+  await expect(dialog).toBeVisible();
+  expect(requests.some(r => r.path.endsWith('/revoke'))).toBe(false);
+
+  await dialog.getByRole('button', { name: 'Revoke Gate phone 1' }).click();
+  await page.getByRole('dialog', { name: 'Revoke this device?' }).getByRole('button', { name: 'Revoke device' }).click();
+  await expect(dialog.getByText('1 active')).toBeVisible();
+  await expect(dialog.getByTestId('pairing-link')).toHaveCount(0);
+  const revoke = requests.find(r => r.path === '/api/checkin-points/point-a1/devices/device-new/revoke');
+  expect(revoke?.auth).toBe(bearer);
+});
+
+test('SMS: the organizer edits the confirmation with placeholders, sees the preview and SMS count, saves, tests and resets', async ({ page }) => {
+  const requests = await fixture(page);
+  await seed(page);
+  await page.goto('/organizer/events/event-a/sms');
+  await expect(page.getByRole('heading', { name: 'SMS', level: 1 })).toBeVisible();
+  await expect(page.getByTestId('sms-delivery')).toContainText('Test mode');
+  await expect(page.getByText('Default text')).toBeVisible();
+  await expect(page.getByTestId('sms-preview')).toContainText('نام شرکت‌کننده عزیز، ثبت‌نام شما در «Alpha Congress» تأیید شد.');
+  await expect(page.getByTestId('sms-size')).toContainText('2 SMS (Persian/Unicode, 67 per SMS)');
+  await expect(page.getByRole('button', { name: 'Save text' })).toBeDisabled();
+  await expect(page.getByText('Queued')).toBeVisible();
+
+  const editor = page.getByLabel('Message text');
+  await editor.fill('Hello {nmae}');
+  await expect(page.getByRole('alert')).toContainText('Unknown placeholder: {nmae}');
+  await expect(page.getByRole('button', { name: 'Save text' })).toBeDisabled();
+  await editor.fill('Hello ');
+  await page.getByRole('button', { name: /Attendee name/ }).click();
+  await editor.press('End');
+  await editor.pressSequentially(' — ');
+  await page.getByRole('button', { name: /Pass link/ }).click();
+  await expect(editor).toHaveValue('Hello {name} — {link}');
+  await expect(page.getByTestId('sms-preview')).toHaveText('Hello نام شرکت‌کننده — http://test/c/event-a/my-ticket');
+
+  await page.getByLabel('Send a test to').fill('۰۹۳۵ ۱۲۳ ۴۵۶۷');
+  await page.getByRole('button', { name: 'Send test SMS' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Test mode: the message was only recorded' })).toBeVisible();
+  const test = requests.find(r => r.path === '/api/events/event-a/sms/test');
+  expect(test?.body).toEqual({ mobile: '09351234567', kind: 'ticket_confirmation', body: 'Hello {name} — {link}' });
+  expect(test?.auth).toBe(bearer);
+  await expect(page.getByText('0935***4567')).toBeVisible();
+
+  await page.getByRole('button', { name: 'Save text' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Saved.' })).toBeVisible();
+  await expect(page.getByText('Custom for this congress')).toBeVisible();
+  expect(requests.find(r => r.method === 'PUT' && r.path.endsWith('/sms/templates/ticket_confirmation'))?.body).toEqual({ body: 'Hello {name} — {link}' });
+
+  await page.getByRole('button', { name: 'Use the default text' }).click();
+  await page.getByRole('dialog', { name: 'Use the default text?' }).getByRole('button', { name: 'Use default' }).click();
+  await expect(page.getByText('Default text')).toBeVisible();
+  await expect(editor).toHaveValue(/عزیز/);
+  expect(requests.some(r => r.method === 'DELETE' && r.path.endsWith('/sms/templates/ticket_confirmation'))).toBe(true);
+  expect(requests.every(r => r.auth === bearer)).toBe(true);
+});
 
 test('analytics keeps its export and says the CSV is not filtered', async ({ page }) => {
   const requests = await fixture(page);

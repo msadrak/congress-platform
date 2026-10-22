@@ -1,0 +1,2 @@
+# The origin speaks HTTPS: a public certificate (CONGRESS_TLS = e-mail) or Caddy's own CA (internal).
+tls {$CONGRESS_TLS:internal}

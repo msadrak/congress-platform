@@ -1,8 +1,9 @@
+/// One admissible ticket in a check-in point's offline manifest. Contact details (the attendee's mobile number)
+/// are deliberately absent: the gate needs only the name and tier.
 class ManifestTicket {
   final String qrSecret;
   final String ticketId;
   final String attendeeName;
-  final String attendeeEmail;
   final String ticketTierId;
   final String ticketTierName;
   int admissionCount;
@@ -12,7 +13,6 @@ class ManifestTicket {
     required this.qrSecret,
     required this.ticketId,
     required this.attendeeName,
-    this.attendeeEmail = '',
     required this.ticketTierId,
     required this.ticketTierName,
     this.admissionCount = 0,
@@ -24,7 +24,6 @@ class ManifestTicket {
       qrSecret: (json['qr_secret'] as String).toLowerCase().trim(),
       ticketId: json['ticket_id'] as String,
       attendeeName: json['attendee_name'] as String,
-      attendeeEmail: (json['attendee_email'] as String?) ?? '',
       ticketTierId: json['ticket_tier_id'] as String,
       ticketTierName: json['ticket_tier_name'] as String,
       admissionCount: (json['admission_count'] as int?) ?? 0,
@@ -37,7 +36,6 @@ class ManifestTicket {
       'qr_secret': qrSecret,
       'ticket_id': ticketId,
       'attendee_name': attendeeName,
-      'attendee_email': attendeeEmail,
       'ticket_tier_id': ticketTierId,
       'ticket_tier_name': ticketTierName,
       'admission_count': admissionCount,

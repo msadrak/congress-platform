@@ -8,6 +8,7 @@ import { useAttendeeLocale } from "../lib/i18n";
 import { isStoredAttendeeToken, rejectAttendeeToken } from "../lib/attendeeSession";
 import { congressPath } from "../lib/congressContext";
 import { signInPath } from "../lib/safeRedirect";
+import { formatMobile } from "../lib/mobile";
 import { LoadingBlock, StatusPanel } from "../components/ui/PortalState";
 import { Monogram } from "../components/attendee/Monogram";
 import { SectionHeader } from "../components/attendee/SectionHeader";
@@ -21,7 +22,7 @@ type ProfileState =
   | { status: "error" };
 
 /**
- * Identity fields (name, email, organization, title) are read-only: editing them is an
+ * Identity fields (name, mobile number, organization, title) are read-only: editing them is an
  * approval-gated backlog item (P03-T57) because they appear on issued badges. The one
  * attendee-controlled setting is peer contact sharing, persisted through its own endpoint.
  */
@@ -122,9 +123,9 @@ export default function MyProfile() {
     );
   } else {
     const { user, privacy } = view;
-    const rows: [string, string, "user" | "mail" | "congress" | "id-card"][] = [
+    const rows: [string, string, "user" | "phone" | "congress" | "id-card"][] = [
       [isRtl ? "نام" : "Name", user.full_name, "user"],
-      [isRtl ? "ایمیل" : "Email", user.email, "mail"],
+      [isRtl ? "موبایل" : "Mobile", user.mobile ? formatMobile(user.mobile, locale) : "—", "phone"],
       [isRtl ? "سازمان" : "Organization", user.organization || "—", "congress"],
       [isRtl ? "سمت" : "Title", user.title || "—", "id-card"],
     ];
@@ -141,10 +142,12 @@ export default function MyProfile() {
             <div className="min-w-0 space-y-2">
               <span className="eyebrow">{t.navMyProfile}</span>
               <h1 className="text-[1.75rem] font-semibold leading-tight tracking-[-0.03em] text-text-primary break-words sm:text-4xl">{user.full_name}</h1>
-              <p className="flex min-w-0 items-center gap-2 text-sm text-text-secondary">
-                <Icon name="mail" size={16} className="text-ink-400" />
-                <bdi className="truncate">{user.email}</bdi>
-              </p>
+              {user.mobile && (
+                <p className="flex min-w-0 items-center gap-2 text-sm text-text-secondary">
+                  <Icon name="phone" size={16} className="text-ink-400" />
+                  <bdi dir="ltr" className="truncate font-mono">{formatMobile(user.mobile, locale)}</bdi>
+                </p>
+              )}
             </div>
           </div>
         </div>
@@ -170,7 +173,7 @@ export default function MyProfile() {
                     <Icon name={icon} size={16} className="self-center text-ink-400" />
                     {label}
                   </dt>
-                  <dd className="font-medium text-text-primary break-words"><bdi>{value}</bdi></dd>
+                  <dd className="font-medium text-text-primary break-words"><bdi dir={icon === "phone" ? "ltr" : undefined}>{value}</bdi></dd>
                 </div>
               ))}
             </dl>
@@ -206,15 +209,15 @@ export default function MyProfile() {
                 <>
                   <div className="flex items-start justify-between gap-4 rounded-2xl border border-border-subtle bg-surface-panel-subtle p-4">
                     <div className="min-w-0 space-y-1">
-                      <p id="share-email-label" className="text-sm font-semibold text-text-primary">{t.shareEmailToggleLabel}</p>
-                      <p id="share-email-desc" className="text-xs leading-relaxed text-text-secondary">{t.shareEmailToggleDesc}</p>
+                      <p id="share-mobile-label" className="text-sm font-semibold text-text-primary">{t.shareMobileToggleLabel}</p>
+                      <p id="share-mobile-desc" className="text-xs leading-relaxed text-text-secondary">{t.shareMobileToggleDesc}</p>
                     </div>
                     <button
                       type="button"
                       role="switch"
                       aria-checked={privacy.share_contact_with_peers}
-                      aria-labelledby="share-email-label"
-                      aria-describedby="share-email-desc"
+                      aria-labelledby="share-mobile-label"
+                      aria-describedby="share-mobile-desc"
                       disabled={saving}
                       onClick={() => void togglePrivacy(privacy)}
                       className={`relative mt-0.5 h-8 w-14 shrink-0 rounded-full border transition-colors motion-reduce:transition-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring disabled:opacity-60 cursor-pointer before:absolute before:-inset-2 before:content-[''] ${
@@ -239,7 +242,7 @@ export default function MyProfile() {
                     }`}
                   >
                     <Icon name={shared ? "eye" : "eye-off"} size={15} />
-                    {shared ? t.emailSharedStatus : t.emailHiddenStatus}
+                    {shared ? t.mobileSharedStatus : t.mobileHiddenStatus}
                   </p>
                   {privacyMessage && (
                     <p

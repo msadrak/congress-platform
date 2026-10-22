@@ -11,13 +11,15 @@ from app.main import create_app_from_env
 STRONG_TOKEN = "q8F3vKz1Lr9XwT2bN5mY7pC0dH4jS6aG"
 STRONG_JWT = "9b1f0e8c7d6a5b4c3d2e1f0a9b8c7d6e5f4a3b2c"
 DB_URL = "postgresql+asyncpg://congress:s3cret@db:5432/congress"
+SMSIR_KEY = "Zx9Lr2Kq7Wm4Pv1Tn8Hb3Gd6Fs5Ja0Ce"
 
 
 @pytest.fixture(autouse=True)
 def no_ambient_configuration(monkeypatch: pytest.MonkeyPatch) -> None:
     for name in (
         "CONGRESS_ENVIRONMENT", "CONGRESS_DATABASE_URL", "CONGRESS_MEDIA_ROOT",
-        "CONGRESS_PLATFORM_ADMIN_TOKEN", "CONGRESS_JWT_SECRET",
+        "CONGRESS_PLATFORM_ADMIN_TOKEN", "CONGRESS_JWT_SECRET", "CONGRESS_PUBLIC_ORIGIN",
+        "CONGRESS_SMS_PROVIDER", "CONGRESS_SMSIR_API_KEY", "CONGRESS_SMSIR_LINE_NUMBER",
     ):
         monkeypatch.delenv(name, raising=False)
 
@@ -29,6 +31,9 @@ def production(**overrides: object) -> Settings:
         "platform_admin_token": STRONG_TOKEN,
         "jwt_secret": STRONG_JWT,
         "media_root": Path("/srv/congress/media").resolve(),
+        "public_origin": "https://congress.example.org",
+        "smsir_api_key": SMSIR_KEY,
+        "smsir_line_number": 30001234,
     }
     values.update(overrides)
     return Settings(**values)  # type: ignore[arg-type]
@@ -87,12 +92,14 @@ def test_startup_error_names_variables_without_echoing_secrets(monkeypatch: pyte
     monkeypatch.setenv("CONGRESS_MEDIA_ROOT", str(Path("/srv/media").resolve()))
     monkeypatch.setenv("CONGRESS_PLATFORM_ADMIN_TOKEN", "change-me-in-production")
     monkeypatch.setenv("CONGRESS_JWT_SECRET", STRONG_JWT)
+    monkeypatch.setenv("CONGRESS_SMSIR_API_KEY", SMSIR_KEY)
     with pytest.raises(SystemExit) as exc:
         create_app_from_env()
     message = str(exc.value)
     assert "Invalid Congress Platform configuration" in message
     assert "CONGRESS_PLATFORM_ADMIN_TOKEN" in message
     assert STRONG_JWT not in message
+    assert SMSIR_KEY not in message
 
 
 def test_error_summary_does_not_include_submitted_values() -> None:
@@ -101,3 +108,48 @@ def test_error_summary_does_not_include_submitted_values() -> None:
     summary = describe_settings_error(exc.value)
     assert "CONGRESS_JWT_SECRET" in summary
     assert "short-but-secret-value" not in summary
+
+
+def test_production_sends_real_sms_through_smsir() -> None:
+    settings = production()
+    assert settings.sms_provider == "smsir"
+    with pytest.raises(ValidationError) as exc:
+        production(sms_provider="console")
+    assert "CONGRESS_SMS_PROVIDER must be smsir in production" in str(exc.value)
+
+
+@pytest.mark.parametrize("key", ["<generate in the sms.ir panel>", "replace-me"])
+def test_a_placeholder_smsir_api_key_is_refused(key: str) -> None:
+    with pytest.raises(ValidationError) as exc:
+        production(smsir_api_key=key)
+    assert "CONGRESS_SMSIR_API_KEY" in str(exc.value)
+    assert SMSIR_KEY not in describe_settings_error(exc.value)
+
+
+def test_production_may_start_before_sms_is_configured_in_the_platform_console() -> None:
+    settings = production(smsir_api_key="", smsir_line_number=None)
+    assert settings.sms_provider == "smsir" and settings.smsir_line_number is None
+
+
+def test_production_requires_the_public_origin_for_pass_links() -> None:
+    with pytest.raises(ValidationError) as exc:
+        production(public_origin=None)
+    assert "CONGRESS_PUBLIC_ORIGIN" in str(exc.value)
+
+
+def test_staging_defaults_to_smsir_but_may_opt_into_the_console_provider() -> None:
+    assert production(environment="staging").sms_provider == "smsir"
+    settings = production(environment="staging", sms_provider="console", smsir_api_key="")
+    assert settings.sms_provider == "console"
+
+
+def test_development_sends_nothing_by_default() -> None:
+    settings = Settings(environment="development", platform_admin_token="dev", jwt_secret=STRONG_JWT)
+    assert settings.sms_provider == "console"
+
+
+def test_a_blank_line_number_from_compose_counts_as_unset(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("CONGRESS_SMSIR_LINE_NUMBER", " ")
+    settings = Settings(environment="staging", database_url=DB_URL, platform_admin_token=STRONG_TOKEN,
+                        jwt_secret=STRONG_JWT, media_root=Path("/srv/media").resolve(), sms_provider="console")
+    assert settings.smsir_line_number is None

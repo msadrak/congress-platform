@@ -1,4 +1,5 @@
 import type { LeadOut } from "../../api/client";
+import { formatMobile, telHref } from "../../lib/mobile";
 import { Button } from "../ui/Button";
 import { Icon } from "../ui/Icon";
 import { RatingChip } from "./RatingControl";
@@ -22,7 +23,7 @@ interface LeadCardProps {
   lead: LeadOut;
   locale: "fa" | "en";
   capturedAt: string;
-  labels: { captured: string; tier: string; email: string; notes: string; qualify: string };
+  labels: { captured: string; tier: string; mobile: string; call: string; text: string; notes: string; qualify: string };
   onQualify: () => void;
 }
 
@@ -49,15 +50,29 @@ export function LeadCard({ lead, locale, capturedAt, labels, onQualify }: LeadCa
 
         <dl className="grid grid-cols-2 gap-x-4 gap-y-3 border-t border-border-subtle pt-3 sm:grid-cols-[minmax(0,1.7fr)_minmax(0,1fr)_minmax(0,0.8fr)]">
           <div className="col-span-2 min-w-0 sm:col-span-1">
-            <dt className="booth-meta-label">{labels.email}</dt>
+            <dt className="booth-meta-label">{labels.mobile}</dt>
             <dd className="mt-1">
-              <a
-                href={`mailto:${lead.attendee_email}`}
-                className="inline-flex max-w-full items-center gap-1.5 rounded-sm text-[13px] font-medium text-action-primary hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
-              >
-                <Icon name="mail" size={15} className="shrink-0" />
-                <bdi dir="ltr" className="min-w-0 break-all font-mono text-[12.5px]">{lead.attendee_email}</bdi>
-              </a>
+              {lead.attendee_mobile ? (
+                <span className="inline-flex max-w-full flex-wrap items-center gap-x-3 gap-y-1">
+                  <a
+                    href={telHref(lead.attendee_mobile)}
+                    aria-label={`${labels.call} ${lead.attendee_name}`}
+                    className="inline-flex max-w-full items-center gap-1.5 rounded-sm text-[13px] font-medium text-action-primary hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
+                  >
+                    <Icon name="phone" size={15} className="shrink-0" />
+                    <bdi dir="ltr" className="min-w-0 break-all font-mono text-[12.5px]">{formatMobile(lead.attendee_mobile, locale)}</bdi>
+                  </a>
+                  <a
+                    href={telHref(lead.attendee_mobile, "sms")}
+                    className="inline-flex items-center gap-1 rounded-sm text-[12.5px] font-medium text-text-secondary hover:text-action-primary hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
+                  >
+                    <Icon name="mail" size={14} className="shrink-0" />
+                    {labels.text}
+                  </a>
+                </span>
+              ) : (
+                <span className="text-[13px] text-text-muted">—</span>
+              )}
             </dd>
           </div>
           <div className="min-w-0">

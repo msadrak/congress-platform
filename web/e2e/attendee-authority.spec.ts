@@ -13,11 +13,11 @@ const scannerToken = 'synthetic-t06-scanner';
 const bearer = (token: string) => `Bearer ${token}`;
 
 const ownerOf = (auth: string | undefined) => (auth === bearer(tokenB) ? 'B' : 'A');
-const ticketOf = (owner: string) => ({ id: `ticket-${owner}`, event_id: 'event-1', event_name: `Event of ${owner}`, event_slug: 't06-fixture', event_location: 'Hall', event_starts_at: '2027-04-10T08:00:00Z', event_ends_at: '2027-04-10T18:00:00Z', ticket_tier_id: 'tier-1', ticket_tier_name: 'General', attendee_name: `Attendee ${owner}`, attendee_email: `${owner.toLowerCase()}@example.test`, status: 'ACTIVE', qr_secret: `synthetic-qr-${owner}`, created_at: '2027-01-01T00:00:00Z' });
+const ticketOf = (owner: string) => ({ id: `ticket-${owner}`, event_id: 'event-1', event_name: `Event of ${owner}`, event_slug: 't06-fixture', event_location: 'Hall', event_starts_at: '2027-04-10T08:00:00Z', event_ends_at: '2027-04-10T18:00:00Z', ticket_tier_id: 'tier-1', ticket_tier_name: 'General', attendee_name: `Attendee ${owner}`, attendee_mobile: '09121234567', status: 'ACTIVE', qr_secret: `synthetic-qr-${owner}`, created_at: '2027-01-01T00:00:00Z' });
 const savedBooth = (owner: string) => ({ booth_id: `booth-saved-${owner}`, name: `Saved Booth ${owner}`, slug: 'saved', location: 'A1', description: 'x', website_url: '', brochure_url: '', event_name: `Event of ${owner}`, event_slug: 't06-fixture', bookmarked_at: '2027-01-01T00:00:00Z' });
-const connectionOf = (owner: string) => ({ id: `conn-${owner}`, connected_user_id: `peer-${owner}`, full_name: 'Jane Doe', email: null, organization: `Org of ${owner}`, title: 'Dr', event_id: 'event-1', private_notes: `Peer of ${owner}`, created_at: '2027-01-01T00:00:00Z' });
+const connectionOf = (owner: string) => ({ id: `conn-${owner}`, connected_user_id: `peer-${owner}`, full_name: 'Jane Doe', mobile: null, organization: `Org of ${owner}`, title: 'Dr', event_id: 'event-1', private_notes: `Peer of ${owner}`, created_at: '2027-01-01T00:00:00Z' });
 const boothOf = (id: string) => ({ id, event_id: 'event-1', name: `Booth ${id}`, slug: `slug-${id}`, location: 'B1', description: 'x', website_url: '', brochure_url: '', qr_secret: 'synthetic-booth-qr', created_at: '2027-01-01T00:00:00Z' });
-const leadOf = (id: string, name = 'Lead One') => ({ id, booth_id: 'booth-1', ticket_id: 'ticket-9', attendee_name: name, attendee_email: 'lead@example.test', organization: 'Lead Org', title: 'Buyer', ticket_tier_name: 'General', rating: 'WARM', tags: [], notes: '', created_at: '2027-01-01T00:00:00Z', updated_at: '2027-01-01T00:00:00Z' });
+const leadOf = (id: string, name = 'Lead One') => ({ id, booth_id: 'booth-1', ticket_id: 'ticket-9', attendee_name: name, attendee_mobile: '09121230000', organization: 'Lead Org', title: 'Buyer', ticket_tier_name: 'General', rating: 'WARM', tags: [], notes: '', created_at: '2027-01-01T00:00:00Z', updated_at: '2027-01-01T00:00:00Z' });
 const publicEvent = { id: 'event-1', name: 'T06 Fixture Congress', slug: 't06-fixture', starts_at: '2027-04-10T08:00:00Z', ends_at: '2027-04-10T18:00:00Z', location: 'Fixture Hall', description: 'Synthetic', ticket_tiers: [{ id: 'tier-1', event_id: 'event-1', name: 'General', quota: 100, reserved_count: 0, is_open: true, created_at: '2027-01-01T00:00:00Z' }] };
 
 type Recorded = { method: string; path: string; auth: string | undefined };
@@ -46,7 +46,7 @@ async function fixture(page: Page, options: Options = {}) {
     if (path === '/api/attendees/me/network/privacy') return json(200, { share_contact_with_peers: false });
     if (path.endsWith('/vcard')) return options.vcardStatus ? denied(options.vcardStatus) : route.fulfill({ status: 200, contentType: 'text/vcard', body: `BEGIN:VCARD\nVERSION:3.0\nFN:Jane Doe\nNOTE:${owner}\nEND:VCARD\n` });
     if (path.startsWith('/api/attendees/me/network/')) return json(200, { ...connectionOf(owner), private_notes: 'Updated note' });
-    if (path.endsWith('/tickets/reserve')) return options.reserveStatus && options.reserveStatus !== 201 ? denied(options.reserveStatus) : json(201, { id: 'ticket-new', event_id: 'event-1', ticket_tier_id: 'tier-1', ticket_tier_name: 'General', attendee_name: 'x', attendee_email: 'x@example.test', status: 'ACTIVE', qr_secret: 'synthetic-qr-new', created_at: '2027-01-01T00:00:00Z' });
+    if (path.endsWith('/tickets/reserve')) return options.reserveStatus && options.reserveStatus !== 201 ? denied(options.reserveStatus) : json(201, { id: 'ticket-new', event_id: 'event-1', ticket_tier_id: 'tier-1', ticket_tier_name: 'General', attendee_name: 'x', attendee_mobile: '09121239999', status: 'ACTIVE', qr_secret: 'synthetic-qr-new', created_at: '2027-01-01T00:00:00Z' });
     const booth = path.match(/^\/api\/booths\/([^/]+)(\/.*)?$/);
     if (booth) {
       const [, id, rest = ''] = booth;
@@ -481,7 +481,7 @@ test('reservation 401 clears exactly the sent token and reopens sign-in', async 
 test('R2 a reservation answered after the session changed shows no success for the new session', async ({ page }) => {
   await fixture(page);
   await watchText(page, ['Pass Reserved Successfully!']);
-  const held = await hold(page, '/tickets/reserve', bearer(tokenA), 201, { id: 'ticket-new', event_id: 'event-1', ticket_tier_id: 'tier-1', ticket_tier_name: 'General', attendee_name: 'x', attendee_email: 'x@example.test', status: 'ACTIVE', qr_secret: 'synthetic-qr-new', created_at: '2027-01-01T00:00:00Z' }, 'POST');
+  const held = await hold(page, '/tickets/reserve', bearer(tokenA), 201, { id: 'ticket-new', event_id: 'event-1', ticket_tier_id: 'tier-1', ticket_tier_name: 'General', attendee_name: 'x', attendee_mobile: '09121239999', status: 'ACTIVE', qr_secret: 'synthetic-qr-new', created_at: '2027-01-01T00:00:00Z' }, 'POST');
   await seed(page, tokenA);
   await page.goto('/e/t06-fixture');
   await page.getByRole('button', { name: /Reserve Free Pass/ }).click();

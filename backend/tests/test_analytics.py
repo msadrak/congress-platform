@@ -49,14 +49,14 @@ async def setup_event_with_scans(
 
     # 3 Attendees: 2 General, 1 VIP
     tickets = []
-    for i, (name, email, t_id) in enumerate(
+    for i, (name, mobile, t_id) in enumerate(
         [
-            ("Attendee One", "one@example.com", gen_tier["id"]),
-            ("Attendee Two", "two@example.com", gen_tier["id"]),
-            ("VIP Person", "vip@example.com", vip_tier["id"]),
+            ("Attendee One", "09121000005", gen_tier["id"]),
+            ("Attendee Two", "09121000006", gen_tier["id"]),
+            ("VIP Person", "09121000007", vip_tier["id"]),
         ]
     ):
-        _, token = await register_user(client, email, name)
+        _, token = await register_user(client, mobile, name)
         t = (
             await client.post(
                 f"/api/events/{event_id}/tickets/reserve",

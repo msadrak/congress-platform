@@ -1,0 +1,27 @@
+# Copy to congress-proxy.conf (next to congress-proxy.sh, git-ignored) and set your bastion.
+# Loaded automatically by ./congress-proxy.sh unless CONGRESS_PROXY_CONF names another file.
+# Use the same values as DrGibi's drgibi-proxy.conf.
+
+# SSH server outside the restricted network (the tunnel is `ssh -D` to it)
+PROXY_SERVER=root@YOUR_BASTION_IP_OR_DNS
+PROXY_SSH_PORT=22
+# Optional: private key for that server (default: ssh's own keys)
+# PROXY_SSH_KEY=/root/.ssh/id_ed25519
+
+# Local SOCKS port of the tunnel (127.0.0.1 only). Docker pulls, git and `run` use it.
+PROXY_PORT=1080
+
+# HTTP bridge port (gost: HTTP -> SOCKS) for npm ci / uv sync inside docker build.
+# It listens on 127.0.0.1 and the docker0 address only.
+# CONGRESS_HTTP_BRIDGE_PORT=8118
+
+# Optional: extra hosts that must not go through the tunnel (comma separated).
+# Localhost and private networks are always excluded.
+# CONGRESS_EXTRA_NO_PROXY=*.aiteb.app,aiteb.ir
+
+# Optional: where the repository is when the script runs from outside it (default: the repository the script is in)
+# CONGRESS_ROOT=/opt/congress-platform
+
+# Optional: where gost, its log and the tunnel's control socket are kept
+# CONGRESS_PROXY_STATE=$HOME/.congress-proxy
+# GOST_RELEASE=3.2.6

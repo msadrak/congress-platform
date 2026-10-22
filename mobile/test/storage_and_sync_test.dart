@@ -19,7 +19,6 @@ void main() {
             'qr_secret': 'sec1',
             'ticket_id': 't1',
             'attendee_name': 'Dr. Ali',
-            'attendee_email': 'ali@test.com',
             'ticket_tier_id': 'tier1',
             'ticket_tier_name': 'General',
           }

@@ -1,0 +1,1 @@
+# CDN-only origin over plain HTTP (CONGRESS_SITE_ADDRESS starts with http://): no certificate, no HTTPS redirect.

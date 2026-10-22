@@ -7,12 +7,13 @@ const EVENT_A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const EVENT_B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 const ORGANIZER_KEY = 'synthetic-ms04-organizer';
 const USER_TOKEN = 'synthetic-ms04-user';
-const PASSWORD = 'operator-password-1';
+const CODE = '482913';
+const OPERATOR_MOBILE = '09121110001';
 const tokenOf = (n: number) => `synthetic-ms04-desk-a-${n}`;
 
-interface FixtureAttendee { ticket_id: string; attendee_id: string; attendee_name: string; attendee_email: string; organization: string; title: string; ticket_tier_id: string; ticket_tier_name: string; qr_secret: string; status: string; checkin_count: number; issued_by: string | null; created_at: string }
-const attendee = (event: string, n: number, name: string, email: string, status = 'active'): FixtureAttendee => ({
-  ticket_id: `ticket-${event}-${n}`, attendee_id: `att-${event}-${n}`, attendee_name: name, attendee_email: email, organization: 'Heart Center', title: 'Cardiologist',
+interface FixtureAttendee { ticket_id: string; attendee_id: string; attendee_name: string; attendee_mobile: string | null; organization: string; title: string; ticket_tier_id: string; ticket_tier_name: string; qr_secret: string; status: string; checkin_count: number; issued_by: string | null; created_at: string }
+const attendee = (event: string, n: number, name: string, mobile: string | null, status = 'active'): FixtureAttendee => ({
+  ticket_id: `ticket-${event}-${n}`, attendee_id: `att-${event}-${n}`, attendee_name: name, attendee_mobile: mobile, organization: 'Heart Center', title: 'Cardiologist',
   ticket_tier_id: 'tier-1', ticket_tier_name: 'General', qr_secret: `qr-${event}-${n}`, status, checkin_count: n === 1 ? 2 : 0, issued_by: null, created_at: '2099-01-01T00:00:00Z',
 });
 const EVENT_NAMES: Record<string, string> = { [EVENT_A]: 'Alpha Congress', [EVENT_B]: 'Beta Summit' };
@@ -33,11 +34,11 @@ async function fixture(page: Page, options: Options = {}): Promise<Fixture> {
   const requests: Recorded[] = [];
   const attendees: Record<string, FixtureAttendee[]> = {
     [EVENT_A]: [
-      attendee(EVENT_A, 1, 'Alice Rahimi', 'alice@example.test'),
-      attendee(EVENT_A, 2, 'Alicia Moradi', 'alicia@example.test'),
-      attendee(EVENT_A, 3, 'Bob Karimi', 'bob@example.test', 'revoked'),
+      attendee(EVENT_A, 1, 'Alice Rahimi', '09121230001'),
+      attendee(EVENT_A, 2, 'Alicia Moradi', '09121230002'),
+      attendee(EVENT_A, 3, 'Bob Karimi', '09121230003', 'revoked'),
     ],
-    [EVENT_B]: [attendee(EVENT_B, 1, 'Alice Foreign', 'alice-foreign@example.test')],
+    [EVENT_B]: [attendee(EVENT_B, 1, 'Alice Foreign', '09121230009')],
   };
   const issuedTokens: string[] = [];
   let validToken = '';
@@ -52,6 +53,7 @@ async function fixture(page: Page, options: Options = {}): Promise<Fixture> {
     requests.push({ method, path, auth, body: raw ? JSON.parse(raw) : undefined });
     const json = (status: number, body: unknown) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
 
+    if (path === '/api/auth/otp/request') return json(202, { mobile: JSON.parse(raw ?? '{}').mobile, code_length: 6, expires_in: 120, resend_after: 60 });
     const pub = path.match(/^\/api\/public\/events\/([^/]+)$/);
     if (pub) {
       if (pub[1] === 'alpha') return json(200, { id: EVENT_A, name: 'Alpha Congress', slug: 'alpha', starts_at: '2099-01-01T00:00:00Z', ends_at: '2099-01-02T00:00:00Z', location: 'Hall', description: '', ticket_tiers: [] });
@@ -62,9 +64,9 @@ async function fixture(page: Page, options: Options = {}): Promise<Fixture> {
     const [, event, rest] = match;
     if (rest === 'desk/login') {
       if (options.loginStatus) return json(options.loginStatus, { detail: 'denied' });
-      const body = JSON.parse(raw ?? '{}') as { email: string; password: string };
+      const body = JSON.parse(raw ?? '{}') as { mobile: string; code: string };
+      if (body.code !== CODE) return json(401, { detail: 'The code is wrong or has expired.' });
       if (event !== EVENT_A) return json(403, { detail: 'Not assigned' });
-      if (body.password !== PASSWORD) return json(401, { detail: 'Invalid email or password' });
       loginCount += 1;
       validToken = tokenOf(loginCount + revokedGeneration);
       issuedTokens.push(validToken);
@@ -76,7 +78,7 @@ async function fixture(page: Page, options: Options = {}): Promise<Fixture> {
     if (rest === 'desk/tiers') return json(200, [{ id: 'tier-1', name: 'General', description: '', quota: 100, reserved_count: 3, is_open: true }]);
     if (rest === 'attendees' && method === 'GET') {
       const q = (new URL(request.url()).searchParams.get('q') ?? '').toLowerCase();
-      return json(200, attendees[event].filter(a => !q || `${a.attendee_name} ${a.attendee_email}`.toLowerCase().includes(q)));
+      return json(200, attendees[event].filter(a => !q || `${a.attendee_name} ${a.attendee_mobile ?? ''}`.toLowerCase().includes(q)));
     }
     const detail = rest.match(/^attendees\/([^/]+)$/);
     if (detail) {
@@ -90,12 +92,12 @@ async function fixture(page: Page, options: Options = {}): Promise<Fixture> {
         await promise;
       }
       if (options.registerFails) return route.abort('failed');
-      const body = JSON.parse(raw ?? '{}') as { full_name: string; email?: string };
-      const email = (body.email ?? `walkin-${attendees[event].length}@alpha.local`).toLowerCase();
-      if (attendees[event].some(a => a.attendee_email === email)) return json(409, { detail: 'Attendee already has an active ticket for this congress' });
-      const created = attendee(event, attendees[event].length + 1, body.full_name, email);
+      const body = JSON.parse(raw ?? '{}') as { full_name: string; mobile?: string | null };
+      const mobile = body.mobile ?? null;
+      if (mobile && attendees[event].some(a => a.attendee_mobile === mobile)) return json(409, { detail: 'Attendee already has an active ticket for this congress' });
+      const created = attendee(event, attendees[event].length + 1, body.full_name, mobile);
       attendees[event].push(created);
-      return json(201, { ticket_id: created.ticket_id, attendee_name: created.attendee_name, attendee_email: email, organization: '', title: '', ticket_tier_name: 'General', qr_secret: created.qr_secret, issued_by: 'Operator One', created_at: created.created_at });
+      return json(201, { ticket_id: created.ticket_id, attendee_name: created.attendee_name, attendee_mobile: mobile, organization: '', title: '', ticket_tier_name: 'General', qr_secret: created.qr_secret, issued_by: 'Operator One', created_at: created.created_at });
     }
     return json(404, { detail: 'Not found' });
   });
@@ -116,10 +118,15 @@ async function seed(page: Page, options: { locale?: string; organizer?: boolean;
   }, { locale: options.locale ?? 'en', organizer: options.organizer ?? false, token: options.token ?? '', eventA: EVENT_A, key: ORGANIZER_KEY, user: USER_TOKEN });
 }
 
-async function signIn(page: Page, password = PASSWORD) {
-  await page.getByLabel(/Operator Email/).fill('Operator@Example.test');
-  await page.getByLabel('Password').fill(password);
-  await page.getByRole('button', { name: 'Sign In to Desk' }).click();
+/** From the mobile step: request a desk code, then type it (a complete code submits itself). */
+async function signIn(page: Page, code = CODE) {
+  await page.getByLabel('Mobile number').fill(OPERATOR_MOBILE);
+  await page.getByRole('button', { name: 'Send code' }).click();
+  await enterCode(page, code);
+}
+/** On the code step: type another code. */
+async function enterCode(page: Page, code = CODE) {
+  await page.getByLabel('Code from the SMS').fill(code);
 }
 const search = (page: Page) => page.getByRole('searchbox');
 const stored = (page: Page) => page.evaluate(({ eventA }) => ({
@@ -170,44 +177,47 @@ test.describe('independent entry and sign-in', () => {
     await signIn(page);
     await expect(page.getByTestId('reception-operator')).toBeVisible();
     await expect(page.getByRole('link', { name: /Organizer|Event Settings/ })).toHaveCount(0);
-    const protectedCalls = fx.requests.filter(r => r.path !== `/api/events/${EVENT_A}/desk/login`);
+    const protectedCalls = fx.requests.filter(r => r.path !== `/api/events/${EVENT_A}/desk/login` && r.path !== '/api/auth/otp/request');
+    expect(fx.requests.find(r => r.path === '/api/auth/otp/request')?.auth).toBeUndefined();
     expect(protectedCalls.length).toBeGreaterThan(0);
     expect(protectedCalls.every(r => r.auth === `Bearer ${fx.issuedTokens[0]}`)).toBe(true);
     expect(fx.requests.find(r => r.path.endsWith('/desk/login'))?.auth).toBeUndefined();
     expect((await stored(page)).organizer).toBe(ORGANIZER_KEY);
   });
 
-  test('operator signs in, sees congress and operator context, and the password is never stored', async ({ page }) => {
+  test('operator signs in with an SMS code, sees congress and operator context, and the code is never stored', async ({ page }) => {
     const fx = await fixture(page);
     await seed(page);
     await page.goto(`/reception/${EVENT_A}`);
     await signIn(page);
     await expect(page.getByTestId('reception-event')).toHaveText('Alpha Congress');
     await expect(page.getByTestId('reception-operator')).toContainText('Operator One');
-    expect(fx.requests.find(r => r.path.endsWith('/desk/login'))?.body).toMatchObject({ email: 'operator@example.test' });
+    expect(fx.requests.find(r => r.path === '/api/auth/otp/request')?.body).toEqual({ mobile: OPERATOR_MOBILE, purpose: 'desk' });
+    expect(fx.requests.find(r => r.path.endsWith('/desk/login'))?.body).toEqual({ mobile: OPERATOR_MOBILE, code: CODE });
     const snapshot = await stored(page);
     expect(snapshot.desk).toBe(fx.issuedTokens[0]);
-    expect(snapshot.all).not.toContain(PASSWORD);
+    expect(snapshot.all).not.toContain(CODE);
     await page.reload();
     await expect(page.getByTestId('reception-operator')).toContainText('Operator One');
   });
 
-  test('wrong password, revoked or unassigned account, and network failure are distinct and store nothing', async ({ page }) => {
+  test('wrong code, revoked or unassigned number, and network failure are distinct and store nothing', async ({ page }) => {
     await fixture(page);
     await seed(page);
     await page.goto(`/reception/${EVENT_A}`);
-    await signIn(page, 'wrong-password');
-    await expect(page.getByRole('alert')).toContainText('Invalid email or password');
+    await signIn(page, '000000');
+    await expect(page.getByRole('alert')).toContainText('The code is wrong or has expired');
     expect((await stored(page)).desk).toBeNull();
 
     await page.unrouteAll();
     await fixture(page, { loginStatus: 403 });
-    await signIn(page);
+    await enterCode(page);
     await expect(page.getByRole('alert')).toContainText('not assigned to this congress');
 
     await page.unrouteAll();
     await page.route(/\/desk\/login$/, route => route.abort('failed'));
-    await signIn(page);
+    // Retrying the same code: the operator presses the button (the field did not change, so no auto-submit).
+    await page.getByRole('button', { name: 'Sign In to Desk' }).click();
     await expect(page.getByRole('alert')).toContainText('Could not reach the server');
     expect((await stored(page)).desk).toBeNull();
   });
@@ -305,7 +315,7 @@ test.describe('walk-in issuance', () => {
     await seed(page);
     await openSignedIn(page);
     await page.getByLabel('Full Name').fill('Walk In Person');
-    await page.getByLabel(/Email Address/).fill('walkin@example.test');
+    await page.getByLabel(/Mobile Number/).fill('0912 777 0001');
     const submit = page.getByRole('button', { name: /Mint & Present Pass/ });
     await submit.dblclick();
     const dialog = page.getByRole('dialog');
@@ -315,16 +325,16 @@ test.describe('walk-in issuance', () => {
     await dialog.getByRole('button', { name: /Next Attendee/ }).click();
     await expect(page.getByLabel('Full Name')).toHaveValue('');
     await expect(search(page)).toBeFocused();
-    await search(page).fill('walkin@');
+    await search(page).fill('7770001');
     await expect(page.getByRole('button', { name: 'Review Walk In Person' })).toBeVisible();
   });
 
-  test('a duplicate email offers the exact existing pass without selecting it or resubmitting', async ({ page }) => {
+  test('a duplicate mobile number offers the exact existing pass without selecting it or resubmitting', async ({ page }) => {
     const fx = await fixture(page);
     await seed(page);
     await openSignedIn(page);
     await page.getByLabel('Full Name').fill('Someone Else');
-    await page.getByLabel(/Email Address/).fill('ALICE@example.test');
+    await page.getByLabel(/Mobile Number/).fill('۰۹۱۲ ۱۲۳ ۰۰۰۱');  // Alice's number in Persian digits
     await page.getByRole('button', { name: /Mint & Present Pass/ }).click();
     await expect(page.getByRole('alert')).toContainText('already has an active ticket');
     const offer = page.getByRole('button', { name: 'Review existing pass: Alice Rahimi' });
@@ -410,7 +420,7 @@ test.describe('layout and language', () => {
     for (const [width, height] of [[768, 1024], [390, 844]]) {
       await page.setViewportSize({ width, height });
       await page.goto(`/reception/${EVENT_A}`);
-      await expect(page.getByLabel(/Operator Email/)).toBeVisible();
+      await expect(page.getByLabel('Mobile number')).toBeVisible();
       expect(await overflow(page), `${width}px login`).toBe(0);
       await signIn(page);
       await expect(page.getByTestId('reception-operator')).toBeVisible();
@@ -432,9 +442,10 @@ test.describe('layout and language', () => {
     await expect(page.locator('[dir="rtl"]').first()).toBeVisible();
     await expect(page.getByRole('heading', { name: 'ورود به ایستگاه میز پذیرش' })).toBeVisible();
     expect(await overflow(page)).toBe(0);
-    await page.getByLabel(/ایمیل اپراتور/).fill('operator@example.test');
-    await page.getByLabel('کلمه عبور').fill(PASSWORD);
-    await page.getByRole('button', { name: 'ورود به میز پذیرش' }).click();
+    await page.getByLabel('شماره موبایل').fill('۰۹۱۲۱۱۱۰۰۰۱');
+    await page.getByRole('button', { name: 'ارسال کد' }).click();
+    await expect(page.getByRole('button', { name: 'ورود به میز پذیرش' })).toBeVisible();
+    await page.getByLabel('کد پیامک‌شده').fill('۴۸۲۹۱۳');
     await expect(page.getByTestId('reception-operator')).toBeVisible();
     await search(page).fill('alic');
     await expect(page.getByRole('button', { name: 'بررسی Alice Rahimi' })).toBeVisible();

@@ -48,7 +48,7 @@ async def test_organizer_creates_booth_and_receives_entity_qr(
     assert listed.json()[0]["name"] == "Siemens Healthineers"
 
 
-async def test_organizer_assigns_booth_staff_by_email(
+async def test_organizer_assigns_booth_staff_by_mobile(
     client: AsyncClient,
 ) -> None:
     organizer = await provision_organizer(client, "Acme Congress Co")
@@ -63,17 +63,17 @@ async def test_organizer_assigns_booth_staff_by_email(
 
     # Register user first
     _, token = await register_user(
-        client, "staff.siemens@example.com", "Sarah Siemens"
+        client, "09121000017", "Sarah Siemens"
     )
 
-    # Assign staff by email
+    # Assign staff by mobile
     assign_resp = await client.post(
         f"/api/events/{event_id}/booths/{booth_id}/staff",
-        json={"email": "staff.siemens@example.com"},
+        json={"mobile": "09121000017"},
         headers=bearer(organizer),
     )
     assert assign_resp.status_code == 201
-    assert assign_resp.json()["email"] == "staff.siemens@example.com"
+    assert assign_resp.json()["mobile"] == "09121000017"
     assert assign_resp.json()["full_name"] == "Sarah Siemens"
 
     # List assigned staff
@@ -83,7 +83,7 @@ async def test_organizer_assigns_booth_staff_by_email(
     )
     assert staff_list.status_code == 200
     assert len(staff_list.json()) == 1
-    assert staff_list.json()[0]["email"] == "staff.siemens@example.com"
+    assert staff_list.json()[0]["mobile"] == "09121000017"
 
 
 async def test_assigned_booth_staff_can_access_their_booth_portal(
@@ -100,11 +100,11 @@ async def test_assigned_booth_staff_can_access_their_booth_portal(
     booth_id = booth_resp.json()["id"]
 
     _, token = await register_user(
-        client, "rep1@siemens.com", "Rep One"
+        client, "09121000018", "Rep One"
     )
     await client.post(
         f"/api/events/{event_id}/booths/{booth_id}/staff",
-        json={"email": "rep1@siemens.com"},
+        json={"mobile": "09121000018"},
         headers=bearer(organizer),
     )
 
@@ -153,10 +153,10 @@ async def test_commercial_isolation_between_booth_staff(
     ).json()
 
     # Staff A assigned to Booth A
-    _, token_a = await register_user(client, "staff.a@companya.com", "Staff A")
+    _, token_a = await register_user(client, "09121000019", "Staff A")
     await client.post(
         f"/api/events/{event_id}/booths/{booth_a['id']}/staff",
-        json={"email": "staff.a@companya.com"},
+        json={"mobile": "09121000019"},
         headers=bearer(organizer),
     )
 
@@ -202,7 +202,7 @@ async def test_tenant_isolation_on_booths(
     # Intruder attempts to list or assign staff on owner's booth -> 404
     staff_res = await client.post(
         f"/api/events/{event_id}/booths/{booth['id']}/staff",
-        json={"email": "intruder@example.com"},
+        json={"mobile": "09121000020"},
         headers=bearer(intruder),
     )
     assert staff_res.status_code == 404

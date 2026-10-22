@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
@@ -10,6 +10,7 @@ from app.db import SessionDep
 from app.models import EntityQR, Event, Ticket, TicketTier
 from app.routes.auth import CurrentUserDep
 from app.security import generate_entity_qr_secret
+from app.sms.outbox import queue_ticket_confirmation
 
 router = APIRouter(tags=["tickets"])
 
@@ -26,7 +27,7 @@ class TicketOut(BaseModel):
     ticket_tier_id: uuid.UUID
     ticket_tier_name: str
     attendee_name: str
-    attendee_email: str
+    attendee_mobile: str | None
     status: str
     qr_secret: str
     created_at: datetime
@@ -43,7 +44,7 @@ class AttendeeTicketDetail(BaseModel):
     ticket_tier_id: uuid.UUID
     ticket_tier_name: str
     attendee_name: str
-    attendee_email: str
+    attendee_mobile: str | None
     status: str
     qr_secret: str
     created_at: datetime
@@ -57,6 +58,7 @@ async def reserve_ticket(
     event_id: uuid.UUID,
     body: TicketReserveRequest,
     user: CurrentUserDep,
+    request: Request,
     session: SessionDep,
 ) -> TicketOut:
     event = await session.get(Event, event_id)
@@ -128,6 +130,9 @@ async def reserve_ticket(
         is_active=True,
     )
     session.add(qr)
+    await queue_ticket_confirmation(
+        session, request.app.state.settings, str(request.base_url), user=user, event=event, ticket=ticket
+    )
     await session.commit()
 
     return TicketOut(
@@ -136,7 +141,7 @@ async def reserve_ticket(
         ticket_tier_id=ticket.ticket_tier_id,
         ticket_tier_name=tier_name,
         attendee_name=user.full_name,
-        attendee_email=user.email,
+        attendee_mobile=user.mobile,
         status=ticket.status,
         qr_secret=secret,
         created_at=ticket.created_at,
@@ -174,7 +179,7 @@ async def get_my_tickets(
             ticket_tier_id=tier.id,
             ticket_tier_name=tier.name,
             attendee_name=user.full_name,
-            attendee_email=user.email,
+            attendee_mobile=user.mobile,
             status=ticket.status,
             qr_secret=qr.secret,
             created_at=ticket.created_at,

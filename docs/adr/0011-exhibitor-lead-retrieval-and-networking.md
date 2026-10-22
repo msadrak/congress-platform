@@ -12,8 +12,9 @@ We leverage the polymorphic `EntityQR` engine established in ADR-0008 across bot
    - **Attendee scans Booth QR:** Resolves booth identity, opens the company profile with brochure download links, and bookmarks into "My Visited Booths".
    - **Attendee scans Attendee:** Resolves peer identity, creates a `Connection` record in "My Network", and offers an instant vCard (`.vcf`) download.
 2. **Privacy & Disclosure Boundaries:**
-   - Exhibitor badge scans yield full business card disclosure (Name, Organization, Title, Email).
-   - Peer-to-peer badge scans yield professional details (Name, Organization, Title) with opt-in email sharing.
+   - Exhibitor badge scans yield full business card disclosure (Name, Organization, Title, Mobile).
+   - Peer-to-peer badge scans yield professional details (Name, Organization, Title) with opt-in mobile number sharing.
+   - (Amended by ADR 0012: the contact detail is the mobile number; e-mail no longer exists.)
 
 ## Consequences
 - No new barcode formats or scanner hardware required; all interactions run on the same 128-bit CSPRNG `EntityQR` tokens.

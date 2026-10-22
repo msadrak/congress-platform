@@ -5,9 +5,10 @@
  *
  *   node scripts/design/capture-screens.mjs <out-dir> [--only=<substring>]
  *
- * Read-only against the demo: it signs in (attendee / representative / reception operator),
- * reads `.demo/credentials.json` for organizer keys and scanner credentials (never printed),
- * and only navigates. It never reserves, scans, captures leads or edits data.
+ * Read-only against the demo: it signs in by SMS code (attendee / representative / reception operator; the
+ * development API sends no SMS, so codes are read from its platform-admin outbox), reads `.demo/credentials.json`
+ * for organizer keys and scanner credentials (never printed), and only navigates. It never reserves, scans,
+ * captures leads or edits data.
  */
 import { mkdirSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
@@ -26,7 +27,7 @@ const readJson = (p) => JSON.parse(readFileSync(resolve(root, p), 'utf8').replac
 const creds = readJson('.demo/credentials.json');
 const config = readJson('.demo/config.json');
 const BASE = process.env.CAPTURE_BASE ?? `http://127.0.0.1:${config.web_port ?? 5190}`;
-const PASSWORD = creds.password;
+const ADMIN_TOKEN = config.admin_token;
 const [EV1, EV2] = creds.ids.events;
 const booth = creds.ids.booths;
 const points = creds.ids.points;
@@ -34,12 +35,24 @@ const organizerKey = creds.organizers[0].api_key;
 const scannerToken = (pointId) => creds.scanner_credentials.find((c) => c.point_id === pointId)?.token;
 
 async function post(path, body) {
-  const r = await fetch(`${BASE}${path}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
-  if (!r.ok) throw new Error(`${path} -> ${r.status}`);
-  return r.json();
+  for (;;) {
+    const r = await fetch(`${BASE}${path}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    // A code was requested for this number moments ago (a previous run): wait out the resend limit.
+    if (r.status === 429) { await new Promise((ok) => setTimeout(ok, 1000 * Number(r.headers.get('retry-after') ?? 5))); continue; }
+    if (!r.ok) throw new Error(`${path} -> ${r.status}`);
+    return r.json();
+  }
 }
-const userToken = async (email) => (await post('/api/auth/login', { email, password: PASSWORD })).access_token;
-const deskToken = async (eventId, email) => (await post(`/api/events/${eventId}/desk/login`, { email, password: PASSWORD })).access_token;
+async function smsCode(mobile, purpose) {
+  await post('/api/auth/otp/request', { mobile, purpose });
+  const r = await fetch(`${BASE}/api/platform/sms-outbox?mobile=${mobile}`, { headers: { 'X-Admin-Token': ADMIN_TOKEN } });
+  if (!r.ok) throw new Error(`sms outbox -> ${r.status} (is the demo API running with CONGRESS_SMS_PROVIDER=console?)`);
+  const code = (await r.json()).map((m) => m.code).find(Boolean);
+  if (!code) throw new Error(`no SMS code recorded for ${mobile}`);
+  return code;
+}
+const userToken = async (mobile) => (await post('/api/auth/otp/verify', { mobile, code: await smsCode(mobile, 'signin') })).access_token;
+const deskToken = async (eventId, mobile) => (await post(`/api/events/${eventId}/desk/login`, { mobile, code: await smsCode(mobile, 'desk') })).access_token;
 
 const VIEW = {
   phone: { width: 390, height: 844 },
@@ -50,11 +63,12 @@ const VIEW = {
   wide: { width: 1920, height: 1080 },
 };
 
-const alice = await userToken('alice.rahimi@example.com');
-const rep = await userToken(booth.neurolens.rep_email);
-const rep2 = await userToken(booth.rhythm.rep_email);
-const desk1 = await deskToken(EV1.id, 'reception.ai@example.com');
-const desk2 = await deskToken(EV2.id, 'reception.cardio@example.com');
+const operatorOf = (slug) => creds.operators.find((o) => o.event_slug === slug).mobile;
+const alice = await userToken(creds.people.alice.mobile);
+const rep = await userToken(booth.neurolens.rep_mobile);
+const rep2 = await userToken(booth.rhythm.rep_mobile);
+const desk1 = await deskToken(EV1.id, operatorOf(EV1.slug));
+const desk2 = await deskToken(EV2.id, operatorOf(EV2.slug));
 
 /** name, path, viewport, storage = { local, session }, fullPage (true | 'tall' = grow the viewport to the document) */
 const shots = [];

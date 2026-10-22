@@ -1,3 +1,5 @@
+# Local dev: PostgreSQL only (integration tests / backend against port 5433).
+# Data on the host, same layout as deploy/staging/compose.yaml (DrGibi-style).
 services:
   postgres:
     image: postgres:16-alpine
@@ -8,12 +10,9 @@ services:
     ports:
       - "5433:5432"
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - ${CONGRESS_PERSISTENT_DATA_ROOT:-${HOME}/congress-persistent-data}/data/postgres:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U congress"]
       interval: 2s
       timeout: 3s
       retries: 20
-
-volumes:
-  pgdata:

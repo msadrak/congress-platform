@@ -85,6 +85,10 @@ $envVars = @{
     CONGRESS_JWT_SECRET = $cfg.jwt_secret
     CONGRESS_CORS_ORIGINS = "[`"$($urls.Web)`"]"
     CONGRESS_DEMO_API_ORIGIN = $urls.Api
+    # No SMS leaves the demo: sign-in codes are printed in the API window and read back by the seed.
+    CONGRESS_SMS_PROVIDER = 'console'
+    # Every reviewer and the seed share 127.0.0.1; the production per-IP budget would block the seed run.
+    CONGRESS_OTP_SENDS_PER_IP_PER_HOUR = '5000'
     PYTHONUTF8 = '1'
 }
 function New-RunScript([string]$Name, [string]$WorkDir, [string]$CommandLine) {
