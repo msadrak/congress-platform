@@ -14,6 +14,7 @@ export const translations = {
     myNetwork: "شبکه ارتباطی",
     platformHome: "صفحه اصلی سامانه",
     logout: "خروج از حساب",
+    login: "ورود",
     attendeePortal: "سامانه اختصاصی شرکت‌کنندگان",
     navMyCongress: "همایش من",
     navMyNetwork: "شبکه من",
@@ -40,6 +41,11 @@ export const translations = {
     unauthenticatedTitle: "ورود به سامانه شرکت‌کنندگان",
     unauthenticatedDesc: "برای دسترسی به کارت ورود و ارتباطات خود، لطفاً وارد حساب کاربری شوید.",
     loginAction: "ورود به حساب کاربری",
+    // Unknown address
+    notFoundTitle: "صفحه پیدا نشد",
+    notFoundDesc: "نشانی این صفحه درست نیست یا دیگر وجود ندارد. اگر از پیوند پیامک آمده‌اید، وارد حساب خود شوید تا کارت ورودتان را ببینید.",
+    notFoundBack: "بازگشت",
+    notFoundSignIn: "ورود شرکت‌کنندگان",
     // Bookmarked Booths
     savedBoothsHeading: "غرفه‌ها و شرکت‌های نشان‌شده",
     savedBoothsDesc: "غرفه‌های تجاری و حامیان مالی که برای بازدید نشان کرده‌اید.",
@@ -359,6 +365,7 @@ export const translations = {
     myNetwork: "My Network",
     platformHome: "Platform Home",
     logout: "Log Out",
+    login: "Log In",
     attendeePortal: "Attendee Portal",
     navMyCongress: "My Congress",
     navMyNetwork: "My Network",
@@ -385,6 +392,11 @@ export const translations = {
     unauthenticatedTitle: "Sign In to Attendee Portal",
     unauthenticatedDesc: "You must be signed in to access your digital tickets and peer connections.",
     loginAction: "Sign In",
+    // Unknown address
+    notFoundTitle: "Page not found",
+    notFoundDesc: "This address is wrong or no longer exists. If you came from an SMS link, sign in to see your pass.",
+    notFoundBack: "Go back",
+    notFoundSignIn: "Attendee sign-in",
     // Bookmarked Booths
     savedBoothsHeading: "Saved Exhibition Booths",
     savedBoothsDesc: "Commercial exhibitors and sponsors you have bookmarked during the event.",

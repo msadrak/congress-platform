@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useSyncExternalStore } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAttendeeLocale, type AttendeeLocaleContext } from "../lib/i18n";
 import { SkipLink } from "../components/ui/SkipLink";
@@ -10,6 +10,7 @@ import { ArcStroke } from "../components/attendee/ArcStroke";
 import { clearOwnerScopedTickets } from "../lib/ticketCache";
 import { eventAccentStyle } from "../lib/eventAccent";
 import { ATTENDEE_TOKEN_STORAGE } from "../api/client";
+import { signInPath } from "../lib/safeRedirect";
 import {
   ATTENDEE_DESTINATIONS,
   congressPath,
@@ -36,6 +37,13 @@ const DESTINATION_ICONS: Record<AttendeeDestination, IconName> = {
 };
 
 const focusRing = "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring";
+const headerAction = `press inline-flex min-h-11 min-w-11 items-center justify-center gap-1.5 rounded-full px-2.5 text-xs font-semibold text-text-muted transition-colors hover:bg-surface-panel-subtle hover:text-text-primary cursor-pointer ${focusRing}`;
+
+/** Another tab signing in or out changes the stored token; this tab only hears it as a `storage` event. */
+function subscribeToStorage(onChange: () => void): () => void {
+  window.addEventListener("storage", onChange);
+  return () => window.removeEventListener("storage", onChange);
+}
 
 /** Desktop navigation: quiet text tabs, the active one underlined by a brand arc. */
 function TopNav({ slug, active, labels, navLabel }: {
@@ -114,6 +122,12 @@ export function AttendeeLayout({ children, activeTab, localeProps, eventSlug, de
   const navigate = useNavigate();
   const congress = useCongressEvent(eventSlug);
   const [confirmingLogout, setConfirmingLogout] = useState(false);
+  // Re-read on every render and on another tab's change, so the header never offers "log out" to nobody.
+  const signedIn = useSyncExternalStore(
+    subscribeToStorage,
+    () => localStorage.getItem(ATTENDEE_TOKEN_STORAGE) !== null,
+    () => false,
+  );
   const shellLabels: Record<AttendeeDestination, string> = {
     "my-congress": t.navMyCongress,
     "my-network": t.navMyNetwork,
@@ -131,7 +145,8 @@ export function AttendeeLayout({ children, activeTab, localeProps, eventSlug, de
       localStorage.removeItem(ATTENDEE_TOKEN_STORAGE);
     }
     setConfirmingLogout(false);
-    navigate("/");
+    // Back to this congress's sign-in: the platform home is not an attendee page.
+    navigate(eventSlug ? `/c/${encodeURIComponent(eventSlug)}/sign-in` : "/sign-in");
   };
 
   const toggleLocale = () => {
@@ -185,7 +200,7 @@ export function AttendeeLayout({ children, activeTab, localeProps, eventSlug, de
 
           {eventSlug && <TopNav slug={eventSlug} active={destination} labels={shellLabels} navLabel={t.attendeePortal} />}
 
-          {/* Controls: language & logout */}
+          {/* Controls: language & log in / log out */}
           <div className="flex items-center justify-end gap-1">
             <button
               type="button"
@@ -197,14 +212,17 @@ export function AttendeeLayout({ children, activeTab, localeProps, eventSlug, de
               <span lang={isRtl ? "en" : "fa"} className="max-[379px]:sr-only">{t.languageToggle}</span>
             </button>
             <span aria-hidden="true" className="h-5 w-px bg-border-default" />
-            <button
-              type="button"
-              onClick={() => setConfirmingLogout(true)}
-              className={`press inline-flex min-h-11 min-w-11 items-center justify-center gap-1.5 rounded-full px-2.5 text-xs font-semibold text-text-muted transition-colors hover:bg-surface-panel-subtle hover:text-text-primary cursor-pointer ${focusRing}`}
-            >
-              <Icon name="logout" size={18} />
-              <span className="sr-only sm:not-sr-only">{t.logout}</span>
-            </button>
+            {signedIn ? (
+              <button type="button" onClick={() => setConfirmingLogout(true)} className={headerAction}>
+                <Icon name="logout" size={18} />
+                <span className="sr-only sm:not-sr-only">{t.logout}</span>
+              </button>
+            ) : (
+              <Link to={signInPath(eventSlug, location.pathname)} className={headerAction}>
+                <Icon name="user" size={18} />
+                <span className="sr-only sm:not-sr-only">{t.login}</span>
+              </Link>
+            )}
           </div>
         </div>
 
@@ -254,13 +272,6 @@ export function AttendeeLayout({ children, activeTab, localeProps, eventSlug, de
             </p>
           </div>
           <div className="flex flex-col items-start gap-4 md:items-end">
-            <Link
-              to="/"
-              className={`inline-flex min-h-11 items-center gap-1.5 rounded-lg text-sm font-semibold text-action-primary hover:underline ${focusRing}`}
-            >
-              {t.platformHome}
-              <Icon name="arrow-right" size={16} />
-            </Link>
             <AitebAttribution locale={locale} />
           </div>
         </div>

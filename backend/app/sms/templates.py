@@ -22,6 +22,8 @@ EVENT_KINDS: tuple[SmsKind, ...] = ("ticket_confirmation",)
 MAX_BODY_LENGTH = 1000
 # Long names and event titles are shortened so one message never balloons into many SMS parts.
 MAX_VALUE_LENGTH = 60
+# Values inserted exactly as given: a shortened pass link ("…/my-tic…") opens no page.
+VERBATIM_PLACEHOLDERS = frozenset({"link"})
 
 _TOKEN = re.compile(r"\{([A-Za-z_]+)\}")
 
@@ -75,9 +77,14 @@ def _clean(value: str) -> str:
     return value if len(value) <= MAX_VALUE_LENGTH else value[: MAX_VALUE_LENGTH - 1] + "…"
 
 
+def _fill(name: str, values: dict[str, str]) -> str:
+    return values[name] if name in VERBATIM_PLACEHOLDERS else _clean(values[name])
+
+
 def render(body: str, values: dict[str, str]) -> str:
-    """Fill the placeholders; values are flattened to one line (no injected line breaks) and shortened."""
-    return _TOKEN.sub(lambda m: _clean(values[m.group(1)]) if m.group(1) in values else m.group(0), body)
+    """Fill the placeholders; values are flattened to one line (no injected line breaks) and shortened,
+    except VERBATIM_PLACEHOLDERS (the pass link), which are inserted whole."""
+    return _TOKEN.sub(lambda m: _fill(m.group(1), values) if m.group(1) in values else m.group(0), body)
 
 
 async def stored_body(session: AsyncSession, kind: SmsKind, event_id: uuid.UUID | None) -> str | None:
