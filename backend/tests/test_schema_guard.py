@@ -15,6 +15,7 @@ from app.schema_guard import (
     expected_revision,
     known_revisions,
     record_compatibility,
+    schema_state,
 )
 from tests.conftest import TEST_URL
 
@@ -121,3 +122,17 @@ async def test_record_writes_the_whole_chain_with_flags(isolated_schema: AsyncEn
         rows = (await connection.execute(text(f"SELECT revision, down_revision, backward_compatible FROM {COMPAT_TABLE}"))).all()
     assert {r for r, _, _ in rows} == {info.revision for info in known_revisions()}
     assert {(r, d, b) for r, d, b in rows} == {(i.revision, i.down_revision, i.backward_compatible) for i in known_revisions()}
+
+
+async def test_schema_state_tells_the_migrate_service_what_to_do(isolated_schema: AsyncEngine) -> None:
+    head = expected_revision()
+    await set_state(isolated_schema, "future_a", ("future_a", head, True))
+    async with isolated_schema.connect() as connection:
+        assert await schema_state(connection) == ("ahead-compatible", "future_a", head)
+    await set_state(isolated_schema, "future_a", ("future_a", head, False))
+    async with isolated_schema.connect() as connection:
+        assert (await schema_state(connection))[0] == "ahead-incompatible"
+    async with isolated_schema.begin() as connection:
+        await connection.execute(text("DROP TABLE alembic_version"))
+    async with isolated_schema.connect() as connection:
+        assert await schema_state(connection) == ("behind", None, head)

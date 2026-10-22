@@ -7,9 +7,12 @@ The database may be *ahead* of the build only by migrations explicitly marked ba
 module-level `backward_compatible = True` in the migration file; the expand/contract rule in
 docs/CODING_STANDARDS.md). That is what makes rolling back to the previous image possible after a release
 that only added things. An older build does not have the newer migration files, so the migrate service
-records every revision's parent and flag in the `schema_compatibility` table
-(`python -m app.schema_guard record`, run after `alembic upgrade head`), and the guard walks that chain from
-the database's revision down to its own head.
+records every revision's parent and flag in the `schema_compatibility` table, and the guard walks that chain
+from the database's revision down to its own head.
+
+    python -m app.schema_guard migrate   the migrate service: alembic upgrade head + record, or nothing when the
+                                         database is already ahead by backward-compatible migrations
+    python -m app.schema_guard record    record only
 """
 
 import asyncio
@@ -17,11 +20,14 @@ import logging
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 from alembic.config import Config
 from alembic.script import ScriptDirectory
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, create_async_engine
+
+from app.config import Settings
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 COMPAT_TABLE = "schema_compatibility"
@@ -79,33 +85,49 @@ async def _recorded(connection: AsyncConnection) -> dict[str, RevisionInfo]:
             text(f"SELECT revision, down_revision, backward_compatible FROM {COMPAT_TABLE}")
         )).all()
     except Exception:
+        await connection.rollback()
         return {}
     return {r: RevisionInfo(r, d, bool(b)) for r, d, b in rows}
 
 
-async def assert_schema_current(engine: AsyncEngine) -> None:
+SchemaState = Literal["current", "behind", "ahead-compatible", "ahead-incompatible"]
+
+
+async def schema_state(connection: AsyncConnection) -> tuple[SchemaState, str | None, str]:
+    """(state, database revision or None, this build's head)."""
     expected = expected_revision()
+    try:
+        current = (await connection.execute(text("SELECT version_num FROM alembic_version"))).scalar()
+    except Exception:
+        current = None
+        await connection.rollback()
+    if current == expected:
+        return "current", current, expected
+    known = {info.revision for info in known_revisions()}
+    if current is None or current in known:
+        return "behind", current, expected
+    if ahead_compatibly(current, expected, known, await _recorded(connection)):
+        return "ahead-compatible", current, expected
+    return "ahead-incompatible", current, expected
+
+
+async def assert_schema_current(engine: AsyncEngine) -> None:
     async with engine.connect() as connection:
-        try:
-            current = (await connection.execute(text("SELECT version_num FROM alembic_version"))).scalar()
-        except Exception:
-            current = None
-            await connection.rollback()
-        if current == expected:
-            return
-        known = {info.revision for info in known_revisions()}
-        if current is not None and current not in known:
-            if ahead_compatibly(current, expected, known, await _recorded(connection)):
-                logger.warning(
-                    "Database schema %s is ahead of this build (%s) by backward-compatible migrations only; "
-                    "serving (rollback mode).", current, expected,
-                )
-                return
-            raise RuntimeError(
-                f"Database schema revision is {current}, newer than this build ({expected}), and not every "
-                "migration in between is marked backward_compatible. Deploy the build that matches the database "
-                f"(this build requires {expected}), or restore a backup taken before the upgrade."
-            )
+        state, current, expected = await schema_state(connection)
+    if state == "current":
+        return
+    if state == "ahead-compatible":
+        logger.warning(
+            "Database schema %s is ahead of this build (%s) by backward-compatible migrations only; "
+            "serving (rollback mode).", current, expected,
+        )
+        return
+    if state == "ahead-incompatible":
+        raise RuntimeError(
+            f"Database schema revision is {current}, newer than this build ({expected}), and not every "
+            "migration in between is marked backward_compatible. Deploy the build that matches the database "
+            f"(this build requires {expected}), or restore a backup taken before the upgrade."
+        )
     raise RuntimeError(
         f"Database schema revision is {current or 'missing'}, this build requires {expected}. "
         "Run the migration service (alembic upgrade head) before starting the API."
@@ -130,9 +152,16 @@ async def record_compatibility(connection: AsyncConnection) -> None:
         )
 
 
-async def _record_from_env() -> None:
-    from app.config import Settings
+async def _state_from_env() -> tuple[SchemaState, str | None, str]:
+    engine = create_async_engine(Settings().database_url)
+    try:
+        async with engine.connect() as connection:
+            return await schema_state(connection)
+    finally:
+        await engine.dispose()
 
+
+async def _record_from_env() -> None:
     engine = create_async_engine(Settings().database_url)
     try:
         async with engine.begin() as connection:
@@ -141,8 +170,33 @@ async def _record_from_env() -> None:
         await engine.dispose()
 
 
-if __name__ == "__main__":
-    if sys.argv[1:] != ["record"]:
-        raise SystemExit("usage: python -m app.schema_guard record")
+def migrate() -> None:
+    """The migrate service: upgrade to this build's head and record the chain, unless the database is already
+    ahead by backward-compatible migrations (an older image after `stack.mjs rollback`), which is left alone."""
+    state, current, expected = asyncio.run(_state_from_env())
+    if state == "ahead-compatible":
+        print(f"schema_guard: database {current} is ahead of this build ({expected}) by backward-compatible "
+              "migrations; nothing to migrate")
+        return
+    if state == "ahead-incompatible":
+        raise SystemExit(
+            f"schema_guard: database {current} is newer than this build ({expected}) and not backward-compatible "
+            "with it; refusing to migrate. Deploy the newer build or restore a backup."
+        )
+    from alembic import command
+
+    config = Config(str(BACKEND_DIR / "alembic.ini"))
+    config.set_main_option("script_location", str(BACKEND_DIR / "migrations"))
+    command.upgrade(config, "head")
     asyncio.run(_record_from_env())
-    print(f"schema_guard: recorded the revision chain up to {expected_revision()}")
+    print(f"schema_guard: database at {expected}; revision chain recorded")
+
+
+if __name__ == "__main__":
+    if sys.argv[1:] == ["migrate"]:
+        migrate()
+    elif sys.argv[1:] == ["record"]:
+        asyncio.run(_record_from_env())
+        print(f"schema_guard: recorded the revision chain up to {expected_revision()}")
+    else:
+        raise SystemExit("usage: python -m app.schema_guard migrate | record")
