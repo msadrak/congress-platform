@@ -18,6 +18,7 @@ const MyCongress = lazy(() => import("./pages/MyCongress"));
 const MyNetwork = lazy(() => import("./pages/MyNetwork"));
 const MyProfile = lazy(() => import("./pages/MyProfile"));
 const MyTickets = lazy(() => import("./pages/MyTickets"));
+const LinkPassEntry = lazy(() => import("./pages/LinkPassEntry"));
 const OrganizerAnalytics = lazy(() => import("./pages/OrganizerAnalytics"));
 const OrganizerSms = lazy(() => import("./pages/OrganizerSms"));
 const PlatformConsole = lazy(() => import("./pages/PlatformConsole"));
@@ -78,6 +79,8 @@ export default function App() {
         <Route path="/booth/:boothId" element={<ExhibitorPortal />} />
         <Route path="/booth/:boothId/sign-in" element={<AttendeeSignIn />} />
         <Route path="/my-tickets" element={<MyTickets />} />
+        {/* SMS short link (ADR 0015): opens the pass, then replaces the address so the code leaves the history. */}
+        <Route path="/t/:code" element={<LinkPassEntry />} />
         <Route path="/my-network" element={<MyNetwork />} />
         <Route path="/scan/:pointId" element={<GateScanner />} />
         <Route path="/c/:slug" element={<Navigate to="my-congress" replace />} />
