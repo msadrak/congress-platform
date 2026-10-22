@@ -334,7 +334,7 @@ async function rollback(wanted) {
     if (run('docker', ['image', 'inspect', `${image}:${target.id}`], { allowFail: true }).status !== 0) throw new Error(`Image ${image}:${target.id} no longer exists; cannot roll back to it.`);
   }
   const before = Object.fromEntries(IMAGES.map((i) => [i, imageId(`${i}:${alias}`)]));
-  say(`Rolling back ${state.current ?? '(unrecorded)'} -> ${target.id} (built for schema ${target.alembic_revision}; the database is at ${psql(PROJECT, 'select version_num from alembic_version')})`);
+  say(`Switching ${state.current ?? "(unrecorded)"} -> ${target.id} (built for schema ${target.alembic_revision}; the database is at ${psql(PROJECT, 'select version_num from alembic_version')})`);
   for (const image of IMAGES) run('docker', ['tag', `${image}:${target.id}`, `${image}:${alias}`]);
   const restart = () => compose(PROJECT, ['up', '-d', '--no-deps', '--wait', '--wait-timeout', '180', 'api', 'web'], { allowFail: true });
   if (restart().status !== 0) {
@@ -1088,7 +1088,7 @@ function eventMode(args) {
     { run: ['systemctl', 'daemon-reload'] },
     { run: ['systemctl', 'restart', 'congress-backup.timer'] },
   ], dryRun);
-  if (action === 'on') say('Hourly backups on; `check` now expects a backup younger than BACKUP_EVENT_MAX_AGE_HOURS (2). Run `stack.mjs scheduled-backup` once now.');
+  if (action === 'on' && !dryRun) say('Hourly backups on; `check` now expects a backup younger than BACKUP_EVENT_MAX_AGE_HOURS (2). Run `stack.mjs scheduled-backup` once now.');
 }
 
 // ── Alert delivery (Telegram) ────────────────────────────────────────────────────────────────────
