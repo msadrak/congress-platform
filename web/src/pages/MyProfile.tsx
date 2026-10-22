@@ -3,6 +3,7 @@ import { useParams } from "react-router-dom";
 import { ATTENDEE_TOKEN_STORAGE, createApiClient, type PrivacyPreferenceOut, type UserOut } from "../api/client";
 import { AttendeeLayout } from "../layouts/AttendeeLayout";
 import { Icon } from "../components/ui/Icon";
+import { Button } from "../components/ui/Button";
 import { ArcMotif } from "../components/brand/Aiteb";
 import { useAttendeeLocale } from "../lib/i18n";
 import { isStoredAttendeeToken, rejectAttendeeToken } from "../lib/attendeeSession";
@@ -117,7 +118,11 @@ export default function MyProfile() {
     content = (
       <div className="mx-auto max-w-3xl">
         <StatusPanel tone="danger" icon="alert" title={isRtl ? "پروفایل بارگذاری نشد" : "Could not load your profile"}>
-          <p>{isRtl ? "اتصال را بررسی کنید و صفحه را دوباره باز کنید." : "Check your connection and reopen this page."}</p>
+          <p>{isRtl ? "اتصال را بررسی کنید و دوباره تلاش کنید." : "Check your connection and try again."}</p>
+          <Button type="button" variant="secondary" size="md" onClick={() => window.location.reload()}>
+            <Icon name="sync" size={16} />
+            {isRtl ? "تلاش دوباره" : "Try again"}
+          </Button>
         </StatusPanel>
       </div>
     );

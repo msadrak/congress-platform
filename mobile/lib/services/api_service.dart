@@ -13,18 +13,22 @@ class ApiService {
     this.authToken,
   }) : _client = client ?? http.Client();
 
+  static const _requestTimeout = Duration(seconds: 8);
+
   Future<Map<String, dynamic>?> fetchManifest(String pointId) async {
     try {
       final uri = Uri.parse('$baseUrl/api/checkin-points/$pointId/manifest');
       final headers = <String, String>{
         if (authToken != null) 'Authorization': 'Bearer $authToken',
       };
-      final response = await _client.get(uri, headers: headers);
+      final response = await _client
+          .get(uri, headers: headers)
+          .timeout(_requestTimeout);
       if (response.statusCode == 200) {
         return json.decode(response.body) as Map<String, dynamic>;
       }
     } catch (_) {
-      // Network error / offline
+      // Network error / offline / timeout
     }
     return null;
   }
@@ -54,7 +58,7 @@ class ApiService {
         uri,
         headers: headers,
         body: json.encode(payload),
-      );
+      ).timeout(_requestTimeout);
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body) as Map<String, dynamic>;
@@ -64,7 +68,7 @@ class ApiService {
         return results ?? [];
       }
     } catch (_) {
-      // Offline / network failure
+      // Offline / network failure / timeout
     }
     return null;
   }

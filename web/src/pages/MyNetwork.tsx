@@ -9,14 +9,14 @@ import {
 import {
   isStoredAttendeeToken,
   rejectAttendeeToken,
-  SESSION_CHANGED_MESSAGE,
+  sessionChangedMessage,
 } from "../lib/attendeeSession";
 import {
   useAttendeeLocale,
   formatLocalizedDate,
   formatLocalizedNumber,
 } from "../lib/i18n";
-import { useParams } from "react-router-dom";
+import { useParams, useSearchParams } from "react-router-dom";
 import { AttendeeLayout } from "../layouts/AttendeeLayout";
 import { congressPath, useCongressEvent } from "../lib/congressContext";
 import { signInPath } from "../lib/safeRedirect";
@@ -26,6 +26,17 @@ import { Dialog } from "../components/ui/Dialog";
 import { Icon } from "../components/ui/Icon";
 import { Monogram } from "../components/attendee/Monogram";
 import { SignInPrompt } from "../components/attendee/SignInPrompt";
+import { QrCameraInput } from "../components/QrCameraInput";
+
+/** Outcome of the last successful connect, shown on the page after the dialog closes. */
+interface ConnectFeedback {
+  name: string;
+  /** HTTP 200: the badge belongs to someone already in this network. */
+  alreadyConnected: boolean;
+  /** A note was sent with the scan (on an existing connection it replaces the stored note). */
+  withNote: boolean;
+}
+
 export default function MyNetwork() {
   const localeHook = useAttendeeLocale();
   const { locale, t, isRtl } = localeHook;
@@ -47,6 +58,7 @@ export default function MyNetwork() {
   const [initialNotes, setInitialNotes] = useState("");
   const [submittingConnect, setSubmittingConnect] = useState(false);
   const [connectModalError, setConnectModalError] = useState<string | null>(null);
+  const [connectFeedback, setConnectFeedback] = useState<ConnectFeedback | null>(null);
 
   // Notes editing state
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -112,13 +124,44 @@ export default function MyNetwork() {
     setEditingId(null);
     setNoteFeedback(null);
     setPrivacyFeedback(null);
+    setConnectFeedback(null);
     loadData();
   }, [token, loadData]);
+
+  // Link contract: `/c/:slug/my-network?scan=1` opens the connect dialog once (the camera still
+  // waits for the user's tap). The parameter is removed so refresh/back does not reopen it.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const scanRequested = searchParams.get("scan") === "1";
+  useEffect(() => {
+    if (!scanRequested || !token) return;
+    // oxlint-disable-next-line react/set-state-in-effect -- driven by the URL (external to React state); the parameter is consumed in the same pass.
+    setIsConnectModalOpen(true);
+    setSearchParams(
+      (current) => {
+        const next = new URLSearchParams(current);
+        next.delete("scan");
+        return next;
+      },
+      { replace: true }
+    );
+  }, [scanRequested, token, setSearchParams]);
+
+  const openConnectDialog = () => {
+    setConnectModalError(null);
+    setConnectFeedback(null);
+    setIsConnectModalOpen(true);
+  };
+
+  const closeConnectDialog = () => {
+    if (submittingConnect) return;
+    setIsConnectModalOpen(false);
+    setConnectModalError(null);
+  };
 
   const handleTogglePrivacyConsent = async () => {
     if (!token || !privacyPref) return;
     if (!isStoredAttendeeToken(token)) {
-      setError(SESSION_CHANGED_MESSAGE);
+      setError(sessionChangedMessage(locale));
       return;
     }
     setUpdatingPrivacy(true);
@@ -146,11 +189,12 @@ export default function MyNetwork() {
     setUpdatingPrivacy(false);
   };
 
-  const handleConnectPeer = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!token || !peerQrSecret.trim()) return;
+  // One submit path for both inputs: a decoded camera value and the typed fallback code.
+  const submitConnection = async (rawSecret: string) => {
+    const secret = rawSecret.trim();
+    if (!token || !secret || submittingConnect) return;
     if (!isStoredAttendeeToken(token)) {
-      setConnectModalError(SESSION_CHANGED_MESSAGE);
+      setConnectModalError(sessionChangedMessage(locale));
       return;
     }
 
@@ -163,6 +207,7 @@ export default function MyNetwork() {
       return;
     }
 
+    const note = initialNotes.trim();
     setSubmittingConnect(true);
     setConnectModalError(null);
     const client = createApiClient({ kind: "user", token });
@@ -170,8 +215,8 @@ export default function MyNetwork() {
       "/api/attendees/me/network/scan",
       {
         body: {
-          qr_secret: peerQrSecret.trim(),
-          private_notes: initialNotes.trim(),
+          qr_secret: secret,
+          private_notes: note,
           event_id: activeEventId,
         },
       }
@@ -193,14 +238,32 @@ export default function MyNetwork() {
       setPeerQrSecret("");
       setInitialNotes("");
       setIsConnectModalOpen(false);
+      setConnectFeedback({
+        name: data.full_name,
+        alreadyConnected: response.status === 200,
+        withNote: note.length > 0,
+      });
       loadData();
     }
+  };
+
+  const handleConnectPeer = (e: React.FormEvent) => {
+    e.preventDefault();
+    // The connection code is case-insensitive; people may type it grouped or in capitals.
+    void submitConnection(peerQrSecret.replace(/\s+/g, "").toLowerCase());
+  };
+
+  // A decoded badge submits at once, together with any note typed before scanning. The value is
+  // also kept in the code field so a failed attempt can be retried or corrected by hand.
+  const handleBadgeDecoded = (value: string) => {
+    setPeerQrSecret(value);
+    void submitConnection(value);
   };
 
   const handleSaveNotes = async (connectionId: string) => {
     if (!token || !isVisibleConnection(connectionId)) return;
     if (!isStoredAttendeeToken(token)) {
-      setError(SESSION_CHANGED_MESSAGE);
+      setError(sessionChangedMessage(locale));
       return;
     }
     setSavingNote(true);
@@ -231,7 +294,7 @@ export default function MyNetwork() {
   const handleDownloadVcard = async (connectionId: string, fullName: string) => {
     if (!token || !isVisibleConnection(connectionId)) return;
     if (!isStoredAttendeeToken(token)) {
-      setError(SESSION_CHANGED_MESSAGE);
+      setError(sessionChangedMessage(locale));
       return;
     }
     try {
@@ -247,8 +310,12 @@ export default function MyNetwork() {
       if (!response.ok || !blob) {
         setError(
           response.status === 401
-            ? "Your session is no longer valid. Please sign in again."
-            : "Failed to download the contact card."
+            ? isRtl
+              ? "نشست شما دیگر معتبر نیست. لطفاً دوباره وارد شوید."
+              : "Your session is no longer valid. Please sign in again."
+            : isRtl
+              ? "دریافت کارت تماس ممکن نشد."
+              : "Failed to download the contact card."
         );
         return;
       }
@@ -261,7 +328,7 @@ export default function MyNetwork() {
       document.body.removeChild(link);
       URL.revokeObjectURL(link.href);
     } catch {
-      setError("Failed to download the contact card.");
+      setError(isRtl ? "دریافت کارت تماس ممکن نشد." : "Failed to download the contact card.");
     }
   };
 
@@ -283,6 +350,7 @@ export default function MyNetwork() {
 
   const sharing = privacyPref?.share_contact_with_peers ?? false;
   const contactCount = isRtl ? formatLocalizedNumber(visibleConnections.length, locale) : String(visibleConnections.length);
+  const scanActionLabel = isRtl ? "اسکن کیوآر کد همکار" : "Scan colleague QR code";
 
   return (
     <AttendeeLayout activeTab="network" localeProps={localeHook} eventSlug={slug} destination="my-network">
@@ -305,17 +373,44 @@ export default function MyNetwork() {
               type="button"
               variant="primary"
               size="lg"
-              onClick={() => setIsConnectModalOpen(true)}
+              onClick={openConnectDialog}
             >
-              <Icon name="user-plus" size={18} />
-              <span>{t.connectButton}</span>
+              <Icon name="camera" size={18} />
+              <span>{scanActionLabel}</span>
             </Button>
           </div>
         </div>
 
         {/* Global feedback */}
-        {(privacyFeedback || noteFeedback || error) && (
+        {(connectFeedback || privacyFeedback || noteFeedback || error) && (
           <div className="space-y-3">
+            {connectFeedback && (
+              <div
+                role="status"
+                className={`flex items-start gap-2.5 rounded-2xl border px-4 py-3 text-sm font-medium leading-relaxed motion-safe:animate-fade ${
+                  connectFeedback.alreadyConnected
+                    ? "border-action-subtle-border bg-action-subtle text-action-primary"
+                    : "border-status-success-border bg-status-success-bg text-status-success-text"
+                }`}
+              >
+                <Icon name={connectFeedback.alreadyConnected ? "users" : "check-circle"} size={18} className="mt-0.5 shrink-0" />
+                <p className="min-w-0 break-words">
+                  {connectFeedback.alreadyConnected ? (
+                    <>
+                      {isRtl ? "شما از قبل با " : "You are already connected with "}
+                      <bdi className="font-semibold">{connectFeedback.name}</bdi>
+                      {isRtl ? " در ارتباط هستید." : "."}
+                      {connectFeedback.withNote && (isRtl ? " یادداشت شما به‌روز شد." : " Your note was updated.")}
+                    </>
+                  ) : (
+                    <>
+                      <bdi className="font-semibold">{connectFeedback.name}</bdi>
+                      {isRtl ? " به شبکه ارتباطی شما اضافه شد." : " was added to your network."}
+                    </>
+                  )}
+                </p>
+              </div>
+            )}
             {privacyFeedback && (
               <div
                 role="status"
@@ -387,12 +482,13 @@ export default function MyNetwork() {
                   size="md"
                   isFullWidth
                   disabled={updatingPrivacy}
+                  aria-busy={updatingPrivacy}
                   onClick={handleTogglePrivacyConsent}
                   className="whitespace-normal"
                 >
                   <Icon name={sharing ? "eye-off" : "eye"} size={17} />
                   {updatingPrivacy
-                    ? "..."
+                    ? (isRtl ? "در حال ذخیره…" : "Saving…")
                     : sharing
                     ? (isRtl ? "تغییر به محرمانه (غیرفعال)" : "Make Mobile Number Private")
                     : (isRtl ? "فعال‌سازی اشتراک شماره موبایل" : "Enable Mobile Number Sharing")}
@@ -417,9 +513,9 @@ export default function MyNetwork() {
                   </span>
                   <h2 className="text-lg font-semibold tracking-[-0.02em] text-text-primary">{t.noConnectionsTitle}</h2>
                   <p className="text-sm leading-relaxed text-text-secondary">{t.noConnectionsDesc}</p>
-                  <Button type="button" variant="primary" size="md" onClick={() => setIsConnectModalOpen(true)}>
-                    <Icon name="user-plus" size={18} />
-                    {t.connectButton}
+                  <Button type="button" variant="primary" size="lg" onClick={openConnectDialog}>
+                    <Icon name="camera" size={18} />
+                    {scanActionLabel}
                   </Button>
                 </div>
               </div>
@@ -450,7 +546,7 @@ export default function MyNetwork() {
                             {conn.mobile ? (
                               <a
                                 href={telHref(conn.mobile)}
-                                className="inline-flex min-h-8 max-w-full items-center gap-1.5 rounded font-mono text-action-primary underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-focus-ring"
+                                className="inline-flex min-h-11 max-w-full items-center gap-1.5 rounded font-mono text-action-primary underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-focus-ring"
                               >
                                 <Icon name="phone" size={15} />
                                 <bdi dir="ltr" className="truncate">{formatMobile(conn.mobile, locale)}</bdi>
@@ -509,9 +605,10 @@ export default function MyNetwork() {
                                 variant="primary"
                                 size="md"
                                 disabled={savingNote}
+                                aria-busy={savingNote}
                                 onClick={() => handleSaveNotes(conn.id)}
                               >
-                                {savingNote ? "..." : t.saveNotesAction}
+                                {savingNote ? (isRtl ? "در حال ذخیره…" : "Saving…") : t.saveNotesAction}
                               </Button>
                               <Button
                                 type="button"
@@ -562,20 +659,55 @@ export default function MyNetwork() {
         </div>
       </div>
 
-      {/* Connect with Peer Dialog */}
+      {/* Connect with Peer Dialog: camera scan first, typed code as the fallback. The dialog
+          unmounts its content when closed, which releases the camera. */}
       <Dialog
         isOpen={isConnectModalOpen}
-        onClose={() => {
-          if (!submittingConnect) {
-            setIsConnectModalOpen(false);
-            setConnectModalError(null);
-          }
-        }}
+        onClose={closeConnectDialog}
         title={t.connectModalTitle}
-        description={t.connectModalDesc}
+        description={
+          isRtl
+            ? "کیوآر کد کارت ورود همکار خود را با دوربین اسکن کنید، یا اگر کد درون کیوآر او را دارید، آن را وارد کنید."
+            : "Scan your colleague's pass QR code with the camera, or enter the code inside their pass QR if you have it."
+        }
         size="md"
       >
         <form onSubmit={handleConnectPeer} className="space-y-5">
+          <div className="space-y-2">
+            <QrCameraInput isRtl={isRtl} disabled={submittingConnect} onDecode={handleBadgeDecoded} />
+            {submittingConnect && (
+              <p role="status" className="text-xs text-text-secondary">
+                {isRtl ? "در حال ثبت ارتباط…" : "Saving the connection…"}
+              </p>
+            )}
+          </div>
+
+          <div>
+            <label htmlFor="peer-notes" className="ui-label">
+              {t.privateNotesLabel}
+            </label>
+            <textarea
+              id="peer-notes"
+              rows={3}
+              value={initialNotes}
+              onChange={(e) => setInitialNotes(e.target.value)}
+              placeholder={t.privateNotesPlaceholder}
+              aria-describedby="peer-notes-hint"
+              className="ui-textarea text-sm"
+            />
+            <span id="peer-notes-hint" className="mt-1.5 block text-xs text-text-muted">
+              {isRtl
+                ? "اختیاری. اگر پیش از اسکن بنویسید، همراه همان ارتباط ذخیره می‌شود."
+                : "Optional. Type it before scanning and it is saved with the connection."}
+            </span>
+          </div>
+
+          <div aria-hidden="true" className="flex items-center gap-3 text-xs font-medium text-text-muted">
+            <span className="h-px flex-1 bg-border-default" />
+            <span>{isRtl ? "یا کد را وارد کنید" : "or enter the code"}</span>
+            <span className="h-px flex-1 bg-border-default" />
+          </div>
+
           <div>
             <label htmlFor="peer-code" className="ui-label">
               {t.peerCodeLabel} <span aria-hidden="true" className="text-status-danger-text">*</span>
@@ -592,30 +724,16 @@ export default function MyNetwork() {
                 spellCheck={false}
                 value={peerQrSecret}
                 onChange={(e) => setPeerQrSecret(e.target.value)}
-                placeholder="e.g. 7A8B9C0D..."
+                placeholder="k7m2 q9xa …"
                 aria-describedby="peer-code-hint"
                 className="ui-input ps-10 font-mono text-start"
               />
             </div>
             <span id="peer-code-hint" className="mt-1.5 block text-xs text-text-muted">
               {isRtl
-                ? "کد نشان درج شده در زیر کیوآرکد همکار خود را وارد کنید."
-                : "Enter the credential code printed beneath your peer's badge QR."}
+                ? "کد درون کیوآر کارت ورود همکارتان را، اگر در اختیار دارید، بچسبانید یا تایپ کنید. فاصله‌ها و حروف بزرگ اشکالی ندارند."
+                : "Paste or type the code inside your colleague's pass QR, if you have it. Spaces and capitals are fine."}
             </span>
-          </div>
-
-          <div>
-            <label htmlFor="peer-notes" className="ui-label">
-              {t.privateNotesLabel}
-            </label>
-            <textarea
-              id="peer-notes"
-              rows={3}
-              value={initialNotes}
-              onChange={(e) => setInitialNotes(e.target.value)}
-              placeholder={t.privateNotesPlaceholder}
-              className="ui-textarea text-sm"
-            />
           </div>
 
           {connectModalError && (
@@ -635,8 +753,9 @@ export default function MyNetwork() {
             size="lg"
             isFullWidth
             disabled={submittingConnect}
+            aria-busy={submittingConnect}
           >
-            {submittingConnect ? "..." : (
+            {submittingConnect ? (isRtl ? "در حال ذخیره…" : "Saving…") : (
               <>
                 {t.saveConnectionAction}
                 <Icon name="arrow-right" size={18} />

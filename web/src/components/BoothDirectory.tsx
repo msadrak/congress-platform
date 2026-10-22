@@ -1,14 +1,15 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { createApiClient, type PublicBoothSummary } from "../api/client";
-import { congressPath } from "../lib/congressContext";
+import { congressPath, useRevalidateOnFocus } from "../lib/congressContext";
 import { isStoredAttendeeToken, rejectAttendeeToken } from "../lib/attendeeSession";
 import { signInPath } from "../lib/safeRedirect";
+import { asciiDigits } from "../lib/mobile";
 import { Button } from "./ui/Button";
 import { Icon } from "./ui/Icon";
 import { SectionHeader } from "./attendee/SectionHeader";
 
-type Directory =
+export type BoothList =
   | { status: "loading" }
   | { status: "ready"; booths: PublicBoothSummary[] }
   | { status: "error" };
@@ -18,6 +19,10 @@ type SavedIds = ReadonlySet<string> | null;
 
 const SEARCH_THRESHOLD = 6;
 const NO_BOOTHS: PublicBoothSummary[] = [];
+const NOTHING_PENDING: ReadonlySet<string> = new Set();
+
+/** Search text as typed on any keyboard: Persian/Arabic digits and Arabic yeh/kaf match their Persian forms. */
+const normalizeSearch = (text: string) => asciiDigits(text).replace(/ي/g, "ی").replace(/ك/g, "ک").toLowerCase();
 
 interface BoothDirectoryProps {
   slug: string;
@@ -26,35 +31,41 @@ interface BoothDirectoryProps {
   isRtl: boolean;
   /** Pre-formatted section index shown beside the heading ("03" / "۰۳"). */
   index?: string;
+  /** Heading and lede from the published page's exhibitors section. */
+  title: string;
+  lead: string;
 }
 
 /**
- * Public exhibition-booth directory for one congress. The list itself is read anonymously;
- * bookmark state and changes use explicit User authority and never gate the list.
+ * Public exhibition-booth directory for one congress. The list itself is read anonymously (and re-read
+ * when the attendee returns to the tab); bookmark state and changes use explicit User authority and never
+ * gate the list.
  */
-export function BoothDirectory({ slug, token, isRtl, index }: BoothDirectoryProps) {
-  const [directory, setDirectory] = useState<Directory>({ status: "loading" });
+export function BoothDirectory({ slug, token, isRtl, index, title, lead }: BoothDirectoryProps) {
+  const [directory, setDirectory] = useState<BoothList>({ status: "loading" });
   const [reloadKey, setReloadKey] = useState(0);
   const [savedIds, setSavedIds] = useState<SavedIds>(null);
   const [sessionLost, setSessionLost] = useState(false);
-  const [pending, setPending] = useState<ReadonlySet<string>>(new Set());
+  const [pending, setPending] = useState<ReadonlySet<string>>(NOTHING_PENDING);
   const [feedback, setFeedback] = useState<string | null>(null);
-  const [query, setQuery] = useState("");
 
   useEffect(() => {
     let active = true;
     createApiClient({ kind: "anonymous" })
       .GET("/api/public/events/{slug}/booths", { params: { path: { slug } } })
       .then(({ data }) => {
-        if (active) setDirectory(data ? { status: "ready", booths: data } : { status: "error" });
+        // A failed refresh keeps the list already on screen.
+        if (active) setDirectory((prev) => (data ? { status: "ready", booths: data } : prev.status === "ready" ? prev : { status: "error" }));
       })
       .catch(() => {
-        if (active) setDirectory({ status: "error" });
+        if (active) setDirectory((prev) => (prev.status === "ready" ? prev : { status: "error" }));
       });
     return () => {
       active = false;
     };
   }, [slug, reloadKey]);
+
+  useRevalidateOnFocus(useCallback(() => setReloadKey((k) => k + 1), []));
 
   useEffect(() => {
     if (!token) return;
@@ -124,26 +135,80 @@ export function BoothDirectory({ slug, token, isRtl, index }: BoothDirectoryProp
     }
   };
 
+  return (
+    <BoothDirectoryView
+      slug={slug}
+      isRtl={isRtl}
+      index={index}
+      title={title}
+      lead={lead}
+      directory={directory}
+      onRetry={retry}
+      signedIn={Boolean(token) && !sessionLost}
+      savedIds={savedIds}
+      pending={pending}
+      onToggleSaved={(booth) => void toggleSaved(booth)}
+      feedback={feedback}
+    />
+  );
+}
+
+interface BoothDirectoryViewProps {
+  slug: string;
+  isRtl: boolean;
+  index?: string;
+  title: string;
+  lead: string;
+  directory: BoothList;
+  onRetry: () => void;
+  /** Signed out: a sign-in hint replaces the save buttons. */
+  signedIn: boolean;
+  /** Saved booths; null while unknown (no save buttons are offered). */
+  savedIds: SavedIds;
+  pending?: ReadonlySet<string>;
+  onToggleSaved: (booth: PublicBoothSummary) => void;
+  feedback?: string | null;
+}
+
+/** The directory as drawn; used by the attendee home and by the organizer's panel preview. */
+export function BoothDirectoryView({
+  slug,
+  isRtl,
+  index,
+  title,
+  lead,
+  directory,
+  onRetry,
+  signedIn,
+  savedIds,
+  pending = NOTHING_PENDING,
+  onToggleSaved,
+  feedback = null,
+}: BoothDirectoryViewProps) {
+  const [query, setQuery] = useState("");
   const booths = directory.status === "ready" ? directory.booths : NO_BOOTHS;
+  const searching = query.trim() !== "";
   const filtered = useMemo(() => {
-    const needle = query.trim().toLowerCase();
+    const needle = normalizeSearch(query.trim());
     if (!needle) return booths;
-    return booths.filter((b) => `${b.name} ${b.location} ${b.description}`.toLowerCase().includes(needle));
+    return booths.filter((b) => normalizeSearch(`${b.name} ${b.location} ${b.description}`).includes(needle));
   }, [booths, query]);
 
-  const title = isRtl ? "غرفه‌های نمایشگاه" : "Exhibition booths";
-  const signedIn = Boolean(token) && !sessionLost;
   const savedCount = savedIds?.size ?? 0;
+  const fmt = (n: number) => (isRtl ? n.toLocaleString("fa-IR") : String(n));
+  const resultCount = isRtl
+    ? `${fmt(filtered.length)} از ${fmt(booths.length)} غرفه`
+    : `${filtered.length} of ${booths.length} booth${booths.length === 1 ? "" : "s"}`;
 
   const counts =
     directory.status === "ready" && booths.length > 0 ? (
       <p className="flex items-center gap-2 text-xs font-medium text-text-muted tabular">
         <Icon name="booth" size={16} className="text-ink-400" />
         <span>
-          {isRtl ? `${booths.length.toLocaleString("fa-IR")} غرفه` : `${booths.length} booth${booths.length === 1 ? "" : "s"}`}
+          {searching ? resultCount : isRtl ? `${fmt(booths.length)} غرفه` : `${booths.length} booth${booths.length === 1 ? "" : "s"}`}
           {savedIds && savedCount > 0 ? (
             <span className="text-event-accent">
-              {isRtl ? `، ${savedCount.toLocaleString("fa-IR")} ذخیره‌شده` : ` · ${savedCount} saved`}
+              {isRtl ? `، ${fmt(savedCount)} ذخیره‌شده` : ` · ${savedCount} saved`}
             </span>
           ) : null}
         </span>
@@ -152,13 +217,7 @@ export function BoothDirectory({ slug, token, isRtl, index }: BoothDirectoryProp
 
   return (
     <section role="region" className="space-y-5" aria-labelledby="booth-directory-title">
-      <SectionHeader
-        index={index}
-        id="booth-directory-title"
-        title={title}
-        description={isRtl ? "شرکت‌ها و غرفه‌های حاضر در نمایشگاه این همایش." : "Companies exhibiting at this congress."}
-        aside={counts}
-      />
+      <SectionHeader index={index} id="booth-directory-title" title={<bdi>{title}</bdi>} description={<bdi>{lead}</bdi>} aside={counts} />
 
       {directory.status === "loading" && (
         <div role="status" aria-label={title} className="grid gap-3 sm:grid-cols-2">
@@ -174,7 +233,7 @@ export function BoothDirectory({ slug, token, isRtl, index }: BoothDirectoryProp
             <Icon name="alert" size={18} />
             {isRtl ? "فهرست غرفه‌ها بارگذاری نشد." : "The booth directory could not be loaded."}
           </p>
-          <Button type="button" variant="secondary" size="sm" onClick={retry} className="min-h-11">
+          <Button type="button" variant="secondary" size="sm" onClick={onRetry} className="max-sm:min-h-11">
             <Icon name="sync" size={16} />
             {isRtl ? "تلاش دوباره" : "Try again"}
           </Button>
@@ -227,10 +286,22 @@ export function BoothDirectory({ slug, token, isRtl, index }: BoothDirectoryProp
             </p>
           )}
 
-          {filtered.length === 0 ? (
-            <p role="status" className="text-sm text-text-secondary">
-              {isRtl ? "غرفه‌ای با این جستجو پیدا نشد." : "No booths match your search."}
+          {booths.length > SEARCH_THRESHOLD && (
+            <p role="status" className="sr-only">
+              {searching ? resultCount : ""}
             </p>
+          )}
+
+          {filtered.length === 0 ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="text-sm text-text-secondary">
+                {isRtl ? "غرفه‌ای با این جستجو پیدا نشد." : "No booths match your search."}
+              </p>
+              <Button type="button" variant="ghost" size="sm" className="max-sm:min-h-11" onClick={() => setQuery("")}>
+                <Icon name="x" size={16} />
+                {isRtl ? "پاک کردن جستجو" : "Clear search"}
+              </Button>
+            </div>
           ) : (
             <ul className="grid gap-3 sm:grid-cols-2">
               {filtered.map((b) => {
@@ -258,15 +329,14 @@ export function BoothDirectory({ slug, token, isRtl, index }: BoothDirectoryProp
                           type="button"
                           variant={saved ? "outline" : "secondary"}
                           size="sm"
-                          className={`shrink-0 min-h-11 min-w-11 ${saved ? "bg-event-accent-soft text-event-accent border-event-accent/30" : ""}`}
-                          aria-pressed={saved}
+                          className={`shrink-0 min-w-11 max-sm:min-h-11 ${saved ? "bg-event-accent-soft text-event-accent border-event-accent/30" : ""}`}
                           aria-label={
                             saved
                               ? isRtl ? `حذف ${b.name} از ذخیره‌شده‌ها` : `Remove ${b.name} from saved booths`
                               : isRtl ? `ذخیره ${b.name}` : `Save ${b.name}`
                           }
                           disabled={pending.has(b.id)}
-                          onClick={() => void toggleSaved(b)}
+                          onClick={() => onToggleSaved(b)}
                         >
                           <Icon name="bookmark" size={16} fill={saved ? "currentColor" : "none"} />
                           <span className="text-xs">{saved ? (isRtl ? "ذخیره شد" : "Saved") : isRtl ? "ذخیره" : "Save"}</span>

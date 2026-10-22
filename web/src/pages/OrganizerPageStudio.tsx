@@ -41,7 +41,7 @@ type Tab = "sections" | "brand" | "seo";
 
 const clockTime = (iso: string, locale: PageLocale) =>
   new Intl.DateTimeFormat(locale === "fa" ? "fa-IR" : "en-GB", { hour: "2-digit", minute: "2-digit" }).format(new Date(iso));
-type Confirm = "publish" | "unpublish" | "discard" | { remove: string } | null;
+type Confirm = "publish" | "unpublish" | "discard" | "revert" | { remove: string } | null;
 
 // Remount per event: a response for event A can never land in event B's editor.
 export default function OrganizerPageStudio() {
@@ -50,7 +50,7 @@ export default function OrganizerPageStudio() {
 }
 
 function PageStudio({ eventId }: { eventId: string }) {
-  const { apiKey, onKeyRejected, reportEvent, locale, isRtl } = useOutletContext<OrganizerOutletContext>();
+  const { apiKey, onKeyRejected, reportEvent, locale } = useOutletContext<OrganizerOutletContext>();
   const copy = studioCopy[locale];
 
   const [load, setLoad] = useState<"loading" | "ready" | "error">("loading");
@@ -201,14 +201,16 @@ function PageStudio({ eventId }: { eventId: string }) {
     }
   };
 
-  // Ctrl/Cmd+S saves the draft.
-  const saveRef = useRef(run);
-  saveRef.current = run;
+  // Ctrl/Cmd+S saves the draft, under the same conditions as the Save button.
+  const saveRef = useRef<() => void>(() => undefined);
+  saveRef.current = () => {
+    if (dirty && busy === null && !conflict) void run("save");
+  };
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
         e.preventDefault();
-        void saveRef.current("save");
+        saveRef.current();
       }
     };
     window.addEventListener("keydown", onKey);
@@ -234,7 +236,9 @@ function PageStudio({ eventId }: { eventId: string }) {
     const result = await uploadPageImage(apiKey, eventId, file);
     if ("message" in result) {
       reject(result.status);
-      return result.message;
+      if (result.status === 415) return copy.media.typeError;
+      if (result.status === 413) return copy.media.sizeError;
+      return result.message || copy.media.uploadFailed;
     }
     setAssets((current) => [result.asset, ...current]);
     closeLibrary(result.asset.id);
@@ -332,7 +336,7 @@ function PageStudio({ eventId }: { eventId: string }) {
             </div>
             <div className="flex flex-wrap items-center gap-2">
               {dirty && (
-                <Button variant="ghost" size="sm" onClick={() => setDoc(saved)} disabled={busy !== null}>
+                <Button variant="ghost" size="sm" onClick={() => setConfirm("revert")} disabled={busy !== null}>
                   {copy.revert}
                 </Button>
               )}
@@ -500,17 +504,20 @@ function PageStudio({ eventId }: { eventId: string }) {
                       );
                     })}
                   </ol>
-                  <Button variant="outline" size="md" isFullWidth onClick={() => setAdding(true)} disabled={doc.sections.length >= MAX_SECTIONS}>
-                    <Icon name="plus" size={16} />
-                    {copy.addSection}
-                  </Button>
+                  <div className="space-y-1.5">
+                    <Button variant="outline" size="md" isFullWidth onClick={() => setAdding(true)} disabled={doc.sections.length >= MAX_SECTIONS}>
+                      <Icon name="plus" size={16} />
+                      {copy.addSection}
+                    </Button>
+                    {doc.sections.length >= MAX_SECTIONS && <p className="text-xs text-text-muted">{copy.sectionLimit}</p>}
+                  </div>
                 </div>
               )}
               {tab === "sections" && selected && (
                 <div className="space-y-5">
                   <div className="flex items-center gap-2">
                     <Button variant="ghost" size="sm" onClick={() => select(null)}>
-                      <Icon name={isRtl ? "arrow-right" : "arrow-left"} size={15} />
+                      <Icon name="arrow-left" size={15} />
                       {copy.back}
                     </Button>
                   </div>
@@ -661,6 +668,19 @@ function PageStudio({ eventId }: { eventId: string }) {
         onConfirm={() => {
           setConfirm(null);
           void run("discard");
+        }}
+      />
+      <ConfirmDialog
+        isOpen={confirm === "revert"}
+        title={copy.confirmRevertTitle}
+        description={copy.confirmRevertBody}
+        confirmLabel={copy.revert}
+        cancelLabel={copy.cancel}
+        tone="danger"
+        onCancel={() => setConfirm(null)}
+        onConfirm={() => {
+          setConfirm(null);
+          setDoc(saved);
         }}
       />
       <ConfirmDialog

@@ -1,16 +1,24 @@
 /** Sections of one event's workspace, in navigation order. `path` is relative to `/organizer/events/:id`. */
 export const EVENT_SETUP_SECTIONS = [
   { key: "overview", path: "" },
+  { key: "program", path: "/program" },
+  { key: "venue", path: "/venue" },
   { key: "tiers", path: "/tiers" },
   { key: "check-in", path: "/check-in" },
   { key: "booths", path: "/booths" },
   { key: "operators", path: "/operators" },
   { key: "page", path: "/page" },
+  { key: "panel", path: "/panel" },
   { key: "sms", path: "/sms" },
 ] as const;
 
 export type EventSetupSection = (typeof EVENT_SETUP_SECTIONS)[number]["key"];
 export type EventWorkspaceSection = EventSetupSection | "analytics" | "desk";
+
+/** 1-based position of a setup section in the workspace navigation: the "01", "02" … index its header shows. */
+export function eventSectionNumber(key: EventSetupSection): number {
+  return EVENT_SETUP_SECTIONS.findIndex((s) => s.key === key) + 1;
+}
 
 export function eventWorkspacePath(eventId: string, path: string): string {
   return `/organizer/events/${encodeURIComponent(eventId)}${path}`;
@@ -34,4 +42,36 @@ export function eventTimeStatus(startsAt: string, endsAt: string, now: number): 
   if (now < new Date(startsAt).getTime()) return "upcoming";
   if (now > new Date(endsAt).getTime()) return "ended";
   return "in-progress";
+}
+
+export type EventFormField = "name" | "slug" | "startsAt" | "endsAt" | "location";
+type EventFormMessage =
+  | "eventNameRequired"
+  | "eventSlugRequired"
+  | "eventStartRequired"
+  | "eventEndRequired"
+  | "eventEndBeforeStart"
+  | "eventLocationRequired";
+
+/**
+ * First problem in the create/edit event form, in field order: the field to mark invalid and the
+ * translation key that names it. `slug` is omitted for the edit form, where it is read-only.
+ * `startsAt`/`endsAt` are `datetime-local` values (local wall time).
+ */
+export function eventFormProblem(form: {
+  name: string;
+  slug?: string;
+  startsAt: string;
+  endsAt: string;
+  location: string;
+}): { field: EventFormField; message: EventFormMessage } | null {
+  const starts = new Date(form.startsAt).getTime();
+  const ends = new Date(form.endsAt).getTime();
+  if (!form.name.trim()) return { field: "name", message: "eventNameRequired" };
+  if (form.slug !== undefined && !form.slug.trim()) return { field: "slug", message: "eventSlugRequired" };
+  if (!form.startsAt || Number.isNaN(starts)) return { field: "startsAt", message: "eventStartRequired" };
+  if (!form.endsAt || Number.isNaN(ends)) return { field: "endsAt", message: "eventEndRequired" };
+  if (ends <= starts) return { field: "endsAt", message: "eventEndBeforeStart" };
+  if (!form.location.trim()) return { field: "location", message: "eventLocationRequired" };
+  return null;
 }

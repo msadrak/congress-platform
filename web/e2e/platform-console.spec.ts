@@ -159,6 +159,7 @@ test('sign-in rules are saved and can go back to the .env value', async ({ page 
   expect(requests.find(r => r.method === 'PUT' && r.path === '/api/platform/sign-in')?.body).toEqual({ otp_length: 4, reset: [] });
   await page.getByRole('button', { name: 'Use .env' }).click();
   await expect(page.getByLabel('Code digits')).toHaveValue('6');
+  await expect(page.getByRole('status').filter({ hasText: '“Code digits” now follows the .env value.' })).toBeVisible();
 });
 
 test('organizers are created, rotated and revoked from the console; keys are shown once', async ({ page }) => {
@@ -179,7 +180,11 @@ test('organizers are created, rotated and revoked from the console; keys are sho
   await page.getByRole('button', { name: 'Revoke' }).first().click();
   await page.getByRole('dialog', { name: 'Revoke this organizer?' }).getByRole('button', { name: 'Revoke' }).click();
   await expect(page.getByText('Revoked')).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Reinstate with a new key' })).toBeVisible();
+  await page.getByRole('button', { name: 'Reinstate with a new key' }).click();
+  const reinstate = page.getByRole('dialog', { name: 'Reinstate this organizer?' });
+  await expect(reinstate).toContainText('can sign in again with a new key, shown once.');
+  await expect(reinstate.getByRole('button', { name: 'Reinstate' })).toBeVisible();
+  await reinstate.getByRole('button', { name: 'Cancel' }).click();
 });
 
 test('Persian RTL at 320px: the console is right-to-left and fits', async ({ page }) => {

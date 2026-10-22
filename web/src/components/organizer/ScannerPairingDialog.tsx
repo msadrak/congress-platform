@@ -7,6 +7,7 @@ import {
   type ScannerDeviceOut,
   type ScannerTokenOut,
 } from "../../api/client";
+import { formatLocalizedNumber } from "../../lib/i18n";
 import { isLoopbackHost, scannerPairingUrl } from "../../lib/scannerPairing";
 import { Badge } from "../ui/Badge";
 import { Button } from "../ui/Button";
@@ -236,7 +237,7 @@ export function ScannerPairingDialog({ point, apiKey, locale, isRtl, onKeyReject
               </span>
             </section>
           ) : (
-            <form onSubmit={handleIssue} className="space-y-4">
+            <form onSubmit={handleIssue} className="space-y-4" noValidate>
               <Field
                 label={isRtl ? "نام دستگاه" : "Device name"}
                 required
@@ -248,6 +249,7 @@ export function ScannerPairingDialog({ point, apiKey, locale, isRtl, onKeyReject
                   maxLength={120}
                   value={deviceName}
                   onChange={(e) => setDeviceName(e.target.value)}
+                  aria-invalid={(formError !== null && !deviceName.trim()) || undefined}
                   placeholder={isRtl ? "مثال: گیت اصلی - تلفن ۱" : "e.g. Main gate - phone 1"}
                   className="ui-input"
                 />
@@ -257,9 +259,9 @@ export function ScannerPairingDialog({ point, apiKey, locale, isRtl, onKeyReject
                 <Button type="button" variant="ghost" size="md" disabled={submitting} onClick={onClose}>
                   {isRtl ? "انصراف" : "Cancel"}
                 </Button>
-                <Button type="submit" variant="primary" size="md" disabled={submitting}>
+                <Button type="submit" variant="primary" size="md" disabled={submitting} aria-busy={submitting}>
                   <Icon name="qr" size={16} />
-                  {submitting ? "..." : isRtl ? "صدور لینک اتصال" : "Create pairing link"}
+                  {submitting ? (isRtl ? "در حال ایجاد…" : "Creating…") : isRtl ? "صدور لینک اتصال" : "Create pairing link"}
                 </Button>
               </DialogActions>
             </form>
@@ -271,7 +273,7 @@ export function ScannerPairingDialog({ point, apiKey, locale, isRtl, onKeyReject
                 {isRtl ? "دستگاه‌های متصل" : "Paired devices"}
               </h3>
               <Badge variant={activeCount > 0 ? "success" : "neutral"} size="sm">
-                {isRtl ? `${activeCount} فعال` : `${activeCount} active`}
+                {isRtl ? `${formatLocalizedNumber(activeCount, locale)} فعال` : `${activeCount} active`}
               </Badge>
             </div>
             {devicesError && <FormAlert>{devicesError}</FormAlert>}
@@ -304,11 +306,12 @@ export function ScannerPairingDialog({ point, apiKey, locale, isRtl, onKeyReject
                         variant="danger"
                         size="sm"
                         disabled={revokingId === d.id}
+                        aria-busy={revokingId === d.id}
                         onClick={() => setRevokeTarget(d)}
                         aria-label={isRtl ? `لغو ${d.device_name}` : `Revoke ${d.device_name}`}
                       >
                         <Icon name="x-circle" size={15} />
-                        {revokingId === d.id ? "..." : isRtl ? "لغو" : "Revoke"}
+                        {revokingId === d.id ? (isRtl ? "در حال لغو…" : "Revoking…") : isRtl ? "لغو" : "Revoke"}
                       </Button>
                     )}
                   </li>

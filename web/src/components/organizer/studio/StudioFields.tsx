@@ -1,4 +1,4 @@
-import { useId, type ReactNode } from "react";
+import { useId, useState, type ReactNode } from "react";
 import type { LocalizedText, PageLocale } from "../../../lib/pageDocument";
 import { Button } from "../../ui/Button";
 import { Icon, type IconName } from "../../ui/Icon";
@@ -191,6 +191,37 @@ export function ItemList<T>({
   render: (item: T, update: (next: T) => void) => ReactNode;
 }) {
   const { copy } = useStudio();
+  // Stable row keys, so a moved item keeps its DOM node (and the focused reorder button) instead of
+  // the slot it left. Items keep their key by identity (moves, removals), else by position (edits).
+  // Recomputed during render from the previous render's state (React's "adjust state on prop change").
+  const [slots, setSlots] = useState<{ items: readonly T[]; keys: string[]; next: number }>(() => ({
+    items,
+    keys: items.map((_, i) => `item-${i + 1}`),
+    next: items.length,
+  }));
+  let current = slots;
+  if (slots.items !== items) {
+    const used = new Set<number>();
+    const byIdentity = items.map((item) => {
+      const j = slots.items.findIndex((p, idx) => p === item && !used.has(idx));
+      if (j < 0) return null;
+      used.add(j);
+      return slots.keys[j];
+    });
+    const reused = byIdentity.map((key, i) => {
+      if (key !== null) return key;
+      if (i < slots.items.length && !used.has(i)) {
+        used.add(i);
+        return slots.keys[i];
+      }
+      return null;
+    });
+    const fresh = reused.flatMap((key, i) => (key === null ? [i] : []));
+    const keys = reused.map((key, i) => key ?? `item-${slots.next + fresh.indexOf(i) + 1}`);
+    current = { items, keys, next: slots.next + fresh.length };
+    setSlots(current);
+  }
+  const keys = current.keys;
   const move = (from: number, to: number) => {
     const next = items.slice();
     [next[from], next[to]] = [next[to], next[from]];
@@ -201,7 +232,7 @@ export function ItemList<T>({
       <p className="ui-label">{copy.fields.items}</p>
       <ol className="space-y-3">
         {items.map((item, i) => (
-          <li key={i} className="rounded-2xl border border-border-default bg-surface-panel p-4 shadow-soft">
+          <li key={keys[i]} className="rounded-2xl border border-border-default bg-surface-panel p-4 shadow-soft">
             <div className="mb-3 flex items-center gap-2">
               <span className="font-mono text-[11px] font-semibold text-aiteb-indigo tabular">{String(i + 1).padStart(2, "0")}</span>
               <span className="min-w-0 flex-1 truncate text-sm font-semibold text-text-primary">{summary(item, i) || copy.untitled}</span>
@@ -217,6 +248,7 @@ export function ItemList<T>({
         <Icon name="plus" size={15} />
         {copy.fields.addItem}
       </Button>
+      {items.length >= max && <p className="text-xs text-text-muted">{copy.fields.itemLimit}</p>}
     </div>
   );
 }

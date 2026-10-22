@@ -220,9 +220,11 @@ async function navigateToScanner(page: Page, token: string) {
   await page.waitForLoadState('networkidle');
 }
 
-// ── Helper: wait for SW registration ──
+// ── Helper: wait until the service worker is active (its precache is complete) ──
 async function waitForSW(page: Page) {
-  await page.waitForFunction(() => navigator.serviceWorker.ready !== undefined, { timeout: 10000 });
+  // `ready` resolves only once a worker is active, i.e. after install finished precaching the shell,
+  // so an offline reload right after this is served from the cache.
+  await page.evaluate(() => navigator.serviceWorker.ready.then(() => undefined));
   await page.waitForTimeout(2000);
 }
 
@@ -236,7 +238,9 @@ test('T01: Initial online load registers SW and caches app shell', async ({ cont
   await waitForSW(page);
 
   await expect(page.getByText('Test Gate A')).toBeVisible();
-  await expect(page.getByText('SINGLE_USE')).toBeVisible();
+  // The scanner opens in Persian by default; the header names the policy, never the raw enum.
+  await expect(page.getByText('فقط یک بار ورود')).toBeVisible();
+  await expect(page.getByText('SINGLE_USE')).toHaveCount(0);
 
   expect(await manifestExists(page)).toBe(true);
   expect(await getScannerToken(page)).toBe(TEST_TOKEN);

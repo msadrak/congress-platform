@@ -30,7 +30,8 @@ export default function PlatformSignIn() {
   );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [saved, setSaved] = useState(false);
+  const [saved, setSaved] = useState<string | null>(null);
+  const [resetting, setResetting] = useState(false);
 
   const parsed = (key: RuleField) => {
     const digits = asciiDigits(values[key].trim());
@@ -52,23 +53,39 @@ export default function PlatformSignIn() {
     if (saving || invalid.length) return;
     setSaving(true);
     setError(null);
-    setSaved(false);
+    setSaved(null);
     const changed = Object.fromEntries(FIELDS.filter((f) => parsed(f.key) !== rules[f.key]).map((f) => [f.key, parsed(f.key)]));
     const { data, error: err, response } = await client.PUT("/api/platform/sign-in", { body: { ...changed, reset: [] } });
     checkResponse(response.status);
     setSaving(false);
     if (data) {
       apply(data);
-      setSaved(true);
+      setSaved(isRtl ? "ذخیره و اعمال شد." : "Saved and applied.");
     } else {
       setError(err ? formatApiError(err) : isRtl ? "ذخیره نشد." : "Not saved.");
     }
   };
 
   const reset = async (key: RuleField) => {
-    const { data, response } = await client.PUT("/api/platform/sign-in", { body: { reset: [key] } });
-    checkResponse(response.status);
-    if (data) apply(data);
+    if (resetting) return;
+    setResetting(true);
+    setError(null);
+    setSaved(null);
+    try {
+      const { data, error: err, response } = await client.PUT("/api/platform/sign-in", { body: { reset: [key] } });
+      checkResponse(response.status);
+      if (data) {
+        apply(data);
+        const field = FIELDS.find((f) => f.key === key);
+        setSaved(isRtl ? `«${field?.fa ?? key}» اکنون از مقدار .env پیروی می‌کند.` : `“${field?.en ?? key}” now follows the .env value.`);
+      } else {
+        setError(err ? formatApiError(err) : isRtl ? "تغییری اعمال نشد." : "Nothing was changed.");
+      }
+    } catch {
+      setError(isRtl ? "اتصال به سرور برقرار نشد." : "Could not reach the server.");
+    } finally {
+      setResetting(false);
+    }
   };
 
   return (
@@ -89,7 +106,7 @@ export default function PlatformSignIn() {
                   <span>{isRtl ? f.hintFa : f.hintEn}</span>
                   <span>· {rules.sources[f.key] === "console" ? (isRtl ? "از این پنل" : "set here") : isRtl ? "از فایل .env" : "from .env"}</span>
                   {rules.sources[f.key] === "console" && (
-                    <button type="button" onClick={() => void reset(f.key)} className="font-semibold text-action-primary hover:underline cursor-pointer">
+                    <button type="button" disabled={resetting} aria-busy={resetting} onClick={() => void reset(f.key)} className="font-semibold text-action-primary hover:underline cursor-pointer disabled:cursor-wait disabled:opacity-60">
                       {isRtl ? "مقدار .env" : "Use .env"}
                     </button>
                   )}
@@ -110,10 +127,10 @@ export default function PlatformSignIn() {
         </div>
         {invalid.length > 0 && <FormAlert>{isRtl ? "برخی مقدارها خارج از بازه مجاز است." : "Some values are outside the allowed range."}</FormAlert>}
         {error && <FormAlert>{error}</FormAlert>}
-        {saved && <p role="status" className="text-sm font-medium text-status-success-text">{isRtl ? "ذخیره و اعمال شد." : "Saved and applied."}</p>}
-        <Button type="submit" variant="primary" size="md" disabled={saving || invalid.length > 0}>
+        {saved && <p role="status" className="text-sm font-medium text-status-success-text">{saved}</p>}
+        <Button type="submit" variant="primary" size="md" disabled={saving || invalid.length > 0} aria-busy={saving}>
           <Icon name="check" size={16} />
-          {saving ? "..." : isRtl ? "ذخیره قواعد" : "Save rules"}
+          {saving ? (isRtl ? "در حال ذخیره…" : "Saving…") : isRtl ? "ذخیره قواعد" : "Save rules"}
         </Button>
       </form>
     </div>

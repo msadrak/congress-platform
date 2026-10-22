@@ -1,11 +1,13 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:uuid/uuid.dart';
 import '../models/checkin_point.dart';
 import '../models/manifest_ticket.dart';
 import '../models/scan_record.dart';
 import '../models/scan_result.dart';
 import '../services/policy_engine.dart';
+import '../services/scan_labels.dart';
 import '../services/storage_service.dart';
 import '../services/sync_service.dart';
 
@@ -14,6 +16,8 @@ class CameraScannerScreen extends StatefulWidget {
   final Map<String, ManifestTicket> initialTickets;
   final IStorageService storage;
   final SyncService syncService;
+  final bool usingCachedManifest;
+  final DateTime? offlineManifestSavedAt;
 
   const CameraScannerScreen({
     Key? key,
@@ -21,6 +25,8 @@ class CameraScannerScreen extends StatefulWidget {
     required this.initialTickets,
     required this.storage,
     required this.syncService,
+    this.usingCachedManifest = false,
+    this.offlineManifestSavedAt,
   }) : super(key: key);
 
   @override
@@ -37,6 +43,8 @@ class _CameraScannerScreenState extends State<CameraScannerScreen> {
 
   int _pendingCount = 0;
   bool _isProcessingScan = false;
+  bool _syncing = false;
+  bool _lastSyncFailed = false;
   final List<ScanRecord> _recentScans = [];
 
   @override
@@ -47,6 +55,32 @@ class _CameraScannerScreenState extends State<CameraScannerScreen> {
 
     // Background sync flusher every 5 seconds
     _syncTimer = Timer.periodic(const Duration(seconds: 5), (_) => _flushSync());
+
+    if (widget.usingCachedManifest) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        final savedAt = widget.offlineManifestSavedAt;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(savedAt == null
+                ? 'Offline: using the pass list saved on this device'
+                : 'Offline: using pass list saved ${_formatSavedAt(savedAt)}'),
+            duration: const Duration(seconds: 6),
+          ),
+        );
+      });
+    }
+  }
+
+  static String _two(int n) => n.toString().padLeft(2, '0');
+
+  static String _formatSavedAt(DateTime t) {
+    final now = DateTime.now();
+    final time = '${_two(t.hour)}:${_two(t.minute)}';
+    if (t.year == now.year && t.month == now.month && t.day == now.day) {
+      return 'today at $time';
+    }
+    return '${t.year}-${_two(t.month)}-${_two(t.day)} $time';
   }
 
   @override
@@ -67,9 +101,57 @@ class _CameraScannerScreenState extends State<CameraScannerScreen> {
 
   Future<void> _flushSync() async {
     final synced = await widget.syncService.syncQueuedScans(widget.point.id);
-    if (synced > 0) {
-      _updatePendingCount();
+    if (!mounted) return;
+    final failed = widget.syncService.lastSyncFailed;
+    if (failed != _lastSyncFailed) {
+      setState(() {
+        _lastSyncFailed = failed;
+      });
     }
+    if (synced > 0) {
+      await _updatePendingCount();
+    }
+  }
+
+  Future<void> _syncNow() async {
+    if (_syncing) return;
+    setState(() {
+      _syncing = true;
+    });
+    // A background flush may already be running; wait for it to finish so
+    // the result shown below reflects a real attempt.
+    while (widget.syncService.isSyncing) {
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+    }
+    final synced = await widget.syncService.syncQueuedScans(widget.point.id);
+    await _updatePendingCount();
+    if (!mounted) return;
+    final failed = widget.syncService.lastSyncFailed;
+    setState(() {
+      _syncing = false;
+      _lastSyncFailed = failed;
+    });
+    final String message;
+    if (failed) {
+      message =
+          'Server unreachable — $_pendingCount ${_pendingCount == 1 ? 'scan' : 'scans'} saved on this device';
+    } else if (synced > 0) {
+      message = 'Synced $synced ${synced == 1 ? 'scan' : 'scans'}';
+    } else {
+      message = 'All scans already synced';
+    }
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  void _dismissResult() {
+    _clearResultTimer?.cancel();
+    if (!mounted) return;
+    setState(() {
+      _activeResult = null;
+      _isProcessingScan = false;
+    });
   }
 
   Future<void> processCode(String rawCode) async {
@@ -99,7 +181,13 @@ class _CameraScannerScreenState extends State<CameraScannerScreen> {
     );
 
     await widget.storage.enqueueScan(scanRecord);
+    if (!mounted) return;
 
+    if (result.isAdmitted) {
+      HapticFeedback.lightImpact();
+    } else {
+      HapticFeedback.heavyImpact();
+    }
     setState(() {
       _activeResult = result;
       _recentScans.insert(0, scanRecord);
@@ -110,14 +198,10 @@ class _CameraScannerScreenState extends State<CameraScannerScreen> {
     _flushSync();
 
     _clearResultTimer?.cancel();
-    _clearResultTimer = Timer(const Duration(milliseconds: 1800), () {
-      if (mounted) {
-        setState(() {
-          _activeResult = null;
-          _isProcessingScan = false;
-        });
-      }
-    });
+    _clearResultTimer = Timer(
+      Duration(milliseconds: result.isAdmitted ? 1200 : 2500),
+      _dismissResult,
+    );
   }
 
   @override
@@ -127,18 +211,25 @@ class _CameraScannerScreenState extends State<CameraScannerScreen> {
       appBar: AppBar(
         backgroundColor: const Color(0xFF171717),
         elevation: 0,
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              widget.point.name,
-              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-            ),
-            Text(
-              '${widget.point.policyType} • ${_tickets.length} cached passes',
-              style: const TextStyle(fontSize: 11, color: Colors.white60),
-            ),
-          ],
+        title: MediaQuery.withClampedTextScaling(
+          maxScaleFactor: 1.3,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                widget.point.name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+              Text(
+                '${policyLabel(widget.point.policyType)} • ${_tickets.length} passes on device',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 11, color: Colors.white60),
+              ),
+            ],
+          ),
         ),
         actions: [
           Container(
@@ -165,7 +256,11 @@ class _CameraScannerScreenState extends State<CameraScannerScreen> {
                 ),
                 const SizedBox(width: 6),
                 Text(
-                  _pendingCount > 0 ? '$_pendingCount queued' : 'Synced',
+                  _pendingCount > 0
+                      ? (_lastSyncFailed
+                          ? '$_pendingCount queued · offline'
+                          : '$_pendingCount queued')
+                      : 'Synced',
                   style: TextStyle(
                     fontSize: 11,
                     fontWeight: FontWeight.bold,
@@ -214,11 +309,11 @@ class _CameraScannerScreenState extends State<CameraScannerScreen> {
                           padding: const EdgeInsets.symmetric(
                               horizontal: 16, vertical: 8),
                           decoration: BoxDecoration(
-                            color: Colors.black82,
+                            color: Colors.black87,
                             borderRadius: BorderRadius.circular(20),
                           ),
                           child: const Text(
-                            'Aim camera at attendee QR badge (<35ms)',
+                            'Aim camera at attendee QR badge',
                             style: TextStyle(color: Colors.white70, fontSize: 12),
                           ),
                         ),
@@ -250,12 +345,21 @@ class _CameraScannerScreenState extends State<CameraScannerScreen> {
                             ),
                           ),
                           TextButton(
-                            onPressed: _flushSync,
-                            child: const Text(
-                              'Sync Now ↗',
-                              style: TextStyle(
-                                  color: Color(0xFF10B981), fontSize: 12),
-                            ),
+                            onPressed: _syncing ? null : _syncNow,
+                            child: _syncing
+                                ? const SizedBox(
+                                    width: 14,
+                                    height: 14,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: Color(0xFF10B981),
+                                    ),
+                                  )
+                                : const Text(
+                                    'Sync now',
+                                    style: TextStyle(
+                                        color: Color(0xFF10B981), fontSize: 12),
+                                  ),
                           ),
                         ],
                       ),
@@ -266,7 +370,7 @@ class _CameraScannerScreenState extends State<CameraScannerScreen> {
                                 child: Text(
                                   'Ready for attendees. No scans yet.',
                                   style: TextStyle(
-                                      color: Colors.white30, fontSize: 12),
+                                      color: Colors.white60, fontSize: 12),
                                 ),
                               )
                             : ListView.separated(
@@ -287,7 +391,8 @@ class _CameraScannerScreenState extends State<CameraScannerScreen> {
                                       mainAxisAlignment:
                                           MainAxisAlignment.spaceBetween,
                                       children: [
-                                        Row(
+                                        Flexible(
+                                          child: Row(
                                           children: [
                                             CircleAvatar(
                                               radius: 4,
@@ -296,28 +401,39 @@ class _CameraScannerScreenState extends State<CameraScannerScreen> {
                                                   : Colors.redAccent,
                                             ),
                                             const SizedBox(width: 8),
-                                            Text(
-                                              s.qrSecret.length > 8
-                                                  ? '${s.qrSecret.substring(0, 8)}...'
-                                                  : s.qrSecret,
-                                              style: const TextStyle(
-                                                fontFamily: 'monospace',
-                                                fontSize: 12,
-                                                color: Colors.white70,
+                                            Flexible(
+                                              child: Text(
+                                                s.qrSecret.length > 8
+                                                    ? '${s.qrSecret.substring(0, 8)}…'
+                                                    : s.qrSecret,
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: const TextStyle(
+                                                  fontFamily: 'monospace',
+                                                  fontSize: 12,
+                                                  color: Colors.white70,
+                                                ),
                                               ),
                                             ),
                                           ],
+                                          ),
                                         ),
-                                        Text(
+                                        const SizedBox(width: 8),
+                                        Flexible(
+                                          child: Text(
                                           isAdm
                                               ? 'ADMITTED'
-                                              : (s.rejectionReason ?? 'REJECTED'),
+                                              : reasonLabel(s.rejectionReason),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          textAlign: TextAlign.end,
                                           style: TextStyle(
                                             fontSize: 11,
                                             fontWeight: FontWeight.bold,
                                             color: isAdm
                                                 ? Colors.greenAccent
                                                 : Colors.redAccent,
+                                          ),
                                           ),
                                         ),
                                       ],
@@ -336,12 +452,28 @@ class _CameraScannerScreenState extends State<CameraScannerScreen> {
           // High-Contrast Flash Screen Overlay upon scan
           if (_activeResult != null)
             Positioned.fill(
-              child: Container(
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: _dismissResult,
+                child: TweenAnimationBuilder<double>(
+                  key: ValueKey<Object>(_activeResult!),
+                  tween: Tween<double>(begin: 0, end: 1),
+                  duration: MediaQuery.disableAnimationsOf(context)
+                      ? Duration.zero
+                      : const Duration(milliseconds: 120),
+                  builder: (context, opacity, child) =>
+                      Opacity(opacity: opacity, child: child),
+                  child: Container(
                 color: _activeResult!.isAdmitted
-                    ? const Color(0xFF059669) // Green
+                    ? const Color(0xFF047857) // Green
                     : const Color(0xFFDC2626), // Red
                 padding: const EdgeInsets.all(32),
-                child: Column(
+                child: Semantics(
+                  liveRegion: true,
+                  label: _activeResult!.isAdmitted
+                      ? 'Admitted${_activeResult!.ticket != null ? ', ${_activeResult!.ticket!.attendeeName}' : ''}'
+                      : 'Rejected: ${reasonLabel(_activeResult!.rejectionReason)}',
+                  child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     Icon(
@@ -375,7 +507,7 @@ class _CameraScannerScreenState extends State<CameraScannerScreen> {
                         'Tier: ${_activeResult!.ticket!.ticketTierName}',
                         style: const TextStyle(
                           fontSize: 16,
-                          color: Colors.white70,
+                          color: Colors.white,
                           fontWeight: FontWeight.w500,
                         ),
                       ),
@@ -390,7 +522,8 @@ class _CameraScannerScreenState extends State<CameraScannerScreen> {
                           borderRadius: BorderRadius.circular(12),
                         ),
                         child: Text(
-                          'Reason: ${_activeResult!.rejectionReason!.replaceAll('_', ' ')}',
+                          reasonLabel(_activeResult!.rejectionReason),
+                          textAlign: TextAlign.center,
                           style: const TextStyle(
                             fontSize: 14,
                             fontWeight: FontWeight.bold,
@@ -400,6 +533,9 @@ class _CameraScannerScreenState extends State<CameraScannerScreen> {
                       ),
                     ],
                   ],
+                ),
+                ),
+              ),
                 ),
               ),
             ),

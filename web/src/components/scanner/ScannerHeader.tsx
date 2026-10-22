@@ -81,12 +81,9 @@ export function ScannerHeader(props: ScannerHeaderProps) {
               {props.pointName}
             </h1>
             <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[13px] text-ink-300">
-              <span className={`scanner-policy ${policyTone[props.policyType] ?? ""}`}>
-                <span className="font-mono text-[11.5px] font-semibold" dir="ltr">
-                  {props.policyType}
-                </span>
-              </span>
-              {copy.policy[props.policyType] && <span className="text-ink-200">{copy.policy[props.policyType]}</span>}
+              {copy.policy[props.policyType] && (
+                <span className={`scanner-policy ${policyTone[props.policyType] ?? ""}`}>{copy.policy[props.policyType]}</span>
+              )}
               <span className="inline-flex min-w-0 items-center gap-1">
                 <Icon name="pin" size={14} className="text-ink-400" />
                 <span className="truncate">{props.location || copy.defaultLocation}</span>

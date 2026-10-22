@@ -78,7 +78,7 @@ export function BoothIndex({ slug, locale, booths }: { slug: string; locale: Pub
                 className="pub-index-row grid grid-cols-[minmax(4.5rem,auto)_minmax(0,1fr)_auto] items-center gap-4 px-5 py-5 sm:grid-cols-[8rem_minmax(0,1fr)_auto] sm:gap-8 sm:px-7 sm:py-6 focus-visible:outline-offset-[-2px]"
               >
                 <span className="min-w-0">
-                  <span className="block text-[10px] font-semibold text-text-muted">{c.stand}</span>
+                  <span className="block text-[11px] font-semibold text-text-muted">{c.stand}</span>
                   <span
                     className={`block truncate text-event-accent ${
                       latinCode ? "font-mono text-lg sm:text-2xl font-medium tracking-[-0.03em]" : "text-base sm:text-xl font-bold"

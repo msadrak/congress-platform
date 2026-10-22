@@ -26,6 +26,7 @@ class CongressScannerApp extends StatelessWidget {
         scaffoldBackgroundColor: const Color(0xFF0A0A0A),
         colorScheme: const ColorScheme.dark(
           primary: Color(0xFF10B981),
+          onPrimary: Color(0xFF0A0A0A),
           secondary: Color(0xFF059669),
           surface: Color(0xFF1E1E1E),
         ),

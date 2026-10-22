@@ -156,7 +156,7 @@ try {
     await uiCode(d, mobile('one'));
     await d.getByLabel('Full name').fill('Synthetic Attendee One');
     await d.getByRole('button', { name: 'Create my account' }).click();
-    await A.getByRole('heading', { name: 'Pass Reserved Successfully!' }).waitFor({ timeout: 15000 });
+    await A.getByRole('heading', { name: 'Pass Reserved Successfully' }).waitFor({ timeout: 15000 });
     eq(psql(`select count(*) from users where mobile='${mobile('one')}'`), '1', 'user row');
     const code = await smsCode(mobile('one'));
     if (psql(`select count(*) from otp_challenges where code_hash like '%${code}%'`) !== '0') throw new Error('sign-in code stored in plain text');
@@ -190,6 +190,7 @@ try {
   });
   await check('Sign out, then sign in again through the sign-in page', 'UI', async () => {
     await A.getByRole('button', { name: 'Log Out' }).click();
+    await A.getByRole('dialog').getByRole('button', { name: 'Log out', exact: true }).click();
     await A.goto(`${BASE}/c/${slug}/sign-in?next=${encodeURIComponent(`/c/${slug}/my-ticket`)}`);
     await uiCode(A, mobile('one'));
     await A.waitForURL(new RegExp(`/c/${slug}/my-ticket$`));

@@ -113,8 +113,8 @@ async function signInWithCode(page: Page, mobile = STAFF_MOBILE) {
   await page.getByLabel('Code from the SMS').fill(CODE);
 }
 const codeInput = (page: Page) => page.getByPlaceholder('e.g. ABC123XYZ...');
-const openCapture = (page: Page) => page.getByRole('button', { name: /Capture Attendee Lead/ }).first().click();
-const saveLead = (page: Page) => page.getByRole('button', { name: 'Record Lead to Booth CRM' }).click();
+const openCapture = (page: Page) => page.getByRole('button', { name: /Capture Lead/ }).first().click();
+const saveLead = (page: Page) => page.getByRole('button', { name: 'Save Lead' }).click();
 
 test.describe('entry and access', () => {
   test('signed out: sign-in path returns to the same booth, unsafe destinations are ignored, no Organizer fallback', async ({ page }) => {
@@ -148,7 +148,7 @@ test.describe('entry and access', () => {
     await seed(page, OUTSIDER);
     requests.length = 0;
     await page.goto('/booth/booth-a');
-    await expect(page.getByRole('heading', { name: 'Commercial Access Restricted (403)' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Commercial Access Restricted' })).toBeVisible();
     await expect(page.getByText('Lead One')).toHaveCount(0);
     await expect(page.getByRole('link', { name: 'Sign in with a different account' })).toHaveAttribute('href', /\/booth\/booth-a\/sign-in/);
     expect(await storedToken(page)).toBe(OUTSIDER);
@@ -164,7 +164,7 @@ test.describe('entry and access', () => {
     await expect(page.getByTestId('booth-event')).toContainText('Alpha Congress 2099');
     await expect(page.getByRole('link', { name: 'Public booth profile' })).toHaveAttribute('href', '/e/alpha-congress/booths/booth-a');
     await page.goto('/booth/booth-b');
-    await expect(page.getByRole('heading', { name: 'Commercial Access Restricted (403)' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Commercial Access Restricted' })).toBeVisible();
     await expect(page.getByText('Secret Competitor Lead')).toHaveCount(0);
     await expect(page.getByText('Alpha Devices Booth')).toHaveCount(0);
   });
@@ -202,13 +202,15 @@ test.describe('capture and qualification', () => {
     await codeInput(page).fill('new-attendee');
     await saveLead(page);
     const result = page.getByTestId('capture-result');
-    await expect(result).toContainText('Attendee lead captured successfully.');
+    await expect(result).toContainText('Lead saved.');
     await expect(result).toContainText('Captured new-attendee');
     const scans = () => requests.filter(r => r.path.endsWith('/leads/scan'));
     // Nothing the operator did not choose is sent: the badge alone.
     expect(scans()[0].body).toEqual({ qr_secret: 'new-attendee' });
 
-    await result.getByRole('button', { name: /Next attendee/ }).click();
+    // Focus lands on the next step, so Enter continues and a keyboard-wedge reader is not lost.
+    await expect(result.getByRole('button', { name: /Next attendee/ })).toBeFocused();
+    await page.keyboard.press('Enter');
     await expect(codeInput(page)).toBeFocused();
     // Re-scan with a deliberate rating only.
     await codeInput(page).fill('new-attendee');
@@ -242,7 +244,7 @@ test.describe('capture and qualification', () => {
     await page.goto('/booth/booth-a');
     await openCapture(page);
     await codeInput(page).fill('fast-double');
-    await page.getByRole('button', { name: 'Record Lead to Booth CRM' }).dblclick();
+    await page.getByRole('button', { name: 'Save Lead' }).dblclick();
     await expect(page.getByTestId('capture-result')).toBeVisible();
     expect(requests.filter(r => r.path.endsWith('/leads/scan')).length).toBe(1);
   });
@@ -282,6 +284,24 @@ test.describe('capture and qualification', () => {
     expect(requests.filter(r => r.method === 'PATCH').length).toBe(1);
   });
 
+  test('qualify from the capture result: one dialog at a time, and a typed but un-added tag is saved', async ({ page }) => {
+    const requests = await fixture(page);
+    await seed(page, STAFF);
+    await page.goto('/booth/booth-a');
+    await openCapture(page);
+    await codeInput(page).fill('new-attendee');
+    await saveLead(page);
+    await page.getByTestId('capture-result').getByRole('button', { name: 'Qualify & Follow Up' }).click();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toHaveCount(1);
+    await expect(dialog.getByRole('heading', { name: /Captured new-attendee/ })).toBeVisible();
+    await dialog.getByLabel('Type custom tag and press Enter...').fill('Call Monday');
+    await dialog.getByRole('button', { name: 'Save Qualification Changes' }).click();
+    await expect(dialog.getByText('Lead qualification updated successfully.')).toBeVisible();
+    await expect(dialog).toHaveCount(0);
+    expect(requests.find(r => r.method === 'PATCH')?.body).toMatchObject({ tags: expect.arrayContaining(['Call Monday']) });
+  });
+
   test('search and rating filters narrow the list without hiding the booth totals or sending another request', async ({ page }) => {
     const requests = await fixture(page);
     await seed(page, STAFF);
@@ -306,7 +326,7 @@ test.describe('capture and qualification', () => {
     await page.goto('/booth/booth-a');
     await expect(page.getByText('Lead One').first()).toBeVisible();
     const download = page.waitForEvent('download');
-    await page.getByRole('button', { name: 'Export CRM CSV' }).click();
+    await page.getByRole('button', { name: 'Export CSV' }).click();
     const file = await download;
     expect(file.suggestedFilename()).toBe('alpha-devices-leads.csv');
     expect(await readFile(await file.path(), 'utf8')).toContain('Lead One,booth-a');
@@ -413,7 +433,7 @@ test.describe('layout and language', () => {
     await page.goto('/booth/booth-a');
     await expect(page.getByText('Lead One').first()).toBeVisible();
     expect(await overflow(page)).toBe(0);
-    const sticky = page.getByRole('button', { name: /Capture Attendee Lead/ }).last();
+    const sticky = page.getByRole('button', { name: /Capture Lead/ }).last();
     await expect(sticky).toBeVisible();
     expect((await sticky.boundingBox())!.height).toBeGreaterThanOrEqual(44);
     await sticky.click();
@@ -429,7 +449,7 @@ test.describe('layout and language', () => {
     await expect(page.locator('[dir="rtl"]').first()).toBeVisible();
     await expect(page.getByText('Lead One').first()).toBeVisible();
     expect(await overflow(page)).toBe(0);
-    await page.getByRole('button', { name: /ثبت|مشتری/ }).last().click();
+    await page.getByRole('button', { name: /ثبت لید/ }).last().click();
     await expect(page.getByRole('dialog')).toBeVisible();
     expect(await overflow(page)).toBe(0);
     await page.evaluate(() => localStorage.removeItem('congress_attendee_token'));

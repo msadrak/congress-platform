@@ -17,7 +17,7 @@ export function ManualEntry({ copy, value, onChange, onSubmit, placeholder, subm
   return (
     <form onSubmit={onSubmit} className="scanner-panel p-3.5 sm:p-4">
       <label htmlFor="scanner-manual-code" className="mb-2.5 flex items-center gap-2 text-[12.5px] font-semibold text-ink-300">
-        <span aria-hidden="true" className="scanner-index">02</span>
+        <span aria-hidden="true" className="scanner-index">{copy.sectionIndex(2)}</span>
         {copy.manualTitle}
         <span aria-hidden="true" className="h-px flex-1 bg-white/10" />
         <span className="text-ink-400">{copy.manualLabel}</span>
@@ -32,6 +32,8 @@ export function ManualEntry({ copy, value, onChange, onSubmit, placeholder, subm
           disabled={disabled}
           autoComplete="off"
           autoCorrect="off"
+          autoCapitalize="none"
+          enterKeyHint="go"
           spellCheck={false}
           dir="ltr"
           className="scanner-input scanner-input--bidi min-w-0 flex-1 font-mono"

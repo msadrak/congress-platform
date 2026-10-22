@@ -121,7 +121,7 @@ export function ImageTextBlock({
 export function FaqBlock({ section, locale }: { section: FaqSection; locale: PublicLocale }) {
   const items = section.items.filter((i) => localized(i.question, locale));
   return (
-    <div className="divide-y divide-border-default border-y border-border-default">
+    <div className="max-w-4xl divide-y divide-border-default border-y border-border-default">
       {items.map((item, i) => {
         const answer = localized(item.answer, locale);
         return (
@@ -160,11 +160,11 @@ export function SpeakersBlock({ section, locale, images }: { section: SpeakersSe
           <li key={i} className="space-y-4">
             <div className="relative aspect-[4/5] overflow-hidden rounded-2xl bg-surface-ink [border-start-end-radius:48px]">
               {photo ? (
-                <PageImg image={photo} alt={name} className="absolute inset-0 size-full object-cover" />
+                <PageImg image={photo} alt="" className="absolute inset-0 size-full object-cover" />
               ) : (
                 <>
                   <CongressSignature seed={`${name}-${i}`} tone="ink" className="absolute inset-0 size-full opacity-70" />
-                  <span {...proseDir(name)} className="absolute inset-0 grid place-items-center text-4xl font-bold text-white">
+                  <span {...proseDir(name)} aria-hidden="true" className="absolute inset-0 grid place-items-center text-4xl font-bold text-white">
                     {initials(name)}
                   </span>
                 </>
@@ -195,7 +195,7 @@ export function SpeakersBlock({ section, locale, images }: { section: SpeakersSe
 export function AgendaBlock({ section, locale }: { section: AgendaSection; locale: PublicLocale }) {
   const items = section.items.filter((i) => localized(i.title, locale));
   return (
-    <ol className="relative border-s border-border-default">
+    <ol className="relative max-w-4xl border-s border-border-default">
       {items.map((item, i) => (
         <li key={i} className="relative grid gap-1 py-5 ps-8 sm:grid-cols-[9rem_1fr] sm:gap-8 sm:py-6">
           <span aria-hidden="true" className="absolute -start-[5px] top-7 size-2.5 rounded-full bg-event-accent ring-4 ring-surface-page sm:top-8" />

@@ -96,7 +96,7 @@ export function PassStub({ tier, index, selected, locale, onSelect }: PassStubPr
           <span aria-hidden="true" className={`pass-perf ${ink ? "text-white" : "text-text-muted"}`} />
           {state === "AVAILABLE" ? (
             <>
-              <span className={`text-[10px] font-medium leading-tight ${ink ? "text-ink-300" : "opacity-80"}`}>{c.tierAdmit}</span>
+              <span className={`text-[11px] font-medium leading-tight ${ink ? "text-ink-300" : ""}`}>{c.tierAdmit}</span>
               <span className="text-base font-bold tracking-[0.06em]">{c.tierFree}</span>
               <Icon name={selected ? "check-circle" : "ticket"} size={20} className={ink ? "text-aiteb-orchid" : "opacity-80"} />
             </>

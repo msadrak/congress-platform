@@ -223,6 +223,8 @@
   z-index: 30;
   display: flex;
   align-items: center;
+  /* Overflow on short stages falls off the bottom, never clipping the icon and title at the top. */
+  align-items: safe center;
   justify-content: center;
   padding: 1.5rem 1.25rem;
   text-align: center;
@@ -267,6 +269,16 @@
   border: 3px solid rgb(255 255 255 / 0.55);
   background: rgb(255 255 255 / 0.14);
 }
+@media (max-width: 639px) {
+  .scanner-takeover-icon {
+    inline-size: 3.5rem;
+    block-size: 3.5rem;
+  }
+  .scanner-takeover-icon svg {
+    inline-size: 2.25rem;
+    block-size: 2.25rem;
+  }
+}
 .scanner-takeover--provisional .scanner-takeover-icon {
   border-color: rgb(7 6 26 / 0.55);
   background: rgb(255 255 255 / 0.25);
@@ -302,7 +314,7 @@
 }
 .scanner-takeover-tier {
   margin-block-start: 0.2rem;
-  font-size: 0.9375rem;
+  font-size: 1.125rem;
 }
 .scanner-takeover-reason {
   margin-block-start: 0.35rem;
@@ -322,10 +334,11 @@
   pointer-events: none;
   animation: scanner-verdict-in 110ms ease-out both;
 }
+/* Refusals get a heavier ring and provisional a dashed one, so the cue never rests on colour alone. */
 .scanner-halo--admitted { box-shadow: inset 0 0 0 6px var(--scanner-admit); }
-.scanner-halo--provisional { box-shadow: inset 0 0 0 6px var(--status-warning-solid); }
+.scanner-halo--provisional { outline: 6px dashed var(--status-warning-solid); outline-offset: -6px; }
 .scanner-halo--rejected,
-.scanner-halo--duplicate { box-shadow: inset 0 0 0 6px var(--status-danger-solid); }
+.scanner-halo--duplicate { box-shadow: inset 0 0 0 14px var(--status-danger-solid); }
 
 /* ── Sheets & setup ─────────────────────────────────────── */
 .scanner-sheet {

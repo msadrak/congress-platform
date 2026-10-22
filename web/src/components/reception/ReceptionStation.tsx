@@ -446,11 +446,15 @@ export function ReceptionStation({ eventId, organizer, locale, t, isRtl }: Recep
     setTimeout(() => nameInputRef.current?.focus(), 0);
   };
 
+  // Switching credential mode keeps the open pass when the same event stays loaded (operator → organizer).
   const selectMode = (next: DeskMode) => {
     if (next === mode) return;
+    const keepReview = mode === "operator" && next === "organizer";
     setMode(next);
-    setSearchResults([]);
-    setReview({ status: "idle" });
+    if (!keepReview) {
+      setSearchResults([]);
+      setReview({ status: "idle" });
+    }
     setOperatorProfile(null);
     setPageError(null);
   };
@@ -553,7 +557,7 @@ export function ReceptionStation({ eventId, organizer, locale, t, isRtl }: Recep
             <MobileOtpForm locale={locale} purpose="desk" verifyDesk={verifyDeskCode} verifyLabel={t.deskLoginButton} />
             {!standalone && (
               <div className="border-t border-border-subtle pt-4 text-center">
-                <Link to="/organizer" className={`inline-flex min-h-[40px] items-center gap-1.5 rounded-lg px-2 text-sm font-medium text-action-primary hover:underline ${focusRing}`}>
+                <Link to="/organizer" className={`inline-flex min-h-11 items-center gap-1.5 rounded-lg px-2 text-sm font-medium text-action-primary hover:underline ${focusRing}`}>
                   <Icon name="arrow-left" size={16} />
                   <span>{isRtl ? "ورود با کلید مدیر ارشد" : "Back to Organizer Console"}</span>
                 </Link>
@@ -591,6 +595,11 @@ export function ReceptionStation({ eventId, organizer, locale, t, isRtl }: Recep
   const selectedTicketId = review.status === "idle" ? null : review.status === "ready" ? review.card.ticket_id : review.ticketId;
   const issuedByLabel = t.issuedByLabel.replace(/[:：]\s*$/, "");
   const eventName = operatorProfile?.event_name;
+  const ticketStatusLabels: Record<string, string> = {
+    active: t.ticketStatusActive,
+    cancelled: isRtl ? "لغوشده" : "Cancelled",
+    revoked: isRtl ? "باطل‌شده" : "Revoked",
+  };
 
   return (
     <div className="rx-station space-y-5 sm:space-y-6" style={accentStyle}>
@@ -691,6 +700,10 @@ export function ReceptionStation({ eventId, organizer, locale, t, isRtl }: Recep
             onChange={(e) => setSearchQuery(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Escape") setSearchQuery("");
+              if (e.key === "Enter" && searchResults[0]) {
+                e.preventDefault();
+                void openReview(searchResults[0].ticket_id);
+              }
             }}
             placeholder={t.searchAttendeePlaceholder}
             className="rx-command-input"
@@ -739,7 +752,14 @@ export function ReceptionStation({ eventId, organizer, locale, t, isRtl }: Recep
               <span className="rounded-full bg-surface-panel-subtle px-2 py-0.5 font-mono text-[11px] text-text-secondary tabular">{formatLocalizedNumber(searchResults.length, locale)}</span>
             )}
           </div>
-          <div className="rx-results-scroll" aria-live="polite">
+          <p className="sr-only" role="status">
+            {trimmedQuery && !searching
+              ? isRtl
+                ? `${formatLocalizedNumber(searchResults.length, locale)} نتیجه`
+                : `${searchResults.length} ${searchResults.length === 1 ? "match" : "matches"}`
+              : ""}
+          </p>
+          <div className="rx-results-scroll">
             {searchResults.length === 0 && trimmedQuery ? (
               <div className="space-y-4 px-5 py-9 text-center">
                 <span aria-hidden="true" className="mx-auto grid size-11 place-items-center rounded-full bg-surface-panel-subtle text-text-muted">
@@ -781,7 +801,7 @@ export function ReceptionStation({ eventId, organizer, locale, t, isRtl }: Recep
                           </span>
                         </span>
                         <span className="flex shrink-0 flex-col items-end gap-1.5">
-                          <TicketStatusChip status={att.status} activeLabel={t.ticketStatusActive} />
+                          <TicketStatusChip status={att.status} label={ticketStatusLabels[att.status] ?? att.status} />
                           <span className="text-[11px] text-text-muted tabular">
                             {isRtl ? "تردد:" : "Check-ins:"} {formatLocalizedNumber(att.checkin_count, locale)}
                           </span>
@@ -808,7 +828,7 @@ export function ReceptionStation({ eventId, organizer, locale, t, isRtl }: Recep
               </p>
             </div>
           ) : (
-            <section aria-labelledby="review-heading" aria-live="polite" className="@container overflow-hidden shape-arc-lg border border-border-default bg-surface-panel shadow-lift">
+            <section aria-labelledby="review-heading" className="@container overflow-hidden shape-arc-lg border border-border-default bg-surface-panel shadow-lift">
               <div aria-hidden="true" className="h-[3px] bg-[image:var(--grad-aiteb)]" />
               {review.status === "loading" && (
                 <div role="status" className="space-y-5 p-5 sm:p-6">
@@ -853,7 +873,7 @@ export function ReceptionStation({ eventId, organizer, locale, t, isRtl }: Recep
                           {review.card.title && <span> · {review.card.title}</span>}
                         </p>
                       </div>
-                      <TicketStatusChip status={review.card.status} activeLabel={t.ticketStatusActive} size="md" />
+                      <TicketStatusChip status={review.card.status} label={ticketStatusLabels[review.card.status] ?? review.card.status} size="md" />
                     </div>
 
                     <div className="grid grid-cols-1 items-start gap-5 @xl:grid-cols-2">
@@ -907,7 +927,9 @@ export function ReceptionStation({ eventId, organizer, locale, t, isRtl }: Recep
                                     <span className="block font-semibold text-text-primary break-words">{scan.checkin_point_name}</span>
                                     <span className="text-[11px] text-text-muted tabular">{formatLocalizedDate(scan.scanned_at, locale)}</span>
                                   </span>
-                                  <Badge variant={scan.status === "ADMITTED" ? "success" : "danger"} size="sm" className="font-mono">{scan.status}</Badge>
+                                  <Badge variant={scan.status === "ADMITTED" ? "success" : "danger"} size="sm">
+                                    {scan.status === "ADMITTED" ? (isRtl ? "ورود" : "Admitted") : isRtl ? "رد شد" : "Refused"}
+                                  </Badge>
                                 </li>
                               ))}
                             </ol>

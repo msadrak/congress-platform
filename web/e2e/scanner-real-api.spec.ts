@@ -56,7 +56,7 @@ test('R01: Real PostgreSQL scanner pairing, manifest access, self-revocation, an
 
   await page.goto(`/scan/${point.id}?token=${encodeURIComponent(issued.scanner_token)}`);
   await expect(page.getByText('Task 05E Real Gate')).toBeVisible({ timeout: 15000 });
-  await expect(page.getByText('MULTI_ENTRY')).toBeVisible();
+  await expect(page.getByText('Re-entry allowed')).toBeVisible();
 
   await page.getByRole('button', { name: /Unpair This Scanner/i }).click();
   await page.getByRole('button', { name: /Confirm Unpair/i }).click();

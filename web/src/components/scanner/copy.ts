@@ -1,4 +1,4 @@
-import type { TranslationDictionary } from "../../lib/i18n";
+import { formatLocalizedNumber, type TranslationDictionary } from "../../lib/i18n";
 import type { LocalScanResult } from "../../lib/scannerEngine";
 
 /**
@@ -9,6 +9,8 @@ import type { LocalScanResult } from "../../lib/scannerEngine";
 export const scannerCopy = {
   fa: {
     product: "اسکنر گیت",
+    /** Two-digit section index in the locale's digits ("۰۱"). */
+    sectionIndex: (n: number) => formatLocalizedNumber(n, "fa").padStart(2, "۰"),
     loading: "در حال بارگذاری فهرست گیت…",
     policy: {
       MULTI_ENTRY: "ورود مجدد مجاز",
@@ -42,13 +44,21 @@ export const scannerCopy = {
     enableCamera: "فعال‌سازی دوربین دستگاه",
     cameraLive: "دوربین فعال است",
     cameraOff: "خاموش کردن دوربین",
+    cameraBlocked:
+      "دوربین برای این سایت مسدود است. آن را در تنظیمات سایت مرورگر مجاز کنید یا از بارکدخوان یا ورود دستی پایین صفحه استفاده کنید.",
+    cameraNotFound: "هیچ دوربینی روی این دستگاه پیدا نشد. می‌توانید از بارکدخوان USB یا ورود دستی استفاده کنید.",
+    cameraUnavailable: "امکان راه‌اندازی دوربین وجود ندارد. می‌توانید از بارکدخوان یا ورود دستی استفاده کنید.",
+    cameraInsecure: "دوربین فقط روی اتصال امن (https) کار می‌کند. از بارکدخوان یا ورود دستی پایین صفحه استفاده کنید.",
     // Manual entry
     manualTitle: "ورود دستی",
     manualLabel: "رمز کیوآر کارت",
     manualHint:
       "برای ورود دستی، مقدار رمزشده داخل بارکد (QR Secret) لازم است. شناسه رهگیری عمومی بلیت (Tracking ID) کلید ورود معتبر نیست.",
+    manualPlaceholder: "کد کیوآر کارت را اینجا بچسبانید",
+    trackingIdWarning:
+      "شناسه وارد شده شماره رهگیری بلیت است، نه رمز کیوآرکد. کارت را مقابل دوربین بگیرید یا مقدار QR Secret را وارد کنید.",
     // Results
-    duplicateTitle: "قبلاً وارد شده",
+    duplicateTitle: "تکراری — ورود ممنوع",
     // Buffer
     bufferLead: "صف آفلاین:",
     bufferTail: "اسکن در صف ارسال",
@@ -78,6 +88,18 @@ export const scannerCopy = {
     unpairPending: (n: number) => `${n} اسکن همگام‌نشده باید پیش از ابطال در سرور بازیابی شود.`,
     unpairRetained: "اعتبار تا تأیید ابطال توسط سرور نگه داشته می‌شود.",
     unpairOffline: "شما آفلاین هستید؛ این اقدام فقط این مرورگر را غیرفعال می‌کند و سرور ممکن است هنوز این اعتبار را بپذیرد.",
+    unpairNoticeOffline:
+      "اسکنر فقط روی این مرورگر غیرفعال شد. ابطال در سرور در انتظار است و سرور ممکن است هنوز این اعتبار را بپذیرد. دستگاه را نزد سرپرست نگه دارید و برای تکمیل، دوباره متصل شوید.",
+    unpairNoticeNoCredential:
+      "اسکنر به‌صورت محلی غیرفعال شد، اما اعتبار دستگاه برای ابطال در دسترس نیست. از برگزارکننده بخواهید دستگاه را ابطال کند.",
+    unpairNoticeUnsynced: (n: number) =>
+      `اسکنر به‌صورت محلی غیرفعال شد. ${formatLocalizedNumber(n, "fa")} اسکن همگام‌نشده روی این دستگاه قابل بازیابی است؛ ابطال در سرور انجام نشد. پیش از تلاش دوباره، متصل شوید یا از سرپرست بخواهید آن‌ها را بازیابی کند.`,
+    unpairNoticeNotConfirmed: (status: number) =>
+      `اسکنر به‌صورت محلی غیرفعال شد، اما ابطال در سرور تأیید نشد (HTTP ${status}). اعتبار برای تلاش دوباره نگه داشته می‌شود و سرور ممکن است هنوز آن را بپذیرد. اگر تلاش دوباره ناموفق بود، از برگزارکننده بخواهید آن را ابطال کند.`,
+    unpairNoticeConfirmed:
+      "ابطال در سرور تأیید شد. سوابق اسکن و تداخل برای بازیابی مجاز سرپرست حفظ می‌شوند؛ برای دسترسی به آن‌ها، دستگاه را با توکن تازه جفت کنید.",
+    unpairNoticeFailed:
+      "اسکنر به‌صورت محلی غیرفعال شد، اما ابطال در سرور تأیید نشد. اعتبار و سوابق اسکن نگه داشته می‌شوند؛ دوباره متصل شوید و تلاش کنید یا از برگزارکننده بخواهید آن را ابطال کند.",
     // Conflicts
     conflictsBody:
       "سرور این اسکن‌ها را رد کرده است (مثلاً پذیرش در گیت دیگر). سوابق برای ممیزی حفظ می‌شوند؛ تأیید فقط آن‌ها را بازبینی‌شده علامت می‌زند.",
@@ -127,6 +149,7 @@ export const scannerCopy = {
   },
   en: {
     product: "Gate Scanner",
+    sectionIndex: (n: number) => String(n).padStart(2, "0"),
     loading: "Loading gate manifest snapshot…",
     policy: {
       MULTI_ENTRY: "Re-entry allowed",
@@ -159,11 +182,19 @@ export const scannerCopy = {
     enableCamera: "Enable Device Camera",
     cameraLive: "Camera active",
     cameraOff: "Turn off camera",
+    cameraBlocked:
+      "Camera is blocked for this site. Allow it in the browser's site settings, or use a USB scanner or manual entry below.",
+    cameraNotFound: "No camera found on this device. You can use a USB scanner or manual entry.",
+    cameraUnavailable: "Unable to start camera preview. Please use a barcode scanner or manual code entry.",
+    cameraInsecure: "Camera needs a secure (https) connection. Use a USB scanner or manual entry below.",
     manualTitle: "Manual entry",
     manualLabel: "Ticket QR secret",
     manualHint:
       "Manual admission requires the cryptographic QR Secret payload. Public Ticket Tracking IDs cannot authorize entry.",
-    duplicateTitle: "Already admitted",
+    manualPlaceholder: "Paste the badge's QR code",
+    trackingIdWarning:
+      "This is a Ticket Reference/Tracking ID. The gate scanner requires the cryptographic QR Secret payload.",
+    duplicateTitle: "Duplicate — do not admit",
     bufferLead: "Offline Buffer:",
     bufferTail: "scans queued",
     syncNow: { fa: "ارسال صف", en: "Sync Queue Now" },
@@ -190,6 +221,18 @@ export const scannerCopy = {
     unpairPending: (n: number) => `${n} unsynced scan(s) must be recovered before server revocation.`,
     unpairRetained: "The credential is retained until the server confirms revocation.",
     unpairOffline: "You are offline, so this action can only disable this browser; the server may still accept the credential.",
+    unpairNoticeOffline:
+      "Scanner disabled on this browser only. Server revocation is pending; the server may still accept this credential. Keep this device with its supervisor and reconnect to finish.",
+    unpairNoticeNoCredential:
+      "Scanner is disabled locally, but no device credential is available to revoke it. Ask an organizer to revoke the device.",
+    unpairNoticeUnsynced: (n: number) =>
+      `Scanner is disabled locally. ${n} unsynced scan(s) remain recoverable on this device; server revocation was not attempted. Reconnect or ask a supervisor to recover them before retrying.`,
+    unpairNoticeNotConfirmed: (status: number) =>
+      `Scanner is disabled locally, but server revocation was not confirmed (HTTP ${status}). The credential is retained for retry; the server may still accept it. Ask an organizer to revoke it if retry fails.`,
+    unpairNoticeConfirmed:
+      "Server revocation confirmed. Scan and conflict records remain stored for authorized supervisor recovery; pair a fresh device token to access them.",
+    unpairNoticeFailed:
+      "Scanner is disabled locally, but server revocation could not be confirmed. The credential and scan records are retained; reconnect and retry or ask an organizer to revoke it.",
     conflictsBody:
       "The server rejected these scans (e.g. admitted at another gate). Records are preserved for audit — acknowledging only marks them reviewed.",
     close: "Close",

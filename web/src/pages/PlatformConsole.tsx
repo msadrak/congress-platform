@@ -162,8 +162,8 @@ export default function PlatformConsole() {
                 </p>
               </div>
               {problem && <FormAlert>{problemText[problem]}</FormAlert>}
-              <Button type="submit" variant="primary" size="lg" isFullWidth disabled={checking || !input.trim()}>
-                {checking ? "..." : isRtl ? "ورود به پنل" : "Open the console"}
+              <Button type="submit" variant="primary" size="lg" isFullWidth disabled={checking || !input.trim()} aria-busy={checking}>
+                {checking ? (isRtl ? "در حال بررسی…" : "Checking…") : isRtl ? "ورود به پنل" : "Open the console"}
               </Button>
             </form>
           </main>

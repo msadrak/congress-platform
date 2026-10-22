@@ -57,14 +57,14 @@ export function LeadCard({ lead, locale, capturedAt, labels, onQualify }: LeadCa
                   <a
                     href={telHref(lead.attendee_mobile)}
                     aria-label={`${labels.call} ${lead.attendee_name}`}
-                    className="inline-flex max-w-full items-center gap-1.5 rounded-sm text-[13px] font-medium text-action-primary hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
+                    className="inline-flex min-h-[44px] max-w-full items-center gap-1.5 rounded-sm px-1 text-[13px] font-medium text-action-primary hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
                   >
                     <Icon name="phone" size={15} className="shrink-0" />
                     <bdi dir="ltr" className="min-w-0 break-all font-mono text-[12.5px]">{formatMobile(lead.attendee_mobile, locale)}</bdi>
                   </a>
                   <a
                     href={telHref(lead.attendee_mobile, "sms")}
-                    className="inline-flex items-center gap-1 rounded-sm text-[12.5px] font-medium text-text-secondary hover:text-action-primary hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
+                    className="inline-flex min-h-[44px] items-center gap-1 rounded-sm px-1 text-[12.5px] font-medium text-text-secondary hover:text-action-primary hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
                   >
                     <Icon name="mail" size={14} className="shrink-0" />
                     {labels.text}

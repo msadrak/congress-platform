@@ -114,8 +114,9 @@ export function PassesPanel({
             type="button"
             variant="light"
             size="lg"
-            className="w-full sm:w-auto sm:min-w-[14rem] focus-visible:outline-aiteb-orchid"
+            className="w-full sm:w-auto sm:min-w-[14rem]"
             disabled={submitting || tiers.length === 0 || !available || Boolean(disabledNote)}
+            aria-busy={submitting}
             title={disabledNote}
             onClick={onReserve}
           >

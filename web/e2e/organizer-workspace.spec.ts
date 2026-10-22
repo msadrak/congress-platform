@@ -36,6 +36,16 @@ async function fixture(page: Page, options: Options = {}) {
   let smsTemplate = { kind: 'ticket_confirmation', body: SMS_DEFAULT, is_custom: false, default_body: SMS_DEFAULT, placeholders: ['name', 'event', 'tier', 'location', 'link'], required: [] };
   const smsLog: Record<string, unknown>[] = [{ id: 'm-0', kind: 'ticket_confirmation', mobile: '0912***2233', body: 'Sara عزیز…', status: 'pending', attempts: 0, last_error: null, created_at: '2099-01-01T00:00:00Z', sent_at: null }];
   const operators = [{ id: 'op-1', event_id: 'event-a', user_id: 'u1', operator_name: 'Operator One', mobile: '09121110001', is_revoked: false, created_at: '2099-01-01T00:00:00Z' }];
+  const places = [
+    { id: 'place-hall', event_id: 'event-a', kind: 'hall', name: 'Main hall', location: 'Ground floor', position: 0, created_at: '2099-01-01T00:00:00Z' },
+    { id: 'place-hall2', event_id: 'event-a', kind: 'hall', name: 'Hall 2', location: '', position: 1, created_at: '2099-01-01T00:00:01Z' },
+  ];
+  const sessionOf = (n: number, body: Record<string, unknown>) => {
+    const hall = places.find(p => p.id === body.hall_id || (body.hall && p.name.toLowerCase() === String(body.hall).toLowerCase()));
+    return { id: `session-${n}`, event_id: 'event-a', track: '', speakers: '', description: '', ...body, hall_id: hall?.id ?? null, hall_name: hall?.name ?? '', created_at: '2099-01-01T00:00:00Z', updated_at: '2099-01-01T00:00:00Z' };
+  };
+  let sessions = [sessionOf(1, { title: 'Opening keynote', track: 'Keynote', hall_id: 'place-hall', starts_at: '2099-05-10T07:30:00Z', ends_at: '2099-05-10T08:30:00Z' })];
+  const booths = [{ id: 'booth-a1', event_id: 'event-a', name: 'Acme Biotech', slug: 'acme', location: 'Hall B, Stand 4', description: '', website_url: '', brochure_url: '', qr_secret: 'qr-a1', created_at: '2099-01-01T00:00:00Z' }];
   await page.route(/^https?:\/\/[^/]+\/api\//, async route => {
     const request = route.request();
     const path = new URL(request.url()).pathname;
@@ -108,6 +118,49 @@ async function fixture(page: Page, options: Options = {}) {
     if (rest === '/attendees') return json(200, []);
     if (rest === '/analytics/attendance') return json(200, { event_id: id, total_tickets: 60, unique_admitted: 30, checkin_rate: 50, total_scans: 44, total_admitted: 40, total_rejected: 4, catering_metrics: [], gate_breakdown: [] });
     if (rest === '/analytics/export-csv') return route.fulfill({ status: 200, contentType: 'text/csv', body: 'ticket,state\n1,admitted\n' });
+    if (id === 'event-a') {
+      if (rest === '/venue-places' && method === 'GET') return json(200, places);
+      if (rest === '/venue-places' && method === 'POST') {
+        const body = JSON.parse(raw ?? '{}');
+        const created = { id: `place-${places.length + 1}`, event_id: id, location: '', ...body, position: places.filter(p => p.kind === body.kind).length, created_at: '2099-01-02T00:00:00Z' };
+        places.push(created);
+        return json(201, created);
+      }
+      const place = rest.match(/^\/venue-places\/([^/]+)$/);
+      if (place && method === 'PATCH') {
+        const index = places.findIndex(p => p.id === place[1]);
+        places[index] = { ...places[index], ...JSON.parse(raw ?? '{}') };
+        return json(200, places[index]);
+      }
+      if (rest === '/sessions' && method === 'GET') return json(200, sessions);
+      if (rest === '/sessions' && method === 'POST') {
+        const created = sessionOf(sessions.length + 1, JSON.parse(raw ?? '{}'));
+        sessions.push(created);
+        return json(201, created);
+      }
+      if (rest === '/sessions/import' && method === 'POST') {
+        const body = JSON.parse(raw ?? '{}');
+        const removed = body.replace ? sessions.length : 0;
+        const known = new Set(places.map(p => p.name.toLowerCase()));
+        const newHalls = [...new Set<string>(body.sessions.map((s: { hall: string }) => s.hall).filter((h: string) => h && !known.has(h.toLowerCase())))];
+        newHalls.forEach((name, i) => places.push({ id: `place-new-${i}`, event_id: id, kind: 'hall', name, location: '', position: places.length, created_at: '2099-01-02T00:00:00Z' }));
+        sessions = [...(body.replace ? [] : sessions), ...body.sessions.map((s: Record<string, unknown>, i: number) => sessionOf(100 + i, s))];
+        return json(200, { created: body.sessions.length, removed, halls_created: newHalls.length });
+      }
+      if (rest === '/booths' && method === 'GET') return json(200, booths);
+      const booth = rest.match(/^\/booths\/([^/]+)$/);
+      if (booth && method === 'PATCH') {
+        const body = JSON.parse(raw ?? '{}');
+        if (body.slug === 'taken') return json(409, { detail: 'Booth slug already exists' });
+        const index = booths.findIndex(b => b.id === booth[1]);
+        booths[index] = { ...booths[index], ...body };
+        return json(200, booths[index]);
+      }
+      if (booth && method === 'DELETE') {
+        booths.splice(booths.findIndex(b => b.id === booth[1]), 1);
+        return route.fulfill({ status: 204 });
+      }
+    }
     return json(200, []);
   });
   return requests;
@@ -141,7 +194,7 @@ test('one workspace navigation addresses every section of the selected event by 
   await seed(page);
   await page.goto('/organizer/events/event-a');
   await expect(page.getByTestId('active-event')).toHaveText('Alpha Congress');
-  await expect(workspaceNav(page).getByRole('link')).toHaveText([/Overview/, /Ticket Tiers/, /Check-In Gates/, /Exhibition Booths/, /Desk Staff/, /Public page/, /SMS/, /Analytics/, /Front Desk/]);
+  await expect(workspaceNav(page).getByRole('link')).toHaveText([/Overview/, /Program/, /Venue/, /Ticket Tiers/, /Check-In Gates/, /Exhibition Booths/, /Desk Staff/, /Public page/, /Attendee panel/, /SMS/, /Analytics/, /Front Desk/]);
   await expect(workspaceNav(page).getByRole('link', { name: /Overview/ })).toHaveAttribute('aria-current', 'page');
 
   const eventReads = () => requests.filter(r => r.method === 'GET' && r.path === '/api/events/event-a').length;
@@ -215,6 +268,34 @@ test('editing an event setting persists, announces success and updates the works
   const patch = requests.find(r => r.method === 'PATCH' && r.path === '/api/events/event-a');
   expect(patch?.auth).toBe(bearer);
   expect(patch?.body).toMatchObject({ name: 'Alpha Congress Renamed' });
+});
+
+test.describe('in a non-UTC time zone', () => {
+  test.use({ timezoneId: 'Asia/Tehran' });
+
+  test('edit event shows local wall time, names the missing field, and an unchanged save keeps the instants', async ({ page }) => {
+    const requests = await fixture(page);
+    await seed(page);
+    await page.goto('/organizer/events/event-a');
+    await page.getByRole('button', { name: /Edit Event/ }).click();
+    const dialog = page.getByRole('dialog');
+    // 07:00Z is 10:30 in Tehran (UTC+03:30).
+    await expect(dialog.getByLabel(/Start Date & Time/)).toHaveValue('2099-05-10T10:30');
+    await expect(dialog.getByLabel(/End Date & Time/)).toHaveValue('2099-05-12T18:30');
+
+    const name = dialog.getByRole('textbox').first();
+    await name.fill('');
+    await dialog.getByRole('button', { name: /Save/ }).click();
+    await expect(dialog.getByRole('alert')).toHaveText('Enter the event name.');
+    await expect(name).toHaveAttribute('aria-invalid', 'true');
+    expect(requests.some(r => r.method === 'PATCH')).toBe(false);
+
+    await name.fill('Alpha Congress');
+    await dialog.getByRole('button', { name: /Save/ }).click();
+    await expect(page.getByRole('status').filter({ hasText: 'Event settings saved' })).toBeVisible();
+    const patch = requests.find(r => r.method === 'PATCH' && r.path === '/api/events/event-a');
+    expect(patch?.body).toMatchObject({ starts_at: '2099-05-10T07:00:00.000Z', ends_at: '2099-05-12T15:00:00.000Z' });
+  });
 });
 
 test('closing a ticket tier needs confirmation; cancelling sends nothing', async ({ page }) => {
@@ -339,9 +420,89 @@ test('SMS: the organizer edits the confirmation with placeholders, sees the prev
 
   await page.getByRole('button', { name: 'Use the default text' }).click();
   await page.getByRole('dialog', { name: 'Use the default text?' }).getByRole('button', { name: 'Use default' }).click();
-  await expect(page.getByText('Default text')).toBeVisible();
+  await expect(page.getByText('Default text', { exact: true })).toBeVisible();
   await expect(editor).toHaveValue(/عزیز/);
   expect(requests.some(r => r.method === 'DELETE' && r.path.endsWith('/sms/templates/ticket_confirmation'))).toBe(true);
+  expect(requests.every(r => r.auth === bearer)).toBe(true);
+});
+
+test('program: sessions are grouped by day, added in local time, and a CSV timetable is checked before it is imported', async ({ page }) => {
+  const requests = await fixture(page);
+  await seed(page);
+  await page.goto('/organizer/events/event-a');
+  await expect(page.getByTestId('active-event')).toHaveText('Alpha Congress');
+  await workspaceNav(page).getByRole('link', { name: /Program/ }).click();
+  await expect(page).toHaveURL(/\/program$/);
+  await expect(workspaceNav(page).getByRole('link', { name: /Program/ })).toHaveAttribute('aria-current', 'page');
+  await expect(page.getByTestId('program-session')).toHaveText([/Opening keynote/]);
+  await expect(page.getByTestId('program-session')).toContainText('Main hall');
+
+  await page.getByRole('button', { name: 'Add session' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Add session' });
+  await dialog.getByLabel('Title').fill('Imaging workshop');
+  await dialog.getByLabel('Starts').fill('2099-05-10T11:00');
+  // Moving the start keeps the default one-hour length.
+  await expect(dialog.getByLabel('Ends')).toHaveValue('2099-05-10T12:00');
+  await dialog.getByLabel('Hall').selectOption({ label: 'Hall 2' });
+  await dialog.getByRole('button', { name: 'Add session' }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(page.getByTestId('program-session')).toHaveCount(2);
+  const startsAt = await page.evaluate(() => new Date('2099-05-10T11:00').toISOString());
+  expect(requests.find(r => r.method === 'POST' && r.path === '/api/events/event-a/sessions')?.body).toMatchObject({ title: 'Imaging workshop', hall_id: 'place-hall2', starts_at: startsAt });
+
+  await page.getByRole('button', { name: 'Upload timetable' }).click();
+  const panel = page.getByTestId('timetable-import');
+  const csv = '\uFEFFعنوان,شروع,پایان,سالن\r\n"Panel, part 1",2099-05-11 09:00,2099-05-11 10:00,Hall B\r\nBroken,2099-05-11 11:00,2099-05-11 10:00,\r\n';
+  await panel.getByLabel('Choose a CSV file').setInputFiles({ name: 'program.csv', mimeType: 'text/csv', buffer: Buffer.from(csv) });
+  await expect(panel.getByText('1 of 2 rows need fixing')).toBeVisible();
+  await expect(panel.getByText('Row 2 (line 3): ends before it starts')).toBeVisible();
+  await expect(panel.getByRole('button', { name: 'Import 2 sessions' })).toBeDisabled();
+
+  await panel.getByLabel('Choose a CSV file').setInputFiles({ name: 'program.csv', mimeType: 'text/csv', buffer: Buffer.from('title,starts_at,ends_at,hall\n"Panel, part 1",2099-05-11 09:00,2099-05-11 10:00,Hall B\n') });
+  await expect(panel.getByText('These halls will be created: Hall B')).toBeVisible();
+  await panel.getByLabel(/Replace the existing program/).check();
+  await panel.getByRole('button', { name: 'Replace with 1 session' }).click();
+  await expect(page.getByRole('status').filter({ hasText: '1 session imported; 2 previous sessions removed; 1 new hall created.' })).toBeVisible();
+  await expect(page.getByTestId('program-session')).toHaveText([/Panel, part 1/]);
+  expect(requests.find(r => r.path === '/api/events/event-a/sessions/import')?.body).toMatchObject({ replace: true, sessions: [{ title: 'Panel, part 1', hall: 'Hall B', track: '' }] });
+  expect(requests.every(r => r.auth === bearer)).toBe(true);
+});
+
+test('venue and booths: entrances are added, halls reordered, and a booth is edited, then deleted after an explicit warning', async ({ page }) => {
+  const requests = await fixture(page);
+  await seed(page);
+  await page.goto('/organizer/events/event-a/venue');
+  await expect(page.getByTestId('venue-hall')).toHaveText([/Main hall/, /Hall 2/]);
+  await page.getByRole('button', { name: 'Add entrance' }).click();
+  const add = page.getByRole('dialog', { name: 'Add entrance' });
+  await add.getByLabel('Name').fill('North gate');
+  await add.getByRole('button', { name: 'Save' }).click();
+  await expect(page.getByTestId('venue-entrance')).toHaveText([/North gate/]);
+  await page.getByRole('button', { name: 'Move “Hall 2” up' }).click();
+  await expect(page.getByTestId('venue-hall')).toHaveText([/Hall 2/, /Main hall/]);
+  expect(requests.filter(r => r.method === 'PATCH' && r.path.includes('/venue-places/'))).toHaveLength(2);
+  await page.getByRole('button', { name: 'Delete Main hall' }).click();
+  await expect(page.getByRole('dialog', { name: 'Delete this hall?' })).toContainText('Its 1 session stays in the program without a hall.');
+  await page.getByRole('dialog', { name: 'Delete this hall?' }).getByRole('button', { name: 'Cancel' }).click();
+
+  await page.goto('/organizer/events/event-a/booths');
+  await page.getByRole('button', { name: 'Edit booth Acme Biotech' }).click();
+  const edit = page.getByRole('dialog', { name: 'Edit booth' });
+  await edit.getByLabel('Booth Slug').fill('taken');
+  await edit.getByRole('button', { name: 'Save Changes' }).click();
+  await expect(edit.getByRole('alert')).toContainText('Another booth already uses this slug');
+  await edit.getByLabel('Booth Slug').fill('acme-imaging');
+  await edit.getByLabel('Company / Booth Name').fill('Acme Imaging');
+  await edit.getByRole('button', { name: 'Save Changes' }).click();
+  await expect(edit).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'Acme Imaging' })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Delete booth Acme Imaging' }).click();
+  const confirm = page.getByRole('dialog', { name: 'Delete this booth?' });
+  await expect(confirm).toContainText("staff assignments, attendees' saved bookmarks and all captured leads");
+  await confirm.getByRole('button', { name: 'Delete booth' }).click();
+  await expect(page.getByText('No exhibition booths registered yet')).toBeVisible();
+  expect(requests.some(r => r.method === 'DELETE' && r.path === '/api/events/event-a/booths/booth-a1')).toBe(true);
   expect(requests.every(r => r.auth === bearer)).toBe(true);
 });
 
@@ -361,7 +522,7 @@ test('reception shows which authority is acting when both credentials exist', as
   await seed(page, { desk: true });
   await page.goto('/organizer/events/event-a/desk');
   await expect(page.getByTestId('desk-active-mode')).toHaveText('Acting as: reception operator');
-  await page.getByRole('button', { name: 'Organizer mode' }).click();
+  await page.getByRole('button', { name: 'Organizer', exact: true }).click();
   await expect(page.getByTestId('desk-active-mode')).toHaveText('Acting as: organizer');
   await expect(workspaceNav(page).getByRole('link', { name: /Front Desk/ })).toHaveAttribute('aria-current', 'page');
 });

@@ -14,7 +14,7 @@ interface FixtureBooth { id: string; name: string; slug: string; location: strin
 
 const event = (slug: string, id: string, name: string): FixtureEvent => ({
   id, name, slug, starts_at: '2027-05-10T07:00:00Z', ends_at: '2027-05-12T15:00:00Z',
-  location: 'Fixture Hall', description: `About ${name}`, ticket_tiers: [],
+  location: 'Fixture Hall', description: `About ${name}`, ticket_tiers: [], venue: [], sessions: [],
 });
 const EVENTS: Record<string, FixtureEvent> = {
   alpha: event('alpha', 'event-a', 'Alpha Congress'),
@@ -86,7 +86,7 @@ async function fixture(page: Page, options: Options = {}) {
     if (path === '/api/attendees/me/network/scan') {
       return options.scanStatus === 409
         ? json(409, { detail: 'This badge belongs to a different congress' })
-        : json(201, { id: 'c', connected_user_id: 'p', full_name: 'Peer', mobile: null, organization: '', title: '', event_id: 'event-a', private_notes: '', created_at: '2027-01-01T00:00:00Z' });
+        : json(options.scanStatus ?? 201, { id: 'c', connected_user_id: 'p', full_name: 'Peer', mobile: null, organization: '', title: '', event_id: 'event-a', private_notes: '', created_at: '2027-01-01T00:00:00Z' });
     }
     if (path === '/api/attendees/me/network/privacy') {
       if (method === 'PATCH') {
@@ -270,21 +270,22 @@ test.describe('booth directory in My Congress', () => {
     const save = page.getByRole('button', { name: 'Save Alpha Devices' });
     await save.click();
     const saved = page.getByRole('button', { name: 'Remove Alpha Devices from saved booths' });
-    await expect(saved).toHaveAttribute('aria-pressed', 'true');
+    await expect(saved).toBeEnabled();
     expect(requests.find(r => r.method === 'POST' && r.path.endsWith('/booth-2'))?.auth).toBe(bearer);
     expect(requests.filter(r => r.path.startsWith('/api/public/')).every(r => r.auth === undefined)).toBe(true);
 
     await page.reload();
     await expect(page.getByRole('button', { name: 'Remove Alpha Devices from saved booths' })).toBeVisible();
     await page.getByRole('button', { name: 'Remove Alpha Devices from saved booths' }).click();
-    await expect(page.getByRole('button', { name: 'Save Alpha Devices' })).toHaveAttribute('aria-pressed', 'false');
+    await expect(page.getByRole('button', { name: 'Save Alpha Devices' })).toBeEnabled();
 
     await page.unrouteAll();
     await fixture(page, { bookmarkFails: true });
     await page.reload();
     await page.getByRole('button', { name: 'Save Zeta Pharma' }).click();
     await expect(page.getByRole('alert')).toContainText('Could not update');
-    await expect(page.getByRole('button', { name: 'Save Zeta Pharma' })).toHaveAttribute('aria-pressed', 'false');
+    await expect(page.getByRole('button', { name: 'Save Zeta Pharma' })).toBeEnabled();
+    await expect(page.getByRole('button', { name: 'Remove Zeta Pharma from saved booths' })).toHaveCount(0);
   });
 
   test('an empty congress and a failing directory are honest states', async ({ page }) => {
@@ -340,12 +341,55 @@ test.describe('My Profile', () => {
   });
 });
 
+declare global {
+  interface Window { __cameraRequests?: number; __cameraTracks?: MediaStreamTrack[] }
+}
+
+/** A fake camera (painted canvas stream) and a native QR detector that sees `decoded` (or nothing). */
+async function fakeCamera(page: Page, decoded: string | null) {
+  await page.addInitScript(value => {
+    window.__cameraRequests = 0;
+    window.__cameraTracks = [];
+    Object.defineProperty(navigator, 'mediaDevices', {
+      configurable: true,
+      value: {
+        getUserMedia: async () => {
+          window.__cameraRequests = (window.__cameraRequests ?? 0) + 1;
+          const canvas = document.createElement('canvas');
+          canvas.width = 64;
+          canvas.height = 48;
+          const context = canvas.getContext('2d');
+          let dark = false;
+          const paint = () => {
+            dark = !dark;
+            if (!context) return;
+            context.fillStyle = dark ? '#111' : '#eee';
+            context.fillRect(0, 0, canvas.width, canvas.height);
+          };
+          paint();
+          setInterval(paint, 50);
+          const stream = canvas.captureStream(10);
+          window.__cameraTracks?.push(...stream.getTracks());
+          return stream;
+        },
+      },
+    });
+    Object.defineProperty(window, 'BarcodeDetector', {
+      configurable: true,
+      value: class {
+        async detect() { return value ? [{ rawValue: value }] : []; }
+      },
+    });
+  }, decoded);
+}
+
 test.describe('event-scoped badge scan', () => {
   async function scan(page: Page) {
     await page.goto('/c/alpha/my-network');
-    await page.getByRole('button', { name: /connect|scan|add/i }).first().click();
-    await page.getByRole('dialog').getByRole('textbox').first().fill('some-peer-secret');
-    await page.getByRole('dialog').getByRole('button', { name: /connect|save|add/i }).last().click();
+    await page.getByRole('button', { name: 'Scan colleague QR code' }).first().click();
+    const dialog = page.getByRole('dialog');
+    await dialog.getByLabel(/Peer Badge Code/).fill('some-peer-secret');
+    await dialog.getByRole('button', { name: 'Save to My Network' }).click();
   }
 
   test('the congress id is sent and an other-congress badge shows an error', async ({ page }) => {
@@ -354,5 +398,59 @@ test.describe('event-scoped badge scan', () => {
     await scan(page);
     await expect(page.getByRole('dialog')).toContainText('belongs to another congress and was not saved');
     expect(requests.find(r => r.path === '/api/attendees/me/network/scan')?.body).toMatchObject({ event_id: 'event-a' });
+  });
+
+  test('a typed code saves the connection, closes the dialog and names the new contact', async ({ page }) => {
+    const requests = await fixture(page);
+    await signedIn(page);
+    await scan(page);
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await expect(page.getByRole('status').filter({ hasText: 'Peer was added to your network.' })).toBeVisible();
+    expect(requests.find(r => r.path === '/api/attendees/me/network/scan')?.body).toEqual({ qr_secret: 'some-peer-secret', private_notes: '', event_id: 'event-a' });
+  });
+
+  test('re-scanning an existing contact says they are already connected', async ({ page }) => {
+    await fixture(page, { scanStatus: 200 });
+    await signedIn(page);
+    await scan(page);
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await expect(page.getByRole('status').filter({ hasText: 'You are already connected with Peer.' })).toBeVisible();
+  });
+
+  test('?scan=1 opens the dialog once and a scanned pass QR connects with one tap', async ({ page }) => {
+    const requests = await fixture(page);
+    await fakeCamera(page, 'Peer-Secret');
+    await signedIn(page);
+    await page.goto('/c/alpha/my-network?scan=1');
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toBeVisible();
+    await expect(page).toHaveURL(/\/c\/alpha\/my-network$/);
+    // The camera waits for the user's tap: no permission request on open.
+    expect(await page.evaluate(() => window.__cameraRequests)).toBe(0);
+
+    await dialog.getByLabel('Private Notes on This Discussion').fill('Met at the poster session');
+    await dialog.getByRole('button', { name: 'Scan with camera' }).click();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await expect(page.getByRole('status').filter({ hasText: 'Peer was added to your network.' })).toBeVisible();
+    expect(requests.find(r => r.path === '/api/attendees/me/network/scan')?.body).toEqual({ qr_secret: 'Peer-Secret', private_notes: 'Met at the poster session', event_id: 'event-a' });
+    expect(await page.evaluate(() => (window.__cameraTracks ?? []).map(track => track.readyState))).toEqual(['ended']);
+
+    await page.reload();
+    await expect(page.getByRole('heading', { name: 'No Connections Saved Yet' })).toBeVisible();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+  });
+
+  test('closing the dialog releases a live camera', async ({ page }) => {
+    await fixture(page);
+    await fakeCamera(page, null);
+    await signedIn(page);
+    await page.goto('/c/alpha/my-network');
+    await page.getByRole('button', { name: 'Scan colleague QR code' }).first().click();
+    const dialog = page.getByRole('dialog');
+    await dialog.getByRole('button', { name: 'Scan with camera' }).click();
+    await expect(dialog.getByRole('button', { name: 'Stop camera' })).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await expect.poll(() => page.evaluate(() => (window.__cameraTracks ?? []).map(track => track.readyState))).toEqual(['ended']);
   });
 });

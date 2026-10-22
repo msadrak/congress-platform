@@ -1,5 +1,8 @@
 @import "tailwindcss";
 
+/* `reduced-transparency:` raises a translucent layer's opacity where blur would otherwise carry legibility. */
+@custom-variant reduced-transparency (@media (prefers-reduced-transparency: reduce));
+
 /*
  * AIteb product language — "Crossing Arcs".
  * Official AIteb values (extracted from aiteb.ir and its logo files) are marked [official];
@@ -187,6 +190,11 @@
   --animate-shimmer: shimmer 1.6s linear infinite;
   --animate-sweep: sweep 2.4s ease-in-out infinite;
   --animate-pulse-ring: pulse-ring 2s var(--ease-arc) infinite;
+  /* Dialog exits retrace their entrance (ease-in out, ease-arc in); phones get a bottom sheet. */
+  --animate-fade-out: fade-out 180ms ease-in both;
+  --animate-pop-out: pop-out 180ms ease-in both;
+  --animate-sheet-in: sheet-in 320ms var(--ease-arc) both;
+  --animate-sheet-out: sheet-out 180ms ease-in both;
 
   @keyframes rise {
     from { opacity: 0; transform: translateY(10px); }
@@ -199,6 +207,22 @@
   @keyframes pop {
     from { opacity: 0; transform: translateY(6px) scale(0.975); }
     to { opacity: 1; transform: none; }
+  }
+  @keyframes fade-out {
+    from { opacity: 1; }
+    to { opacity: 0; }
+  }
+  @keyframes pop-out {
+    from { opacity: 1; transform: none; }
+    to { opacity: 0; transform: translateY(6px) scale(0.975); }
+  }
+  @keyframes sheet-in {
+    from { transform: translateY(100%); }
+    to { transform: none; }
+  }
+  @keyframes sheet-out {
+    from { transform: none; }
+    to { transform: translateY(100%); }
   }
   @keyframes draw {
     from { stroke-dashoffset: var(--arc-length, 600); }
@@ -368,7 +392,7 @@
   }
   .ui-input::placeholder,
   .ui-textarea::placeholder {
-    color: #8C88B0;
+    color: var(--text-muted);
   }
   .ui-input:hover,
   .ui-select:hover,
@@ -381,6 +405,15 @@
     outline: none;
     border-color: var(--aiteb-indigo);
     box-shadow: 0 0 0 4px rgb(32 0 205 / 0.12);
+  }
+  /* Forced colours drop box-shadows: keep a visible focus outline on fields there. */
+  @media (forced-colors: active) {
+    .ui-input:focus,
+    .ui-select:focus,
+    .ui-textarea:focus {
+      outline: 2px solid CanvasText;
+      outline-offset: 1px;
+    }
   }
   .ui-input[aria-invalid="true"] {
     border-color: var(--status-danger-solid);
@@ -469,6 +502,14 @@
   }
   .reveal {
     animation: none !important;
+  }
+}
+
+/* Reduced transparency: no frosted blur; layers that rely on it add `reduced-transparency:` tints. */
+@media (prefers-reduced-transparency: reduce) {
+  [class*="backdrop-blur"] {
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
   }
 }
 

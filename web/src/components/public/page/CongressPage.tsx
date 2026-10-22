@@ -74,6 +74,7 @@ export function CongressPage({ event, doc, images, locale, passes, booths, mode 
   const logo = doc.branding.logo_asset_id ? images[doc.branding.logo_asset_id] ?? null : null;
   const passesVisible = isSectionVisible(doc, "passes");
   const exhibitionVisible = isSectionVisible(doc, "exhibitors");
+  const exhibitorsTitle = doc.sections.find((section) => section.type === "exhibitors")?.title;
   let index = 0;
 
   const text = (value: PageSection["title"], fallback: string): ReactNode => {
@@ -104,12 +105,12 @@ export function CongressPage({ event, doc, images, locale, passes, booths, mode 
         );
       }
       case "highlights":
+        // Both layouts stack under the heading; `list` and `cards` differ only in the block itself.
         return (
           <EditorialSection
             id={anchor}
             headingId={headingId}
             index={++index}
-            layout={section.layout === "cards" ? "stack" : "split"}
             eyebrow={text(section.eyebrow, c.sectionIncludesEyebrow)}
             title={text(section.title, c.sectionIncludes)}
             locale={locale}
@@ -123,7 +124,6 @@ export function CongressPage({ event, doc, images, locale, passes, booths, mode 
             id={anchor}
             headingId={headingId}
             index={++index}
-            layout="stack"
             eyebrow={text(section.eyebrow, c.sectionPassesEyebrow)}
             title={text(section.title, c.sectionPasses)}
             lead={text(section.lead, c.passesLead)}
@@ -165,7 +165,7 @@ export function CongressPage({ event, doc, images, locale, passes, booths, mode 
             id={anchor}
             headingId={headingId}
             index={++index}
-            layout={section.layout === "centered" ? "stack" : "split"}
+            align={section.layout === "centered" ? "center" : "start"}
             eyebrow={text(section.eyebrow, "")}
             title={<Bidi text={title} />}
             locale={locale}
@@ -203,7 +203,6 @@ export function CongressPage({ event, doc, images, locale, passes, booths, mode 
             id={anchor}
             headingId={headingId}
             index={++index}
-            layout="stack"
             eyebrow={text(section.eyebrow, c.sectionSpeakersEyebrow)}
             title={text(section.title, c.sectionSpeakers)}
             lead={localized(section.lead, locale) ? <Bidi text={localized(section.lead, locale)!} /> : undefined}
@@ -243,7 +242,7 @@ export function CongressPage({ event, doc, images, locale, passes, booths, mode 
         images={images}
         logo={logo}
         showPasses={passesVisible}
-        showExhibition={exhibitionVisible}
+        exhibitionLabel={exhibitionVisible ? text(exhibitorsTitle, c.ctaExhibition) : null}
       />
       <div className="pub-sheet">
         <div className="mx-auto max-w-7xl space-y-20 px-4 pt-14 pb-20 sm:space-y-28 sm:px-6 sm:pt-20 sm:pb-28 lg:px-10">

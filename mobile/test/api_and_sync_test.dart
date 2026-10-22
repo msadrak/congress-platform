@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:test/test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -56,5 +57,45 @@ void main() {
       final secondSync = await sync.syncQueuedScans('point_abc');
       expect(secondSync, 0);
     });
+
+    test('SyncService reports failure and keeps scans queued when the server is unreachable', () async {
+      final failing = MockClient((request) async => http.Response('boom', 503));
+      final storage = LocalStorageService();
+      final sync = SyncService(
+          api: ApiService(baseUrl: 'http://test', client: failing),
+          storage: storage);
+
+      await storage.enqueueScan(
+        ScanRecord(
+          scanId: 'f1',
+          pointId: 'point_off',
+          qrSecret: 'sec_f1',
+          scannedAt: DateTime.now(),
+          status: 'ADMITTED',
+        ),
+      );
+
+      expect(await sync.syncQueuedScans('point_off'), 0);
+      expect(sync.lastSyncFailed, isTrue);
+      expect((await storage.getUnsyncedScans('point_off')).length, 1);
+
+      final ok = SyncService(
+          api: ApiService(
+              baseUrl: 'http://test',
+              client: MockClient((request) async => http.Response(
+                  '{"results": [{"scan_id": "f1", "status": "ADMITTED"}]}',
+                  200))),
+          storage: storage);
+      expect(await ok.syncQueuedScans('point_off'), 1);
+      expect(ok.lastSyncFailed, isFalse);
+    });
+
+    test('ApiService gives up on a hung request after the timeout', () async {
+      final hung = MockClient((request) => Completer<http.Response>().future);
+      final api = ApiService(baseUrl: 'http://test', client: hung);
+      final started = DateTime.now();
+      expect(await api.fetchManifest('p'), isNull);
+      expect(DateTime.now().difference(started).inSeconds, lessThan(12));
+    }, timeout: const Timeout(Duration(seconds: 20)));
   });
 }

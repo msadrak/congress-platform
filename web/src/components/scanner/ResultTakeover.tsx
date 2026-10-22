@@ -39,12 +39,13 @@ export function ResultTakeover({ result, t, copy }: { result: LocalScanResult; t
           <div className="scanner-takeover-person">
             <p className="scanner-takeover-name">{result.ticket.attendee_name}</p>
             <p className="scanner-takeover-tier">
-              <span className="opacity-80">{t.tierLabel}:</span> <span className="font-semibold">{result.ticket.ticket_tier_name}</span>
+              <span>{t.tierLabel}:</span> <span className="font-semibold">{result.ticket.ticket_tier_name}</span>
             </p>
           </div>
         ) : null}
 
-        {result.rejection_reason && (
+        {/* The duplicate title already says why; its reason chip would only repeat it (the log keeps the reason). */}
+        {result.rejection_reason && kind !== "duplicate" && (
           <p className="scanner-takeover-reason">{rejectionLabel(t, result.rejection_reason) ?? t.reasonInvalidTicket}</p>
         )}
       </div>

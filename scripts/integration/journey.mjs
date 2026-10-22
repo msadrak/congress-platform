@@ -254,7 +254,7 @@ export async function runJourney(ctx) {
       await uiCode(d, mobile('alice'));
       await d.getByLabel('Full name').fill('Dr. Alice Attendee');
       await d.getByRole('button', { name: 'Create my account' }).click();
-      await A.getByRole('heading', { name: 'Pass Reserved Successfully!' }).waitFor({ timeout: 15000 });
+      await A.getByRole('heading', { name: 'Pass Reserved Successfully' }).waitFor({ timeout: 15000 });
       eq(q(`select count(*) from tickets t join users u on u.id=t.user_id where u.mobile='${mobile('alice')}' and t.event_id='${S.alphaId}'`), '1', 'ticket row');
       S.aliceTicket = q(`select t.id from tickets t join users u on u.id=t.user_id where u.mobile='${mobile('alice')}'`);
       S.aliceQr = q(`select secret from entity_qrs where entity_id='${S.aliceTicket}' and entity_type='attendee_ticket'`);
@@ -304,12 +304,14 @@ export async function runJourney(ctx) {
       await A.goto(`${BASE}/c/${S.slug}/my-ticket`);
       await A.getByText(`General Delegate ${RUN}`).first().waitFor({ timeout: 10000 });
       await A.getByRole('button', { name: 'Log Out' }).click();
+      await A.getByRole('dialog').getByRole('button', { name: 'Log out', exact: true }).click();
       await A.goto(`${BASE}/c/${S.slug}/sign-in?next=${encodeURIComponent(`/c/${S.slug}/my-ticket`)}`);
       await uiCode(A, mobile('outsider'));
       await A.waitForURL(new RegExp(`/c/${S.slug}/my-ticket$`));
       await A.getByText(/no .*pass|You have no|No Active Tickets/i).first().waitFor({ timeout: 10000 });
       assert(!(await A.locator('body').innerText()).includes(`General Delegate ${RUN}`), 'previous account ticket visible');
       await A.getByRole('button', { name: 'Log Out' }).click();
+      await A.getByRole('dialog').getByRole('button', { name: 'Log out', exact: true }).click();
       await A.goto(`${BASE}/c/${S.slug}/sign-in?next=${encodeURIComponent(`/c/${S.slug}/my-ticket`)}`);
       await uiCode(A, mobile('alice'));
       await A.getByText(`General Delegate ${RUN}`).first().waitFor({ timeout: 10000 });
@@ -433,12 +435,12 @@ export async function runJourney(ctx) {
     S.betaQr = betaTicket.qr_secret;
     const G = await actor('scanner', { width: 390, height: 844 });
     debugPage = G;
-    const scanCode = async (code) => { await G.getByPlaceholder(/Enter Ticket QR Secret/).fill(code); await G.getByRole('button', { name: /Evaluate Code/ }).click(); };
+    const scanCode = async (code) => { await G.getByPlaceholder("Paste the badge's QR code").fill(code); await G.getByRole('button', { name: 'Check Ticket' }).click(); };
     const dbCheckins = (ticket, status) => num(`select count(*) from checkins where checkin_point_id='${S.point}' and ticket_id='${ticket}' and status='${status}'`);
     await check('D1 scanner pairs with its device token and loads the authorized gate manifest', async () => {
       await G.goto(`${BASE}/scan/${S.point}?token=${encodeURIComponent(S.scannerToken)}`);
       await G.getByText('E2E Main Gate').first().waitFor({ timeout: 20000 });
-      await G.getByText('SINGLE_USE').first().waitFor();
+      await G.getByText('One entry per ticket').first().waitFor();
       const m = await http('GET', `/api/checkin-points/${S.point}/manifest`, { token: S.scannerToken });
       eq(m.status, 200, 'manifest');
       eq(m.json.tickets.map((t) => t.attendee_name).sort(), ['Carla Lostresponse', 'Dr. Alice Attendee', 'Wanda Walkin'], 'manifest tickets (Beta ticket absent)');
@@ -446,7 +448,7 @@ export async function runJourney(ctx) {
     });
     await check('D2 valid ticket is admitted; the admission is recorded by the backend after sync', async () => {
       await scanCode(S.aliceQr);
-      await G.getByText(/Confirmed Admitted|Provisional Offline Admission/).first().waitFor({ timeout: 10000 });
+      await G.getByText(/Confirmed Admitted|Admitted \(offline\)/).first().waitFor({ timeout: 10000 });
       await G.waitForFunction(() => /Offline Buffer: 0 scans queued/.test(document.body.innerText), null, { timeout: 20000 });
       await shot(G, 'D-scanner-admitted');
       eq(dbCheckins(S.aliceTicket, 'ADMITTED'), 1, 'ADMITTED rows');
@@ -478,7 +480,7 @@ export async function runJourney(ctx) {
     await check('D5 offline admission is queued locally and synchronized after reconnecting (not in PostgreSQL until then)', async () => {
       await G.context().setOffline(true);
       await scanCode(S.wandaQr);
-      await G.getByText(/Provisional Offline Admission|Confirmed Admitted/).first().waitFor({ timeout: 10000 });
+      await G.getByText(/Admitted \(offline\)|Confirmed Admitted/).first().waitFor({ timeout: 10000 });
       await G.waitForFunction(() => /Offline Buffer: [1-9]/.test(document.body.innerText), null, { timeout: 10000 });
       eq(dbCheckins(S.wandaTicket, 'ADMITTED'), 0, 'row before sync');
       await G.context().setOffline(false);
@@ -533,10 +535,10 @@ export async function runJourney(ctx) {
       await X.getByTestId('booth-event').filter({ hasText: 'E2E Congress Alpha' }).waitFor();
     });
     await check('E2 attendee QR captured: a lead for the correct booth and ticket exists in PostgreSQL', async () => {
-      await X.getByRole('button', { name: /Capture Attendee Lead/ }).last().click();
+      await X.getByRole('button', { name: /Capture Lead/ }).last().click();
       await codeInput().fill(S.aliceQr);
-      await X.getByRole('button', { name: 'Record Lead to Booth CRM' }).click();
-      await X.getByTestId('capture-result').getByText('Attendee lead captured successfully.').waitFor({ timeout: 10000 });
+      await X.getByRole('button', { name: 'Save Lead' }).click();
+      await X.getByTestId('capture-result').getByText('Lead saved.').waitFor({ timeout: 10000 });
       eq(q(`select count(*) from leads where booth_id='${S.booth1}' and ticket_id='${S.aliceTicket}'`), '1', 'lead row');
       eq(q(`select count(*) from leads where booth_id='${S.booth2}'`), '0', 'other booth leads');
       eq(q(`select u.mobile from leads l join users u on u.id=l.captured_by_user_id where l.booth_id='${S.booth1}'`), mobile('rep1'), 'captured_by');
@@ -550,9 +552,11 @@ export async function runJourney(ctx) {
       await d.locator('textarea').fill('Wants 3 units; follow up Friday.');
       await d.getByRole('button', { name: 'Save Qualification Changes' }).click();
       await d.getByText('Lead qualification updated successfully.').waitFor({ timeout: 10000 });
-      await X.getByTestId('capture-result').getByRole('button', { name: /Next attendee/ }).click();
+      // Qualifying closed the capture dialog; the qualification dialog closes itself after saving.
+      await d.waitFor({ state: 'detached', timeout: 10000 });
+      await X.getByRole('button', { name: /Capture Lead/ }).last().click();
       await codeInput().fill(S.aliceQr);
-      await X.getByRole('button', { name: 'Record Lead to Booth CRM' }).click();
+      await X.getByRole('button', { name: 'Save Lead' }).click();
       await X.getByTestId('capture-result').getByText(/already a lead/).waitFor({ timeout: 10000 });
       const row = q(`select rating, tags, notes from leads where booth_id='${S.booth1}'`);
       assert(row.startsWith('HOT|') && row.includes('Send Quotation') && row.includes('Wants 3 units'), 'qualification lost: ' + row);
@@ -560,9 +564,9 @@ export async function runJourney(ctx) {
       await X.getByTestId('capture-result').getByRole('button', { name: 'Done' }).click();
     });
     await check('E4 a ticket from another congress is refused (400) and creates no lead', async () => {
-      await X.getByRole('button', { name: /Capture Attendee Lead/ }).last().click();
+      await X.getByRole('button', { name: /Capture Lead/ }).last().click();
       await codeInput().fill(S.betaQr);
-      await X.getByRole('button', { name: 'Record Lead to Booth CRM' }).click();
+      await X.getByRole('button', { name: 'Save Lead' }).click();
       await X.getByRole('dialog').getByRole('alert').filter({ hasText: 'different congress' }).waitFor({ timeout: 10000 });
       eq(q(`select count(*) from leads where booth_id in ('${S.booth1}','${S.booth2}')`), '1', 'leads in this congress');
       await X.keyboard.press('Escape');
@@ -571,7 +575,7 @@ export async function runJourney(ctx) {
       await X.getByPlaceholder(/Search/).fill('alice');
       await X.getByRole('article').filter({ hasText: 'Dr. Alice Attendee' }).waitFor();
       await X.getByPlaceholder(/Search/).fill('');
-      const [dl] = await Promise.all([X.waitForEvent('download'), X.getByRole('button', { name: 'Export CRM CSV' }).click()]);
+      const [dl] = await Promise.all([X.waitForEvent('download'), X.getByRole('button', { name: 'Export CSV' }).click()]);
       const text = readFileSync(await dl.path(), 'utf8');
       const rows = text.replace('\ufeff', '').trim().split(/\r?\n/);
       eq(rows.length, 2, 'csv rows (header + 1)');
@@ -581,14 +585,14 @@ export async function runJourney(ctx) {
       eq(dl.suggestedFilename(), `alpha-1-${RUN}-leads.csv`, 'filename');
     });
     await check('E6 a lead scan whose response is lost: no success shown, exactly one lead exists, a second scan only updates it', async () => {
-      await X.getByRole('button', { name: /Capture Attendee Lead/ }).last().click();
+      await X.getByRole('button', { name: /Capture Lead/ }).last().click();
       await X.route('**/leads/scan', async (route) => { await route.fetch(); await route.abort('failed'); }, { times: 1 });
       await codeInput().fill(S.wandaQr);
-      await X.getByRole('button', { name: 'Record Lead to Booth CRM' }).click();
+      await X.getByRole('button', { name: 'Save Lead' }).click();
       await X.getByRole('dialog').getByRole('alert').filter({ hasText: 'not known whether the lead was saved' }).waitFor({ timeout: 10000 });
       assert((await X.getByTestId('capture-result').count()) === 0, 'success shown for an unconfirmed write');
       eq(q(`select count(*) from leads where booth_id='${S.booth1}' and ticket_id='${S.wandaTicket}'`), '1', 'lead written once');
-      await X.getByRole('button', { name: 'Record Lead to Booth CRM' }).click();
+      await X.getByRole('button', { name: 'Save Lead' }).click();
       await X.getByTestId('capture-result').getByText(/already a lead/).waitFor({ timeout: 10000 });
       eq(q(`select count(*) from leads where booth_id='${S.booth1}' and ticket_id='${S.wandaTicket}'`), '1', 'lead rows after retry');
       await X.getByTestId('capture-result').getByRole('button', { name: 'Done' }).click();
@@ -604,7 +608,7 @@ export async function runJourney(ctx) {
       await X.getByRole('button', { name: 'Log Out' }).click();
       await X.waitForURL(new RegExp(`/booth/${S.booth1}/sign-in`));
       await uiCode(X, mobile('rep2'));
-      await X.getByRole('heading', { name: 'Commercial Access Restricted (403)' }).waitFor({ timeout: 10000 });
+      await X.getByRole('heading', { name: 'Commercial Access Restricted' }).waitFor({ timeout: 10000 });
       assert(!(await X.locator('body').innerText()).includes('Alice'), 'alice visible to rep2');
       eq((await http('GET', `/api/booths/${S.booth1}/leads`, { token: S.aliceToken })).status, 403, 'plain user');
       eq((await http('GET', `/api/booths/${S.booth1}/leads`, { key: S.key })).status, 401, 'organizer key as user');

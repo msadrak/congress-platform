@@ -3,6 +3,7 @@ import type { MediaAssetOut } from "../../../api/client";
 import type { PageImages } from "../../../lib/pageDocument";
 import { ACCEPTED_IMAGE_TYPES } from "../../../lib/pageMedia";
 import { Button } from "../../ui/Button";
+import { ConfirmDialog } from "../../ui/ConfirmDialog";
 import { Dialog } from "../../ui/Dialog";
 import { Icon } from "../../ui/Icon";
 import { FormAlert } from "../WorkspaceUi";
@@ -26,28 +27,59 @@ export function MediaLibrary({ isOpen, copy, assets, images, inUse, onUpload, on
   const m = copy.media;
   const input = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
+  const [over, setOver] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<string | null>(null);
 
   const upload = async (file: File | undefined) => {
-    if (!file) return;
+    if (!file || busy) return;
     setBusy(true);
     setError(null);
-    const failure = await onUpload(file);
-    setBusy(false);
-    if (failure) setError(failure);
-    if (input.current) input.current.value = "";
+    try {
+      const failure = await onUpload(file);
+      if (failure) setError(failure);
+    } catch {
+      setError(m.uploadFailed);
+    } finally {
+      setBusy(false);
+      if (input.current) input.current.value = "";
+    }
+  };
+
+  const remove = async (id: string) => {
+    setDeleting(id);
+    setError(null);
+    try {
+      const failure = await onDelete(id);
+      if (failure) setError(failure);
+    } catch {
+      setError(m.deleteFailed);
+    } finally {
+      setDeleting(null);
+    }
   };
 
   return (
     <Dialog isOpen={isOpen} onClose={onClose} title={m.library} description={m.libraryBody} size="lg">
       <div className="space-y-5">
         <label
+          data-over={over || undefined}
           onDragOver={(e) => e.preventDefault()}
+          onDragEnter={(e) => {
+            e.preventDefault();
+            if (!busy) setOver(true);
+          }}
+          onDragLeave={(e) => {
+            if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setOver(false);
+          }}
           onDrop={(e) => {
             e.preventDefault();
+            setOver(false);
+            if (busy) return;
             void upload(e.dataTransfer.files[0]);
           }}
-          className="flex cursor-pointer flex-col items-center gap-2 rounded-2xl border border-dashed border-action-subtle-border bg-aiteb-lavender/40 px-4 py-6 text-center transition-colors hover:bg-aiteb-lavender has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-focus-ring"
+          className="flex cursor-pointer flex-col items-center gap-2 rounded-2xl border border-dashed border-action-subtle-border bg-aiteb-lavender/40 px-4 py-6 text-center transition-colors hover:bg-aiteb-lavender has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-focus-ring data-[over]:border-aiteb-indigo data-[over]:bg-aiteb-lavender"
         >
           <input
             ref={input}
@@ -87,24 +119,22 @@ export function MediaLibrary({ isOpen, copy, assets, images, inUse, onUpload, on
                     </span>
                   </button>
                   <div className="flex items-center justify-between gap-2 px-2.5 py-1.5">
-                    <span className="font-mono text-[10px] text-text-muted tabular" dir="ltr">
+                    <span className="font-mono text-[11px] text-text-muted tabular" dir="ltr">
                       {asset.width}×{asset.height}
                     </span>
                     {used ? (
-                      <span className="text-[10px] font-semibold text-aiteb-indigo">{m.inUse}</span>
+                      <span className="text-[11px] font-semibold text-aiteb-indigo">{m.inUse}</span>
                     ) : (
                       <button
                         type="button"
                         title={m.delete}
                         aria-label={m.delete}
-                        onClick={async () => {
-                          setError(null);
-                          const failure = await onDelete(asset.id);
-                          if (failure) setError(failure);
-                        }}
-                        className="grid size-7 cursor-pointer place-items-center rounded-md text-text-muted hover:bg-status-danger-bg hover:text-status-danger-text"
+                        disabled={deleting === asset.id}
+                        aria-busy={deleting === asset.id}
+                        onClick={() => setConfirmDelete(asset.id)}
+                        className="grid size-7 cursor-pointer place-items-center rounded-md text-text-muted hover:bg-status-danger-bg hover:text-status-danger-text disabled:cursor-wait disabled:opacity-50"
                       >
-                        <Icon name="trash" size={14} />
+                        <Icon name={deleting === asset.id ? "sync" : "trash"} size={14} className={deleting === asset.id ? "motion-safe:animate-spin" : ""} />
                       </button>
                     )}
                   </div>
@@ -118,6 +148,20 @@ export function MediaLibrary({ isOpen, copy, assets, images, inUse, onUpload, on
             {copy.cancel}
           </Button>
         </div>
+        <ConfirmDialog
+          isOpen={confirmDelete !== null}
+          title={m.confirmDeleteTitle}
+          description={m.confirmDeleteBody}
+          confirmLabel={m.delete}
+          cancelLabel={copy.cancel}
+          tone="danger"
+          onCancel={() => setConfirmDelete(null)}
+          onConfirm={() => {
+            const id = confirmDelete;
+            setConfirmDelete(null);
+            if (id) void remove(id);
+          }}
+        />
       </div>
     </Dialog>
   );

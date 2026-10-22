@@ -1,7 +1,7 @@
 import { AitebAttribution } from "../brand/Aiteb";
 import { Icon } from "../ui/Icon";
 import type { ScannerCopy } from "./copy";
-import { BiLabel } from "./ScannerChrome";
+import { BiLabel, SystemReadout } from "./ScannerChrome";
 
 type Locale = "fa" | "en";
 
@@ -10,6 +10,8 @@ interface DeviceSettingsProps {
   copy: ScannerCopy;
   pointId: string | undefined;
   unpairNotice: string | null;
+  /** The same notice in English for supervisors, shown verbatim under a translated one. */
+  unpairDetail: string | null;
   showConfirm: boolean;
   unpairing: boolean;
   pendingCount: number;
@@ -27,7 +29,7 @@ export function DeviceSettings(props: DeviceSettingsProps) {
       <div aria-hidden="true" className="scanner-rule mb-4" />
       <div className="flex items-start justify-between gap-3">
         <h2 id="scanner-settings-title" className="flex items-center gap-2 text-[13px] font-semibold text-ink-200">
-          <span aria-hidden="true" className="scanner-index">04</span>
+          <span aria-hidden="true" className="scanner-index">{copy.sectionIndex(4)}</span>
           {copy.settingsTitle}
         </h2>
         {props.pointId && (
@@ -39,9 +41,12 @@ export function DeviceSettings(props: DeviceSettingsProps) {
       <p className="mt-2 text-[12.5px] leading-relaxed text-ink-400">{copy.settingsBody}</p>
 
       {props.unpairNotice && (
-        <p role="status" dir="auto" className="mt-3 rounded-xl border border-status-success-solid/40 bg-status-success-solid/10 px-3 py-2.5 text-[13px] leading-relaxed text-[#9AF0CB]">
-          {props.unpairNotice}
-        </p>
+        <div className="mt-3 space-y-2">
+          <p role="status" dir="auto" className="rounded-xl border border-status-success-solid/40 bg-status-success-solid/10 px-3 py-2.5 text-[13px] leading-relaxed text-[#9AF0CB]">
+            {props.unpairNotice}
+          </p>
+          <SystemReadout label={copy.systemDetail} lines={[props.unpairDetail]} />
+        </div>
       )}
 
       <div className="mt-4 border-t border-dashed border-status-danger-solid/30 pt-4">

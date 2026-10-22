@@ -1,6 +1,7 @@
 import { Suspense, lazy, type ReactNode } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import { CongressRoute } from "./components/ui/PortalState";
+import { AppUpdatePrompt } from "./components/AppUpdatePrompt";
 // Public pages are the first impression: shipped in the entry bundle so their first paint never
 // waits for a second request.
 import Home from "./pages/Home";
@@ -29,6 +30,10 @@ const OrganizerEvents = lazy(() => import("./pages/OrganizerEvents"));
 const OrganizerLayout = lazy(() => import("./pages/OrganizerLayout"));
 const OrganizerPagePreview = lazy(() => import("./pages/OrganizerPagePreview"));
 const OrganizerPageStudio = lazy(() => import("./pages/OrganizerPageStudio"));
+const OrganizerPanel = lazy(() => import("./pages/OrganizerPanel"));
+const OrganizerPanelFrame = lazy(() => import("./pages/OrganizerPanel").then((m) => ({ default: m.OrganizerPanelFrame })));
+const OrganizerProgram = lazy(() => import("./pages/OrganizerProgram"));
+const OrganizerVenue = lazy(() => import("./pages/OrganizerVenue"));
 const ReceptionPortal = lazy(() => import("./pages/ReceptionPortal"));
 const ReceptionEntry = lazy(() => import("./pages/ReceptionPortal").then((m) => ({ default: m.ReceptionEntry })));
 
@@ -38,22 +43,28 @@ const section = (element: ReactNode) => <Suspense fallback={<div role="status" a
 export default function App() {
   return (
     <Suspense fallback={<div role="status" aria-busy="true" className="min-h-dvh" />}>
+      <AppUpdatePrompt />
       <Routes>
         <Route path="/" element={<Home />} />
         <Route path="/organizer" element={<OrganizerLayout />}>
           <Route index element={section(<OrganizerEvents />)} />
           <Route path="events/:eventId" element={section(<OrganizerEventDetail />)} />
+          <Route path="events/:eventId/program" element={section(<OrganizerProgram />)} />
+          <Route path="events/:eventId/venue" element={section(<OrganizerVenue />)} />
           <Route path="events/:eventId/tiers" element={section(<OrganizerEventDetail />)} />
           <Route path="events/:eventId/check-in" element={section(<OrganizerEventDetail />)} />
           <Route path="events/:eventId/booths" element={section(<OrganizerEventDetail />)} />
           <Route path="events/:eventId/operators" element={section(<OrganizerEventDetail />)} />
           <Route path="events/:eventId/page" element={section(<OrganizerPageStudio />)} />
+          <Route path="events/:eventId/panel" element={section(<OrganizerPanel />)} />
           <Route path="events/:eventId/desk" element={section(<OrganizerDesk />)} />
           <Route path="events/:eventId/sms" element={section(<OrganizerSms />)} />
           <Route path="events/:eventId/analytics" element={section(<OrganizerAnalytics />)} />
         </Route>
         {/* Page Studio preview frame: the public page without the organizer shell (key from this tab's session). */}
         <Route path="/organizer/events/:eventId/page/preview" element={<OrganizerPagePreview />} />
+        {/* Attendee-panel preview frame, embedded by the panel control page (key from this tab's session). */}
+        <Route path="/organizer/events/:eventId/panel/preview" element={<OrganizerPanelFrame />} />
         <Route path="/platform" element={<PlatformConsole />}>
           <Route index element={<PlatformSms />} />
           <Route path="sign-in" element={<PlatformSignIn />} />

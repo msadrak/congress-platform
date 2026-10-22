@@ -10,6 +10,7 @@ import {
   type TicketTierOut,
 } from "../api/client";
 import { formatLocalizedNumber } from "../lib/i18n";
+import { EVENT_SETUP_SECTIONS } from "../lib/organizerWorkspace";
 import type { OrganizerOutletContext } from "./OrganizerLayout";
 import { Badge } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
@@ -191,6 +192,15 @@ function OrganizerAnalyticsContent() {
   }
 
   const fmt = (n: number) => formatLocalizedNumber(n, locale);
+  const numberLocale = locale === "fa" ? "fa-IR" : "en-US";
+  const pct = (rate: number) =>
+    new Intl.NumberFormat(numberLocale, { style: "percent", minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(rate / 100);
+  const twoDigits = new Intl.NumberFormat(numberLocale, { minimumIntegerDigits: 2, useGrouping: false });
+  /** "08:00" in the page's digits. */
+  const hourText = (hour: string) => {
+    const match = /^(\d{1,2}):(\d{2})/.exec(hour);
+    return match ? `${twoDigits.format(Number(match[1]))}:${twoDigits.format(Number(match[2]))}` : hour;
+  };
   const policyLabel: Record<string, string> = {
     SINGLE_USE: t.policySingleUse,
     MULTI_ENTRY: t.policyMultiEntry,
@@ -202,7 +212,7 @@ function OrganizerAnalyticsContent() {
   return (
     <div className="space-y-8 sm:space-y-10">
       <SectionHeader
-        index={6}
+        index={EVENT_SETUP_SECTIONS.length + 1}
         eyebrow={event?.name || t.organizerConsole}
         title={t.analyticsTitle}
         description={t.analyticsSubtitle}
@@ -269,7 +279,7 @@ function OrganizerAnalyticsContent() {
             <option value="">{t.allTiersFilter}</option>
             {tiers.map((tr) => (
               <option key={tr.id} value={tr.id}>
-                {tr.name} ({tr.quota})
+                {tr.name} ({fmt(tr.quota)})
               </option>
             ))}
           </select>
@@ -332,7 +342,7 @@ function OrganizerAnalyticsContent() {
               <span className="flex items-center justify-between gap-2 text-xs font-semibold text-text-muted">
                 {t.uniqueAdmittedKPI}
                 <span className="rounded-full border border-action-subtle-border bg-action-subtle px-2 py-0.5 text-[0.6875rem] font-bold text-action-primary">
-                  <bdi dir="ltr" className="tabular">{analytics.checkin_rate.toFixed(1)}%</bdi>
+                  <bdi className="tabular">{pct(analytics.checkin_rate)}</bdi>
                 </span>
               </span>
               <span className="org-kpi-value text-[2.75rem] text-text-primary sm:text-[3.25rem]">{fmt(analytics.unique_admitted)}</span>
@@ -392,7 +402,7 @@ function OrganizerAnalyticsContent() {
                         <bdi>{cat.point_name}</bdi>
                       </h3>
                       <Badge variant="warning" size="sm">
-                        <bdi dir="ltr" className="tabular">{cat.redemption_rate.toFixed(1)}%</bdi> {t.cateringRedemptionRate}
+                        <bdi className="tabular">{pct(cat.redemption_rate)}</bdi> {t.cateringRedemptionRate}
                       </Badge>
                     </div>
                     <p className="flex flex-wrap items-baseline gap-x-2">
@@ -492,7 +502,7 @@ function OrganizerAnalyticsContent() {
                             {([
                               [t.admittedLabel, gate.total_admitted, "text-status-success-text"],
                               [t.rejectedLabel, gate.total_rejected, "text-status-danger-text"],
-                              [t.cumulativeAdmittedLabel, gate.current_occupancy, "text-text-primary"],
+                              [t.gateScansLabel, gate.total_admitted + gate.total_rejected, "text-text-primary"],
                             ] as const).map(([label, value, tone]) => (
                               <div key={label} className="min-w-0 px-3 py-2.5">
                                 <dt className="truncate text-[0.6875rem] font-semibold text-text-muted" title={label}>
@@ -539,7 +549,7 @@ function OrganizerAnalyticsContent() {
                                   {gate.hourly_scans.map((h) => (
                                     <tr key={h.hour}>
                                       <td className="!py-2.5 font-mono">
-                                        <bdi dir="ltr">{h.hour}</bdi>
+                                        <bdi dir="ltr">{hourText(h.hour)}</bdi>
                                       </td>
                                       <td className="!py-2.5 text-end font-mono font-semibold tabular">{fmt(h.count)}</td>
                                     </tr>
@@ -552,9 +562,9 @@ function OrganizerAnalyticsContent() {
                             <figure className="space-y-2">
                               <div className="org-columns" dir="ltr" aria-hidden="true">
                                 {series.map((h) => (
-                                  <div key={h.hour} className="flex h-full min-w-0 flex-1 flex-col items-center justify-end gap-1" title={`${h.hour} · ${h.count}`}>
+                                  <div key={h.hour} className="flex h-full min-w-0 flex-1 flex-col items-center justify-end gap-1" title={`${hourText(h.hour)} · ${fmt(h.count)}`}>
                                     {series.length <= 12 && h.count > 0 && (
-                                      <span className="font-mono text-[0.625rem] font-semibold text-text-secondary">{fmt(h.count)}</span>
+                                      <span className="font-mono text-[11px] font-semibold text-text-secondary">{fmt(h.count)}</span>
                                     )}
                                     <div
                                       className="org-column w-full max-w-7"
@@ -566,18 +576,18 @@ function OrganizerAnalyticsContent() {
                               </div>
                               <div dir="ltr" className="flex gap-1" aria-hidden="true">
                                 {series.map((h, i) => (
-                                  <span key={h.hour} className="min-w-0 flex-1 text-center font-mono text-[0.625rem] text-text-muted">
-                                    {i % labelStep === 0 ? h.hour.slice(0, 2) : ""}
+                                  <span key={h.hour} className="min-w-0 flex-1 text-center font-mono text-[11px] text-text-muted">
+                                    {i % labelStep === 0 ? fmt(Number(h.hour.slice(0, 2))) : ""}
                                   </span>
                                 ))}
                               </div>
                               <figcaption className="flex flex-wrap items-center justify-between gap-2 pt-1 text-xs text-text-muted">
                                 <span>
-                                  {isRtl ? "ساعت" : "Hour of day"} <bdi dir="ltr" className="font-mono">({series[0]?.hour} – {series[series.length - 1]?.hour})</bdi>
+                                  {isRtl ? "ساعت" : "Hour of day"} <bdi dir="ltr" className="font-mono">({hourText(series[0]?.hour ?? "")} – {hourText(series[series.length - 1]?.hour ?? "")})</bdi>
                                 </span>
                                 {peakHour && (
                                   <span>
-                                    {isRtl ? "اوج:" : "Peak:"} <bdi dir="ltr" className="font-mono font-semibold text-text-primary">{peakHour.hour}</bdi> ·{" "}
+                                    {isRtl ? "اوج:" : "Peak:"} <bdi dir="ltr" className="font-mono font-semibold text-text-primary">{hourText(peakHour.hour)}</bdi> ·{" "}
                                     <span className="tabular font-semibold text-text-primary">{fmt(peakHour.count)}</span>
                                   </span>
                                 )}

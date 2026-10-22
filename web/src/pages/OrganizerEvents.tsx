@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { Link, useOutletContext } from "react-router-dom";
 import { createApiClient, formatApiError, type EventOut } from "../api/client";
 import { formatLocalizedDate, formatLocalizedNumber } from "../lib/i18n";
-import { eventTimeStatus } from "../lib/organizerWorkspace";
+import { eventFormProblem, eventTimeStatus, type EventFormField } from "../lib/organizerWorkspace";
 import { eventAccentStyle } from "../lib/eventAccent";
 import type { OrganizerOutletContext } from "./OrganizerLayout";
 import { Button, LinkButton } from "../components/ui/Button";
@@ -19,6 +19,7 @@ import {
   SectionHeader,
 } from "../components/organizer/WorkspaceUi";
 import { eventTiming } from "../components/organizer/eventTiming";
+import { toDateTimeLocal } from "../components/organizer/sessionTime";
 
 export default function OrganizerEvents() {
   const { apiKey, onKeyRejected, locale, t, isRtl } = useOutletContext<OrganizerOutletContext>();
@@ -38,6 +39,7 @@ export default function OrganizerEvents() {
   const [description, setDescription] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [formInvalid, setFormInvalid] = useState<EventFormField | null>(null);
 
   // Event editing modal state
   const [editingEvent, setEditingEvent] = useState<EventOut | null>(null);
@@ -48,6 +50,10 @@ export default function OrganizerEvents() {
   const [editDescription, setEditDescription] = useState("");
   const [editSubmitting, setEditSubmitting] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
+  const [editInvalid, setEditInvalid] = useState<EventFormField | null>(null);
+  // A field is marked invalid only while its form error is on screen.
+  const createInvalid = (field: EventFormField) => (formError !== null && formInvalid === field) || undefined;
+  const editFieldInvalid = (field: EventFormField) => (editError !== null && editInvalid === field) || undefined;
   useEffect(() => {
     // Without an organizer key nothing is dispatched; the layout shows the key gate.
     if (!apiKey) return;
@@ -93,8 +99,11 @@ export default function OrganizerEvents() {
   const handleCreateEvent = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormError(null);
-    if (!name.trim() || !slug.trim() || !startsAt || !endsAt || !location.trim()) {
-      setFormError(isRtl ? "لطفاً تمامی فیلدهای ستاره‌دار را تکمیل نمایید." : "Please fill out all required fields.");
+    setFormInvalid(null);
+    const problem = eventFormProblem({ name, slug, startsAt, endsAt, location });
+    if (problem) {
+      setFormInvalid(problem.field);
+      setFormError(t[problem.message]);
       return;
     }
 
@@ -133,34 +142,27 @@ export default function OrganizerEvents() {
     setEditingEvent(ev);
     setEditName(ev.name);
     setEditLocation(ev.location);
-    try {
-      setEditStartsAt(new Date(ev.starts_at).toISOString().slice(0, 16));
-      setEditEndsAt(new Date(ev.ends_at).toISOString().slice(0, 16));
-    } catch {
-      setEditStartsAt("");
-      setEditEndsAt("");
-    }
+    // `datetime-local` shows the organizer's own wall time; saving reads it back as local time.
+    setEditStartsAt(toDateTimeLocal(ev.starts_at));
+    setEditEndsAt(toDateTimeLocal(ev.ends_at));
     setEditDescription(ev.description || "");
     setEditError(null);
+    setEditInvalid(null);
   };
 
   const handleUpdateEvent = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingEvent) return;
     setEditError(null);
-
-    if (!editName.trim() || !editStartsAt || !editEndsAt || !editLocation.trim()) {
-      setEditError(isRtl ? "لطفاً تمامی فیلدهای ستاره‌دار را تکمیل نمایید." : "Please fill out all required fields.");
+    setEditInvalid(null);
+    const problem = eventFormProblem({ name: editName, startsAt: editStartsAt, endsAt: editEndsAt, location: editLocation });
+    if (problem) {
+      setEditInvalid(problem.field);
+      setEditError(t[problem.message]);
       return;
     }
-
     const startsDate = new Date(editStartsAt);
     const endsDate = new Date(editEndsAt);
-    if (endsDate <= startsDate) {
-      setEditError(isRtl ? "زمان پایان همایش باید پس از زمان آغاز باشد." : "End time must be after start time.");
-      return;
-    }
-
     if (!apiKey) return;
     setEditSubmitting(true);
     const client = createApiClient({ kind: "organizer", token: apiKey });
@@ -373,7 +375,7 @@ export default function OrganizerEvents() {
         description={t.createEventModalDesc}
         size="lg"
       >
-        <form onSubmit={handleCreateEvent} className="space-y-5">
+        <form onSubmit={handleCreateEvent} className="space-y-5" noValidate>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Field label={t.eventNameLabel} required className="sm:col-span-2">
               <input
@@ -381,6 +383,7 @@ export default function OrganizerEvents() {
                 required
                 value={name}
                 onChange={handleNameChange}
+                aria-invalid={createInvalid("name")}
                 placeholder={isRtl ? "مثال: هجدهمین کنگره سالانه بیوتکنولوژی" : "e.g. 18th Annual Congress of Biotechnology"}
                 className="ui-input"
               />
@@ -396,6 +399,7 @@ export default function OrganizerEvents() {
                   required
                   value={slug}
                   onChange={(e) => setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""))}
+                  aria-invalid={createInvalid("slug")}
                   placeholder="biotech-congress-2027"
                   className="ui-input min-w-0 rounded-s-none font-mono"
                 />
@@ -403,11 +407,11 @@ export default function OrganizerEvents() {
             </Field>
 
             <Field label={t.startsAtLabel} required>
-              <input type="datetime-local" required value={startsAt} onChange={(e) => setStartsAt(e.target.value)} className="ui-input font-mono" />
+              <input type="datetime-local" required value={startsAt} onChange={(e) => setStartsAt(e.target.value)} aria-invalid={createInvalid("startsAt")} className="ui-input font-mono" />
             </Field>
 
             <Field label={t.endsAtLabel} required>
-              <input type="datetime-local" required value={endsAt} onChange={(e) => setEndsAt(e.target.value)} className="ui-input font-mono" />
+              <input type="datetime-local" required value={endsAt} min={startsAt || undefined} onChange={(e) => setEndsAt(e.target.value)} aria-invalid={createInvalid("endsAt")} className="ui-input font-mono" />
             </Field>
 
             <Field label={t.locationLabel} required className="sm:col-span-2">
@@ -416,6 +420,7 @@ export default function OrganizerEvents() {
                 required
                 value={location}
                 onChange={(e) => setLocation(e.target.value)}
+                aria-invalid={createInvalid("location")}
                 placeholder={isRtl ? "مثال: مرکز همایش‌های بین‌المللی برج میلاد" : "e.g. International Convention Center, Hall A"}
                 className="ui-input"
               />
@@ -438,8 +443,8 @@ export default function OrganizerEvents() {
             <Button type="button" variant="ghost" size="md" disabled={submitting} onClick={() => setIsCreateModalOpen(false)}>
               {isRtl ? "انصراف" : "Cancel"}
             </Button>
-            <Button type="submit" variant="primary" size="md" disabled={submitting}>
-              {submitting ? "..." : t.saveEventAction}
+            <Button type="submit" variant="primary" size="md" disabled={submitting} aria-busy={submitting}>
+              {submitting ? t.creatingAction : t.saveEventAction}
             </Button>
           </DialogActions>
         </form>
@@ -459,10 +464,10 @@ export default function OrganizerEvents() {
         size="lg"
       >
         {editingEvent && (
-          <form onSubmit={handleUpdateEvent} className="space-y-5">
+          <form onSubmit={handleUpdateEvent} className="space-y-5" noValidate>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <Field label={t.eventNameLabel} required className="sm:col-span-2">
-                <input type="text" required value={editName} onChange={(e) => setEditName(e.target.value)} className="ui-input" />
+                <input type="text" required value={editName} onChange={(e) => setEditName(e.target.value)} aria-invalid={editFieldInvalid("name")} className="ui-input" />
               </Field>
 
               <Field
@@ -478,15 +483,15 @@ export default function OrganizerEvents() {
               </Field>
 
               <Field label={t.startsAtLabel} required>
-                <input type="datetime-local" required value={editStartsAt} onChange={(e) => setEditStartsAt(e.target.value)} className="ui-input font-mono" />
+                <input type="datetime-local" required value={editStartsAt} onChange={(e) => setEditStartsAt(e.target.value)} aria-invalid={editFieldInvalid("startsAt")} className="ui-input font-mono" />
               </Field>
 
               <Field label={t.endsAtLabel} required>
-                <input type="datetime-local" required value={editEndsAt} onChange={(e) => setEditEndsAt(e.target.value)} className="ui-input font-mono" />
+                <input type="datetime-local" required value={editEndsAt} min={editStartsAt || undefined} onChange={(e) => setEditEndsAt(e.target.value)} aria-invalid={editFieldInvalid("endsAt")} className="ui-input font-mono" />
               </Field>
 
               <Field label={t.locationLabel} required className="sm:col-span-2">
-                <input type="text" required value={editLocation} onChange={(e) => setEditLocation(e.target.value)} className="ui-input" />
+                <input type="text" required value={editLocation} onChange={(e) => setEditLocation(e.target.value)} aria-invalid={editFieldInvalid("location")} className="ui-input" />
               </Field>
 
               <Field label={t.descriptionLabel} className="sm:col-span-2">
@@ -500,8 +505,8 @@ export default function OrganizerEvents() {
               <Button type="button" variant="ghost" size="md" disabled={editSubmitting} onClick={() => setEditingEvent(null)}>
                 {t.cancelAction || (isRtl ? "انصراف" : "Cancel")}
               </Button>
-              <Button type="submit" variant="primary" size="md" disabled={editSubmitting}>
-                {editSubmitting ? t.savingAction || "..." : t.saveChangesAction || (isRtl ? "ذخیره تغییرات" : "Save Changes")}
+              <Button type="submit" variant="primary" size="md" disabled={editSubmitting} aria-busy={editSubmitting}>
+                {editSubmitting ? t.savingAction : t.saveChangesAction || (isRtl ? "ذخیره تغییرات" : "Save Changes")}
               </Button>
             </DialogActions>
           </form>

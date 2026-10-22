@@ -2,11 +2,12 @@ import type { ReactNode } from "react";
 import { PublicLayout } from "../layouts/PublicLayout";
 import { LinkButton } from "../components/ui/Button";
 import { Icon } from "../components/ui/Icon";
-import { ArcMotif } from "../components/brand/Aiteb";
+import { AITEB_NAME, ArcMotif } from "../components/brand/Aiteb";
 import { CongressSignature } from "../components/brand/CongressSignature";
 
 import { indexLabel, usePublicLocale, type PublicLocale } from "../components/public/copy";
 import { homeCopy, type EnvironmentCopy } from "../components/public/homeCopy";
+import { BELOW_HEADER_MIN_H } from "../components/public/viewport";
 
 type HomeCopy = (typeof homeCopy)[PublicLocale];
 
@@ -49,17 +50,26 @@ export default function Home() {
   const pad = (n: number) => indexLabel(n, locale);
   return (
     <PublicLayout locale={locale} onLocaleChange={setLocale}>
-      {/* 1. Hero */}
+      {/* 1. Hero: header plus hero fill one screen on desktop; type and rhythm follow the viewport height. */}
       <section className="relative isolate overflow-hidden border-b border-border-default bg-surface-panel">
         <div aria-hidden="true" className="pub-landing-glow absolute inset-0 -z-10" />
         <div aria-hidden="true" className="pub-landing-grid absolute inset-0 -z-10 bg-meridian" />
-        <div className="mx-auto grid max-w-7xl items-center gap-14 px-4 pt-14 pb-16 sm:px-6 sm:pt-20 sm:pb-24 lg:grid-cols-12 lg:gap-10 lg:px-10 lg:pt-24 lg:pb-28">
-          <div className="space-y-8 lg:col-span-7 motion-safe:animate-rise">
-            <p className="eyebrow">{h.eyebrow}</p>
-            <h1 className="text-[clamp(2.5rem,5.6vw,4.75rem)] font-[680] leading-[1.0] tracking-[-0.037em] text-text-primary rtl:font-[800] rtl:leading-[1.3] rtl:text-[clamp(2.25rem,5vw,4.25rem)]">
+        <div
+          className={`mx-auto grid max-w-7xl items-center gap-12 px-4 py-[clamp(1.5rem,4svh,3.5rem)] sm:px-6 lg:grid-cols-12 lg:gap-10 lg:px-10 lg:py-[clamp(1.5rem,5svh,4.5rem)] ${BELOW_HEADER_MIN_H}`}
+        >
+          <div className="space-y-5 lg:col-span-7 lg:space-y-6 motion-safe:animate-rise">
+            <p className="eyebrow">
+              <span>
+                {h.eyebrowLead}{" "}
+                <bdi dir="ltr" lang="en" className="normal-case">
+                  {AITEB_NAME}
+                </bdi>
+              </span>
+            </p>
+            <h1 className="text-[clamp(2.25rem,min(4.2vw,6.5svh)+0.5rem,4.25rem)] font-[680] leading-[1.0] tracking-[-0.037em] max-sm:tracking-[-0.022em] text-text-primary text-balance rtl:font-[800] rtl:leading-[1.3] rtl:text-[clamp(2rem,min(3.8vw,5.5svh)+0.5rem,3.75rem)]">
               {h.titleLead} <span className="text-gradient-aiteb rtl:pb-2 rtl:[-webkit-box-decoration-break:clone]">{h.titleAccent}</span>
             </h1>
-            <p className="max-w-xl text-lg leading-relaxed text-text-secondary sm:text-xl">
+            <p className="max-w-xl text-lg leading-relaxed text-text-secondary">
               {h.lead}
             </p>
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center">

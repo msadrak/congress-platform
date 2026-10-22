@@ -12,8 +12,9 @@ const variantStyles: Record<ButtonVariant, string> = {
     "bg-transparent text-text-secondary border border-transparent hover:text-text-primary hover:bg-surface-panel-subtle",
   ink:
     "bg-surface-ink text-white border border-transparent shadow-[inset_0_1px_0_rgb(255_255_255/0.08),0_8px_18px_-10px_rgb(14_12_43/0.8)] hover:bg-ink-800 active:bg-ink-950",
+  // White button for ink surfaces: its focus ring is orchid (10:1 on ink; indigo would be 1.8:1).
   light:
-    "bg-white text-surface-ink border border-transparent shadow-[0_8px_24px_-12px_rgb(0_0_0/0.6)] hover:bg-aiteb-lavender",
+    "bg-white text-surface-ink border border-transparent shadow-[0_8px_24px_-12px_rgb(0_0_0/0.6)] hover:bg-aiteb-lavender focus-visible:outline-aiteb-orchid",
   danger:
     "bg-status-danger-solid text-white border border-transparent shadow-[inset_0_1px_0_rgb(255_255_255/0.16),0_8px_18px_-10px_rgb(222_26_80/0.7)] hover:brightness-95 active:brightness-90",
 };
@@ -25,8 +26,10 @@ const sizeStyles: Record<ButtonSize, string> = {
   xl: "text-base px-6 py-4 min-h-[58px] rounded-2xl gap-3 font-bold",
 };
 
+// No outline colour here: the global :focus-visible rule supplies --focus-ring, so a caller's
+// `focus-visible:outline-aiteb-orchid` (ink surfaces) is not overridden by a later-emitted utility.
 const baseStyles =
-  "relative inline-flex items-center justify-center text-center select-none whitespace-nowrap transition-[background-color,border-color,color,box-shadow,transform,filter] duration-200 ease-[var(--ease-arc)] motion-safe:active:scale-[0.98] motion-reduce:transition-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring disabled:opacity-55 disabled:cursor-not-allowed disabled:active:scale-100 cursor-pointer";
+  "relative inline-flex items-center justify-center text-center select-none whitespace-nowrap transition-[background-color,border-color,color,box-shadow,transform,filter] duration-200 ease-[var(--ease-arc)] motion-safe:active:scale-[0.98] motion-reduce:transition-none focus-visible:outline-2 focus-visible:outline-offset-2 disabled:opacity-55 disabled:cursor-not-allowed disabled:active:scale-100 cursor-pointer";
 
 export function buttonClassName({
   variant = "primary",

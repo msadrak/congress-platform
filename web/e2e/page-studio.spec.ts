@@ -38,7 +38,7 @@ async function studioFixture(page: Page, { saveStatus = 200 }: { saveStatus?: nu
     if (request.headers().authorization !== `Bearer ${KEY}`) return json(401, { detail: 'Invalid API key' });
     if (path === `/api/events/${EVENT.id}`) return json(200, EVENT);
     if (path === `/api/events/${EVENT.id}/media`) return json(200, []);
-    if (path === `/api/events/${EVENT.id}/page/preview`) return json(200, { ...EVENT, ticket_tiers: TIERS, page: { document: state.draft, assets: [] }, booths: [] });
+    if (path === `/api/events/${EVENT.id}/page/preview`) return json(200, { ...EVENT, ticket_tiers: TIERS, venue: [], sessions: [], page: { document: state.draft, assets: [] }, booths: [] });
     if (path === `/api/events/${EVENT.id}/page` && request.method() === 'GET') return json(200, state);
     if (path === `/api/events/${EVENT.id}/page` && request.method() === 'PUT') {
       const body = JSON.parse(request.postData() ?? '{}') as Saved;
@@ -127,7 +127,7 @@ test('the public page follows the published document: order, hidden sections, la
   await page.addInitScript(() => localStorage.setItem('congress_attendee_locale', 'en'));
   await page.route(/^https?:\/\/[^/]+\/api\//, async (route) => {
     const path = new URL(route.request().url()).pathname;
-    const body = path.endsWith('/booths') ? [] : { ...EVENT, ticket_tiers: TIERS, page: { document: published, assets: [] } };
+    const body = path.endsWith('/booths') ? [] : { ...EVENT, ticket_tiers: TIERS, venue: [], sessions: [], page: { document: published, assets: [] } };
     await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
   });
   await page.goto(`/e/${EVENT.slug}`);

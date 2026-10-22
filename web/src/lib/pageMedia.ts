@@ -5,14 +5,13 @@ import type { PageImages } from "./pageDocument";
 export const ACCEPTED_IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp"] as const;
 export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 
+/** Client-side rejections carry no message: callers map 415 (type) and 413 (size) to localized copy. */
 export type UploadResult = { ok: true; asset: MediaAssetOut } | { ok: false; status: number; message: string };
 
 /** Sends the raw image bytes; the server decodes, re-encodes and stores them under a generated id. */
 export async function uploadPageImage(apiKey: string, eventId: string, file: File): Promise<UploadResult> {
-  if (!(ACCEPTED_IMAGE_TYPES as readonly string[]).includes(file.type)) {
-    return { ok: false, status: 415, message: "Upload a PNG, JPEG or WebP image" };
-  }
-  if (file.size > MAX_IMAGE_BYTES) return { ok: false, status: 413, message: "Images are limited to 5 MB" };
+  if (!(ACCEPTED_IMAGE_TYPES as readonly string[]).includes(file.type)) return { ok: false, status: 415, message: "" };
+  if (file.size > MAX_IMAGE_BYTES) return { ok: false, status: 413, message: "" };
   const response = await fetch(`/api/events/${encodeURIComponent(eventId)}/media`, {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": file.type },

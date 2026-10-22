@@ -47,7 +47,7 @@ const navLinkLight =
   "inline-flex items-center min-h-[40px] px-3 rounded-lg text-sm font-medium text-text-secondary hover:text-text-primary hover:bg-surface-panel-subtle transition-colors";
 const navLinkInk =
   "inline-flex items-center min-h-[40px] px-3 rounded-lg text-sm font-medium text-ink-200 hover:text-white hover:bg-white/8 transition-colors focus-visible:outline-aiteb-orchid";
-const footerLink = "inline-flex min-h-[32px] items-center text-sm text-ink-300 hover:text-white transition-colors focus-visible:outline-aiteb-orchid";
+const footerLink = "inline-flex min-h-[32px] max-sm:min-h-11 items-center text-sm text-ink-300 hover:text-white transition-colors focus-visible:outline-aiteb-orchid";
 
 export function PublicLayout({ children, locale, onLocaleChange, congressName, congressSlug, brand }: PublicLayoutProps) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -82,7 +82,7 @@ export function PublicLayout({ children, locale, onLocaleChange, congressName, c
       onClick={() => onLocaleChange(nextLocale)}
       aria-label={c.switchLanguageLabel}
       lang={nextLocale}
-      className={`inline-flex min-h-[40px] items-center gap-2 rounded-xl px-3 text-sm font-semibold transition-colors cursor-pointer ${
+      className={`inline-flex min-h-[40px] max-sm:min-h-11 max-sm:min-w-11 items-center justify-center gap-2 rounded-xl px-3 text-sm font-semibold transition-colors cursor-pointer ${
         tone === "ink"
           ? "text-ink-200 hover:text-white hover:bg-white/8 focus-visible:outline-aiteb-orchid"
           : "text-text-secondary hover:text-text-primary hover:bg-surface-panel-subtle focus-visible:outline-2 focus-visible:outline-focus-ring"
@@ -109,14 +109,14 @@ export function PublicLayout({ children, locale, onLocaleChange, congressName, c
             <Link
               to={`/e/${eventSlug}`}
               className="group flex min-w-0 items-center gap-3 rounded-xl focus-visible:outline-aiteb-orchid"
-              aria-label={congressName ? c.congressHomeLabel(congressName) : undefined}
+              aria-label={c.congressHomeLabel(congressName || eventSlug!)}
             >
               <CongressMark slug={eventSlug!} brand={brand} size="header" />
               {congressName ? (
                 <span className="min-w-0 truncate text-[15px] font-semibold tracking-[-0.01em] text-white"><Bidi text={congressName} /></span>
-              ) : (
+              ) : congressName === undefined ? (
                 <span aria-hidden="true" className="h-3.5 w-40 rounded-full bg-white/10" />
-              )}
+              ) : null}
             </Link>
 
             <div className="flex shrink-0 items-center gap-1">
@@ -135,7 +135,7 @@ export function PublicLayout({ children, locale, onLocaleChange, congressName, c
                 variant="light"
                 size="sm"
                 aria-label={c.attendeeSignIn}
-                className="max-sm:px-3 focus-visible:outline-aiteb-orchid"
+                className="max-sm:px-3"
               >
                 <Icon name="user" size={16} />
                 <span className="sm:hidden">{c.signInShort}</span>

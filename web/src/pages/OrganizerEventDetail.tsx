@@ -31,14 +31,58 @@ import {
   SectionIndex,
 } from "../components/organizer/WorkspaceUi";
 import { eventTiming } from "../components/organizer/eventTiming";
+import { toDateTimeLocal } from "../components/organizer/sessionTime";
 import { ScannerPairingDialog } from "../components/organizer/ScannerPairingDialog";
-import { eventSectionFromPath, eventTimeStatus, eventWorkspacePath } from "../lib/organizerWorkspace";
+import {
+  eventFormProblem,
+  eventSectionFromPath,
+  eventSectionNumber,
+  eventTimeStatus,
+  eventWorkspacePath,
+} from "../lib/organizerWorkspace";
 
 type PolicyType =
   | "MULTI_ENTRY"
   | "SINGLE_USE"
   | "TIER_RESTRICTED"
   | "CAPACITY_CAPPED";
+
+type BoothDraft = Pick<BoothOut, "name" | "slug" | "location" | "description" | "website_url" | "brochure_url">;
+
+type LoadedSection = "tiers" | "points" | "booths" | "operators" | "sessions" | "venue";
+
+/** Slug suggested from a booth name: Latin letters and digits joined by single hyphens; a Persian name suggests nothing. */
+const boothSlugFrom = (name: string) =>
+  name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "");
+
+/** First problem in a booth form (the checks the browser's `required`/`type="url"` used to make), named per field. */
+function boothDraftProblem(draft: BoothDraft, isRtl: boolean): { field: keyof BoothDraft; message: string } | null {
+  if (!draft.name.trim()) return { field: "name", message: isRtl ? "نام غرفه را وارد کنید." : "Enter the booth name." };
+  if (!draft.slug.trim()) {
+    return {
+      field: "slug",
+      message: isRtl
+        ? "شناسه اینترنتی غرفه را وارد کنید؛ فقط حروف انگلیسی کوچک، عدد و خط تیره."
+        : "Enter the booth slug: lowercase letters, numbers and hyphens.",
+    };
+  }
+  for (const field of ["website_url", "brochure_url"] as const) {
+    const value = draft[field].trim();
+    if (!value) continue;
+    try {
+      void new URL(value);
+    } catch {
+      return {
+        field,
+        message: isRtl ? "نشانی کامل وب را وارد کنید؛ مثلاً https://company.example.com" : "Enter a full web address, e.g. https://company.example.com.",
+      };
+    }
+  }
+  return null;
+}
 
 // Remount per event so a late response for event A can never write into event B's state.
 export default function OrganizerEventDetail() {
@@ -55,6 +99,9 @@ function OrganizerEventDetailContent() {
   const [tiers, setTiers] = useState<TicketTierOut[]>([]);
   const [points, setPoints] = useState<CheckInPointOut[]>([]);
   const [booths, setBooths] = useState<BoothOut[]>([]);
+  // Overview counts of the program and venue sections (their own pages hold the lists).
+  const [sessionCount, setSessionCount] = useState(0);
+  const [venuePlaceCount, setVenuePlaceCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   // Fixed at mount so the derived event status never flickers between renders.
@@ -68,6 +115,13 @@ function OrganizerEventDetailContent() {
 
   // Result of the last change, announced politely; errors are announced assertively.
   const [notice, setNotice] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
+  // Sections whose list failed to load show an error, never a false "nothing yet" state.
+  const [loadFailed, setLoadFailed] = useState<ReadonlySet<LoadedSection>>(() => new Set());
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [reloadToken, setReloadToken] = useState(0);
+  // The field the last client-side check rejected ("<form>.<field>"); marked only while that form's error is shown.
+  const [invalidField, setInvalidField] = useState<string | null>(null);
+  const fieldInvalid = (key: string, formError: string | null) => (formError !== null && invalidField === key) || undefined;
   const [revokeTarget, setRevokeTarget] = useState<DeskOperatorOut | null>(null);
   const [confirmCloseTier, setConfirmCloseTier] = useState(false);
   const closeTierConfirmed = useRef(false);
@@ -114,11 +168,18 @@ function OrganizerEventDetailContent() {
   const [staffMobile, setStaffMobile] = useState("");
   const [staffName, setStaffName] = useState("");
   const [assigningStaff, setAssigningStaff] = useState(false);
-  const [staffFeedback, setStaffFeedback] = useState<string | null>(null);
   const [staffError, setStaffError] = useState<string | null>(null);
 
   // Standee QR modal state
   const [selectedBoothQr, setSelectedBoothQr] = useState<BoothOut | null>(null);
+
+  // Edit / delete booth state
+  const [editingBooth, setEditingBooth] = useState<BoothOut | null>(null);
+  const [boothDraft, setBoothDraft] = useState<BoothDraft>({ name: "", slug: "", location: "", description: "", website_url: "", brochure_url: "" });
+  const [submittingBoothEdit, setSubmittingBoothEdit] = useState(false);
+  const [boothEditError, setBoothEditError] = useState<string | null>(null);
+  const [deleteBoothTarget, setDeleteBoothTarget] = useState<BoothOut | null>(null);
+  const [deletingBoothId, setDeletingBoothId] = useState<string | null>(null);
 
   // Edit event modal state
   const [isEditEventModalOpen, setIsEditEventModalOpen] = useState(false);
@@ -161,7 +222,7 @@ function OrganizerEventDetailContent() {
       setError(null);
       const client = createApiClient({ kind: "organizer", token: apiKey });
 
-      const [eventRes, tiersRes, pointsRes, boothsRes, operatorsRes] = await Promise.all([
+      const [eventRes, tiersRes, pointsRes, boothsRes, operatorsRes, sessionsRes, placesRes] = await Promise.all([
         client.GET("/api/events/{event_id}", {
           params: { path: { event_id: eventId } },
         }),
@@ -177,10 +238,16 @@ function OrganizerEventDetailContent() {
         client.GET("/api/events/{event_id}/desk/operators", {
           params: { path: { event_id: eventId } },
         }),
+        client.GET("/api/events/{event_id}/sessions", {
+          params: { path: { event_id: eventId } },
+        }),
+        client.GET("/api/events/{event_id}/venue-places", {
+          params: { path: { event_id: eventId } },
+        }),
       ]);
 
       // 401 invalidates only the key that was sent, even if this page has since unmounted.
-      if ([eventRes, tiersRes, pointsRes, boothsRes, operatorsRes].some((res) => res.response.status === 401)) {
+      if ([eventRes, tiersRes, pointsRes, boothsRes, operatorsRes, sessionsRes, placesRes].some((res) => res.response.status === 401)) {
         onKeyRejected(apiKey);
       }
       if (!isMounted) return;
@@ -191,10 +258,23 @@ function OrganizerEventDetailContent() {
         setEvent(eventRes.data);
       }
 
-      if (tiersRes.data) setTiers(tiersRes.data);
-      if (pointsRes.data) setPoints(pointsRes.data);
-      if (boothsRes.data) setBooths(boothsRes.data);
-      if (operatorsRes.data) setOperators(operatorsRes.data);
+      // A failed list must not read as an empty one: remember which sections failed and why.
+      const failed = new Set<LoadedSection>();
+      if (tiersRes.error) failed.add("tiers");
+      else if (tiersRes.data) setTiers(tiersRes.data);
+      if (pointsRes.error) failed.add("points");
+      else if (pointsRes.data) setPoints(pointsRes.data);
+      if (boothsRes.error) failed.add("booths");
+      else if (boothsRes.data) setBooths(boothsRes.data);
+      if (operatorsRes.error) failed.add("operators");
+      else if (operatorsRes.data) setOperators(operatorsRes.data);
+      if (sessionsRes.error) failed.add("sessions");
+      else if (sessionsRes.data) setSessionCount(sessionsRes.data.length);
+      if (placesRes.error) failed.add("venue");
+      else if (placesRes.data) setVenuePlaceCount(placesRes.data.length);
+      setLoadFailed(failed);
+      const firstFailure = [tiersRes, pointsRes, boothsRes, operatorsRes, sessionsRes, placesRes].find((res) => res.error);
+      setLoadError(firstFailure ? formatApiError(firstFailure.error) : null);
 
       setLoading(false);
     };
@@ -203,7 +283,7 @@ function OrganizerEventDetailContent() {
     return () => {
       isMounted = false;
     };
-  }, [eventId, apiKey, onKeyRejected]);
+  }, [eventId, apiKey, onKeyRejected, reloadToken]);
 
   useEffect(() => {
     if (event) reportEvent(event);
@@ -213,9 +293,16 @@ function OrganizerEventDetailContent() {
     e.preventDefault();
     if (!eventId) return;
     setTierFormError(null);
+    setInvalidField(null);
 
-    if (!tierName.trim() || tierQuota < 1) {
-      setTierFormError(isRtl ? "لطفاً نام رده و ظرفیت معتبر وارد کنید." : "Please enter a valid tier name and positive quota.");
+    if (!tierName.trim()) {
+      setInvalidField("tier.name");
+      setTierFormError(isRtl ? "نام رده را وارد کنید." : "Enter the tier name.");
+      return;
+    }
+    if (!(tierQuota >= 1)) {
+      setInvalidField("tier.quota");
+      setTierFormError(isRtl ? "سهمیه را دست‌کم ۱ وارد کنید." : "Enter a quota of at least 1.");
       return;
     }
 
@@ -254,9 +341,16 @@ function OrganizerEventDetailContent() {
     e.preventDefault();
     if (!eventId) return;
     setPointFormError(null);
+    setInvalidField(null);
 
     if (!pointName.trim()) {
-      setPointFormError(isRtl ? "لطفاً نام گیت بازرسی را وارد کنید." : "Please provide a name for the check-in point.");
+      setInvalidField("point.name");
+      setPointFormError(isRtl ? "نام گیت را وارد کنید." : "Enter the check-in point name.");
+      return;
+    }
+    if (policyType === "TIER_RESTRICTED" && allowedTiers.length === 0) {
+      setInvalidField("point.tiers");
+      setPointFormError(isRtl ? "حداقل یک رده بلیط مجاز برای این گیت انتخاب کنید." : "Select at least one allowed tier.");
       return;
     }
 
@@ -297,9 +391,15 @@ function OrganizerEventDetailContent() {
     e.preventDefault();
     if (!eventId) return;
     setBoothFormError(null);
+    setInvalidField(null);
 
-    if (!boothName.trim() || !boothSlug.trim()) {
-      setBoothFormError(isRtl ? "لطفاً نام و شناسه اینترنتی غرفه را وارد کنید." : "Please provide both a booth name and slug.");
+    const boothProblem = boothDraftProblem(
+      { name: boothName, slug: boothSlug, location: boothLocation, description: boothDescription, website_url: boothWebsite, brochure_url: boothBrochure },
+      isRtl,
+    );
+    if (boothProblem) {
+      setInvalidField(`booth.${boothProblem.field}`);
+      setBoothFormError(boothProblem.message);
       return;
     }
 
@@ -342,9 +442,10 @@ function OrganizerEventDetailContent() {
     e.preventDefault();
     if (!eventId || !assigningBooth) return;
     setStaffError(null);
-    setStaffFeedback(null);
+    setInvalidField(null);
     const mobile = normalizeIranMobile(staffMobile);
     if (!mobile) {
+      setInvalidField("staff.mobile");
       setStaffError(isRtl ? "یک شماره موبایل معتبر وارد کنید؛ مثلاً ۰۹۱۲ ۳۴۵ ۶۷۸۹." : "Enter a valid Iranian mobile number, e.g. 0912 345 6789.");
       return;
     }
@@ -366,17 +467,90 @@ function OrganizerEventDetailContent() {
     if (err) {
       setStaffError(formatApiError(err));
     } else if (data) {
-      setStaffFeedback(
-        isRtl
-          ? "نماینده تخصیص یافت. او با کد پیامکی به این شماره وارد پورتال غرفه می‌شود."
-          : "Representative assigned. They sign in to the booth portal with an SMS code sent to this number."
-      );
+      // The confirmation outlives the dialog, so it can be read at any pace.
+      setAssigningBooth(null);
       setStaffMobile("");
       setStaffName("");
-      setTimeout(() => {
-        setAssigningBooth(null);
-        setStaffFeedback(null);
-      }, 1200);
+      setNotice({
+        tone: "ok",
+        text: isRtl
+          ? "نماینده تخصیص یافت. او با کد پیامکی به این شماره وارد پورتال غرفه می‌شود."
+          : "Representative assigned. They sign in to the booth portal with an SMS code sent to this number.",
+      });
+    }
+  };
+
+  const openEditBoothModal = (booth: BoothOut) => {
+    setEditingBooth(booth);
+    setBoothDraft({
+      name: booth.name,
+      slug: booth.slug,
+      location: booth.location,
+      description: booth.description,
+      website_url: booth.website_url,
+      brochure_url: booth.brochure_url,
+    });
+    setBoothEditError(null);
+    setInvalidField(null);
+  };
+
+  const handleUpdateBooth = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingBooth || !eventId || !apiKey) return;
+    setBoothEditError(null);
+    setInvalidField(null);
+    const body: BoothDraft = {
+      name: boothDraft.name.trim(),
+      slug: boothDraft.slug.trim(),
+      location: boothDraft.location.trim(),
+      description: boothDraft.description.trim(),
+      website_url: boothDraft.website_url.trim(),
+      brochure_url: boothDraft.brochure_url.trim(),
+    };
+    const boothProblem = boothDraftProblem(body, isRtl);
+    if (boothProblem) {
+      setInvalidField(`boothEdit.${boothProblem.field}`);
+      setBoothEditError(boothProblem.message);
+      return;
+    }
+    setSubmittingBoothEdit(true);
+    const client = createApiClient({ kind: "organizer", token: apiKey });
+    const { data, error: err, response } = await client.PATCH("/api/events/{event_id}/booths/{booth_id}", {
+      params: { path: { event_id: eventId, booth_id: editingBooth.id } },
+      body,
+    });
+    if (response.status === 401) onKeyRejected(apiKey);
+    setSubmittingBoothEdit(false);
+    if (response.status === 409) {
+      setInvalidField("boothEdit.slug");
+      setBoothEditError(
+        isRtl
+          ? "این شناسه اینترنتی را غرفهٔ دیگری استفاده می‌کند؛ شناسهٔ دیگری انتخاب کنید."
+          : "Another booth already uses this slug; choose a different one."
+      );
+    } else if (err) {
+      setBoothEditError(formatApiError(err));
+    } else if (data) {
+      setBooths((prev) => prev.map((b) => (b.id === data.id ? data : b)));
+      setEditingBooth(null);
+      setNotice({ tone: "ok", text: isRtl ? `غرفه «${data.name}» ذخیره شد.` : `Booth “${data.name}” saved.` });
+    }
+  };
+
+  const handleDeleteBooth = async (booth: BoothOut) => {
+    if (!eventId || !apiKey) return;
+    setDeletingBoothId(booth.id);
+    const client = createApiClient({ kind: "organizer", token: apiKey });
+    const { error: err, response } = await client.DELETE("/api/events/{event_id}/booths/{booth_id}", {
+      params: { path: { event_id: eventId, booth_id: booth.id } },
+    });
+    if (response.status === 401) onKeyRejected(apiKey);
+    setDeletingBoothId(null);
+    if (response.ok) {
+      setBooths((prev) => prev.filter((b) => b.id !== booth.id));
+      setNotice({ tone: "ok", text: isRtl ? `غرفه «${booth.name}» حذف شد.` : `Booth “${booth.name}” deleted.` });
+    } else {
+      setNotice({ tone: "error", text: isRtl ? `غرفه حذف نشد: ${formatApiError(err)}` : `The booth was not deleted: ${formatApiError(err)}` });
     }
   };
 
@@ -384,15 +558,12 @@ function OrganizerEventDetailContent() {
     if (!event) return;
     setEditEventName(event.name);
     setEditEventLocation(event.location);
-    try {
-      setEditEventStartsAt(new Date(event.starts_at).toISOString().slice(0, 16));
-      setEditEventEndsAt(new Date(event.ends_at).toISOString().slice(0, 16));
-    } catch {
-      setEditEventStartsAt("");
-      setEditEventEndsAt("");
-    }
+    // `datetime-local` shows the organizer's own wall time; saving reads it back as local time.
+    setEditEventStartsAt(toDateTimeLocal(event.starts_at));
+    setEditEventEndsAt(toDateTimeLocal(event.ends_at));
     setEditEventDescription(event.description || "");
     setEventEditError(null);
+    setInvalidField(null);
     setIsEditEventModalOpen(true);
   };
 
@@ -400,13 +571,16 @@ function OrganizerEventDetailContent() {
     e.preventDefault();
     if (!eventId) return;
     setOperatorFormError(null);
+    setInvalidField(null);
     const operatorMobile = normalizeIranMobile(newOperatorMobile);
-    if (!newOperatorName.trim() || !operatorMobile) {
-      setOperatorFormError(
-        isRtl
-          ? "نام اپراتور و یک شماره موبایل معتبر (مثلاً ۰۹۱۲ ۳۴۵ ۶۷۸۹) را وارد کنید."
-          : "Enter the operator's name and a valid mobile number (e.g. 0912 345 6789)."
-      );
+    if (!newOperatorName.trim()) {
+      setInvalidField("operator.name");
+      setOperatorFormError(isRtl ? "نام اپراتور را وارد کنید." : "Enter the operator's name.");
+      return;
+    }
+    if (!operatorMobile) {
+      setInvalidField("operator.mobile");
+      setOperatorFormError(isRtl ? "یک شماره موبایل معتبر وارد کنید؛ مثلاً ۰۹۱۲ ۳۴۵ ۶۷۸۹." : "Enter a valid mobile number, e.g. 0912 345 6789.");
       return;
     }
     if (!apiKey) return;
@@ -464,16 +638,15 @@ function OrganizerEventDetailContent() {
     e.preventDefault();
     if (!event || !eventId) return;
     setEventEditError(null);
-    if (!editEventName.trim() || !editEventStartsAt || !editEventEndsAt || !editEventLocation.trim()) {
-      setEventEditError(isRtl ? "لطفاً تمامی فیلدهای ستاره‌دار را تکمیل نمایید." : "Please fill out all required fields.");
+    setInvalidField(null);
+    const problem = eventFormProblem({ name: editEventName, startsAt: editEventStartsAt, endsAt: editEventEndsAt, location: editEventLocation });
+    if (problem) {
+      setInvalidField(`event.${problem.field}`);
+      setEventEditError(t[problem.message]);
       return;
     }
     const startsDate = new Date(editEventStartsAt);
     const endsDate = new Date(editEventEndsAt);
-    if (endsDate <= startsDate) {
-      setEventEditError(isRtl ? "زمان پایان همایش باید پس از زمان آغاز باشد." : "End time must be after start time.");
-      return;
-    }
     if (!apiKey) return;
     setSubmittingEventEdit(true);
     const client = createApiClient({ kind: "organizer", token: apiKey });
@@ -505,14 +678,22 @@ function OrganizerEventDetailContent() {
     setEditTierQuota(tier.quota);
     setEditTierIsOpen(tier.is_open);
     setTierEditError(null);
+    setInvalidField(null);
   };
 
   const handleUpdateTier = async (e?: React.FormEvent) => {
     e?.preventDefault();
     if (!editingTier || !eventId) return;
     setTierEditError(null);
-    if (!editTierName.trim() || editTierQuota < 1) {
-      setTierEditError(isRtl ? "لطفاً نام رده و ظرفیت معتبر وارد نمایید." : "Please enter a valid tier name and quota.");
+    setInvalidField(null);
+    if (!editTierName.trim()) {
+      setInvalidField("tierEdit.name");
+      setTierEditError(isRtl ? "نام رده را وارد کنید." : "Enter the tier name.");
+      return;
+    }
+    if (!(editTierQuota >= 1)) {
+      setInvalidField("tierEdit.quota");
+      setTierEditError(isRtl ? "سهمیه را دست‌کم ۱ وارد کنید." : "Enter a quota of at least 1.");
       return;
     }
     if (editingTier.is_open && !editTierIsOpen && !closeTierConfirmed.current) {
@@ -554,17 +735,21 @@ function OrganizerEventDetailContent() {
     setEditPointAllowedTiers(pt.allowed_tier_ids || []);
     setEditPointMaxCapacity(pt.max_capacity ?? undefined);
     setPointEditError(null);
+    setInvalidField(null);
   };
 
   const handleUpdatePoint = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingPoint || !eventId) return;
     setPointEditError(null);
+    setInvalidField(null);
     if (!editPointName.trim()) {
-      setPointEditError(isRtl ? "لطفاً نام گیت را وارد نمایید." : "Please enter a gate name.");
+      setInvalidField("pointEdit.name");
+      setPointEditError(isRtl ? "نام گیت را وارد کنید." : "Enter the check-in point name.");
       return;
     }
     if (editPointPolicy === "TIER_RESTRICTED" && editPointAllowedTiers.length === 0) {
+      setInvalidField("pointEdit.tiers");
       setPointEditError(isRtl ? "حداقل یک رده بلیط مجاز برای این گیت انتخاب کنید." : "Select at least one allowed tier.");
       return;
     }
@@ -722,17 +907,17 @@ function OrganizerEventDetailContent() {
       )}
 
       {activeTab === "tiers" && (
-        <SectionHeader index={2} eyebrow={<bdi>{event.name}</bdi>} title={t.tiersHeading} description={t.tiersDesc} action={sectionAction(t.createTierButton, () => setIsTierModalOpen(true))} />
+        <SectionHeader index={eventSectionNumber("tiers")} eyebrow={<bdi>{event.name}</bdi>} title={t.tiersHeading} description={t.tiersDesc} action={sectionAction(t.createTierButton, () => setIsTierModalOpen(true))} />
       )}
       {activeTab === "points" && (
-        <SectionHeader index={3} eyebrow={<bdi>{event.name}</bdi>} title={t.pointsHeading} description={t.pointsDesc} action={sectionAction(t.createPointButton, () => setIsPointModalOpen(true))} />
+        <SectionHeader index={eventSectionNumber("check-in")} eyebrow={<bdi>{event.name}</bdi>} title={t.pointsHeading} description={t.pointsDesc} action={sectionAction(t.createPointButton, () => setIsPointModalOpen(true))} />
       )}
       {activeTab === "booths" && (
-        <SectionHeader index={4} eyebrow={<bdi>{event.name}</bdi>} title={t.boothsHeading} description={t.boothsDesc} action={sectionAction(t.createBoothButton, () => setIsBoothModalOpen(true))} />
+        <SectionHeader index={eventSectionNumber("booths")} eyebrow={<bdi>{event.name}</bdi>} title={t.boothsHeading} description={t.boothsDesc} action={sectionAction(t.createBoothButton, () => setIsBoothModalOpen(true))} />
       )}
       {activeTab === "operators" && (
         <SectionHeader
-          index={5}
+          index={eventSectionNumber("operators")}
           eyebrow={<bdi>{event.name}</bdi>}
           title={t.operatorsHeading}
           description={t.operatorsDesc}
@@ -749,26 +934,38 @@ function OrganizerEventDetailContent() {
         </Notice>
       )}
 
+      {loadError && (
+        <div className="space-y-3">
+          <FormAlert>
+            {t.sectionsLoadFailed} <bdi>{loadError}</bdi>
+          </FormAlert>
+          <Button type="button" variant="secondary" size="md" disabled={loading} aria-busy={loading} onClick={() => setReloadToken((n) => n + 1)}>
+            <Icon name="sync" size={16} />
+            {t.retryAction}
+          </Button>
+        </div>
+      )}
+
       {/* TAB A: Overview */}
       {activeTab === "overview" && (
         <div className="space-y-8">
-          <div className="grid grid-cols-2 overflow-hidden rounded-2xl border border-border-default bg-surface-panel shadow-soft lg:grid-cols-4">
+          <div className="grid grid-cols-2 gap-px overflow-hidden rounded-2xl border border-border-default bg-border-default shadow-soft lg:grid-cols-3">
             {([
-              ["/tiers", t.tabTiers, tiers.length, isRtl ? "رده بلیط" : "Ticket tiers", "ticket", 2],
-              ["/check-in", t.tabPoints, points.length, isRtl ? "ایستگاه اسکن بارکد" : "Scanner stations", "gate", 3],
-              ["/booths", t.tabBooths, booths.length, isRtl ? "غرفه ثبت‌شده" : "Registered booths", "booth", 4],
-              ["/operators", t.tabOperators, activeOperators, isRtl ? "اپراتور فعال" : "Active operators", "users", 5],
-            ] as const).map(([path, label, count, caption, icon, index], i) => (
+              ["program", t.tabProgram, sessionCount, isRtl ? "جلسه در برنامه" : "Program sessions", "calendar"],
+              ["venue", t.tabVenue, venuePlaceCount, isRtl ? "سالن و ورودی" : "Halls & entrances", "pin"],
+              ["tiers", t.tabTiers, tiers.length, isRtl ? "رده بلیط" : "Ticket tiers", "ticket"],
+              ["check-in", t.tabPoints, points.length, isRtl ? "ایستگاه اسکن بارکد" : "Scanner stations", "gate"],
+              ["booths", t.tabBooths, booths.length, isRtl ? "غرفه ثبت‌شده" : "Registered booths", "booth"],
+              ["operators", t.tabOperators, activeOperators, isRtl ? "اپراتور فعال" : "Active operators", "users"],
+            ] as const).map(([key, label, count, caption, icon]) => (
               <Link
-                key={path}
-                to={eventWorkspacePath(event.id, path)}
-                className={`group relative flex min-w-0 flex-col gap-4 border-border-default p-4 transition-colors hover:bg-aiteb-lavender/60 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-focus-ring sm:p-6 ${
-                  i % 2 === 1 ? "border-s" : ""
-                } ${i >= 2 ? "border-t lg:border-t-0" : ""} ${i === 2 ? "lg:border-s" : ""}`}
+                key={key}
+                to={eventWorkspacePath(event.id, `/${key}`)}
+                className="group relative flex min-w-0 flex-col gap-4 bg-surface-panel p-4 transition-colors hover:bg-aiteb-lavender/60 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-focus-ring sm:p-6"
               >
                 <span className="flex items-center justify-between gap-2">
                   <span className="flex min-w-0 items-baseline gap-2">
-                    <SectionIndex n={index} />
+                    <SectionIndex n={eventSectionNumber(key)} />
                     <span className="text-xs font-semibold leading-snug text-text-muted">{label}</span>
                   </span>
                   <Icon name={icon} size={18} className="shrink-0 text-aiteb-indigo/60" />
@@ -786,7 +983,9 @@ function OrganizerEventDetailContent() {
             ))}
           </div>
 
-          {tiers.length === 0 ? (
+          {loadFailed.has("tiers") ? (
+            <FormAlert>{t.sectionLoadFailed}</FormAlert>
+          ) : tiers.length === 0 ? (
             <section
               aria-labelledby="capacity-title"
               className="flex flex-col gap-4 rounded-2xl border border-dashed border-border-strong bg-surface-panel p-5 sm:flex-row sm:items-center sm:justify-between sm:p-7"
@@ -863,7 +1062,7 @@ function OrganizerEventDetailContent() {
                             {tier.is_open ? (isRtl ? "باز" : "Open") : isRtl ? "بسته" : "Closed"}
                           </Badge>
                           <bdi dir="ltr" className="tabular font-semibold text-text-primary">
-                            {tier.reserved_count} / {tier.quota}
+                            {fmt(tier.reserved_count)} / {fmt(tier.quota)}
                           </bdi>
                         </span>
                       </div>
@@ -908,8 +1107,10 @@ function OrganizerEventDetailContent() {
 
       {/* TAB B: Ticket Tiers */}
       {activeTab === "tiers" &&
-        (tiers.length === 0 ? (
-          <EmptyState icon="ticket" title={t.noTiersTitle} />
+        (loadFailed.has("tiers") ? (
+          <FormAlert>{t.sectionLoadFailed}</FormAlert>
+        ) : tiers.length === 0 ? (
+          <EmptyState icon="ticket" title={t.noTiersTitle} action={sectionAction(t.createTierButton, () => setIsTierModalOpen(true))} />
         ) : (
           <div className="space-y-5">
             <dl className="grid grid-cols-3 divide-x divide-border-default overflow-hidden rounded-2xl border border-border-default bg-surface-panel shadow-soft">
@@ -953,11 +1154,14 @@ function OrganizerEventDetailContent() {
                               <p className="break-words font-semibold text-text-primary">
                                 <bdi>{tier.name}</bdi>
                               </p>
-                              <p className="mt-0.5 text-xs leading-relaxed text-text-secondary">
-                                <bdi>{tier.description || (isRtl ? "دسترسی عمومی به سالن‌های همایش." : "General congress admission.")}</bdi>
-                              </p>
+                              {tier.description && (
+                                <p className="mt-0.5 text-xs leading-relaxed text-text-secondary">
+                                  <bdi>{tier.description}</bdi>
+                                </p>
+                              )}
                               <p className="mt-1 font-mono text-[0.6875rem] text-text-muted">
-                                <bdi dir="ltr">ID: {tier.id.slice(0, 8)}</bdi>
+                                {isRtl ? "شناسه: " : "ID: "}
+                                <bdi dir="ltr">{tier.id.slice(0, 8)}</bdi>
                               </p>
                             </div>
                           </div>
@@ -981,7 +1185,7 @@ function OrganizerEventDetailContent() {
                           <div className="space-y-2">
                             <div className="flex items-baseline justify-between gap-3 text-xs text-text-muted">
                               <span>
-                                {isRtl ? "ثبت‌نام‌شده:" : "Registered:"} <strong className="tabular text-sm text-text-primary">{fmt(reserved)}</strong> /{" "}
+                                {isRtl ? "رزروشده:" : "Reserved:"} <strong className="tabular text-sm text-text-primary">{fmt(reserved)}</strong> /{" "}
                                 {fmt(tier.quota)}
                               </span>
                               <span className="tabular">{fmt(pct)}%</span>
@@ -1006,8 +1210,10 @@ function OrganizerEventDetailContent() {
 
       {/* TAB C: Check-In Points */}
       {activeTab === "points" &&
-        (points.length === 0 ? (
-          <EmptyState icon="gate" title={t.noPointsTitle} />
+        (loadFailed.has("points") ? (
+          <FormAlert>{t.sectionLoadFailed}</FormAlert>
+        ) : points.length === 0 ? (
+          <EmptyState icon="gate" title={t.noPointsTitle} action={sectionAction(t.createPointButton, () => setIsPointModalOpen(true))} />
         ) : (
           <div className="grid gap-4 xl:grid-cols-2">
             {points.map((pt, i) => {
@@ -1035,7 +1241,11 @@ function OrganizerEventDetailContent() {
                       </h3>
                       <p className="flex items-center gap-1.5 text-sm text-text-secondary">
                         <Icon name="pin" size={15} className="shrink-0 text-text-muted" />
-                        <bdi className="min-w-0 break-words">{pt.location || (isRtl ? "درب اصلی ورودی" : "Main Gate Area")}</bdi>
+                        {pt.location ? (
+                          <bdi className="min-w-0 break-words">{pt.location}</bdi>
+                        ) : (
+                          <span className="text-text-muted">{isRtl ? "بدون مکان" : "No location"}</span>
+                        )}
                       </p>
                     </div>
                     {policy.desc && <p className="text-xs leading-relaxed text-text-muted">{policy.desc}</p>}
@@ -1088,7 +1298,8 @@ function OrganizerEventDetailContent() {
                       </Button>
                     </div>
                     <span className="font-mono text-[0.6875rem] text-text-muted">
-                      <bdi dir="ltr">Point: {pt.id.slice(0, 8)}</bdi>
+                      {isRtl ? "شناسه: " : "ID: "}
+                      <bdi dir="ltr">{pt.id.slice(0, 8)}</bdi>
                     </span>
                   </div>
                 </article>
@@ -1099,8 +1310,10 @@ function OrganizerEventDetailContent() {
 
       {/* TAB D: Exhibition Booths */}
       {activeTab === "booths" &&
-        (booths.length === 0 ? (
-          <EmptyState icon="booth" title={t.noBoothsTitle} />
+        (loadFailed.has("booths") ? (
+          <FormAlert>{t.sectionLoadFailed}</FormAlert>
+        ) : booths.length === 0 ? (
+          <EmptyState icon="booth" title={t.noBoothsTitle} action={sectionAction(t.createBoothButton, () => setIsBoothModalOpen(true))} />
         ) : (
           <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-3">
             {booths.map((b) => (
@@ -1110,11 +1323,13 @@ function OrganizerEventDetailContent() {
                     <QRCode value={b.id} size={64} level="M" viewBox="0 0 256 256" fgColor="#0F172A" bgColor="#FFFFFF" className="h-full w-full" />
                   </div>
                   <div className="min-w-0 flex-1 space-y-1.5">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Badge variant="neutral" size="sm" icon={<Icon name="pin" size={12} />}>
-                        <bdi>{b.location || (isRtl ? "سالن نمایشگاه" : "Stand Area")}</bdi>
-                      </Badge>
-                    </div>
+                    {b.location && (
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge variant="neutral" size="sm" icon={<Icon name="pin" size={12} />}>
+                          <bdi>{b.location}</bdi>
+                        </Badge>
+                      </div>
+                    )}
                     <h3 className="break-words text-base font-bold leading-snug text-text-primary">
                       <bdi>{b.name}</bdi>
                     </h3>
@@ -1138,7 +1353,6 @@ function OrganizerEventDetailContent() {
                         setAssigningBooth(b);
                         setStaffMobile("");
                         setStaffName("");
-                        setStaffFeedback(null);
                         setStaffError(null);
                       }}
                     >
@@ -1148,6 +1362,22 @@ function OrganizerEventDetailContent() {
                     <Button type="button" variant="ghost" size="sm" onClick={() => setSelectedBoothQr(b)}>
                       <Icon name="qr" size={16} />
                       <span>{t.standeeQrButton}</span>
+                    </Button>
+                    <Button type="button" variant="ghost" size="sm" onClick={() => openEditBoothModal(b)} aria-label={isRtl ? `ویرایش غرفه ${b.name}` : `Edit booth ${b.name}`}>
+                      <Icon name="note" size={16} />
+                      <span>{isRtl ? "ویرایش" : "Edit"}</span>
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      disabled={deletingBoothId === b.id}
+                      onClick={() => setDeleteBoothTarget(b)}
+                      aria-label={isRtl ? `حذف غرفه ${b.name}` : `Delete booth ${b.name}`}
+                      className="!text-status-danger-text hover:!border-status-danger-border hover:!bg-status-danger-bg"
+                    >
+                      <Icon name="trash" size={16} />
+                      <span>{isRtl ? "حذف" : "Delete"}</span>
                     </Button>
                   </div>
                   <Link
@@ -1167,8 +1397,17 @@ function OrganizerEventDetailContent() {
 
       {/* TAB E: Front Desk Operators */}
       {activeTab === "operators" &&
-        (operators.length === 0 ? (
-          <EmptyState icon="users" title={t.noOperatorsTitle} />
+        (loadFailed.has("operators") ? (
+          <FormAlert>{t.sectionLoadFailed}</FormAlert>
+        ) : operators.length === 0 ? (
+          <EmptyState
+            icon="users"
+            title={t.noOperatorsTitle}
+            action={sectionAction(t.addOperatorButton, () => {
+              setOperatorFormError(null);
+              setIsOperatorModalOpen(true);
+            })}
+          />
         ) : (
           <div className="overflow-clip rounded-2xl border border-border-default bg-surface-panel shadow-soft">
             <table className="org-table org-table--stack">
@@ -1223,11 +1462,12 @@ function OrganizerEventDetailContent() {
                           variant="secondary"
                           size="sm"
                           disabled={revokingOperatorId === op.id}
+                          aria-busy={revokingOperatorId === op.id}
                           onClick={() => setRevokeTarget(op)}
                           className="!text-status-danger-text hover:!border-status-danger-border hover:!bg-status-danger-bg"
                         >
                           <Icon name="lock" size={16} />
-                          <span>{revokingOperatorId === op.id ? "..." : t.revokeOperatorAction}</span>
+                          <span>{revokingOperatorId === op.id ? t.revokingAction : t.revokeOperatorAction}</span>
                         </Button>
                       ) : (
                         <span className="text-xs font-medium text-text-muted">{isRtl ? "لغو شده" : "Revoked"}</span>
@@ -1261,20 +1501,29 @@ function OrganizerEventDetailContent() {
         description={t.createTierModalDesc}
         size="md"
       >
-        <form onSubmit={handleCreateTier} className="space-y-4">
+        <form onSubmit={handleCreateTier} className="space-y-4" noValidate>
           <Field label={t.tierNameLabel} required>
             <input
               type="text"
               required
               value={tierName}
               onChange={(e) => setTierName(e.target.value)}
+              aria-invalid={fieldInvalid("tier.name", tierFormError)}
               placeholder={isRtl ? "مثال: ثبت‌نام استاندارد هیئت علمی" : "e.g. Faculty Full Delegate"}
               className="ui-input"
             />
           </Field>
 
           <Field label={t.tierQuotaLabel} required>
-            <input type="number" required min={1} value={tierQuota} onChange={(e) => setTierQuota(Number(e.target.value))} className="ui-input font-mono tabular" />
+            <input
+              type="number"
+              required
+              min={1}
+              value={tierQuota}
+              onChange={(e) => setTierQuota(Number(e.target.value))}
+              aria-invalid={fieldInvalid("tier.quota", tierFormError)}
+              className="ui-input font-mono tabular"
+            />
           </Field>
 
           <Field label={t.tierDescriptionLabel}>
@@ -1307,8 +1556,8 @@ function OrganizerEventDetailContent() {
             <Button type="button" variant="ghost" size="md" onClick={() => setIsTierModalOpen(false)}>
               {cancelLabel}
             </Button>
-            <Button type="submit" variant="primary" size="md" disabled={submittingTier}>
-              {submittingTier ? "..." : t.saveTierAction}
+            <Button type="submit" variant="primary" size="md" disabled={submittingTier} aria-busy={submittingTier}>
+              {submittingTier ? t.creatingAction : t.saveTierAction}
             </Button>
           </DialogActions>
         </form>
@@ -1327,13 +1576,14 @@ function OrganizerEventDetailContent() {
         description={t.createPointModalDesc}
         size="md"
       >
-        <form onSubmit={handleCreatePoint} className="space-y-4">
+        <form onSubmit={handleCreatePoint} className="space-y-4" noValidate>
           <Field label={t.pointNameLabel} required>
             <input
               type="text"
               required
               value={pointName}
               onChange={(e) => setPointName(e.target.value)}
+              aria-invalid={fieldInvalid("point.name", pointFormError)}
               placeholder={isRtl ? "مثال: گیت ورودی شمالی سالن ۱" : "e.g. North Gate Entrance"}
               className="ui-input"
             />
@@ -1358,6 +1608,39 @@ function OrganizerEventDetailContent() {
             </select>
           </Field>
 
+          {policyType === "TIER_RESTRICTED" && (
+            <fieldset className="space-y-2 rounded-xl border border-border-default bg-surface-panel-subtle p-3.5">
+              <legend className="sr-only">{t.allowedTiersLabel}</legend>
+              <span aria-hidden="true" className="ui-label">
+                {t.allowedTiersLabel}
+                <span className="ms-1 text-status-danger-solid">*</span>
+              </span>
+              <div className="max-h-40 space-y-1 overflow-y-auto">
+                {tiers.map((tr) => (
+                  <label
+                    key={tr.id}
+                    className="flex min-h-[40px] cursor-pointer items-center gap-3 rounded-lg px-2 text-sm text-text-secondary transition-colors hover:bg-surface-panel"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={allowedTiers.includes(tr.id)}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setAllowedTiers((prev) => [...prev, tr.id]);
+                        } else {
+                          setAllowedTiers((prev) => prev.filter((id) => id !== tr.id));
+                        }
+                      }}
+                      aria-invalid={fieldInvalid("point.tiers", pointFormError)}
+                      className="size-4 shrink-0 accent-aiteb-indigo"
+                    />
+                    <span>{tr.name}</span>
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+          )}
+
           {policyType === "CAPACITY_CAPPED" && (
             <Field label={t.maxCapacityLabel}>
               <input
@@ -1365,7 +1648,7 @@ function OrganizerEventDetailContent() {
                 min={1}
                 value={maxCapacity || ""}
                 onChange={(e) => setMaxCapacity(e.target.value ? Number(e.target.value) : undefined)}
-                placeholder="e.g. 250"
+                placeholder={isRtl ? "مثال: ۲۵۰" : "e.g. 250"}
                 className="ui-input font-mono tabular"
               />
             </Field>
@@ -1377,8 +1660,8 @@ function OrganizerEventDetailContent() {
             <Button type="button" variant="ghost" size="md" onClick={() => setIsPointModalOpen(false)}>
               {cancelLabel}
             </Button>
-            <Button type="submit" variant="primary" size="md" disabled={submittingPoint}>
-              {submittingPoint ? "..." : t.savePointAction}
+            <Button type="submit" variant="primary" size="md" disabled={submittingPoint} aria-busy={submittingPoint}>
+              {submittingPoint ? t.creatingAction : t.savePointAction}
             </Button>
           </DialogActions>
         </form>
@@ -1397,18 +1680,19 @@ function OrganizerEventDetailContent() {
         description={t.createBoothModalDesc}
         size="md"
       >
-        <form onSubmit={handleCreateBooth} className="space-y-4">
+        <form onSubmit={handleCreateBooth} className="space-y-4" noValidate>
           <Field label={t.boothNameLabel} required>
             <input
               type="text"
               required
               value={boothName}
               onChange={(e) => {
-                setBoothName(e.target.value);
-                if (!boothSlug) {
-                  setBoothSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "-"));
-                }
+                const next = e.target.value;
+                // Keep suggesting while the slug is still the one suggested for the previous name.
+                if (!boothSlug || boothSlug === boothSlugFrom(boothName)) setBoothSlug(boothSlugFrom(next));
+                setBoothName(next);
               }}
+              aria-invalid={fieldInvalid("booth.name", boothFormError)}
               placeholder={isRtl ? "مثال: شرکت پیشگامان زیست‌فناوری" : "e.g. Biotech Systems Global"}
               className="ui-input"
             />
@@ -1422,6 +1706,7 @@ function OrganizerEventDetailContent() {
                 dir="ltr"
                 value={boothSlug}
                 onChange={(e) => setBoothSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""))}
+                aria-invalid={fieldInvalid("booth.slug", boothFormError)}
                 placeholder="biotech-systems"
                 className="ui-input font-mono"
               />
@@ -1444,6 +1729,7 @@ function OrganizerEventDetailContent() {
               dir="ltr"
               value={boothWebsite}
               onChange={(e) => setBoothWebsite(e.target.value)}
+              aria-invalid={fieldInvalid("booth.website_url", boothFormError)}
               placeholder="https://company.example.com"
               className="ui-input font-mono"
             />
@@ -1455,6 +1741,7 @@ function OrganizerEventDetailContent() {
               dir="ltr"
               value={boothBrochure}
               onChange={(e) => setBoothBrochure(e.target.value)}
+              aria-invalid={fieldInvalid("booth.brochure_url", boothFormError)}
               placeholder="https://company.example.com/brochure.pdf"
               className="ui-input font-mono"
             />
@@ -1476,8 +1763,8 @@ function OrganizerEventDetailContent() {
             <Button type="button" variant="ghost" size="md" onClick={() => setIsBoothModalOpen(false)}>
               {cancelLabel}
             </Button>
-            <Button type="submit" variant="primary" size="md" disabled={submittingBooth}>
-              {submittingBooth ? "..." : t.saveBoothAction}
+            <Button type="submit" variant="primary" size="md" disabled={submittingBooth} aria-busy={submittingBooth}>
+              {submittingBooth ? t.creatingAction : t.saveBoothAction}
             </Button>
           </DialogActions>
         </form>
@@ -1493,7 +1780,7 @@ function OrganizerEventDetailContent() {
         description={assigningBooth ? `${t.assignStaffModalDesc} (${assigningBooth.name})` : undefined}
         size="sm"
       >
-        <form onSubmit={handleAssignStaff} className="space-y-4">
+        <form onSubmit={handleAssignStaff} className="space-y-4" noValidate>
           <Field label={isRtl ? "نام نماینده" : "Representative name"}>
             <input
               type="text"
@@ -1522,20 +1809,11 @@ function OrganizerEventDetailContent() {
               autoComplete="off"
               value={staffMobile}
               onChange={(e) => setStaffMobile(e.target.value)}
+              aria-invalid={fieldInvalid("staff.mobile", staffError)}
               placeholder="09xx xxx xxxx"
               className="ui-input font-mono"
             />
           </Field>
-
-          {staffFeedback && (
-            <div
-              role="status"
-              className="flex items-start gap-2.5 rounded-xl border border-status-success-border bg-status-success-bg px-3.5 py-3 text-sm text-status-success-text"
-            >
-              <Icon name="check-circle" size={18} className="mt-0.5 shrink-0" />
-              <span>{staffFeedback}</span>
-            </div>
-          )}
 
           {staffError && <FormAlert>{staffError}</FormAlert>}
 
@@ -1543,8 +1821,8 @@ function OrganizerEventDetailContent() {
             <Button type="button" variant="ghost" size="md" onClick={() => setAssigningBooth(null)}>
               {cancelLabel}
             </Button>
-            <Button type="submit" variant="primary" size="md" disabled={assigningStaff}>
-              {assigningStaff ? "..." : t.assignStaffAction}
+            <Button type="submit" variant="primary" size="md" disabled={assigningStaff} aria-busy={assigningStaff}>
+              {assigningStaff ? t.savingAction : t.assignStaffAction}
             </Button>
           </DialogActions>
         </form>
@@ -1581,10 +1859,11 @@ function OrganizerEventDetailContent() {
                   <h3 className="break-words text-lg font-bold leading-snug text-text-primary">
                     <bdi>{selectedBoothQr.name}</bdi>
                   </h3>
-                  <p className="text-xs text-text-secondary">{selectedBoothQr.location || "Exhibition Floor"}</p>
+                  {selectedBoothQr.location && <p className="text-xs text-text-secondary">{selectedBoothQr.location}</p>}
                 </div>
                 <p className="border-t border-border-subtle pt-3 font-mono text-[0.625rem] text-text-muted">
-                  <bdi dir="ltr">Booth ID: {selectedBoothQr.id}</bdi>
+                  {isRtl ? "شناسه غرفه: " : "Booth ID: "}
+                  <bdi dir="ltr">{selectedBoothQr.id}</bdi>
                 </p>
               </div>
             </div>
@@ -1593,6 +1872,102 @@ function OrganizerEventDetailContent() {
               {isRtl ? "چاپ کیوآرکد استند" : "Print Standee QR"}
             </Button>
           </div>
+        )}
+      </Dialog>
+
+      {/* EDIT BOOTH MODAL */}
+      <Dialog
+        isOpen={editingBooth !== null}
+        onClose={() => {
+          if (!submittingBoothEdit) {
+            setEditingBooth(null);
+            setBoothEditError(null);
+          }
+        }}
+        title={isRtl ? "ویرایش غرفه" : "Edit booth"}
+        description={editingBooth ? (isRtl ? `ویرایش مشخصات غرفه «${editingBooth.name}».` : `Update the details of “${editingBooth.name}”.`) : undefined}
+        size="md"
+      >
+        {editingBooth && (
+          <form onSubmit={handleUpdateBooth} className="space-y-4" noValidate>
+            <Field label={t.boothNameLabel} required>
+              <input
+                type="text"
+                required
+                value={boothDraft.name}
+                onChange={(e) => setBoothDraft((d) => ({ ...d, name: e.target.value }))}
+                aria-invalid={fieldInvalid("boothEdit.name", boothEditError)}
+                className="ui-input"
+              />
+            </Field>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field label={t.boothSlugLabel} required>
+                <input
+                  type="text"
+                  required
+                  dir="ltr"
+                  value={boothDraft.slug}
+                  onChange={(e) => setBoothDraft((d) => ({ ...d, slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "") }))}
+                  aria-invalid={fieldInvalid("boothEdit.slug", boothEditError)}
+                  className="ui-input font-mono"
+                />
+              </Field>
+
+              <Field label={t.boothLocationLabel}>
+                <input
+                  type="text"
+                  value={boothDraft.location}
+                  onChange={(e) => setBoothDraft((d) => ({ ...d, location: e.target.value }))}
+                  className="ui-input"
+                />
+              </Field>
+            </div>
+
+            <Field label={t.websiteUrlLabel}>
+              <input
+                type="url"
+                dir="ltr"
+                value={boothDraft.website_url}
+                onChange={(e) => setBoothDraft((d) => ({ ...d, website_url: e.target.value }))}
+                aria-invalid={fieldInvalid("boothEdit.website_url", boothEditError)}
+                placeholder="https://company.example.com"
+                className="ui-input font-mono"
+              />
+            </Field>
+
+            <Field label={t.brochureUrlLabel}>
+              <input
+                type="url"
+                dir="ltr"
+                value={boothDraft.brochure_url}
+                onChange={(e) => setBoothDraft((d) => ({ ...d, brochure_url: e.target.value }))}
+                aria-invalid={fieldInvalid("boothEdit.brochure_url", boothEditError)}
+                placeholder="https://company.example.com/brochure.pdf"
+                className="ui-input font-mono"
+              />
+            </Field>
+
+            <Field label={t.boothDescriptionLabel}>
+              <textarea
+                rows={3}
+                value={boothDraft.description}
+                onChange={(e) => setBoothDraft((d) => ({ ...d, description: e.target.value }))}
+                className="ui-textarea"
+              />
+            </Field>
+
+            {boothEditError && <FormAlert>{boothEditError}</FormAlert>}
+
+            <DialogActions>
+              <Button type="button" variant="ghost" size="md" disabled={submittingBoothEdit} onClick={() => setEditingBooth(null)}>
+                {cancelLabel}
+              </Button>
+              <Button type="submit" variant="primary" size="md" disabled={submittingBoothEdit} aria-busy={submittingBoothEdit}>
+                {submittingBoothEdit ? t.savingAction : t.saveChangesAction || (isRtl ? "ذخیره تغییرات" : "Save Changes")}
+              </Button>
+            </DialogActions>
+          </form>
         )}
       </Dialog>
 
@@ -1610,10 +1985,10 @@ function OrganizerEventDetailContent() {
         size="lg"
       >
         {event && (
-          <form onSubmit={handleUpdateEvent} className="space-y-5">
+          <form onSubmit={handleUpdateEvent} className="space-y-5" noValidate>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <Field label={t.eventNameLabel} required className="sm:col-span-2">
-                <input type="text" required value={editEventName} onChange={(e) => setEditEventName(e.target.value)} className="ui-input" />
+                <input type="text" required value={editEventName} onChange={(e) => setEditEventName(e.target.value)} aria-invalid={fieldInvalid("event.name", eventEditError)} className="ui-input" />
               </Field>
 
               <Field
@@ -1629,15 +2004,15 @@ function OrganizerEventDetailContent() {
               </Field>
 
               <Field label={t.startsAtLabel} required>
-                <input type="datetime-local" required value={editEventStartsAt} onChange={(e) => setEditEventStartsAt(e.target.value)} className="ui-input font-mono" />
+                <input type="datetime-local" required value={editEventStartsAt} onChange={(e) => setEditEventStartsAt(e.target.value)} aria-invalid={fieldInvalid("event.startsAt", eventEditError)} className="ui-input font-mono" />
               </Field>
 
               <Field label={t.endsAtLabel} required>
-                <input type="datetime-local" required value={editEventEndsAt} onChange={(e) => setEditEventEndsAt(e.target.value)} className="ui-input font-mono" />
+                <input type="datetime-local" required value={editEventEndsAt} min={editEventStartsAt || undefined} onChange={(e) => setEditEventEndsAt(e.target.value)} aria-invalid={fieldInvalid("event.endsAt", eventEditError)} className="ui-input font-mono" />
               </Field>
 
               <Field label={t.locationLabel} required className="sm:col-span-2">
-                <input type="text" required value={editEventLocation} onChange={(e) => setEditEventLocation(e.target.value)} className="ui-input" />
+                <input type="text" required value={editEventLocation} onChange={(e) => setEditEventLocation(e.target.value)} aria-invalid={fieldInvalid("event.location", eventEditError)} className="ui-input" />
               </Field>
 
               <Field label={t.descriptionLabel} className="sm:col-span-2">
@@ -1651,8 +2026,8 @@ function OrganizerEventDetailContent() {
               <Button type="button" variant="ghost" size="md" disabled={submittingEventEdit} onClick={() => setIsEditEventModalOpen(false)}>
                 {t.cancelAction || cancelLabel}
               </Button>
-              <Button type="submit" variant="primary" size="md" disabled={submittingEventEdit}>
-                {submittingEventEdit ? t.savingAction || "..." : t.saveChangesAction || (isRtl ? "ذخیره تغییرات" : "Save Changes")}
+              <Button type="submit" variant="primary" size="md" disabled={submittingEventEdit} aria-busy={submittingEventEdit}>
+                {submittingEventEdit ? t.savingAction : t.saveChangesAction || (isRtl ? "ذخیره تغییرات" : "Save Changes")}
               </Button>
             </DialogActions>
           </form>
@@ -1668,21 +2043,21 @@ function OrganizerEventDetailContent() {
             setTierEditError(null);
           }
         }}
-        title={t.editTierTitle || (isRtl ? "ویرایش رده بلیت و سهمیه" : "Edit Ticket Tier")}
+        title={t.editTierTitle || (isRtl ? "ویرایش رده بلیط و سهمیه" : "Edit Ticket Tier")}
         description={t.editTierDesc || (isRtl ? "ویرایش نام، توضیحات، سهمیه و وضعیت ثبت‌نام رده." : "Update tier details.")}
         size="md"
       >
         {editingTier && (
-          <form onSubmit={handleUpdateTier} className="space-y-4">
+          <form onSubmit={handleUpdateTier} className="space-y-4" noValidate>
             <Field label={t.tierNameLabel} required>
-              <input type="text" required value={editTierName} onChange={(e) => setEditTierName(e.target.value)} className="ui-input" />
+              <input type="text" required value={editTierName} onChange={(e) => setEditTierName(e.target.value)} aria-invalid={fieldInvalid("tierEdit.name", tierEditError)} className="ui-input" />
             </Field>
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <Field
                 label={t.tierQuotaLabel}
                 required
-                hint={isRtl ? "سهمیه نمی‌تواند کمتر از بلیت‌های صادرشده باشد." : "Quota cannot fall below confirmed registrations."}
+                hint={isRtl ? "سهمیه نمی‌تواند کمتر از بلیط‌های صادرشده باشد." : "Quota cannot fall below confirmed registrations."}
               >
                 <input
                   type="number"
@@ -1690,13 +2065,14 @@ function OrganizerEventDetailContent() {
                   min={1}
                   value={editTierQuota}
                   onChange={(e) => setEditTierQuota(parseInt(e.target.value) || 0)}
+                  aria-invalid={fieldInvalid("tierEdit.quota", tierEditError)}
                   className="ui-input font-mono tabular"
                 />
               </Field>
 
               <Field label={t.tierStatusLabel || (isRtl ? "وضعیت ثبت‌نام" : "Registration Status")}>
                 <select value={editTierIsOpen ? "open" : "closed"} onChange={(e) => setEditTierIsOpen(e.target.value === "open")} className="ui-select">
-                  <option value="open">{t.tierOpenOption || (isRtl ? "باز جهت ثبت‌نام و صدور بلیت" : "Open for Registration")}</option>
+                  <option value="open">{t.tierOpenOption || (isRtl ? "باز جهت ثبت‌نام و صدور بلیط" : "Open for Registration")}</option>
                   <option value="closed">{t.tierClosedOption || (isRtl ? "بسته شده (عدم پذیرش ثبت‌نام)" : "Closed")}</option>
                 </select>
               </Field>
@@ -1712,8 +2088,8 @@ function OrganizerEventDetailContent() {
               <Button type="button" variant="ghost" size="md" disabled={submittingTierEdit} onClick={() => setEditingTier(null)}>
                 {t.cancelAction || cancelLabel}
               </Button>
-              <Button type="submit" variant="primary" size="md" disabled={submittingTierEdit}>
-                {submittingTierEdit ? t.savingAction || "..." : t.saveChangesAction || (isRtl ? "ذخیره تغییرات" : "Save Changes")}
+              <Button type="submit" variant="primary" size="md" disabled={submittingTierEdit} aria-busy={submittingTierEdit}>
+                {submittingTierEdit ? t.savingAction : t.saveChangesAction || (isRtl ? "ذخیره تغییرات" : "Save Changes")}
               </Button>
             </DialogActions>
           </form>
@@ -1734,9 +2110,9 @@ function OrganizerEventDetailContent() {
         size="md"
       >
         {editingPoint && (
-          <form onSubmit={handleUpdatePoint} className="space-y-4">
+          <form onSubmit={handleUpdatePoint} className="space-y-4" noValidate>
             <Field label={t.pointNameLabel} required>
-              <input type="text" required value={editPointName} onChange={(e) => setEditPointName(e.target.value)} className="ui-input" />
+              <input type="text" required value={editPointName} onChange={(e) => setEditPointName(e.target.value)} aria-invalid={fieldInvalid("pointEdit.name", pointEditError)} className="ui-input" />
             </Field>
 
             <Field label={t.pointLocationLabel}>
@@ -1784,6 +2160,7 @@ function OrganizerEventDetailContent() {
                             setEditPointAllowedTiers((prev) => prev.filter((id) => id !== tr.id));
                           }
                         }}
+                        aria-invalid={fieldInvalid("pointEdit.tiers", pointEditError)}
                         className="size-4 shrink-0 accent-aiteb-indigo"
                       />
                       <span>{tr.name}</span>
@@ -1812,8 +2189,8 @@ function OrganizerEventDetailContent() {
               <Button type="button" variant="ghost" size="md" disabled={submittingPointEdit} onClick={() => setEditingPoint(null)}>
                 {t.cancelAction || cancelLabel}
               </Button>
-              <Button type="submit" variant="primary" size="md" disabled={submittingPointEdit}>
-                {submittingPointEdit ? t.savingAction || "..." : t.saveChangesAction || (isRtl ? "ذخیره تغییرات" : "Save Changes")}
+              <Button type="submit" variant="primary" size="md" disabled={submittingPointEdit} aria-busy={submittingPointEdit}>
+                {submittingPointEdit ? t.savingAction : t.saveChangesAction || (isRtl ? "ذخیره تغییرات" : "Save Changes")}
               </Button>
             </DialogActions>
           </form>
@@ -1833,13 +2210,14 @@ function OrganizerEventDetailContent() {
         description={t.addOperatorModalDesc}
         size="md"
       >
-          <form onSubmit={handleCreateOperator} className="space-y-4">
+          <form onSubmit={handleCreateOperator} className="space-y-4" noValidate>
             <Field label={t.operatorNameLabel} required>
               <input
                 type="text"
                 required
                 value={newOperatorName}
                 onChange={(e) => setNewOperatorName(e.target.value)}
+                aria-invalid={fieldInvalid("operator.name", operatorFormError)}
                 placeholder={isRtl ? "مثال: مریم باقری (مسئول گیت پذیرش)" : "e.g. Maryam Bagheri"}
                 className="ui-input"
               />
@@ -1858,6 +2236,7 @@ function OrganizerEventDetailContent() {
                 autoComplete="off"
                 value={newOperatorMobile}
                 onChange={(e) => setNewOperatorMobile(e.target.value)}
+                aria-invalid={fieldInvalid("operator.mobile", operatorFormError)}
                 placeholder="09xx xxx xxxx"
                 className="ui-input font-mono"
               />
@@ -1869,8 +2248,8 @@ function OrganizerEventDetailContent() {
               <Button type="button" variant="ghost" size="md" disabled={submittingOperator} onClick={() => setIsOperatorModalOpen(false)}>
                 {cancelLabel}
               </Button>
-              <Button type="submit" variant="primary" size="md" disabled={submittingOperator}>
-                {submittingOperator ? "..." : isRtl ? "صدور دسترسی اپراتور" : "Authorize Operator"}
+              <Button type="submit" variant="primary" size="md" disabled={submittingOperator} aria-busy={submittingOperator}>
+                {submittingOperator ? t.creatingAction : isRtl ? "صدور دسترسی اپراتور" : "Authorize Operator"}
               </Button>
             </DialogActions>
           </form>
@@ -1925,6 +2304,27 @@ function OrganizerEventDetailContent() {
           closeTierConfirmed.current = true;
           setConfirmCloseTier(false);
           void handleUpdateTier();
+        }}
+      />
+
+      <ConfirmDialog
+        isOpen={deleteBoothTarget !== null}
+        tone="danger"
+        title={isRtl ? "حذف این غرفه؟" : "Delete this booth?"}
+        description={
+          deleteBoothTarget
+            ? isRtl
+              ? `غرفه «${deleteBoothTarget.name}» برای همیشه حذف می‌شود؛ همراه با نمایندگان تخصیص‌یافته، نشان‌گذاری‌های شرکت‌کنندگان و همهٔ لیدهای ثبت‌شدهٔ آن. کیوآرکد استند آن هم دیگر کار نمی‌کند. این کار برگشت‌پذیر نیست.`
+              : `“${deleteBoothTarget.name}” is permanently deleted together with its staff assignments, attendees' saved bookmarks and all captured leads. Its standee QR code stops working. This cannot be undone.`
+            : ""
+        }
+        confirmLabel={isRtl ? "حذف غرفه" : "Delete booth"}
+        cancelLabel={cancelLabel}
+        onCancel={() => setDeleteBoothTarget(null)}
+        onConfirm={() => {
+          const target = deleteBoothTarget;
+          setDeleteBoothTarget(null);
+          if (target) void handleDeleteBooth(target);
         }}
       />
     </div>

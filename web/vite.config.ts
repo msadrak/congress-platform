@@ -29,9 +29,10 @@ export default defineConfig({
         // controls when to apply updates (preserving in-flight scan state)
       },
       manifest: {
-        name: 'Congress Scanner',
-        short_name: 'Scanner',
-        description: 'Offline-capable gate scanner for Congress Management Platform',
+        // One manifest serves every portal (passes, booths, desk, scanner): name the platform, not the scanner.
+        name: 'AI Teb Congress',
+        short_name: 'Congress',
+        description: 'AI Teb congress platform: digital passes, offline gate scanning, reception and exhibitor lead capture',
         theme_color: '#0E0C2B',
         background_color: '#0E0C2B',
         display: 'standalone',

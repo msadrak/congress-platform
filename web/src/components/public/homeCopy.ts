@@ -14,7 +14,8 @@ export interface EnvironmentCopy {
 /** Platform landing copy. Only capabilities the product actually has; no figures, logos or testimonials. */
 export const homeCopy = {
   en: {
-    eyebrow: "Congress platform by AIteb",
+    /** Followed by the brand name (`AITEB_NAME`) in an LTR island. */
+    eyebrowLead: "Congress platform by",
     titleLead: "The operating system for",
     titleAccent: "academic & industry congresses",
     lead: "Fast walk-in registration, reliable badge check-in, exhibition lead capture and attendee networking — engineered for the physical reality of busy conference venues.",
@@ -132,7 +133,7 @@ export const homeCopy = {
     closingLead: "Open the organizer console to set up your event, configure ticket quotas and follow live gate attendance.",
   },
   fa: {
-    eyebrow: "سامانهٔ همایش آی‌طب",
+    eyebrowLead: "سامانهٔ همایش",
     titleLead: "سامانهٔ یکپارچهٔ اجرای",
     titleAccent: "همایش‌های علمی و تخصصی",
     lead: "ثبت‌نام حضوری سریع، پذیرش مطمئن کارت ورود در گیت‌ها، ثبت سرنخ در نمایشگاه و شبکه‌سازی شرکت‌کنندگان؛ طراحی‌شده برای واقعیت سالن‌های شلوغ همایش.",

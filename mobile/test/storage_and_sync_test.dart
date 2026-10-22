@@ -31,6 +31,8 @@ void main() {
       expect(loaded, isNotNull);
       expect(loaded!['checkin_point']['name'], 'Gate 1');
       expect((loaded['tickets'] as List).length, 1);
+      expect(await storage.manifestSavedAt('p1'), isNotNull);
+      expect(await storage.manifestSavedAt('missing'), isNull);
     });
 
     test('Scans are buffered in queue and marked as synced', () async {

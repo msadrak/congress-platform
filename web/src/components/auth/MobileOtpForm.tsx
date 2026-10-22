@@ -208,6 +208,7 @@ export function MobileOtpForm({ locale, purpose = "signin", onSignedIn, verifyDe
         setStep("profile");
       } else if (response.status === 401 || response.status === 422) {
         setFieldError(copy.codeInvalid);
+        codeRef.current?.select();
       } else if (response.status === 429) {
         setFormError(copy.tooMany(number(retryAfterSeconds(response))));
       } else {
@@ -273,7 +274,7 @@ export function MobileOtpForm({ locale, purpose = "signin", onSignedIn, verifyDe
             className="ui-input min-h-12 text-start font-mono tracking-wide"
           />
           {fieldError ? (
-            <p id={ids.error} className={errorText}>{fieldError}</p>
+            <p id={ids.error} role="alert" className={errorText}>{fieldError}</p>
           ) : (
             <p id={ids.mobileHelp} className="mt-1.5 text-xs text-text-muted">{copy.mobileHint}</p>
           )}
@@ -334,12 +335,13 @@ export function MobileOtpForm({ locale, purpose = "signin", onSignedIn, verifyDe
             className="ui-input min-h-12 text-center font-mono text-xl tracking-[0.5em]"
           />
           {fieldError ? (
-            <p id={ids.error} className={errorText}>{fieldError}</p>
+            <p id={ids.error} role="alert" className={errorText}>{fieldError}</p>
           ) : (
-            <p id={ids.codeHelp} className="mt-1.5 text-xs text-text-muted" aria-live="polite">
+            <p id={ids.codeHelp} className="mt-1.5 text-xs text-text-muted">
               {secondsLeft > 0 ? copy.resendIn(number(secondsLeft)) : null}
             </p>
           )}
+          <span className="sr-only" aria-live="polite">{secondsLeft === 0 ? copy.resend : ""}</span>
         </div>
         <Button type="submit" variant="primary" size="lg" isFullWidth disabled={busy} aria-busy={busy}>
           {busy ? copy.verifying : verifyLabel ?? copy.verify}
@@ -376,7 +378,7 @@ export function MobileOtpForm({ locale, purpose = "signin", onSignedIn, verifyDe
           aria-describedby={fieldError ? ids.error : undefined}
           className="ui-input min-h-12"
         />
-        {fieldError && <p id={ids.error} className={errorText}>{fieldError}</p>}
+        {fieldError && <p id={ids.error} role="alert" className={errorText}>{fieldError}</p>}
       </div>
       <div className="grid gap-4 sm:grid-cols-2">
         <div>

@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import {
   ATTENDEE_TOKEN_STORAGE,
-  formatApiError,
   createApiClient,
   type PublicBoothOut,
 } from "../api/client";
@@ -12,10 +11,10 @@ import { Icon } from "../components/ui/Icon";
 import { CongressSignature } from "../components/brand/CongressSignature";
 import { contentLocale, indexLabel, proseDir, publicCopy, usePublicLocale } from "../components/public/copy";
 import { Bidi } from "../components/public/Bidi";
+import { signInPath } from "../lib/safeRedirect";
 
-type FeedbackKey = "fbSignIn" | "fbSessionChanged" | "fbSaved" | "fbRemoved" | "fbUpdateFailed" | "fbLoadFailed";
-/** Bookmark feedback: a page-copy message (rendered in the page language) or a server message as received. */
-type BookmarkFeedback = { key: FeedbackKey } | { text: string };
+/** Bookmark feedback, always rendered in the page language. */
+type FeedbackKey = "fbSessionChanged" | "fbSessionExpired" | "fbSaved" | "fbRemoved" | "fbUpdateFailed" | "fbLoadFailed";
 
 const LATIN_CODE = /^[\x20-\x7E]+$/;
 
@@ -32,11 +31,11 @@ export default function PublicBooth() {
 
   const [booth, setBooth] = useState<PublicBoothOut | null>(null);
   const [loading, setLoading] = useState(true);
-  /** A server message as received, or `null` + `loadFailed` for a network failure (rendered in the page language). */
-  const [error, setError] = useState<string | null>(null);
-  const [loadFailed, setLoadFailed] = useState(false);
+  /** Why the profile could not be shown: the booth does not exist (404) or loading failed. */
+  const [loadError, setLoadError] = useState<"notFound" | "failed" | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
   const [bookmarking, setBookmarking] = useState(false);
-  const [bookmarkFeedback, setBookmarkFeedback] = useState<BookmarkFeedback | null>(null);
+  const [bookmarkFeedback, setBookmarkFeedback] = useState<FeedbackKey | null>(null);
   const [isBookmarked, setIsBookmarked] = useState(false);
   const [bookmarkLoading, setBookmarkLoading] = useState(false);
   const bookmarkContext = useRef<{ active: boolean } | null>(null);
@@ -53,27 +52,26 @@ export default function PublicBooth() {
     const loadBooth = async () => {
       setLoading(true);
       setBooth(null);
-      setError(null);
-      setLoadFailed(false);
+      setLoadError(null);
       setBookmarkFeedback(null);
       try {
         const client = createApiClient({ kind: "anonymous" });
-        const { data, error: err } = await client.GET(
+        const { data, error: err, response } = await client.GET(
           "/api/public/events/{slug}/booths/{booth_id}",
           { params: { path: { slug, booth_id: boothId } } }
         );
         if (!active) return;
-        if (err) setError(formatApiError(err));
+        if (err) setLoadError(response.status === 404 ? "notFound" : "failed");
         else if (data) setBooth(data);
       } catch {
-        if (active) setLoadFailed(true);
+        if (active) setLoadError("failed");
       } finally {
         if (active) setLoading(false);
       }
     };
     void loadBooth();
     return () => { active = false; };
-  }, [slug, boothId]);
+  }, [slug, boothId, reloadKey]);
 
   useEffect(() => {
     const context = { active: true };
@@ -89,12 +87,12 @@ export default function PublicBooth() {
         if (!context.active || localStorage.getItem(ATTENDEE_TOKEN_STORAGE) !== token) return;
         if (err) {
           if (response.status === 401) localStorage.removeItem(ATTENDEE_TOKEN_STORAGE);
-          setBookmarkFeedback({ text: `${response.status}: ${formatApiError(err)}` });
+          setBookmarkFeedback(response.status === 401 ? "fbSessionExpired" : "fbLoadFailed");
         } else if (data) {
           setIsBookmarked(data.some((saved) => saved.booth_id === boothId && saved.event_slug === slug));
         }
       } catch {
-        if (context.active && localStorage.getItem(ATTENDEE_TOKEN_STORAGE) === token) setBookmarkFeedback({ key: "fbLoadFailed" });
+        if (context.active && localStorage.getItem(ATTENDEE_TOKEN_STORAGE) === token) setBookmarkFeedback("fbLoadFailed");
       } finally {
         if (context.active) setBookmarkLoading(false);
       }
@@ -104,14 +102,10 @@ export default function PublicBooth() {
   }, [slug, boothId, token]);
 
   const handleToggleBookmark = async () => {
-    if (!boothId || !booth || bookmarkLoading || bookmarking) return;
-    if (!token) {
-      setBookmarkFeedback({ key: "fbSignIn" });
-      return;
-    }
+    if (!token || !boothId || !booth || bookmarkLoading || bookmarking) return;
     // The rendered token can outlive the stored session (e.g. another tab signed in or out).
     if (localStorage.getItem(ATTENDEE_TOKEN_STORAGE) !== token) {
-      setBookmarkFeedback({ key: "fbSessionChanged" });
+      setBookmarkFeedback("fbSessionChanged");
       return;
     }
 
@@ -128,13 +122,13 @@ export default function PublicBooth() {
       if (!context.active || localStorage.getItem(ATTENDEE_TOKEN_STORAGE) !== token) return;
       if (err) {
         if (response.status === 401) localStorage.removeItem(ATTENDEE_TOKEN_STORAGE);
-        setBookmarkFeedback({ text: `${response.status}: ${formatApiError(err)}` });
+        setBookmarkFeedback(response.status === 401 ? "fbSessionExpired" : "fbUpdateFailed");
       } else if (data) {
         setIsBookmarked(data.bookmarked);
-        setBookmarkFeedback({ key: data.bookmarked ? "fbSaved" : "fbRemoved" });
+        setBookmarkFeedback(data.bookmarked ? "fbSaved" : "fbRemoved");
       }
     } catch {
-      if (context.active && localStorage.getItem(ATTENDEE_TOKEN_STORAGE) === token) setBookmarkFeedback({ key: "fbUpdateFailed" });
+      if (context.active && localStorage.getItem(ATTENDEE_TOKEN_STORAGE) === token) setBookmarkFeedback("fbUpdateFailed");
     } finally {
       if (context.active) setBookmarking(false);
     }
@@ -164,7 +158,8 @@ export default function PublicBooth() {
   }
 
   // Error / Not Found state
-  if (error || loadFailed || !booth) {
+  if (loadError || !booth) {
+    const notFound = loadError !== "failed";
     return (
       <PublicLayout locale={locale} onLocaleChange={setLocale} congressName="">
         <section className="relative isolate overflow-hidden">
@@ -172,16 +167,24 @@ export default function PublicBooth() {
           <div aria-hidden="true" className="absolute inset-0 -z-10 bg-linear-to-b from-surface-page/30 via-surface-page/85 to-surface-page" />
           <div className="mx-auto max-w-xl space-y-7 px-4 py-24 text-center sm:py-36">
             <span className="mx-auto grid size-16 place-items-center bg-surface-panel text-aiteb-indigo shadow-lift shape-arc">
-              <Icon name="booth" size={28} />
+              <Icon name={notFound ? "booth" : "alert"} size={28} />
             </span>
             <div className="space-y-3">
-              <h1 className="text-3xl font-bold tracking-[-0.03em] text-text-primary sm:text-4xl">{c.boothNotFound}</h1>
-              <p className="text-base leading-relaxed text-text-secondary">{error ?? (loadFailed ? c.boothLoadFailed : c.boothNotFoundBody)}</p>
+              <h1 className="text-3xl font-bold tracking-[-0.03em] text-text-primary sm:text-4xl">{notFound ? c.boothNotFound : c.boothLoadFailedTitle}</h1>
+              <p className="text-base leading-relaxed text-text-secondary">{notFound ? c.boothNotFoundBody : c.boothLoadFailed}</p>
             </div>
-            <LinkButton to={slug ? `/e/${slug}` : "/"} variant="secondary" size="lg">
-              <Icon name="arrow-left" size={18} />
-              {slug ? c.backToEvent : c.platformHome}
-            </LinkButton>
+            <div className="flex flex-wrap items-center justify-center gap-3">
+              {!notFound && (
+                <Button type="button" variant="secondary" size="lg" onClick={() => setReloadKey((k) => k + 1)}>
+                  <Icon name="sync" size={18} />
+                  {c.retry}
+                </Button>
+              )}
+              <LinkButton to={slug ? `/e/${slug}` : "/"} variant={notFound ? "secondary" : "ghost"} size="lg">
+                <Icon name="arrow-left" size={18} />
+                {slug ? c.backToEvent : c.platformHome}
+              </LinkButton>
+            </div>
           </div>
         </section>
       </PublicLayout>
@@ -192,8 +195,8 @@ export default function PublicBooth() {
   const websiteUrl = booth.website_url && /^https?:\/\//i.test(booth.website_url) ? booth.website_url : null;
   const code = booth.location || c.mainFloor;
   const latinCode = Boolean(booth.location) && LATIN_CODE.test(booth.location) && booth.location.length <= 8;
-  const feedbackText = bookmarkFeedback ? ("key" in bookmarkFeedback ? c[bookmarkFeedback.key] : bookmarkFeedback.text) : null;
-  const feedbackOk = bookmarkFeedback !== null && "key" in bookmarkFeedback && (bookmarkFeedback.key === "fbSaved" || bookmarkFeedback.key === "fbRemoved");
+  const feedbackText = bookmarkFeedback ? c[bookmarkFeedback] : null;
+  const feedbackOk = bookmarkFeedback === "fbSaved" || bookmarkFeedback === "fbRemoved";
 
   return (
     <PublicLayout locale={locale} onLocaleChange={setLocale} congressName={booth.event_name}>
@@ -267,18 +270,25 @@ export default function PublicBooth() {
                 </span>
                 <p className="pt-0.5 text-sm leading-relaxed text-text-secondary">{isBookmarked ? c.bookmarkedHint : c.bookmarkHint}</p>
               </div>
-              <Button
-                type="button"
-                variant={isBookmarked ? "secondary" : "primary"}
-                size="lg"
-                isFullWidth
-                aria-pressed={isBookmarked}
-                disabled={bookmarking || bookmarkLoading}
-                onClick={handleToggleBookmark}
-              >
-                <Icon name="bookmark" size={18} fill={isBookmarked ? "currentColor" : "none"} className={isBookmarked ? "text-event-accent" : ""} />
-                <span>{isBookmarked ? c.bookmarked : c.bookmark}</span>
-              </Button>
+              {token ? (
+                <Button
+                  type="button"
+                  variant={isBookmarked ? "secondary" : "primary"}
+                  size="lg"
+                  isFullWidth
+                  aria-pressed={isBookmarked}
+                  disabled={bookmarking || bookmarkLoading}
+                  onClick={handleToggleBookmark}
+                >
+                  <Icon name="bookmark" size={18} fill={isBookmarked ? "currentColor" : "none"} className={isBookmarked ? "text-event-accent" : ""} />
+                  <span>{c.bookmark}</span>
+                </Button>
+              ) : (
+                <LinkButton to={signInPath(slug, `/e/${slug}/booths/${boothId}`)} variant="primary" size="lg" isFullWidth>
+                  <Icon name="bookmark" size={18} />
+                  <span>{c.bookmark}</span>
+                </LinkButton>
+              )}
 
               {/* Bookmark Feedback Message */}
               {feedbackText && (
@@ -308,7 +318,7 @@ export default function PublicBooth() {
                 </span>
                 <span className="min-w-0 flex-1">
                   <span className="block text-base font-semibold leading-snug">{c.brochureDownload}</span>
-                  <span className="block truncate text-xs text-white/75">
+                  <span className="block truncate text-xs text-white/90">
                     <span className="ltr-isolate">{hostOf(brochureUrl)}</span> · {c.opensNewTab}
                   </span>
                 </span>

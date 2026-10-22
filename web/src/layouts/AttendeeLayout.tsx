@@ -1,8 +1,9 @@
-import React from "react";
+import React, { useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAttendeeLocale, type AttendeeLocaleContext } from "../lib/i18n";
 import { SkipLink } from "../components/ui/SkipLink";
 import { Icon, type IconName } from "../components/ui/Icon";
+import { ConfirmDialog } from "../components/ui/ConfirmDialog";
 import { AitebAttribution } from "../components/brand/Aiteb";
 import { CongressSignature } from "../components/brand/CongressSignature";
 import { ArcStroke } from "../components/attendee/ArcStroke";
@@ -37,14 +38,15 @@ const DESTINATION_ICONS: Record<AttendeeDestination, IconName> = {
 const focusRing = "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring";
 
 /** Desktop navigation: quiet text tabs, the active one underlined by a brand arc. */
-function TopNav({ slug, active, labels }: {
+function TopNav({ slug, active, labels, navLabel }: {
   slug: string;
   active?: AttendeeDestination;
   labels: Record<AttendeeDestination, string>;
+  navLabel: string;
 }) {
   return (
     <nav
-      aria-label={labels["my-congress"]}
+      aria-label={navLabel}
       className="hidden md:flex md:col-span-2 md:row-start-2 items-stretch gap-1 -mx-3"
     >
       {ATTENDEE_DESTINATIONS.map((d) => {
@@ -73,13 +75,14 @@ function TopNav({ slug, active, labels }: {
 }
 
 /** Mobile navigation: a floating ink dock, safe-area aware, with an arc marker over the active destination. */
-function Dock({ slug, active, labels }: {
+function Dock({ slug, active, labels, navLabel }: {
   slug: string;
   active?: AttendeeDestination;
   labels: Record<AttendeeDestination, string>;
+  navLabel: string;
 }) {
   return (
-    <nav aria-label={labels["my-congress"]} className="at-dock md:hidden fixed inset-x-0 bottom-0 z-40 print:hidden">
+    <nav aria-label={navLabel} className="at-dock md:hidden fixed inset-x-0 bottom-0 z-40 print:hidden">
       <ul className="mx-auto grid max-w-md grid-cols-5 gap-0.5 rounded-[24px] bg-surface-ink p-1.5 shadow-pop ring-1 ring-white/10">
         {ATTENDEE_DESTINATIONS.map((d) => {
           const isActive = active === d;
@@ -88,7 +91,7 @@ function Dock({ slug, active, labels }: {
               <Link
                 to={congressPath(slug, d)}
                 aria-current={isActive ? "page" : undefined}
-                className={`press relative flex min-h-[56px] flex-col items-center justify-center gap-1 rounded-[18px] px-0.5 pt-1.5 pb-1 text-center text-[10.5px] font-semibold leading-[1.15] transition-colors focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-aiteb-orchid ${
+                className={`press relative flex min-h-[56px] flex-col items-center justify-center gap-1 rounded-[18px] px-0.5 pt-1.5 pb-1 text-center text-[11px] font-semibold leading-[1.15] transition-colors focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-aiteb-orchid ${
                   isActive ? "bg-white/[0.08] text-white" : "text-ink-300 hover:text-white"
                 }`}
               >
@@ -110,6 +113,7 @@ export function AttendeeLayout({ children, activeTab, localeProps, eventSlug, de
   const location = useLocation();
   const navigate = useNavigate();
   const congress = useCongressEvent(eventSlug);
+  const [confirmingLogout, setConfirmingLogout] = useState(false);
   const shellLabels: Record<AttendeeDestination, string> = {
     "my-congress": t.navMyCongress,
     "my-network": t.navMyNetwork,
@@ -126,6 +130,7 @@ export function AttendeeLayout({ children, activeTab, localeProps, eventSlug, de
     if (typeof window !== "undefined") {
       localStorage.removeItem(ATTENDEE_TOKEN_STORAGE);
     }
+    setConfirmingLogout(false);
     navigate("/");
   };
 
@@ -134,6 +139,8 @@ export function AttendeeLayout({ children, activeTab, localeProps, eventSlug, de
   };
 
   const congressName = eventSlug ? (congress.status === "ready" ? congress.event.name : null) : null;
+  // The accent chosen in Page Studio (published) colours the whole panel; "auto" derives it from the slug.
+  const accent = congress.status === "ready" ? congress.event.page?.document.branding?.accent : undefined;
   const legacyTabs: { key: "tickets" | "network"; to: string; icon: IconName; label: string }[] = [
     { key: "tickets", to: "/my-tickets", icon: "ticket", label: t.myPasses },
     { key: "network", to: "/my-network", icon: "users", label: t.myNetwork },
@@ -143,11 +150,11 @@ export function AttendeeLayout({ children, activeTab, localeProps, eventSlug, de
     <div
       dir={dir}
       lang={locale}
-      style={eventSlug ? eventAccentStyle(eventSlug) : undefined}
+      style={eventSlug ? eventAccentStyle(eventSlug, accent) : undefined}
       className="at-shell min-h-screen bg-surface-page text-text-primary flex flex-col font-sans text-start"
     >
       <SkipLink targetId="attendee-main-content">
-        {isRtl ? "پرش به محتوای اصلی کارت ورود" : "Skip to main attendee pass content"}
+        {isRtl ? "پرش به محتوای اصلی" : "Skip to main content"}
       </SkipLink>
 
       <header className="at-print-collapse sticky top-0 z-40 border-b border-border-default bg-surface-page pt-safe">
@@ -156,11 +163,10 @@ export function AttendeeLayout({ children, activeTab, localeProps, eventSlug, de
           <Link
             to={eventSlug ? congressPath(eventSlug, "my-congress") : "/my-tickets"}
             className={`flex h-16 min-w-0 items-center gap-3 rounded-xl ${focusRing}`}
-            aria-label={t.digitalPassTitle}
           >
             <span className="relative size-10 shrink-0 overflow-hidden rounded-xl [border-start-end-radius:18px] bg-surface-ink shadow-soft ring-1 ring-ink-900/10">
               {eventSlug ? (
-                <CongressSignature seed={eventSlug} tone="ink" className="size-full" />
+                <CongressSignature seed={eventSlug} tone="ink" accent={accent} className="size-full" />
               ) : (
                 <span className="grid size-full place-items-center text-white">
                   <Icon name="ticket" size={20} />
@@ -177,7 +183,7 @@ export function AttendeeLayout({ children, activeTab, localeProps, eventSlug, de
             </span>
           </Link>
 
-          {eventSlug && <TopNav slug={eventSlug} active={destination} labels={shellLabels} />}
+          {eventSlug && <TopNav slug={eventSlug} active={destination} labels={shellLabels} navLabel={t.attendeePortal} />}
 
           {/* Controls: language & logout */}
           <div className="flex items-center justify-end gap-1">
@@ -193,7 +199,7 @@ export function AttendeeLayout({ children, activeTab, localeProps, eventSlug, de
             <span aria-hidden="true" className="h-5 w-px bg-border-default" />
             <button
               type="button"
-              onClick={handleLogout}
+              onClick={() => setConfirmingLogout(true)}
               className={`press inline-flex min-h-11 min-w-11 items-center justify-center gap-1.5 rounded-full px-2.5 text-xs font-semibold text-text-muted transition-colors hover:bg-surface-panel-subtle hover:text-text-primary cursor-pointer ${focusRing}`}
             >
               <Icon name="logout" size={18} />
@@ -259,7 +265,21 @@ export function AttendeeLayout({ children, activeTab, localeProps, eventSlug, de
           </div>
         </div>
       </footer>
-      {eventSlug && <Dock slug={eventSlug} active={destination} labels={shellLabels} />}
+      {eventSlug && <Dock slug={eventSlug} active={destination} labels={shellLabels} navLabel={t.attendeePortal} />}
+      <ConfirmDialog
+        isOpen={confirmingLogout}
+        title={isRtl ? "خروج از حساب در این دستگاه؟" : "Log out on this device?"}
+        description={
+          isRtl
+            ? "کارت ورود ذخیره‌شده برای استفاده آفلاین از این دستگاه حذف می‌شود."
+            : "Your saved offline pass will be removed from this device."
+        }
+        confirmLabel={isRtl ? "خروج" : "Log out"}
+        cancelLabel={isRtl ? "انصراف" : "Cancel"}
+        tone="danger"
+        onConfirm={handleLogout}
+        onCancel={() => setConfirmingLogout(false)}
+      />
     </div>
   );
 }

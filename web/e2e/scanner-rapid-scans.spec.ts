@@ -50,8 +50,8 @@ async function openScanner(page: Page) {
 }
 
 const submit = async (page: Page, code: string) => {
-  await page.getByPlaceholder(/Enter Ticket QR Secret/).fill(code);
-  await page.getByRole('button', { name: /Evaluate Code/ }).click();
+  await page.getByPlaceholder("Paste the badge's QR code").fill(code);
+  await page.getByRole('button', { name: 'Check Ticket' }).click();
 };
 
 test('a different badge scanned right after another is evaluated and recorded, never dropped', async ({ page }) => {

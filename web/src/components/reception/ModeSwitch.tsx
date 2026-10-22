@@ -34,10 +34,10 @@ export function ModeSwitch({ mode, isRtl, disabled, onSelect, tone }: ModeSwitch
               aria-pressed={on}
               disabled={disabled}
               onClick={() => onSelect(option)}
-              className={`inline-flex min-h-[40px] items-center gap-1.5 rounded-lg px-3 text-[13px] font-semibold transition-colors duration-100 cursor-pointer disabled:cursor-not-allowed disabled:opacity-55 focus-visible:outline-2 focus-visible:outline-offset-2 ${ink ? "focus-visible:outline-aiteb-orchid" : "focus-visible:outline-focus-ring"} ${look}`}
+              className={`inline-flex min-h-11 items-center gap-1.5 rounded-lg px-3 text-[13px] font-semibold transition-colors duration-100 cursor-pointer disabled:cursor-not-allowed disabled:opacity-55 focus-visible:outline-2 focus-visible:outline-offset-2 ${ink ? "focus-visible:outline-aiteb-orchid" : "focus-visible:outline-focus-ring"} ${look}`}
             >
               <Icon name={option === "operator" ? "user" : "key"} size={15} />
-              <span>{option === "operator" ? (isRtl ? "نشست اپراتور" : "Operator session") : isRtl ? "حالت مدیر" : "Organizer mode"}</span>
+              <span>{option === "operator" ? (isRtl ? "اپراتور" : "Operator") : isRtl ? "مدیر" : "Organizer"}</span>
             </button>
           );
         })}

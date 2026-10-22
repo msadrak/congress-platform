@@ -3,6 +3,7 @@ import { formatApiError, type SmsCheckOut, type SmsSettingsOut, type SmsTemplate
 import { asciiDigits } from "../lib/mobile";
 import { formatLocalizedNumber } from "../lib/i18n";
 import { Button } from "../components/ui/Button";
+import { ConfirmDialog } from "../components/ui/ConfirmDialog";
 import { Icon } from "../components/ui/Icon";
 import { Field, FormAlert, SectionHeader } from "../components/organizer/WorkspaceUi";
 import { SmsTemplateEditor } from "../components/sms/SmsTemplateEditor";
@@ -17,7 +18,9 @@ export default function PlatformSms() {
   const [line, setLine] = useState(status.sms.line_number ? String(status.sms.line_number) : "");
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [saved, setSaved] = useState(false);
+  const [saved, setSaved] = useState<string | null>(null);
+  const [resetting, setResetting] = useState(false);
+  const [confirmKeyReset, setConfirmKeyReset] = useState(false);
   const [checking, setChecking] = useState(false);
   const [check, setCheck] = useState<SmsCheckOut | null>(null);
   const [templates, setTemplates] = useState<SmsTemplateOut[] | null>(null);
@@ -47,7 +50,7 @@ export default function PlatformSms() {
     if (saving || lineInvalid) return;
     setSaving(true);
     setSaveError(null);
-    setSaved(false);
+    setSaved(null);
     const body: { mode?: "smsir" | "console"; api_key?: string; line_number?: number; reset: [] } = { reset: [] };
     if (mode !== sms.mode || sms.mode_source === "environment") body.mode = mode;
     if (apiKey.trim()) body.api_key = apiKey.trim();
@@ -59,7 +62,7 @@ export default function PlatformSms() {
       setSms(data);
       setMode(data.mode);
       setApiKey("");
-      setSaved(true);
+      setSaved(isRtl ? "تنظیمات پیامک ذخیره و بلافاصله اعمال شد." : "SMS settings saved and applied immediately.");
       void refreshStatus();
     } else {
       setSaveError(error ? formatApiError(error) : isRtl ? "ذخیره نشد." : "Not saved.");
@@ -67,13 +70,32 @@ export default function PlatformSms() {
   };
 
   const resetToEnvironment = async (field: "mode" | "api_key" | "line_number") => {
-    const { data, response } = await client.PUT("/api/platform/sms", { body: { reset: [field] } });
-    checkResponse(response.status);
-    if (data) {
-      setSms(data);
-      setMode(data.mode);
-      setLine(data.line_number ? String(data.line_number) : "");
-      void refreshStatus();
+    if (resetting) return;
+    setResetting(true);
+    setSaveError(null);
+    setSaved(null);
+    try {
+      const { data, error, response } = await client.PUT("/api/platform/sms", { body: { reset: [field] } });
+      checkResponse(response.status);
+      if (data) {
+        setSms(data);
+        setMode(data.mode);
+        setLine(data.line_number ? String(data.line_number) : "");
+        setSaved(
+          {
+            mode: isRtl ? "حالت ارسال اکنون از مقدار .env پیروی می‌کند." : "Delivery now follows the .env value.",
+            api_key: isRtl ? "کلید ذخیره‌شده در پنل حذف شد؛ در صورت وجود، کلید .env استفاده می‌شود." : "The key saved here was removed; the .env key is used if there is one.",
+            line_number: isRtl ? "شماره خط اکنون از مقدار .env پیروی می‌کند." : "The line number now follows the .env value.",
+          }[field],
+        );
+        void refreshStatus();
+      } else {
+        setSaveError(error ? formatApiError(error) : isRtl ? "تغییری اعمال نشد." : "Nothing was changed.");
+      }
+    } catch {
+      setSaveError(isRtl ? "اتصال به سرور برقرار نشد." : "Could not reach the server.");
+    } finally {
+      setResetting(false);
     }
   };
 
@@ -141,7 +163,7 @@ export default function PlatformSms() {
             <p className="text-xs text-text-muted">
               {source(sms.mode_source)}
               {sms.mode_source === "console" && (
-                <button type="button" onClick={() => void resetToEnvironment("mode")} className="ms-2 font-semibold text-action-primary hover:underline cursor-pointer">
+                <button type="button" disabled={resetting} aria-busy={resetting} onClick={() => void resetToEnvironment("mode")} className="ms-2 font-semibold text-action-primary hover:underline cursor-pointer disabled:cursor-wait disabled:opacity-60">
                   {isRtl ? "استفاده از مقدار .env" : "Use the .env value"}
                 </button>
               )}
@@ -170,30 +192,28 @@ export default function PlatformSms() {
           </div>
           <div className="flex flex-wrap gap-3 text-xs">
             {sms.api_key_source === "console" && (
-              <button type="button" onClick={() => void resetToEnvironment("api_key")} className="font-semibold text-action-primary hover:underline cursor-pointer">
+              <button type="button" disabled={resetting} onClick={() => setConfirmKeyReset(true)} className="font-semibold text-action-primary hover:underline cursor-pointer disabled:cursor-wait disabled:opacity-60">
                 {isRtl ? "حذف کلید ذخیره‌شده در پنل" : "Remove the key saved here"}
               </button>
             )}
             {sms.line_number_source === "console" && (
-              <button type="button" onClick={() => void resetToEnvironment("line_number")} className="font-semibold text-action-primary hover:underline cursor-pointer">
+              <button type="button" disabled={resetting} aria-busy={resetting} onClick={() => void resetToEnvironment("line_number")} className="font-semibold text-action-primary hover:underline cursor-pointer disabled:cursor-wait disabled:opacity-60">
                 {isRtl ? "استفاده از شماره خط .env" : "Use the .env line number"}
               </button>
             )}
           </div>
 
           {saveError && <FormAlert>{saveError}</FormAlert>}
-          {saved && (
-            <p role="status" className="text-sm font-medium text-status-success-text">{isRtl ? "تنظیمات پیامک ذخیره و بلافاصله اعمال شد." : "SMS settings saved and applied immediately."}</p>
-          )}
+          {saved && <p role="status" className="text-sm font-medium text-status-success-text">{saved}</p>}
 
           <div className="flex flex-wrap items-center gap-2">
-            <Button type="submit" variant="primary" size="md" disabled={saving || lineInvalid}>
+            <Button type="submit" variant="primary" size="md" disabled={saving || lineInvalid} aria-busy={saving}>
               <Icon name="check" size={16} />
-              {saving ? "..." : isRtl ? "ذخیره تنظیمات" : "Save settings"}
+              {saving ? (isRtl ? "در حال ذخیره…" : "Saving…") : isRtl ? "ذخیره تنظیمات" : "Save settings"}
             </Button>
-            <Button type="button" variant="secondary" size="md" disabled={checking} onClick={() => void runCheck()}>
+            <Button type="button" variant="secondary" size="md" disabled={checking} aria-busy={checking} onClick={() => void runCheck()}>
               <Icon name="activity" size={16} />
-              {checking ? "..." : isRtl ? "بررسی اتصال و اعتبار" : "Check connection & credit"}
+              {checking ? (isRtl ? "در حال بررسی…" : "Checking…") : isRtl ? "بررسی اتصال و اعتبار" : "Check connection & credit"}
             </Button>
           </div>
 
@@ -257,6 +277,24 @@ export default function PlatformSms() {
           }}
         />
       ))}
+
+      <ConfirmDialog
+        isOpen={confirmKeyReset}
+        title={isRtl ? "کلید API ذخیره‌شده حذف شود؟" : "Remove the saved API key?"}
+        description={
+          isRtl
+            ? "اگر فایل .env سرور کلیدی نداشته باشد، ارسال کد ورود و پیامک‌های تأیید برای همهٔ همایش‌ها تا وارد کردن دوبارهٔ کلید متوقف می‌شود."
+            : "If the server's .env has no key, sign-in codes and confirmations stop for every congress until a key is entered again."
+        }
+        confirmLabel={isRtl ? "حذف کلید" : "Remove key"}
+        cancelLabel={isRtl ? "انصراف" : "Cancel"}
+        tone="danger"
+        onCancel={() => setConfirmKeyReset(false)}
+        onConfirm={() => {
+          setConfirmKeyReset(false);
+          void resetToEnvironment("api_key");
+        }}
+      />
     </div>
   );
 }

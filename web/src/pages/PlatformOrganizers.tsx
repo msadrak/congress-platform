@@ -105,9 +105,9 @@ export default function PlatformOrganizers() {
         <Field label={isRtl ? "نام برگزارکننده جدید" : "New organizer name"} className="min-w-0 flex-1">
           <input type="text" value={name} maxLength={200} onChange={(e) => setName(e.target.value)} className="ui-input" />
         </Field>
-        <Button type="submit" variant="primary" size="md" disabled={creating || !name.trim()}>
+        <Button type="submit" variant="primary" size="md" disabled={creating || !name.trim()} aria-busy={creating}>
           <Icon name="plus" size={16} />
-          {creating ? "..." : isRtl ? "ساخت و صدور کلید" : "Create and issue key"}
+          {creating ? (isRtl ? "در حال ایجاد…" : "Creating…") : isRtl ? "ساخت و صدور کلید" : "Create and issue key"}
         </Button>
       </form>
 
@@ -171,16 +171,26 @@ export default function PlatformOrganizers() {
         title={
           pending?.action === "revoke"
             ? isRtl ? "لغو دسترسی برگزارکننده؟" : "Revoke this organizer?"
-            : isRtl ? "صدور کلید جدید؟" : "Issue a new key?"
+            : pending?.organizer.revoked_at
+              ? isRtl ? "دسترسی برگزارکننده بازگردانده شود؟" : "Reinstate this organizer?"
+              : isRtl ? "صدور کلید جدید؟" : "Issue a new key?"
         }
         description={
           pending
             ? pending.action === "revoke"
               ? isRtl ? `کلید «${pending.organizer.name}» دیگر کار نمی‌کند؛ اطلاعات همایش‌ها حفظ می‌شود.` : `“${pending.organizer.name}” can no longer sign in; their congresses are kept.`
-              : isRtl ? `کلید فعلی «${pending.organizer.name}» بلافاصله از کار می‌افتد و کلید جدید یک‌بار نمایش داده می‌شود.` : `The current key of “${pending.organizer.name}” stops working immediately; the new key is shown once.`
+              : pending.organizer.revoked_at
+                ? isRtl ? `«${pending.organizer.name}» با کلیدی جدید که فقط یک‌بار نمایش داده می‌شود دوباره می‌تواند وارد شود.` : `“${pending.organizer.name}” can sign in again with a new key, shown once.`
+                : isRtl ? `کلید فعلی «${pending.organizer.name}» بلافاصله از کار می‌افتد و کلید جدید یک‌بار نمایش داده می‌شود.` : `The current key of “${pending.organizer.name}” stops working immediately; the new key is shown once.`
             : ""
         }
-        confirmLabel={pending?.action === "revoke" ? (isRtl ? "لغو دسترسی" : "Revoke") : isRtl ? "صدور کلید جدید" : "Issue new key"}
+        confirmLabel={
+          pending?.action === "revoke"
+            ? isRtl ? "لغو دسترسی" : "Revoke"
+            : pending?.organizer.revoked_at
+              ? isRtl ? "بازگرداندن دسترسی" : "Reinstate"
+              : isRtl ? "صدور کلید جدید" : "Issue new key"
+        }
         cancelLabel={isRtl ? "انصراف" : "Cancel"}
         onCancel={() => setPending(null)}
         onConfirm={() => void confirm()}

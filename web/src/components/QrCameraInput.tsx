@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import jsQR from "jsqr";
-import { Button } from "../ui/Button";
-import { Icon } from "../ui/Icon";
+import { Button } from "./ui/Button";
+import { Icon } from "./ui/Icon";
+import "../styles/qr-camera.css";
 
 interface BarcodeDetectorInstance {
   detect(source: CanvasImageSource): Promise<{ rawValue?: string }[]>;
@@ -16,7 +17,7 @@ interface QrCameraInputProps {
   /** Receives one decoded value per intentional start; the camera stops right after. */
   onDecode: (value: string) => void;
   isRtl: boolean;
-  /** Turning the camera off from outside (dialog closed, booth or session changed). */
+  /** Turning the camera off from outside (dialog closed, booth or session changed, submitting). */
   disabled?: boolean;
 }
 
@@ -24,7 +25,8 @@ interface QrCameraInputProps {
  * Opt-in camera input. Requests permission only after the user presses the button, decodes with
  * the native BarcodeDetector or jsQR, hands exactly one value to the caller and releases the
  * camera. Every exit path (decode, stop, unmount, `disabled`) stops all media tracks, including a
- * stream that resolves late. Manual entry elsewhere stays available for every failure.
+ * stream that resolves late. Manual entry elsewhere stays available for every failure. Shared by
+ * the exhibitor lead capture and attendee peer networking (both scan an attendee badge QR).
  */
 export function QrCameraInput({ onDecode, isRtl, disabled = false }: QrCameraInputProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -156,7 +158,7 @@ export function QrCameraInput({ onDecode, isRtl, disabled = false }: QrCameraInp
 
   return (
     <div className="space-y-2">
-      <div className="booth-viewfinder relative overflow-hidden rounded-2xl bg-surface-ink bg-meridian-ink">
+      <div className="qr-viewfinder relative overflow-hidden rounded-2xl bg-surface-ink bg-meridian-ink">
         <video
           ref={videoRef}
           muted
@@ -166,7 +168,7 @@ export function QrCameraInput({ onDecode, isRtl, disabled = false }: QrCameraInp
         />
         {view === "live" ? (
           <>
-            <span aria-hidden="true" className="booth-viewfinder__sweep pointer-events-none absolute inset-x-8 inset-y-6 motion-safe:animate-sweep" />
+            <span aria-hidden="true" className="qr-viewfinder__sweep pointer-events-none absolute inset-x-8 inset-y-6 motion-safe:animate-sweep" />
             <div className="absolute inset-x-0 bottom-3 flex justify-center">{toggle}</div>
           </>
         ) : (
@@ -178,7 +180,7 @@ export function QrCameraInput({ onDecode, isRtl, disabled = false }: QrCameraInp
             {toggle}
           </div>
         )}
-        <span aria-hidden="true" className="booth-viewfinder__corners pointer-events-none absolute inset-3" />
+        <span aria-hidden="true" className="qr-viewfinder__corners pointer-events-none absolute inset-3" />
       </div>
       {message[view] && (
         <p

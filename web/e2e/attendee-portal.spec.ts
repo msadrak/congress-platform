@@ -7,9 +7,16 @@ const token = `${b64({ alg: 'HS256' })}.${b64({ sub: 'user-1', type: 'user', exp
 const bearer = `Bearer ${token}`;
 
 interface FixtureEvent { id: string; name: string; slug: string; [field: string]: unknown }
-const eventOf = (slug: string, id: string, name: string): FixtureEvent => ({ id, name, slug, starts_at: '2027-05-10T07:00:00Z', ends_at: '2027-05-12T15:00:00Z', location: 'Fixture Hall', description: `About ${name}`, ticket_tiers: [{ id: `tier-${id}`, event_id: id, name: 'Delegate', quota: 10, reserved_count: 4, is_open: true, created_at: '2027-01-01T00:00:00Z' }] });
+const eventOf = (slug: string, id: string, name: string, program: { venue: unknown[]; sessions: unknown[] } = { venue: [], sessions: [] }): FixtureEvent => ({ id, name, slug, starts_at: '2027-05-10T07:00:00Z', ends_at: '2027-05-12T15:00:00Z', location: 'Fixture Hall', description: `About ${name}`, ticket_tiers: [{ id: `tier-${id}`, event_id: id, name: 'Delegate', quota: 10, reserved_count: 4, is_open: true, created_at: '2027-01-01T00:00:00Z' }], ...program });
+const sessionOf = (id: string, title: string, startsAt: string, endsAt: string, description = '') => ({ id, title, track: 'Seminar', speakers: 'Dr. Fixture', description, hall_id: 'hall-1', hall_name: 'Main Hall', starts_at: startsAt, ends_at: endsAt });
 const EVENTS: Record<string, FixtureEvent> = {
-  alpha: eventOf('alpha', 'event-a', 'Alpha Congress'),
+  alpha: eventOf('alpha', 'event-a', 'Alpha Congress', {
+    venue: [{ id: 'gate-1', kind: 'entrance', name: 'North Gate', location: 'Valiasr St.' }, { id: 'hall-1', kind: 'hall', name: 'Main Hall', location: 'Ground floor' }],
+    sessions: [
+      sessionOf('s-1', 'Opening Keynote', '2027-05-10T08:00:00Z', '2027-05-10T09:00:00Z'),
+      sessionOf('s-2', 'Imaging Panel', '2027-05-11T10:00:00Z', '2027-05-11T11:30:00Z', 'Panel on cardiac imaging'),
+    ],
+  }),
   beta: eventOf('beta', 'event-b', 'Beta Summit'),
 };
 const ticketOf = (slug: string) => ({ id: `ticket-${slug}`, event_id: EVENTS[slug].id, event_name: EVENTS[slug].name, event_slug: slug, event_location: 'Fixture Hall', event_starts_at: '2027-05-10T07:00:00Z', event_ends_at: '2027-05-12T15:00:00Z', ticket_tier_id: 't', ticket_tier_name: `Pass ${slug}`, attendee_name: 'Sara Fixture', attendee_mobile: '09121234567', status: 'active', qr_secret: `qr-${slug}`, created_at: '2027-01-01T00:00:00Z' });
@@ -90,6 +97,35 @@ test('ticket view shows only the active congress pass with its QR', async ({ pag
   await expect(page.getByText('Pass alpha')).toHaveCount(0);
   await expect(page.locator('svg').filter({ has: page.locator('path') }).first()).toBeVisible();
   await expect(page.locator('main svg[viewBox^="0 0"]').first()).toBeVisible();
+});
+
+test('home leads with the pass, then the program; details shows venue and full program; My Ticket is only the card', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await fixture(page);
+  await signIn(page);
+  await page.goto('/c/alpha/my-congress');
+  await expect(page.getByText('Opening Keynote')).toBeVisible();
+  // Reading order is the same on every breakpoint: pass, program, network, booths.
+  const order = (await page.locator('main h2').allTextContents()).map(text => text.trim());
+  expect(order.slice(0, 4)).toEqual(['My Ticket', 'Congress program', 'My Network', 'Exhibition booths']);
+  await expect(page.getByRole('link', { name: /Show pass & QR code/ })).toHaveAttribute('href', '/c/alpha/my-ticket');
+  await expect(page.getByRole('link', { name: /Scan a colleague's QR code/ })).toHaveAttribute('href', '/c/alpha/my-network?scan=1');
+  await expect(page.getByRole('heading', { name: 'More' })).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'Your other congresses' })).toBeVisible();
+
+  await page.getByRole('link', { name: /Full program/ }).click();
+  await expect(page).toHaveURL(/\/c\/alpha\/details#program$/);
+  await expect(page.getByText('North Gate')).toBeVisible();
+  await expect(page.getByText('Panel on cardiac imaging')).toBeVisible();
+  await expect(page.getByText('Pass types')).toHaveCount(0);
+  await expect(page.getByText('Delegate')).toHaveCount(0);
+
+  await page.goto('/c/alpha/my-ticket');
+  await expect(page.getByText('Pass alpha').first()).toBeVisible();
+  await expect(page.locator('main svg[viewBox^="0 0"]').first()).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Saved Exhibition Booths' })).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'Using your pass' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Print Pass' })).toBeVisible();
 });
 
 test('network is isolated by congress and edits stay on visible connections', async ({ page }) => {

@@ -26,7 +26,9 @@ export default function PublicEvent() {
   const navigate = useNavigate();
   const [event, setEvent] = useState<PublicEventType | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  /** Why the page could not be shown: the congress does not exist (404) or loading failed. */
+  const [loadError, setLoadError] = useState<"notFound" | "failed" | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
 
   // Selected tier for reservation
   const [selectedTierId, setSelectedTierId] = useState<string | null>(null);
@@ -46,7 +48,7 @@ export default function PublicEvent() {
     pageContext.current = context;
     const loadEvent = async () => {
       setLoading(true);
-      setError(null);
+      setLoadError(null);
       setEvent(null);
       setSelectedTierId(null);
       setIsAuthModalOpen(false);
@@ -55,29 +57,42 @@ export default function PublicEvent() {
       setModalError(null);
       setSubmitting(false);
       const client = createApiClient({ kind: "anonymous" });
-      const { data, error: err } = await client.GET("/api/public/events/{slug}", {
-        params: { path: { slug } },
-      });
-      if (!context.active) return;
-      if (err) {
-        setError(formatApiError(err));
-      } else if (data) {
-        setEvent(data);
-        if (data.ticket_tiers && data.ticket_tiers.length > 0) {
-          // Select first available tier with open registration and remaining quota
-          const firstAvailable = data.ticket_tiers.find(
-            (t) => t.is_open && (t.reserved_count ?? 0) < t.quota
-          );
-          setSelectedTierId(firstAvailable ? firstAvailable.id : data.ticket_tiers[0].id);
+      try {
+        const { data, error: err, response } = await client.GET("/api/public/events/{slug}", {
+          params: { path: { slug } },
+        });
+        if (!context.active) return;
+        if (err) {
+          setLoadError(response.status === 404 ? "notFound" : "failed");
+        } else if (data) {
+          setEvent(data);
+          if (data.ticket_tiers && data.ticket_tiers.length > 0) {
+            // Select first available tier with open registration and remaining quota
+            const firstAvailable = data.ticket_tiers.find(
+              (t) => t.is_open && (t.reserved_count ?? 0) < t.quota
+            );
+            setSelectedTierId(firstAvailable ? firstAvailable.id : data.ticket_tiers[0].id);
+          }
         }
+      } catch {
+        if (context.active) setLoadError("failed");
       }
-      setLoading(false);
+      if (context.active) setLoading(false);
     };
     loadEvent();
     return () => {
       context.active = false;
     };
-  }, [slug]);
+  }, [slug, reloadKey]);
+
+  const refreshEvent = (eventSlug: string, context: { active: boolean }) => {
+    createApiClient({ kind: "anonymous" })
+      .GET("/api/public/events/{slug}", { params: { path: { slug: eventSlug } } })
+      .then(({ data: freshData }) => {
+        if (context.active && freshData) setEvent((current) => current?.slug === freshData.slug ? freshData : current);
+      })
+      .catch(() => undefined);
+  };
 
   // A payload without a page (older API, test fixtures) renders the standard layout.
   const doc = useMemo(() => (event?.page ? normalizeDocument(event.page.document) : standardDocument()), [event]);
@@ -162,12 +177,7 @@ export default function PublicEvent() {
           lower.includes("closed")
         ) {
           // Reload event data to reflect latest tier availability
-          const clientFresh = createApiClient({ kind: "anonymous" });
-          clientFresh.GET("/api/public/events/{slug}", {
-            params: { path: { slug: event.slug } },
-          }).then(({ data: freshData }) => {
-            if (context.active && freshData) setEvent((current) => current?.slug === freshData.slug ? freshData : current);
-          });
+          refreshEvent(event.slug, context);
         }
         setModalError(formatted);
       }
@@ -175,7 +185,9 @@ export default function PublicEvent() {
     } else if (data) {
       setIsAuthModalOpen(false);
       setSubmitting(false);
+      setAlreadyHasTicket(true);
       setIsSuccessModalOpen(true);
+      refreshEvent(event.slug, context);
     }
   };
 
@@ -240,7 +252,8 @@ export default function PublicEvent() {
   }
 
   // Error / Not Found state
-  if (error || !event) {
+  if (loadError || !event) {
+    const notFound = loadError !== "failed";
     return (
       <PublicLayout locale={locale} onLocaleChange={setLocale} congressName="">
         <section className="relative isolate overflow-hidden">
@@ -248,16 +261,24 @@ export default function PublicEvent() {
           <div aria-hidden="true" className="absolute inset-0 -z-10 bg-linear-to-b from-surface-page/30 via-surface-page/85 to-surface-page" />
           <div className="mx-auto max-w-xl space-y-7 px-4 py-24 text-center sm:py-36">
             <span className="mx-auto grid size-16 place-items-center bg-surface-panel text-aiteb-indigo shadow-lift shape-arc">
-              <Icon name="search" size={28} />
+              <Icon name={notFound ? "search" : "alert"} size={28} />
             </span>
             <div className="space-y-3">
-              <h1 className="text-3xl font-bold tracking-[-0.03em] text-text-primary sm:text-4xl">{c.notFoundTitle}</h1>
-              <p className="text-base leading-relaxed text-text-secondary">{error ?? c.notFoundBody}</p>
+              <h1 className="text-3xl font-bold tracking-[-0.03em] text-text-primary sm:text-4xl">{notFound ? c.notFoundTitle : c.eventLoadFailedTitle}</h1>
+              <p className="text-base leading-relaxed text-text-secondary">{notFound ? c.notFoundBody : c.eventLoadFailed}</p>
             </div>
-            <LinkButton to="/" variant="secondary" size="lg">
-              <Icon name="arrow-left" size={18} />
-              {c.returnHome}
-            </LinkButton>
+            <div className="flex flex-wrap items-center justify-center gap-3">
+              {!notFound && (
+                <Button type="button" variant="secondary" size="lg" onClick={() => setReloadKey((k) => k + 1)}>
+                  <Icon name="sync" size={18} />
+                  {c.retry}
+                </Button>
+              )}
+              <LinkButton to="/" variant={notFound ? "secondary" : "ghost"} size="lg">
+                <Icon name="arrow-left" size={18} />
+                {c.returnHome}
+              </LinkButton>
+            </div>
           </div>
         </section>
       </PublicLayout>
@@ -327,10 +348,7 @@ export default function PublicEvent() {
       {/* Accessible Success Confirmation Dialog */}
       <Dialog
         isOpen={isSuccessModalOpen}
-        onClose={() => {
-          setIsSuccessModalOpen(false);
-          navigate("/my-tickets");
-        }}
+        onClose={() => setIsSuccessModalOpen(false)}
         title={c.successTitle}
         description={c.successDescription}
         size="sm"

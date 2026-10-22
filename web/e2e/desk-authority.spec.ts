@@ -97,7 +97,7 @@ test('organizer mode is a deliberate choice and sends only the owning key', asyn
   await expect(page.getByText('Operator One')).toBeVisible();
   await expect.poll(() => requests.some(r => r.path.endsWith('/attendees'))).toBe(true);
   requests.length = 0;
-  await page.getByRole('button', { name: 'Organizer mode' }).click();
+  await page.getByRole('button', { name: 'Organizer', exact: true }).click();
   await expect(page.getByText('Organizer Admin')).toBeVisible();
   await issueWalkIn(page);
   await expect(page.getByRole('dialog')).toContainText('Walk In');
@@ -123,7 +123,7 @@ test('a rejected organizer key in organizer mode leaves the desk token untouched
   // Let the debounced operator-mode search finish so it is not counted after the switch.
   await expect.poll(() => requests.some(r => r.path.endsWith('/attendees'))).toBe(true);
   requests.length = 0;
-  await page.getByRole('button', { name: 'Organizer mode' }).click();
+  await page.getByRole('button', { name: 'Organizer', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Organizer mode needs your organizer key' })).toBeVisible();
   expect(await store(page)).toEqual({ organizer: null, eventA: deskA, eventB: null, user: userToken });
   expect(requests.length).toBeGreaterThan(0);

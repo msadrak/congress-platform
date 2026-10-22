@@ -56,7 +56,7 @@ async function fixture(page: Page, options: Options = {}): Promise<Fixture> {
     if (path === '/api/auth/otp/request') return json(202, { mobile: JSON.parse(raw ?? '{}').mobile, code_length: 6, expires_in: 120, resend_after: 60 });
     const pub = path.match(/^\/api\/public\/events\/([^/]+)$/);
     if (pub) {
-      if (pub[1] === 'alpha') return json(200, { id: EVENT_A, name: 'Alpha Congress', slug: 'alpha', starts_at: '2099-01-01T00:00:00Z', ends_at: '2099-01-02T00:00:00Z', location: 'Hall', description: '', ticket_tiers: [] });
+      if (pub[1] === 'alpha') return json(200, { id: EVENT_A, name: 'Alpha Congress', slug: 'alpha', starts_at: '2099-01-01T00:00:00Z', ends_at: '2099-01-02T00:00:00Z', location: 'Hall', description: '', ticket_tiers: [], venue: [], sessions: [] });
       return json(404, { detail: 'Event not found' });
     }
     const match = path.match(/^\/api\/events\/([^/]+)\/(.*)$/);
@@ -172,7 +172,7 @@ test.describe('independent entry and sign-in', () => {
     await page.goto(`/reception/${EVENT_A}`);
     await expect(page.getByRole('heading', { name: 'Front Desk Operator Sign-In' })).toBeVisible();
     await expect(page.getByRole('link', { name: /Organizer/ })).toHaveCount(0);
-    await expect(page.getByRole('button', { name: /Organizer mode/ })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Organizer', exact: true })).toHaveCount(0);
     expect(fx.requests).toEqual([]);
     await signIn(page);
     await expect(page.getByTestId('reception-operator')).toBeVisible();

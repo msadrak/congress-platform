@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Link, Outlet, useLocation, useNavigate, useParams } from "react-router-dom";
 import { ORGANIZER_KEY_STORAGE, type EventOut } from "../api/client";
 import { formatLocalizedDate, useAttendeeLocale, type TranslationDictionary } from "../lib/i18n";
@@ -34,11 +34,14 @@ export interface OrganizerOutletContext {
 
 const SECTION_ICONS: Record<(typeof EVENT_SETUP_SECTIONS)[number]["key"], IconName> = {
   overview: "grid",
+  program: "calendar",
+  venue: "pin",
   tiers: "ticket",
   "check-in": "gate",
   booths: "booth",
   operators: "users",
   page: "web",
+  panel: "smartphone",
   sms: "mail",
 };
 
@@ -109,6 +112,16 @@ export default function OrganizerLayout() {
 
   const section = eventSectionFromPath(location.pathname);
   const isDesk = section === "desk";
+  const sectionNavRef = useRef<HTMLElement>(null);
+  // Below 1024 px the section strip scrolls sideways: keep the current section centred in view.
+  useEffect(() => {
+    const nav = sectionNavRef.current;
+    const current = nav?.querySelector<HTMLElement>('[aria-current="page"]');
+    if (!nav || !current || nav.scrollWidth <= nav.clientWidth) return;
+    const navBox = nav.getBoundingClientRect();
+    const linkBox = current.getBoundingClientRect();
+    nav.scrollBy({ left: linkBox.left + linkBox.width / 2 - (navBox.left + navBox.width / 2) });
+  }, [section, eventId, apiKey]);
   // A name reported for another event is never shown for this one.
   const contextEvent = eventId && activeEvent?.id === eventId ? activeEvent : null;
   const timeStatus: EventTimeStatus | null = contextEvent
@@ -116,11 +129,14 @@ export default function OrganizerLayout() {
     : null;
   const setupLabels: Record<(typeof EVENT_SETUP_SECTIONS)[number]["key"], string> = {
     overview: t.tabOverview,
+    program: t.tabProgram,
+    venue: t.tabVenue,
     tiers: t.tabTiers,
     "check-in": t.tabPoints,
     booths: t.tabBooths,
     operators: t.tabOperators,
     page: isRtl ? "صفحهٔ عمومی" : "Public page",
+    panel: t.tabPanel,
     sms: isRtl ? "پیامک" : "SMS",
   };
 
@@ -244,7 +260,7 @@ export default function OrganizerLayout() {
         {/* Section navigation */}
         <div className="org-rail__nav px-2 pb-1 sm:px-4 lg:px-3 lg:pb-4">
           {eventId ? (
-            <nav aria-label={isRtl ? "فضای کاری همایش" : "Event workspace"} className="org-nav lg:border-t lg:border-white/10 lg:pt-4">
+            <nav ref={sectionNavRef} aria-label={isRtl ? "فضای کاری همایش" : "Event workspace"} className="org-nav lg:border-t lg:border-white/10 lg:pt-4">
               {EVENT_SETUP_SECTIONS.map((s, i) =>
                 navItem(s.key, eventWorkspacePath(eventId, s.path), setupLabels[s.key], SECTION_ICONS[s.key], i + 1, section === s.key),
               )}

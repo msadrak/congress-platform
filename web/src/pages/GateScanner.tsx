@@ -36,7 +36,7 @@ import {
   type QueuedScan,
 } from "../lib/scannerStorage";
 import { Icon } from "../components/ui/Icon";
-import { scannerCopy, clockTime, takeoverKind } from "../components/scanner/copy";
+import { scannerCopy, clockTime, takeoverKind, type ScannerCopy } from "../components/scanner/copy";
 import { BiHeading, BiLabel, ScannerScreen, SetupFrame, SetupPanel, SystemReadout } from "../components/scanner/ScannerChrome";
 import { ScannerHeader } from "../components/scanner/ScannerHeader";
 import { Viewfinder } from "../components/scanner/Viewfinder";
@@ -57,7 +57,7 @@ interface WindowWithBarcodeDetector extends Window {
 
 export default function GateScanner() {
   const { pointId } = useParams<{ pointId: string }>();
-  const { locale, setLocale, t, isRtl } = useAttendeeLocale();
+  const { locale, setLocale, t } = useAttendeeLocale();
   const toggleLocale = () => { setLocale(locale === "fa" ? "en" : "fa"); };
   const [tokenInput, setTokenInput] = useState("");
   const [manualCode, setManualCode] = useState("");
@@ -80,7 +80,9 @@ export default function GateScanner() {
   const [unpairing, setUnpairing] = useState(false);
   const [deactivationPending, setDeactivationPending] = useState(false);
   const deactivationRef = useRef(false);
-  const [unpairNotice, setUnpairNotice] = useState<string | null>(null);
+  // Rendered with the current copy, so the notice follows a language switch.
+  const [unpairNotice, setUnpairNoticeState] = useState<((c: ScannerCopy) => string) | null>(null);
+  const setUnpairNotice = (notice: ((c: ScannerCopy) => string) | null) => setUnpairNoticeState(() => notice);
   const getStoredScannerToken = useCallback((): string | null => {
     if (!pointId || typeof window === "undefined") return null;
     return (
@@ -129,7 +131,7 @@ export default function GateScanner() {
     setPersistedCredential(credential);
     deactivationRef.current = false;
     setDeactivationPending(false);
-    setUnpairNotice(null);
+    setUnpairNoticeState(null);
   }, [pointId]);
 
 
@@ -192,7 +194,7 @@ export default function GateScanner() {
   const flashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const detectionActiveRef = useRef<boolean>(false);
   const lastScannedCodeRef = useRef<{ code: string; time: number } | null>(null);
-  const [trackingIdWarning, setTrackingIdWarning] = useState<string | null>(null);
+  const [trackingIdWarning, setTrackingIdWarning] = useState(false);
 
   // Stop camera stream cleanly on unmount
   useEffect(() => {
@@ -261,13 +263,15 @@ export default function GateScanner() {
 
   // Camera state
   const [cameraActive, setCameraActive] = useState(false);
-  const [cameraError, setCameraError] = useState<string | null>(null);
+  const [cameraError, setCameraError] = useState<"cameraBlocked" | "cameraNotFound" | "cameraUnavailable" | "cameraInsecure" | null>(null);
 
   // Audio mute state
   const [soundEnabled, setSoundEnabled] = useState(true);
 
   // Current flash evaluation result
   const [activeResult, setActiveResult] = useState<LocalScanResult | null>(null);
+  // Bumped with every verdict so the takeover and halo remount and replay their entrance, even for two alike in a row.
+  const [verdictKey, setVerdictKey] = useState(0);
 
   // Recent audit feed
   const [recentScans, setRecentScans] = useState<QueuedScan[]>([]);
@@ -507,11 +511,11 @@ export default function GateScanner() {
       deactivationPending ||
       !getStoredScannerToken()
     ) {
-      playErrorBuzz();
+      if (soundEnabled) playErrorBuzz();
       return;
     }
     if (authBlockedRef.current) {
-      playErrorBuzz();
+      if (soundEnabled) playErrorBuzz();
       return;
     }
     const offlineVerdict = evaluateOfflineAuthorization(Date.now(), {
@@ -522,7 +526,7 @@ export default function GateScanner() {
     });
     if (!offlineVerdict.ok) {
       setAuthVerdict(offlineVerdict);
-      playErrorBuzz();
+      if (soundEnabled) playErrorBuzz();
       return;
     }
     const cleanSecret = rawCode.trim().toLowerCase();
@@ -549,6 +553,7 @@ export default function GateScanner() {
     admissionRef.current = { ticketMap: admission.ticketMap, admittedCount: result.current_admitted_count };
     scanEpochRef.current += 1;
     setActiveResult(result);
+    setVerdictKey((k) => k + 1);
 
     // Sound feedback distinguishing Confirmed vs Provisional vs Rejected
     if (soundEnabled) {
@@ -562,6 +567,18 @@ export default function GateScanner() {
         playErrorBuzz();
       }
     }
+    // Haptics only for verdicts that need a second look; they also reach an operator who muted the sound.
+    if (result.status !== "ADMITTED") navigator.vibrate?.([90, 50, 90]);
+    else if (result.is_provisional) navigator.vibrate?.(40);
+
+    // The verdict stays up longer when it needs reading; the next scan replaces it at once either way.
+    clearTimeout(flashTimerRef.current ?? undefined);
+    flashTimerRef.current = setTimeout(() => {
+      setActiveResult(null);
+      isScanningRef.current = false;
+      lastProcessedCodeRef.current = null;
+    }, result.status === "ADMITTED" ? 1500 : 3000);
+
     // Queue to IndexedDB
     const scanRecord: QueuedScan = {
       scan_id: crypto.randomUUID(),
@@ -590,14 +607,6 @@ export default function GateScanner() {
     if (navigator.onLine) {
       void flushQueue();
     }
-
-    // Auto-clear active flash after 1.8 seconds
-    if (flashTimerRef.current) clearTimeout(flashTimerRef.current);
-    flashTimerRef.current = setTimeout(() => {
-      setActiveResult(null);
-      isScanningRef.current = false;
-      lastProcessedCodeRef.current = null;
-    }, 1800);
   };
 
   useLayoutEffect(() => {
@@ -655,15 +664,11 @@ export default function GateScanner() {
       }
       const token = credential?.token ?? getStoredScannerToken();
       if (!navigator.onLine) {
-        setUnpairNotice(
-          "Scanner disabled on this browser only. Server revocation is pending; the server may still accept this credential. Keep this device with its supervisor and reconnect to finish."
-        );
+        setUnpairNotice((c) => c.unpairNoticeOffline);
         return;
       }
       if (!token) {
-        setUnpairNotice(
-          "Scanner is disabled locally, but no device credential is available to revoke it. Ask an organizer to revoke the device."
-        );
+        setUnpairNotice((c) => c.unpairNoticeNoCredential);
         return;
       }
 
@@ -672,9 +677,8 @@ export default function GateScanner() {
         await flushQueue();
         remaining = await getUnsyncedScans(pointId);
         if (remaining.length > 0) {
-          setUnpairNotice(
-            `Scanner is disabled locally. ${remaining.length} unsynced scan(s) remain recoverable on this device; server revocation was not attempted. Reconnect or ask a supervisor to recover them before retrying.`
-          );
+          const unsynced = remaining.length;
+          setUnpairNotice((c) => c.unpairNoticeUnsynced(unsynced));
           return;
         }
       }
@@ -686,9 +690,8 @@ export default function GateScanner() {
         { params: { path: { point_id: pointId } } }
       );
       if (!response.ok || result?.is_revoked !== true) {
-        setUnpairNotice(
-          `Scanner is disabled locally, but server revocation was not confirmed (HTTP ${response.status}). The credential is retained for retry; the server may still accept it. Ask an organizer to revoke it if retry fails.`
-        );
+        const status = response.status;
+        setUnpairNotice((c) => c.unpairNoticeNotConfirmed(status));
         return;
       }
 
@@ -700,13 +703,9 @@ export default function GateScanner() {
       applyAdmissionState({}, 0);
       setRecentScans([]);
       setConflicts([]);
-      setUnpairNotice(
-        "Server revocation confirmed. Scan and conflict records remain stored for authorized supervisor recovery; pair a fresh device token to access them."
-      );
+      setUnpairNotice((c) => c.unpairNoticeConfirmed);
     } catch {
-      setUnpairNotice(
-        "Scanner is disabled locally, but server revocation could not be confirmed. The credential and scan records are retained; reconnect and retry or ask an organizer to revoke it."
-      );
+      setUnpairNotice((c) => c.unpairNoticeFailed);
     } finally {
       setUnpairing(false);
       setShowUnpairConfirm(false);
@@ -717,6 +716,11 @@ export default function GateScanner() {
   // 5. Mobile / Desktop Camera Detection Loop (Dual Native & jsQR fallback)
   const startCamera = async () => {
     setCameraError(null);
+    // Browsers expose the camera only on https (or localhost); a LAN http address has no mediaDevices.
+    if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
+      setCameraError("cameraInsecure");
+      return;
+    }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
@@ -740,23 +744,11 @@ export default function GateScanner() {
     } catch (err: unknown) {
       const errorName = err instanceof Error ? err.name : "";
       if (errorName === "NotAllowedError" || errorName === "PermissionDeniedError") {
-        setCameraError(
-          isRtl
-            ? "دسترسی به دوربین توسط کاربر یا مرورگر مسدود شده است. لطفاً مجوز دسترسی به دوربین را فعال فرمایید."
-            : "Camera permission denied. Please grant camera access in browser settings."
-        );
+        setCameraError("cameraBlocked");
       } else if (errorName === "NotFoundError" || errorName === "DevicesNotFoundError") {
-        setCameraError(
-          isRtl
-            ? "هیچ دوربینی بر روی این دستگاه یافت نشد. می‌توانید از بارکدخوان USB یا ورود دستی استفاده نمایید."
-            : "No camera found on this device. You can use a USB scanner or manual entry."
-        );
+        setCameraError("cameraNotFound");
       } else {
-        setCameraError(
-          isRtl
-            ? "امکان راه‌اندازی دوربین وجود ندارد. می‌توانید از بارکدخوان یا ورود دستی استفاده فرمایید."
-            : "Unable to start camera preview. Please use a barcode scanner or manual code entry."
-        );
+        setCameraError("cameraUnavailable");
       }
     }
   };
@@ -805,48 +797,48 @@ export default function GateScanner() {
         return;
       }
 
-      if (!isScanningRef.current) {
-        try {
-          let detectedValue: string | null = null;
+      // Frames keep being read while a verdict is up: a re-read of the same badge is dropped below and in
+      // processScannedCode, and a different badge replaces the verdict at once.
+      try {
+        let detectedValue: string | null = null;
 
-          if (nativeDetector) {
-            const codes = await nativeDetector.detect(video);
-            if (codes && codes.length > 0 && codes[0].rawValue) {
-              detectedValue = codes[0].rawValue;
-            }
-          } else if (canvas && ctx) {
-            const width = video.videoWidth;
-            const height = video.videoHeight;
-            if (canvas.width !== width || canvas.height !== height) {
-              canvas.width = width;
-              canvas.height = height;
-            }
-            ctx.drawImage(video, 0, 0, width, height);
-            const imgData = ctx.getImageData(0, 0, width, height);
-            const decoded = jsQR(imgData.data, width, height, {
-              inversionAttempts: "dontInvert",
-            });
-            if (decoded && decoded.data) {
-              detectedValue = decoded.data;
-            }
+        if (nativeDetector) {
+          const codes = await nativeDetector.detect(video);
+          if (codes && codes.length > 0 && codes[0].rawValue) {
+            detectedValue = codes[0].rawValue;
           }
-
-          if (detectedValue) {
-            const trimmed = detectedValue.trim();
-            const now = Date.now();
-            // Prevent duplicate submissions from repeated video frames within 3 seconds
-            const isDuplicateFrame =
-              lastScannedCodeRef.current?.code === trimmed &&
-              now - lastScannedCodeRef.current.time < 3000;
-
-            if (!isDuplicateFrame) {
-              lastScannedCodeRef.current = { code: trimmed, time: now };
-              void processScanRef.current(trimmed);
-            }
+        } else if (canvas && ctx) {
+          const width = video.videoWidth;
+          const height = video.videoHeight;
+          if (canvas.width !== width || canvas.height !== height) {
+            canvas.width = width;
+            canvas.height = height;
           }
-        } catch {
-          // ignore detection frame errors
+          ctx.drawImage(video, 0, 0, width, height);
+          const imgData = ctx.getImageData(0, 0, width, height);
+          const decoded = jsQR(imgData.data, width, height, {
+            inversionAttempts: "dontInvert",
+          });
+          if (decoded && decoded.data) {
+            detectedValue = decoded.data;
+          }
         }
+
+        if (detectedValue) {
+          const trimmed = detectedValue.trim();
+          const now = Date.now();
+          // Prevent duplicate submissions from repeated video frames within 3 seconds
+          const isDuplicateFrame =
+            lastScannedCodeRef.current?.code === trimmed &&
+            now - lastScannedCodeRef.current.time < 3000;
+
+          if (!isDuplicateFrame) {
+            lastScannedCodeRef.current = { code: trimmed, time: now };
+            void processScanRef.current(trimmed);
+          }
+        }
+      } catch {
+        // ignore detection frame errors
       }
 
       if (detectionActiveRef.current) {
@@ -859,6 +851,9 @@ export default function GateScanner() {
 
   const copy = scannerCopy[locale];
   const frameProps = { locale, product: copy.product, languageLabel: t.languageToggle, onToggleLocale: toggleLocale };
+  // Persian shows the translated notice with the English sentence verbatim underneath, like the setup screens.
+  const unpairNoticeText = unpairNotice ? unpairNotice(copy) : null;
+  const unpairNoticeDetail = unpairNotice && locale === "fa" ? unpairNotice(scannerCopy.en) : null;
 
   // Pair / re-pair a device token (shared by the pairing and deactivated screens).
   const submitPairing = async (e: FormEvent<HTMLFormElement>) => {
@@ -897,8 +892,9 @@ export default function GateScanner() {
             </h1>
           </div>
           <p role="alert" dir="auto" className="text-[14px] leading-relaxed text-[#FFD08A]">
-            {unpairNotice ?? copy.deactivatedDefault}
+            {unpairNoticeText ?? copy.deactivatedDefault}
           </p>
+          <SystemReadout label={copy.systemDetail} lines={[unpairNoticeDetail]} />
           <p className="flex items-start gap-2 text-[13px] leading-relaxed text-ink-300">
             <Icon name="layers" size={16} className="mt-0.5 text-ink-400" />
             <span>
@@ -1059,22 +1055,18 @@ export default function GateScanner() {
       trimmed.toUpperCase().startsWith("TCK-") ||
       (trimmed.length <= 14 && trimmed.includes("-") && !trimmed.toLowerCase().includes("sec"))
     ) {
-      setTrackingIdWarning(
-        isRtl
-          ? "شناسه وارد شده شماره رهگیری بلیت است، نه رمز کیوآرکد. لطفاً بارکد را مقابل دوربین بگیرید یا مقدار QR Secret را وارد نمایید."
-          : "This is a Ticket Reference/Tracking ID. The gate scanner requires the cryptographic QR Secret payload."
-      );
+      setTrackingIdWarning(true);
       return;
     }
 
-    setTrackingIdWarning(null);
+    setTrackingIdWarning(false);
     setManualCode(""); // Immediately clear raw QR secret so it is never displayed/retained
     void processScannedCode(trimmed);
   };
 
   return (
     <ScannerScreen locale={locale} className="flex flex-col select-none">
-      {verdictKind && <div aria-hidden="true" className={`scanner-halo scanner-halo--${verdictKind}`} />}
+      {verdictKind && <div key={verdictKey} aria-hidden="true" className={`scanner-halo scanner-halo--${verdictKind}`} />}
 
       <ScannerHeader
         locale={locale}
@@ -1151,29 +1143,25 @@ export default function GateScanner() {
             <Viewfinder
               videoRef={videoRef}
               cameraActive={cameraActive}
-              cameraError={cameraError}
+              cameraError={cameraError ? copy[cameraError] : null}
               onStartCamera={startCamera}
               onStopCamera={stopCamera}
               copy={copy}
             >
-              {activeResult && <ResultTakeover result={activeResult} t={t} copy={copy} />}
+              {activeResult && <ResultTakeover key={verdictKey} result={activeResult} t={t} copy={copy} />}
             </Viewfinder>
             <ManualEntry
               copy={copy}
               value={manualCode}
               onChange={(value) => {
                 setManualCode(value);
-                if (trackingIdWarning) setTrackingIdWarning(null);
+                if (trackingIdWarning) setTrackingIdWarning(false);
               }}
               onSubmit={handleManualSubmit}
-              placeholder={
-                isRtl
-                  ? "ورود دستی سکرت کیوآر بلیت (QR Secret / Payload)..."
-                  : "Enter Ticket QR Secret / Payload (not Tracking ID)..."
-              }
-              submitLabel={t.manualCodeSubmit || (isRtl ? "بررسی ورود" : "Evaluate Code")}
+              placeholder={copy.manualPlaceholder}
+              submitLabel={t.manualCodeSubmit}
               disabled={scanningPaused}
-              warning={trackingIdWarning}
+              warning={trackingIdWarning ? copy.trackingIdWarning : null}
             />
           </div>
 
@@ -1192,7 +1180,8 @@ export default function GateScanner() {
               locale={locale}
               copy={copy}
               pointId={pointId}
-              unpairNotice={unpairNotice}
+              unpairNotice={unpairNoticeText}
+              unpairDetail={unpairNoticeDetail}
               showConfirm={showUnpairConfirm}
               unpairing={unpairing}
               pendingCount={pendingCount}

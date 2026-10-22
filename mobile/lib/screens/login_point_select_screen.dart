@@ -37,7 +37,7 @@ class _LoginPointSelectScreenState extends State<LoginPointSelectScreen> {
 
     if (serverUrl.isEmpty || pointId.isEmpty) {
       setState(() {
-        _errorMessage = 'Please provide both server URL and Check-In Point ID.';
+        _errorMessage = 'Enter both the event server address and the gate ID.';
       });
       return;
     }
@@ -53,13 +53,18 @@ class _LoginPointSelectScreenState extends State<LoginPointSelectScreen> {
     // 1. Try local cache first
     var manifestData = await widget.storage.loadCachedManifest(pointId);
 
+    DateTime? cachedSavedAt;
+
     // 2. Fetch fresh manifest if available
     final liveData = await api.fetchManifest(pointId);
     if (liveData != null) {
       manifestData = liveData;
       await widget.storage.saveManifest(pointId, liveData);
+    } else if (manifestData != null) {
+      cachedSavedAt = await widget.storage.manifestSavedAt(pointId);
     }
 
+    if (!mounted) return;
     setState(() {
       _isLoading = false;
     });
@@ -67,7 +72,7 @@ class _LoginPointSelectScreenState extends State<LoginPointSelectScreen> {
     if (manifestData == null) {
       setState(() {
         _errorMessage =
-            'Check-In Point not found or server unreachable. Please check the ID.';
+            'Gate not found or the event server is unreachable. Check the address and gate ID, then try again.';
       });
       return;
     }
@@ -90,6 +95,8 @@ class _LoginPointSelectScreenState extends State<LoginPointSelectScreen> {
           initialTickets: ticketMap,
           storage: widget.storage,
           syncService: syncService,
+          offlineManifestSavedAt: cachedSavedAt,
+          usingCachedManifest: liveData == null,
         ),
       ),
     );
@@ -101,7 +108,7 @@ class _LoginPointSelectScreenState extends State<LoginPointSelectScreen> {
       backgroundColor: const Color(0xFF121212),
       appBar: AppBar(
         title: const Text(
-          'Congress Scanner Client',
+          'Gate Scanner',
           style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
         ),
         backgroundColor: const Color(0xFF1E1E1E),
@@ -142,10 +149,10 @@ class _LoginPointSelectScreenState extends State<LoginPointSelectScreen> {
                 controller: _serverUrlController,
                 style: const TextStyle(color: Colors.white, fontSize: 14),
                 decoration: InputDecoration(
-                  labelText: 'FastAPI Server Base URL',
+                  labelText: 'Event server address',
                   labelStyle: const TextStyle(color: Colors.white70),
                   hintText: 'http://10.0.2.2:8000',
-                  hintStyle: const TextStyle(color: Colors.white30),
+                  hintStyle: const TextStyle(color: Colors.white60),
                   filled: true,
                   fillColor: const Color(0xFF262626),
                   border: OutlineInputBorder(
@@ -160,10 +167,10 @@ class _LoginPointSelectScreenState extends State<LoginPointSelectScreen> {
                 controller: _pointIdController,
                 style: const TextStyle(color: Colors.white, fontSize: 14),
                 decoration: InputDecoration(
-                  labelText: 'Check-In Point ID (UUID)',
+                  labelText: 'Gate ID',
                   labelStyle: const TextStyle(color: Colors.white70),
-                  hintText: 'Paste Check-In Point UUID',
-                  hintStyle: const TextStyle(color: Colors.white30),
+                  hintText: 'Paste the gate ID from the organizer panel',
+                  hintStyle: const TextStyle(color: Colors.white60),
                   filled: true,
                   fillColor: const Color(0xFF262626),
                   border: OutlineInputBorder(
@@ -193,8 +200,8 @@ class _LoginPointSelectScreenState extends State<LoginPointSelectScreen> {
               ElevatedButton(
                 onPressed: _isLoading ? null : _loadManifestAndLaunch,
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF10B981),
-                  foregroundColor: Colors.white,
+                  backgroundColor: Theme.of(context).colorScheme.primary,
+                  foregroundColor: Theme.of(context).colorScheme.onPrimary,
                   padding: const EdgeInsets.symmetric(vertical: 16),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),
@@ -207,11 +214,11 @@ class _LoginPointSelectScreenState extends State<LoginPointSelectScreen> {
                       width: 20,
                       child: CircularProgressIndicator(
                         strokeWidth: 2,
-                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                        valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF0A0A0A)),
                       ),
                     )
                   : const Text(
-                      'Download Manifest & Open Gate Scanner',
+                      'Open gate',
                       style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
                     ),
               ),

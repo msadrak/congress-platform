@@ -185,10 +185,10 @@ export function SmsTemplateEditor(props: SmsTemplateEditorProps) {
               aria-invalid={!valid}
               className="ui-input min-h-36 font-sans leading-relaxed"
             />
-            <p id={ids.help} className="mt-1.5 text-xs text-text-muted" data-testid="sms-size">
+            <p id={ids.help} className={`mt-1.5 text-xs ${size.parts > 1 ? "font-semibold text-status-warning-text" : "text-text-muted"}`} data-testid="sms-size">
               {isRtl
-                ? `${fmt(size.characters)} نویسه · ${fmt(size.parts)} پیامک (${size.encoding === "unicode" ? "فارسی" : "لاتین"}، ${fmt(size.perPart)} نویسه در هر پیامک)`
-                : `${size.characters} characters · ${size.parts} SMS (${size.encoding === "unicode" ? "Persian/Unicode" : "Latin"}, ${size.perPart} per SMS)`}
+                ? `با مقادیر نمونه: ${fmt(size.characters)} نویسه · ${fmt(size.parts)} پیامک (${size.encoding === "unicode" ? "فارسی" : "لاتین"}، ${fmt(size.perPart)} نویسه در هر پیامک)`
+                : `With sample values: ${size.characters} characters · ${size.parts} SMS (${size.encoding === "unicode" ? "Persian/Unicode" : "Latin"}, ${size.perPart} per SMS)`}
             </p>
             {unknown.length > 0 && (
               <p role="alert" className="mt-1.5 text-xs font-medium text-status-danger-text">
@@ -212,9 +212,9 @@ export function SmsTemplateEditor(props: SmsTemplateEditorProps) {
           {error && <FormAlert>{error}</FormAlert>}
 
           <div className="flex flex-wrap items-center gap-2">
-            <Button type="button" variant="primary" size="md" disabled={!dirty || !valid || busy} onClick={() => void apply(() => props.onSave(draft), savedMessage)}>
+            <Button type="button" variant="primary" size="md" disabled={!dirty || !valid || busy} aria-busy={busy} onClick={() => void apply(() => props.onSave(draft), savedMessage)}>
               <Icon name="check" size={16} />
-              {busy ? "..." : isRtl ? "ذخیره متن" : "Save text"}
+              {busy ? (isRtl ? "در حال ذخیره…" : "Saving…") : isRtl ? "ذخیره متن" : "Save text"}
             </Button>
             {dirty && (
               <Button type="button" variant="ghost" size="md" disabled={busy} onClick={() => setDraft(saved.body)}>
@@ -255,9 +255,9 @@ export function SmsTemplateEditor(props: SmsTemplateEditorProps) {
               className="ui-input font-mono"
             />
           </Field>
-          <Button type="submit" variant="secondary" size="md" disabled={testing}>
+          <Button type="submit" variant="secondary" size="md" disabled={testing} aria-busy={testing}>
             <Icon name="phone" size={16} />
-            {testing ? "..." : isRtl ? "ارسال پیامک آزمایشی" : "Send test SMS"}
+            {testing ? (isRtl ? "در حال ارسال…" : "Sending…") : isRtl ? "ارسال پیامک آزمایشی" : "Send test SMS"}
           </Button>
         </div>
         <p className="text-xs text-text-muted">

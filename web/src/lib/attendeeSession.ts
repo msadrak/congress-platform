@@ -1,7 +1,11 @@
 import { ATTENDEE_TOKEN_STORAGE } from "../api/client";
+import type { AttendeeLocale } from "./i18n";
 
-export const SESSION_CHANGED_MESSAGE =
-  "Your attendee session changed in another tab. Please reload this page.";
+export function sessionChangedMessage(locale: AttendeeLocale): string {
+  return locale === "fa"
+    ? "نشست شما در زبانه دیگری تغییر کرد. لطفاً این صفحه را دوباره بارگذاری کنید."
+    : "Your attendee session changed in another tab. Please reload this page.";
+}
 
 /**
  * A rendered token can outlive the stored session: another tab may sign in, out or switch

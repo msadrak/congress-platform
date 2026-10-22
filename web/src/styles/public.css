@@ -82,6 +82,13 @@
 [dir="rtl"] .pub-display:has(> bdi[dir="ltr"]) {
   line-height: 1.02;
 }
+/* Latin display tracking eases at phone sizes, where the titles are 2–3× smaller. */
+@media (max-width: 47.99rem) {
+  .pub-display,
+  .pub-display bdi[dir="ltr"] {
+    letter-spacing: -0.02em;
+  }
+}
 
 /* Light content sheet that rises over the ink hero with one signature arc corner. */
 .pub-sheet {

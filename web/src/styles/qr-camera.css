@@ -1,0 +1,25 @@
+/* Camera viewfinder of the shared QR camera input (components/QrCameraInput.tsx). */
+.qr-viewfinder__corners {
+  --corner: rgb(255 255 255 / 0.82);
+  --len: 22px;
+  --w: 2px;
+  background:
+    linear-gradient(var(--corner), var(--corner)) top left / var(--len) var(--w) no-repeat,
+    linear-gradient(var(--corner), var(--corner)) top left / var(--w) var(--len) no-repeat,
+    linear-gradient(var(--corner), var(--corner)) top right / var(--len) var(--w) no-repeat,
+    linear-gradient(var(--corner), var(--corner)) top right / var(--w) var(--len) no-repeat,
+    linear-gradient(var(--corner), var(--corner)) bottom left / var(--len) var(--w) no-repeat,
+    linear-gradient(var(--corner), var(--corner)) bottom left / var(--w) var(--len) no-repeat,
+    linear-gradient(var(--corner), var(--corner)) bottom right / var(--len) var(--w) no-repeat,
+    linear-gradient(var(--corner), var(--corner)) bottom right / var(--w) var(--len) no-repeat;
+}
+.qr-viewfinder__sweep {
+  background: linear-gradient(
+    to bottom,
+    transparent calc(50% - 1px),
+    var(--aiteb-orchid) calc(50% - 1px),
+    var(--aiteb-orchid) calc(50% + 1px),
+    transparent calc(50% + 1px)
+  );
+  filter: drop-shadow(0 0 6px rgb(255 151 255 / 0.8));
+}

@@ -42,7 +42,7 @@ export function Viewfinder({ videoRef, cameraActive, cameraError, onStartCamera,
           <div aria-hidden="true" className="absolute inset-0 bg-meridian-ink" />
           <Brackets className="scanner-brackets--stage" />
           <p aria-hidden="true" className="absolute start-[3.75rem] top-[1.35rem] z-10 flex items-center gap-2 text-[11.5px] font-semibold text-ink-300">
-            <span className="scanner-index">01</span>
+            <span className="scanner-index">{copy.sectionIndex(1)}</span>
             {copy.stageLabel}
           </p>
           <div aria-hidden="true" className="scanner-sweep motion-safe:animate-sweep" />

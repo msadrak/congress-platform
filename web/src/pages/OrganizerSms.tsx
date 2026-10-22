@@ -13,6 +13,7 @@ import { Button } from "../components/ui/Button";
 import { Icon } from "../components/ui/Icon";
 import { EmptyState, FormAlert, SectionHeader } from "../components/organizer/WorkspaceUi";
 import { SmsTemplateEditor } from "../components/sms/SmsTemplateEditor";
+import { eventSectionNumber } from "../lib/organizerWorkspace";
 
 const STATUS_BADGE: Record<string, "success" | "warning" | "danger" | "neutral"> = {
   sent: "success",
@@ -115,7 +116,7 @@ function OrganizerSmsContent() {
   return (
     <div className="space-y-8">
       <SectionHeader
-        index={7}
+        index={eventSectionNumber("sms")}
         eyebrow={<bdi>{event?.name ?? ""}</bdi>}
         title={isRtl ? "پیامک" : "SMS"}
         description={

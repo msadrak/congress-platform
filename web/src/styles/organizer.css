@@ -193,6 +193,14 @@
   }
 }
 @media (max-width: 1023.98px) {
+  /* The strip scrolls sideways; fade the inline-end edge so it reads as scrollable. */
+  .org-nav {
+    padding-inline-end: 1.5rem;
+    mask-image: linear-gradient(to right, #000 calc(100% - 1.5rem), transparent);
+  }
+  [dir="rtl"] .org-nav {
+    mask-image: linear-gradient(to left, #000 calc(100% - 1.5rem), transparent);
+  }
   .org-nav-divider {
     flex-shrink: 0;
     align-self: center;

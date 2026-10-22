@@ -120,8 +120,8 @@ async function openScanner(page: Page, server: FakeServer, { fakeClock = false }
 }
 
 const manual = async (page: Page, n: number) => {
-  await page.getByPlaceholder(/Enter Ticket QR Secret/).fill(code(n));
-  await page.getByRole('button', { name: /Evaluate Code/ }).click();
+  await page.getByPlaceholder("Paste the badge's QR code").fill(code(n));
+  await page.getByRole('button', { name: 'Check Ticket' }).click();
 };
 /** A USB/Bluetooth HID reader: a burst of keystrokes ending in Enter, outside any input field. */
 const hid = async (page: Page, n: number) => {

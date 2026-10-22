@@ -18,7 +18,7 @@ const savedBooth = (owner: string) => ({ booth_id: `booth-saved-${owner}`, name:
 const connectionOf = (owner: string) => ({ id: `conn-${owner}`, connected_user_id: `peer-${owner}`, full_name: 'Jane Doe', mobile: null, organization: `Org of ${owner}`, title: 'Dr', event_id: 'event-1', private_notes: `Peer of ${owner}`, created_at: '2027-01-01T00:00:00Z' });
 const boothOf = (id: string) => ({ id, event_id: 'event-1', name: `Booth ${id}`, slug: `slug-${id}`, location: 'B1', description: 'x', website_url: '', brochure_url: '', qr_secret: 'synthetic-booth-qr', created_at: '2027-01-01T00:00:00Z' });
 const leadOf = (id: string, name = 'Lead One') => ({ id, booth_id: 'booth-1', ticket_id: 'ticket-9', attendee_name: name, attendee_mobile: '09121230000', organization: 'Lead Org', title: 'Buyer', ticket_tier_name: 'General', rating: 'WARM', tags: [], notes: '', created_at: '2027-01-01T00:00:00Z', updated_at: '2027-01-01T00:00:00Z' });
-const publicEvent = { id: 'event-1', name: 'T06 Fixture Congress', slug: 't06-fixture', starts_at: '2027-04-10T08:00:00Z', ends_at: '2027-04-10T18:00:00Z', location: 'Fixture Hall', description: 'Synthetic', ticket_tiers: [{ id: 'tier-1', event_id: 'event-1', name: 'General', quota: 100, reserved_count: 0, is_open: true, created_at: '2027-01-01T00:00:00Z' }] };
+const publicEvent = { id: 'event-1', name: 'T06 Fixture Congress', slug: 't06-fixture', starts_at: '2027-04-10T08:00:00Z', ends_at: '2027-04-10T18:00:00Z', location: 'Fixture Hall', description: 'Synthetic', ticket_tiers: [{ id: 'tier-1', event_id: 'event-1', name: 'General', quota: 100, reserved_count: 0, is_open: true, created_at: '2027-01-01T00:00:00Z' }], venue: [], sessions: [] };
 
 type Recorded = { method: string; path: string; auth: string | undefined };
 type Options = { ticketsStatus?: number; networkStatus?: number; vcardStatus?: number; boothStatus?: number; reserveStatus?: number };
@@ -159,7 +159,7 @@ test('ticket-list 401 with a valid owner cache keeps the labelled pass, the toke
   requests.length = 0;
   await page.goto('/my-tickets');
   await expect(page.getByText('Event of A').first()).toBeVisible();
-  await expect(page.getByText('Offline Mode (Loaded from Authorized Cache)')).toBeVisible();
+  await expect(page.getByText('Offline: showing your saved pass')).toBeVisible();
   await expect(page.getByText('Your session is no longer valid')).toBeVisible();
   expect(await storedUser(page)).toBe(tokenA);
   expect(onlyUser(requests, tokenA)).toBe(true);
@@ -242,7 +242,7 @@ test('owner isolation: user B never sees user A cached passes, even when B canno
   await switchUser(page, tokenB);
   // Any state change re-renders the page, which re-reads the stored session.
   await page.getByRole('button', { name: 'Remove Bookmark' }).first().click();
-  await expect(page.getByRole('alert')).toContainText('Server error');
+  await expect(page.getByRole('alert').filter({ hasText: 'Server error' })).toBeVisible();
   await expect(page.getByText('Event of A')).toHaveCount(0);
   expect(await storedUser(page)).toBe(tokenB);
 });
@@ -349,16 +349,17 @@ test('booth staff workflow: load, capture, qualify and UTF-8 CSV export use only
   requests.length = 0;
   await page.goto('/booth/booth-1');
   await expect(page.getByText('Lead One').first()).toBeVisible();
-  await page.getByRole('button', { name: /Capture Attendee Lead/ }).first().click();
+  await page.getByRole('button', { name: /Capture Lead/ }).first().click();
   await page.getByPlaceholder('e.g. ABC123XYZ...').fill('synthetic-badge');
-  await page.getByRole('button', { name: 'Record Lead to Booth CRM' }).click();
-  await expect(page.getByText('Attendee lead captured successfully.')).toBeVisible();
+  await page.getByRole('button', { name: 'Save Lead' }).click();
+  await expect(page.getByTestId('capture-result').getByText('Lead saved.')).toBeVisible();
+  // Qualifying closes the capture dialog first; the qualification dialog closes itself after saving.
   await page.getByTestId('capture-result').getByRole('button', { name: 'Qualify & Follow Up' }).click();
   await page.getByRole('button', { name: 'Save Qualification Changes' }).click();
   await expect(page.getByText('Lead qualification updated successfully.')).toBeVisible();
-  await page.getByTestId('capture-result').getByRole('button', { name: 'Done' }).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
   const download = page.waitForEvent('download');
-  await page.getByRole('button', { name: 'Export CRM CSV' }).click();
+  await page.getByRole('button', { name: 'Export CSV' }).click();
   const file = await download;
   expect(file.suggestedFilename()).toBe('slug-booth-1-leads.csv');
   expect(await readFile(await file.path(), 'utf8')).toBe('name,notes\nZoë Müller,café\n');
@@ -372,7 +373,7 @@ test('a User without BoothStaff gets 403 without losing the session or borrowing
   await seed(page, tokenA);
   requests.length = 0;
   await page.goto('/booth/booth-other');
-  await expect(page.getByRole('heading', { name: 'Commercial Access Restricted (403)' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Commercial Access Restricted' })).toBeVisible();
   await expect(page.getByText('Lead One')).toHaveCount(0);
   expect(await storedUser(page)).toBe(tokenA);
   expect(onlyUser(requests, tokenA)).toBe(true);
@@ -425,7 +426,7 @@ test('R6 exporting leads after the session changed sends no request', async ({ p
   page.on('download', () => { downloads += 1; });
   await switchUser(page, tokenB);
   requests.length = 0;
-  await page.getByRole('button', { name: 'Export CRM CSV' }).click();
+  await page.getByRole('button', { name: 'Export CSV' }).click();
   await expect(page.getByText('session changed')).toBeVisible();
   // The blocked click re-renders the page, which reloads the booth for the current session (B).
   expect(requests.filter(r => r.path.endsWith('/export-csv'))).toEqual([]);
@@ -446,8 +447,8 @@ test('account switch: user B never sees user A leads, and B is denied without a 
   await page.goto('/booth/booth-1');
   await expect(page.getByText('Lead One').first()).toBeVisible();
   await switchUser(page, tokenB);
-  await page.getByRole('button', { name: 'Export CRM CSV' }).click();
-  await expect(page.getByRole('heading', { name: 'Commercial Access Restricted (403)' })).toBeVisible();
+  await page.getByRole('button', { name: 'Export CSV' }).click();
+  await expect(page.getByRole('heading', { name: 'Commercial Access Restricted' })).toBeVisible();
   await expect(page.getByText('Lead One')).toHaveCount(0);
   expect(await storedUser(page)).toBe(tokenB);
 });
@@ -458,7 +459,7 @@ test('ticket reservation sends only the User token and shows success', async ({ 
   requests.length = 0;
   await page.goto('/e/t06-fixture');
   await page.getByRole('button', { name: /Reserve Free Pass/ }).click();
-  await expect(page.getByRole('heading', { name: 'Pass Reserved Successfully!' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Pass Reserved Successfully' })).toBeVisible();
   const reserve = requests.filter(r => r.path.endsWith('/tickets/reserve'));
   expect(reserve).toHaveLength(1);
   expect(reserve[0].auth).toBe(bearer(tokenA));
@@ -480,7 +481,7 @@ test('reservation 401 clears exactly the sent token and reopens sign-in', async 
 
 test('R2 a reservation answered after the session changed shows no success for the new session', async ({ page }) => {
   await fixture(page);
-  await watchText(page, ['Pass Reserved Successfully!']);
+  await watchText(page, ['Pass Reserved Successfully']);
   const held = await hold(page, '/tickets/reserve', bearer(tokenA), 201, { id: 'ticket-new', event_id: 'event-1', ticket_tier_id: 'tier-1', ticket_tier_name: 'General', attendee_name: 'x', attendee_mobile: '09121239999', status: 'ACTIVE', qr_secret: 'synthetic-qr-new', created_at: '2027-01-01T00:00:00Z' }, 'POST');
   await seed(page, tokenA);
   await page.goto('/e/t06-fixture');
@@ -491,7 +492,7 @@ test('R2 a reservation answered after the session changed shows no success for t
   held.release();
   await late;
   await page.waitForTimeout(500);
-  expect(await sawText(page, 'Pass Reserved Successfully!')).toBe(false);
+  expect(await sawText(page, 'Pass Reserved Successfully')).toBe(false);
   expect(await storedUser(page)).toBe(tokenB);
 });
 
@@ -507,7 +508,7 @@ test('account switch: user A leads are not shown to user B when B leads cannot l
   await page.goto('/booth/booth-1');
   await expect(page.getByText('Lead One').first()).toBeVisible();
   await switchUser(page, tokenB);
-  await page.getByRole('button', { name: 'Export CRM CSV' }).click();
+  await page.getByRole('button', { name: 'Export CSV' }).click();
   await expect(page.getByText('Booth booth-1').first()).toBeVisible();
   await expect(page.getByText('Lead One')).toHaveCount(0);
   expect(await storedUser(page)).toBe(tokenB);

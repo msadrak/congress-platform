@@ -1,3 +1,4 @@
+import { useEffect, useId, useLayoutEffect, useRef } from "react";
 import type { TranslationDictionary } from "../../lib/i18n";
 import type { QueuedScan } from "../../lib/scannerStorage";
 import { Icon } from "../ui/Icon";
@@ -13,23 +14,63 @@ interface ConflictDrawerProps {
 
 /** Server-reconciliation conflicts: audit records, never deleted here. */
 export function ConflictDrawer({ conflicts, copy, t, onClose, onAcknowledge }: ConflictDrawerProps) {
+  const headingId = useId();
+  const sheetRef = useRef<HTMLDivElement>(null);
+  const closeRef = useRef<HTMLButtonElement>(null);
+  const onCloseRef = useRef(onClose);
+  useLayoutEffect(() => {
+    onCloseRef.current = onClose;
+  });
+
+  // Modal behaviour: focus starts on Close, Tab stays inside the sheet, Escape closes, focus returns on close.
+  useEffect(() => {
+    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    closeRef.current?.focus();
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        onCloseRef.current();
+        return;
+      }
+      if (e.key !== "Tab" || !sheetRef.current) return;
+      const focusable = sheetRef.current.querySelectorAll<HTMLElement>("button:not([disabled]), [href], [tabindex]:not([tabindex='-1'])");
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      const active = document.activeElement;
+      if (e.shiftKey && (active === first || !sheetRef.current.contains(active))) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && (active === last || !sheetRef.current.contains(active))) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      previous?.focus();
+    };
+  }, []);
+
   return (
     <div
       className="fixed inset-0 z-40 flex items-end justify-center bg-ink-950/80 sm:items-center sm:p-4"
       role="dialog"
       aria-modal="true"
-      aria-label="Sync conflict review"
+      aria-labelledby={headingId}
     >
-      <div className="scanner-sheet flex max-h-[85dvh] w-full max-w-lg flex-col overflow-hidden border border-white/12 bg-ink-900 pb-safe shadow-[0_-30px_80px_-30px_rgb(0_0_0/0.9)] sm:rounded-2xl">
+      <div ref={sheetRef} className="scanner-sheet flex max-h-[85dvh] w-full max-w-lg flex-col overflow-hidden border border-white/12 bg-ink-900 pb-safe shadow-[0_-30px_80px_-30px_rgb(0_0_0/0.9)] sm:rounded-2xl">
         <div className="flex items-start justify-between gap-3 border-b border-white/10 px-4 py-3.5 sm:px-5">
           <div>
             <p className="flex items-center gap-1.5 text-[12px] font-semibold text-[#FF8BA8]">
               <Icon name="alert" size={14} />
               <span className="font-mono tabular" dir="ltr">{conflicts.length}</span>
             </p>
-            <h2 className="mt-0.5 text-[1.0625rem] font-semibold text-white">{t.conflictsHeading}</h2>
+            <h2 id={headingId} className="mt-0.5 text-[1.0625rem] font-semibold text-white">{t.conflictsHeading}</h2>
           </div>
           <button
+            ref={closeRef}
             type="button"
             onClick={onClose}
             className="scanner-tool inline-flex min-h-11 items-center gap-1.5 rounded-lg px-3 text-[13px] font-semibold text-ink-200 hover:bg-white/10 hover:text-white"

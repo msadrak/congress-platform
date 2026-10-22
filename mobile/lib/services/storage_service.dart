@@ -3,6 +3,7 @@ import '../models/scan_record.dart';
 abstract class IStorageService {
   Future<void> saveManifest(String pointId, Map<String, dynamic> rawJson);
   Future<Map<String, dynamic>?> loadCachedManifest(String pointId);
+  Future<DateTime?> manifestSavedAt(String pointId);
   Future<void> enqueueScan(ScanRecord scan);
   Future<List<ScanRecord>> getUnsyncedScans(String pointId);
   Future<void> markScansSynced(List<String> scanIds);
@@ -12,11 +13,18 @@ abstract class IStorageService {
 
 class LocalStorageService implements IStorageService {
   final Map<String, Map<String, dynamic>> _manifests = {};
+  final Map<String, DateTime> _manifestSavedAt = {};
   final List<ScanRecord> _scans = [];
 
   @override
   Future<void> saveManifest(String pointId, Map<String, dynamic> rawJson) async {
     _manifests[pointId] = Map<String, dynamic>.from(rawJson);
+    _manifestSavedAt[pointId] = DateTime.now();
+  }
+
+  @override
+  Future<DateTime?> manifestSavedAt(String pointId) async {
+    return _manifestSavedAt[pointId];
   }
 
   @override
@@ -70,6 +78,7 @@ class LocalStorageService implements IStorageService {
   @override
   Future<void> clearAll() async {
     _manifests.clear();
+    _manifestSavedAt.clear();
     _scans.clear();
   }
 }

@@ -12,7 +12,7 @@ import {
 import {
   isStoredAttendeeToken,
   rejectAttendeeToken,
-  SESSION_CHANGED_MESSAGE,
+  sessionChangedMessage,
 } from "../lib/attendeeSession";
 import {
   useAttendeeLocale,
@@ -20,7 +20,7 @@ import {
   formatLocalizedNumber,
 } from "../lib/i18n";
 import { SkipLink } from "../components/ui/SkipLink";
-import { QrCameraInput } from "../components/booth/QrCameraInput";
+import { QrCameraInput } from "../components/QrCameraInput";
 import { boothSignInPath } from "../lib/safeRedirect";
 import { clearOwnerScopedTickets } from "../lib/ticketCache";
 import { eventAccentStyle } from "../lib/eventAccent";
@@ -97,6 +97,8 @@ function ExhibitorPortalContent() {
   const [savingLead, setSavingLead] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
   const [editFeedback, setEditFeedback] = useState<string | null>(null);
+  // The post-save auto-close; cleared whenever another lead is opened or the dialog is closed.
+  const qualifyCloseTimer = useRef<number | undefined>(undefined);
 
   // CSV Export state
   const [isExporting, setIsExporting] = useState(false);
@@ -232,7 +234,7 @@ function ExhibitorPortalContent() {
     e.preventDefault();
     if (!boothId || !token || !qrSecret.trim() || captureInFlight.current) return;
     if (!isStoredAttendeeToken(token)) {
-      setCaptureError(SESSION_CHANGED_MESSAGE);
+      setCaptureError(sessionChangedMessage(locale));
       return;
     }
 
@@ -266,7 +268,7 @@ function ExhibitorPortalContent() {
             : response.status === 400
               ? isRtl ? "این کارت متعلق به همایش دیگری است." : "That badge belongs to a different congress."
               : response.status === 403
-                ? isRtl ? "شما اجازهٔ ثبت مشتری برای این غرفه را ندارید." : "You are not authorized to capture leads for this booth."
+                ? isRtl ? "شما اجازهٔ ثبت لید برای این غرفه را ندارید." : "You are not authorized to capture leads for this booth."
                 : formatApiError(err)
         );
       } else if (data) {
@@ -282,7 +284,7 @@ function ExhibitorPortalContent() {
       // scanning the same badge again is safe (it updates the same lead), but check the list first.
       setCaptureError(
         isRtl
-          ? "اتصال قطع شد و مشخص نیست مشتری ثبت شده یا نه. فهرست مشتریان را بررسی کنید؛ اسکن دوباره همین کارت فقط همان مشتری را به‌روز می‌کند."
+          ? "اتصال قطع شد و مشخص نیست لید ثبت شده یا نه. فهرست لیدها را بررسی کنید؛ اسکن دوباره همین کارت فقط همان لید را به‌روز می‌کند."
           : "The connection dropped, so it is not known whether the lead was saved. Check the lead list; scanning the same badge again only updates the same lead."
       );
     } finally {
@@ -298,7 +300,20 @@ function ExhibitorPortalContent() {
     return () => clearTimeout(timer);
   }, [isCaptureModalOpen, capturedLead]);
 
+  useEffect(() => () => window.clearTimeout(qualifyCloseTimer.current), []);
+
+  const cancelQualifyClose = () => {
+    window.clearTimeout(qualifyCloseTimer.current);
+    qualifyCloseTimer.current = undefined;
+  };
+
+  const closeEdit = () => {
+    cancelQualifyClose();
+    setEditingLead(null);
+  };
+
   const handleOpenEdit = (lead: LeadOut) => {
+    cancelQualifyClose();
     setEditingLead(lead);
     setEditRating(
       lead.rating === "HOT" || lead.rating === "COLD" ? lead.rating : "WARM"
@@ -314,7 +329,7 @@ function ExhibitorPortalContent() {
     e.preventDefault();
     if (!boothId || !token || !editingLead) return;
     if (!isStoredAttendeeToken(token)) {
-      setEditError(SESSION_CHANGED_MESSAGE);
+      setEditError(sessionChangedMessage(locale));
       return;
     }
 
@@ -322,10 +337,13 @@ function ExhibitorPortalContent() {
     setEditError(null);
     setEditFeedback(null);
     try {
+      // A tag typed but not yet added with Enter is still saved.
+      const pendingTag = customTagInput.trim();
+      const tags = pendingTag && !editTags.includes(pendingTag) ? [...editTags, pendingTag] : editTags;
       const client = createApiClient({ kind: "user", token });
       const { data, error: err, response } = await client.PATCH("/api/booths/{booth_id}/leads/{lead_id}", {
         params: { path: { booth_id: boothId, lead_id: editingLead.id } },
-        body: { rating: editRating, tags: editTags, notes: editNotes.trim() },
+        body: { rating: editRating, tags, notes: editNotes.trim() },
       });
 
       const stillCurrent = isStoredAttendeeToken(token);
@@ -336,8 +354,12 @@ function ExhibitorPortalContent() {
       } else if (data) {
         setAllLeads((prev) => prev.map((l) => (l.id === editingLead.id ? data : l)));
         setCapturedLead((prev) => (prev && prev.lead.id === data.id ? { ...prev, lead: data } : prev));
+        setEditTags(tags);
+        setCustomTagInput("");
         setEditFeedback(t.qualificationSavedSuccess);
-        setTimeout(() => {
+        cancelQualifyClose();
+        qualifyCloseTimer.current = window.setTimeout(() => {
+          qualifyCloseTimer.current = undefined;
           setEditingLead(null);
           setEditFeedback(null);
         }, 1000);
@@ -372,7 +394,7 @@ function ExhibitorPortalContent() {
   const handleExportCsv = async () => {
     if (!boothId || !booth || !token) return;
     if (!isStoredAttendeeToken(token)) {
-      setExportError(SESSION_CHANGED_MESSAGE);
+      setExportError(sessionChangedMessage(locale));
       return;
     }
     setIsExporting(true);
@@ -389,7 +411,7 @@ function ExhibitorPortalContent() {
       // No download or completion feedback for a session that has since changed.
       if (!stillCurrent) return;
       if (!response.ok || !blob) {
-        setExportError(isRtl ? "دریافت CSV انجام نشد. دسترسی خود را بررسی کنید." : "Failed to export leads. Please verify authorization.");
+        setExportError(isRtl ? "فهرست لیدها دریافت نشد. دوباره تلاش کنید؛ اگر تکرار شد دوباره وارد شوید." : "Couldn't export the lead list. Try again; if it keeps failing, sign in again.");
         return;
       }
       const link = document.createElement("a");
@@ -399,7 +421,7 @@ function ExhibitorPortalContent() {
       link.click();
       document.body.removeChild(link);
       URL.revokeObjectURL(link.href);
-      setExportNotice(isRtl ? `دریافت ${link.download} آغاز شد (همهٔ مشتریان این غرفه).` : `Download of ${link.download} started (all leads of this booth).`);
+      setExportNotice(isRtl ? `دریافت ${link.download} آغاز شد (همهٔ لیدهای این غرفه).` : `Download of ${link.download} started (all leads of this booth).`);
     } catch {
       setExportError(isRtl ? "خطای شبکه هنگام دریافت CSV." : "Network error while exporting CSV.");
     } finally {
@@ -699,6 +721,7 @@ function ExhibitorPortalContent() {
                   variant="outline"
                   size="md"
                   disabled={isExporting || allLeads.length === 0}
+                  aria-busy={isExporting}
                   onClick={handleExportCsv}
                   className="shrink-0"
                 >
@@ -749,7 +772,7 @@ function ExhibitorPortalContent() {
                     >
                       {meta && <Icon name={meta.icon} size={15} className={on ? "" : "text-[var(--rating-solid)]"} />}
                       <span>{chip.label}</span>
-                      <span className={`min-w-7 rounded-full px-2 py-0.5 text-center text-[12px] tabular ${on ? "bg-white/20" : "bg-surface-panel-subtle text-text-muted"}`}>
+                      <span className={`min-w-7 rounded-full px-2 py-0.5 text-center text-[12px] tabular ${on ? (meta ? "bg-white text-[var(--rating-fg)]" : "bg-white/20") : "bg-surface-panel-subtle text-text-muted"}`}>
                         {formatLocalizedNumber(chip.count, locale)}
                       </span>
                     </button>
@@ -758,8 +781,11 @@ function ExhibitorPortalContent() {
               </div>
             </div>
 
+            {/* Always mounted, so the export result is announced; the card below is visual only. */}
+            <p role="status" className="sr-only">{exportNotice ?? ""}</p>
+
             {exportNotice && (
-              <div role="status" className="flex items-start gap-2.5 rounded-xl border border-status-success-border bg-status-success-bg p-3.5 text-[13px] leading-relaxed text-status-success-text">
+              <div className="flex items-start gap-2.5 rounded-xl border border-status-success-border bg-status-success-bg p-3.5 text-[13px] leading-relaxed text-status-success-text">
                 <Icon name="check-circle" size={18} className="shrink-0" />
                 <span className="min-w-0 break-words">{exportNotice}</span>
               </div>
@@ -776,7 +802,7 @@ function ExhibitorPortalContent() {
               <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-status-danger-border bg-status-danger-bg p-3.5 text-[13px] text-status-danger-text">
                 <span className="flex items-center gap-2.5">
                   <Icon name="alert" size={18} className="shrink-0" />
-                  <span>{isRtl ? "فهرست مشتریان بارگذاری نشد." : "The lead list could not be loaded."}</span>
+                  <span>{isRtl ? "فهرست لیدها بارگذاری نشد." : "The lead list could not be loaded."}</span>
                 </span>
                 <Button type="button" size="md" variant="secondary" onClick={() => setReloadNonce((n) => n + 1)}>
                   <Icon name="sync" size={16} />
@@ -788,7 +814,7 @@ function ExhibitorPortalContent() {
             {filtersActive && !loading && (
               <p role="status" className="px-1 text-[13px] text-text-muted">
                 {isRtl
-                  ? `نمایش ${formatLocalizedNumber(leads.length, locale)} از ${formatLocalizedNumber(allLeads.length, locale)} مشتری`
+                  ? `نمایش ${formatLocalizedNumber(leads.length, locale)} از ${formatLocalizedNumber(allLeads.length, locale)} لید`
                   : `Showing ${leads.length} of ${allLeads.length} leads`}
               </p>
             )}
@@ -868,24 +894,27 @@ function ExhibitorPortalContent() {
         description={t.captureLeadModalDesc}
         size="lg"
       >
+        {/* Mounted with the dialog (the page behind it is aria-hidden by aria-modal), so the
+            capture result is announced; the confirmation card below is visual only. */}
+        <p role="status" className="sr-only">{captureFeedback?.replace(/^✓\s*/, "") ?? ""}</p>
         {capturedLead && (
           <div
             className={`${capturedLead.existed ? "booth-confirm-existing" : "booth-confirm-new"} space-y-4`}
             data-testid="capture-result"
           >
-            <div role="status" className="rounded-2xl border border-[var(--confirm-border)] bg-[var(--confirm-bg)] p-4 sm:p-5">
+            <div className="rounded-2xl border border-[var(--confirm-border)] bg-[var(--confirm-bg)] p-4 sm:p-5">
               <div className="flex items-start gap-3.5">
                 <span aria-hidden="true" className="grid size-12 shrink-0 place-items-center rounded-full bg-[var(--confirm-solid)] text-white shadow-[0_10px_24px_-12px_var(--confirm-solid)] motion-safe:animate-pop">
                   <Icon name={capturedLead.existed ? "layers" : "check"} size={24} strokeWidth={2.25} />
                 </span>
                 <div className="min-w-0 pt-0.5">
                   <p className="booth-meta-label text-[var(--confirm-fg)]">
-                    {capturedLead.existed ? (isRtl ? "لید تکراری" : "Existing lead") : (isRtl ? "لید جدید" : "New lead")}
+                    {capturedLead.existed ? (isRtl ? "لید موجود" : "Existing lead") : (isRtl ? "لید جدید" : "New lead")}
                   </p>
                   <p className="mt-1 text-base font-bold leading-snug text-text-primary">{captureFeedback?.replace(/^✓\s*/, "")}</p>
                   {capturedLead.existed && (
                     <p className="mt-1 text-[13px] leading-relaxed text-text-secondary">
-                      {isRtl ? "این شرکت‌کننده قبلاً مشتری این غرفه بود؛ سطح علاقه و برچسب‌های قبلی حفظ شد." : "This attendee was already a lead of this booth; their rating and tags were kept."}
+                      {isRtl ? "این شرکت‌کننده قبلاً لید این غرفه بود؛ سطح علاقه و برچسب‌های قبلی حفظ شد." : "This attendee was already a lead of this booth; their rating and tags were kept."}
                     </p>
                   )}
                 </div>
@@ -903,7 +932,19 @@ function ExhibitorPortalContent() {
               </div>
             </div>
             <div className="grid gap-2 sm:grid-cols-2">
-              <Button type="button" variant="secondary" size="lg" onClick={() => handleOpenEdit(capturedLead.lead)}>
+              <Button
+                type="button"
+                variant="secondary"
+                size="lg"
+                onClick={() => {
+                  // One dialog at a time: the capture dialog closes before qualification opens;
+                  // the capture button stays one tap away.
+                  const lead = capturedLead.lead;
+                  setIsCaptureModalOpen(false);
+                  resetCapture();
+                  handleOpenEdit(lead);
+                }}
+              >
                 <Icon name="sliders" size={18} />
                 <span>{t.qualifyLeadButton}</span>
               </Button>
@@ -911,6 +952,7 @@ function ExhibitorPortalContent() {
                 type="button"
                 variant="primary"
                 size="lg"
+                autoFocus
                 onClick={() => {
                   resetCapture();
                   setTimeout(() => codeInputRef.current?.focus(), 60);
@@ -1026,9 +1068,9 @@ function ExhibitorPortalContent() {
                 <Button type="button" variant="ghost" size="lg" disabled={submittingCapture} onClick={() => setIsCaptureModalOpen(false)} className="shrink-0 max-sm:hidden">
                   {isRtl ? "انصراف" : "Cancel"}
                 </Button>
-                <Button type="submit" variant="primary" size="lg" disabled={submittingCapture} className="min-w-0 flex-1 sm:flex-none sm:min-w-[15rem]">
+                <Button type="submit" variant="primary" size="lg" disabled={submittingCapture} aria-busy={submittingCapture} className="min-w-0 flex-1 sm:flex-none sm:min-w-[15rem]">
                   {submittingCapture ? spinner : <Icon name="user-plus" size={19} className="shrink-0" />}
-                  <span className="whitespace-normal leading-tight">{submittingCapture ? (isRtl ? "در حال ثبت…" : "Recording…") : t.saveLeadAction}</span>
+                  <span className="whitespace-normal leading-tight">{submittingCapture ? (isRtl ? "در حال ذخیره…" : "Saving…") : t.saveLeadAction}</span>
                 </Button>
               </div>
             </div>
@@ -1040,7 +1082,7 @@ function ExhibitorPortalContent() {
       <Dialog
         isOpen={Boolean(editingLead)}
         onClose={() => {
-          if (!savingLead) setEditingLead(null);
+          if (!savingLead) closeEdit();
         }}
         title={editingLead ? `${t.qualificationDrawerTitle}: ${editingLead.attendee_name}` : ""}
         description={t.qualificationDrawerDesc}
@@ -1061,7 +1103,7 @@ function ExhibitorPortalContent() {
                 {editingLead.attendee_mobile && (
                   <a
                     href={telHref(editingLead.attendee_mobile)}
-                    className="mt-2 inline-flex max-w-full items-center gap-1.5 rounded-sm text-[13px] font-medium text-action-primary hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
+                    className="mt-2 inline-flex min-h-[44px] max-w-full items-center gap-1.5 rounded-sm px-1 text-[13px] font-medium text-action-primary hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
                   >
                     <Icon name="phone" size={15} className="shrink-0" />
                     <bdi dir="ltr" className="min-w-0 break-all font-mono text-[12.5px]">{formatMobile(editingLead.attendee_mobile, locale)}</bdi>
@@ -1095,6 +1137,7 @@ function ExhibitorPortalContent() {
                   value={customTagInput}
                   onChange={(e) => setCustomTagInput(e.target.value)}
                   onKeyDown={handleAddCustomTag}
+                  enterKeyHint="enter"
                   placeholder={t.addCustomTagPlaceholder}
                   aria-label={t.addCustomTagPlaceholder}
                   className="ui-input ps-11"
@@ -1127,10 +1170,10 @@ function ExhibitorPortalContent() {
                 </div>
               )}
               <div className="flex gap-2 sm:justify-end">
-                <Button type="button" variant="ghost" size="lg" disabled={savingLead} onClick={() => setEditingLead(null)} className="shrink-0 max-sm:hidden">
+                <Button type="button" variant="ghost" size="lg" disabled={savingLead} onClick={closeEdit} className="shrink-0 max-sm:hidden">
                   {isRtl ? "انصراف" : "Cancel"}
                 </Button>
-                <Button type="submit" variant="primary" size="lg" disabled={savingLead} className="min-w-0 flex-1 sm:flex-none sm:min-w-[15rem]">
+                <Button type="submit" variant="primary" size="lg" disabled={savingLead} aria-busy={savingLead} className="min-w-0 flex-1 sm:flex-none sm:min-w-[15rem]">
                   {savingLead ? spinner : <Icon name="check" size={19} className="shrink-0" />}
                   <span className="whitespace-normal leading-tight">{savingLead ? (isRtl ? "در حال ذخیره…" : "Saving…") : t.saveQualificationAction}</span>
                 </Button>

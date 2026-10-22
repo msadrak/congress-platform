@@ -55,7 +55,7 @@ export function ScanLog({ scans, copy, t }: { scans: QueuedScan[]; copy: Scanner
     <section className="scanner-panel overflow-hidden" aria-labelledby="scanner-log-title">
       <div className="flex items-center justify-between gap-3 border-b border-white/10 px-4 py-3">
         <h2 id="scanner-log-title" className="flex items-center gap-2 text-[13px] font-semibold text-ink-200">
-          <span aria-hidden="true" className="scanner-index">03</span>
+          <span aria-hidden="true" className="scanner-index">{copy.sectionIndex(3)}</span>
           {copy.logTitle}
         </h2>
       </div>

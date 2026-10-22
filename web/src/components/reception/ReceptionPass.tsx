@@ -57,8 +57,8 @@ export function ReceptionPass({ pass, isRtl, eventName, printable, notch = "subt
   );
 }
 
-/** High-contrast ticket status: solid, legible at a glance from across the desk. */
-export function TicketStatusChip({ status, activeLabel, size = "sm" }: { status: string; activeLabel: string; size?: "sm" | "md" }) {
+/** High-contrast ticket status: solid, legible at a glance from across the desk. `label` is the caller's wording for `status`. */
+export function TicketStatusChip({ status, label, size = "sm" }: { status: string; label: string; size?: "sm" | "md" }) {
   const active = status === "active";
   const sizing = size === "md" ? "gap-1.5 px-2.5 py-1.5 text-xs" : "gap-1 px-2 py-1 text-[11px]";
   return (
@@ -66,7 +66,7 @@ export function TicketStatusChip({ status, activeLabel, size = "sm" }: { status:
       className={`inline-flex items-center whitespace-nowrap rounded-full font-semibold leading-none text-white ${sizing} ${active ? "bg-status-success-text" : "bg-status-danger-text"}`}
     >
       <Icon name={active ? "check" : "x"} size={size === "md" ? 14 : 12} strokeWidth={2.5} />
-      <span>{active ? activeLabel : status}</span>
+      <span>{label}</span>
     </span>
   );
 }

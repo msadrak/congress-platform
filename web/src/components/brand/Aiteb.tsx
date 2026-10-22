@@ -1,6 +1,8 @@
 import { useId } from "react";
 
 export const AITEB_URL = "https://aiteb.ir/";
+/** Display name in every language: Latin even inside Persian copy, set in an LTR island there. */
+export const AITEB_NAME = "AI Teb";
 
 interface AitebLogoProps {
   /** `full` = official wordmark lockup, `mark` = the crossing-arcs symbol alone. */
@@ -11,7 +13,7 @@ interface AitebLogoProps {
 }
 
 /** Official AIteb logo files from aiteb.ir (public/brand); never redrawn or recoloured. */
-export function AitebLogo({ variant = "full", className = "", alt = "AIteb" }: AitebLogoProps) {
+export function AitebLogo({ variant = "full", className = "", alt = AITEB_NAME }: AitebLogoProps) {
   if (variant === "mark") {
     return <img src="/brand/aiteb-mark.png" width={256} height={256} alt={alt} className={`object-contain ${className}`.trim()} draggable={false} />;
   }
@@ -19,8 +21,8 @@ export function AitebLogo({ variant = "full", className = "", alt = "AIteb" }: A
 }
 
 const CREDIT = {
-  fa: { lead: "طراحی و توسعه توسط", name: "آی‌طب", newTab: "(در زبانه جدید باز می‌شود)" },
-  en: { lead: "Designed & developed by", name: "AIteb", newTab: "(opens in a new tab)" },
+  fa: { lead: "طراحی و توسعه توسط", newTab: "(در زبانه جدید باز می‌شود)" },
+  en: { lead: "Designed & developed by", newTab: "(opens in a new tab)" },
 } as const;
 
 interface AitebAttributionProps {
@@ -47,14 +49,17 @@ export function AitebAttribution({ locale, tone = "light", className = "" }: Ait
       rel="noopener noreferrer"
       lang={locale}
       dir={locale === "fa" ? "rtl" : "ltr"}
-      aria-label={`${copy.lead} ${copy.name} ${copy.newTab}`}
+      aria-label={`${copy.lead} ${AITEB_NAME} ${copy.newTab}`}
       className={`group inline-flex items-center gap-2 text-xs font-medium transition-colors ${toneClass} ${className}`.trim()}
     >
       <span className="grid size-6 place-items-center rounded-full bg-white shadow-[0_0_0_1px_rgb(14_12_43/0.08)] transition-transform duration-300 group-hover:rotate-[18deg] motion-reduce:transition-none">
         <AitebLogo variant="mark" alt="" className="size-4" />
       </span>
       <span>
-        {copy.lead} <span className="font-bold text-current">{copy.name}</span>
+        {copy.lead}{" "}
+        <bdi dir="ltr" lang="en" className="font-bold text-current">
+          {AITEB_NAME}
+        </bdi>
       </span>
     </a>
   );
