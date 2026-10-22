@@ -1,9 +1,10 @@
 import uuid
 from datetime import datetime
 from typing import Annotated
+from urllib.parse import urlsplit
 
 from fastapi import APIRouter, HTTPException, Response, status
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, StringConstraints
 from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 
@@ -21,13 +22,34 @@ SlugStr = Annotated[
 ]
 
 
+def _web_link(value: str) -> str:
+    """Empty, or an absolute http(s) address: these become links on the public booth page, so no
+    javascript:/data: schemes, scheme-relative or relative paths."""
+    value = value.strip()
+    if not value:
+        return ""
+    parts = urlsplit(value)
+    if (
+        parts.scheme.lower() not in ("http", "https")
+        or not parts.hostname
+        or any(ch.isspace() or ord(ch) < 32 for ch in value)
+    ):
+        raise ValueError("Enter a full web address starting with https:// or http://.")
+    return value
+
+
+WebLink = Annotated[str, Field(max_length=500), AfterValidator(_web_link)]
+# A short overview shown on the public booth page and in the booth directory.
+BoothDescription = Annotated[str, Field(max_length=2000)]
+
+
 class BoothCreate(BaseModel):
     name: Annotated[str, Field(min_length=1, max_length=200)]
     slug: SlugStr
     location: Annotated[str, Field(max_length=100)] = ""
-    description: str = ""
-    website_url: Annotated[str, Field(max_length=500)] = ""
-    brochure_url: Annotated[str, Field(max_length=500)] = ""
+    description: BoothDescription = ""
+    website_url: WebLink = ""
+    brochure_url: WebLink = ""
 
 
 class BoothUpdate(BaseModel):
@@ -36,9 +58,9 @@ class BoothUpdate(BaseModel):
     name: Annotated[str, Field(min_length=1, max_length=200)] | None = None
     slug: SlugStr | None = None
     location: Annotated[str, Field(max_length=100)] | None = None
-    description: str | None = None
-    website_url: Annotated[str, Field(max_length=500)] | None = None
-    brochure_url: Annotated[str, Field(max_length=500)] | None = None
+    description: BoothDescription | None = None
+    website_url: WebLink | None = None
+    brochure_url: WebLink | None = None
 
 
 

@@ -72,9 +72,8 @@ function boothDraftProblem(draft: BoothDraft, isRtl: boolean): { field: keyof Bo
   for (const field of ["website_url", "brochure_url"] as const) {
     const value = draft[field].trim();
     if (!value) continue;
-    try {
-      void new URL(value);
-    } catch {
+    // The API accepts only absolute http(s) addresses: these become links on the public booth page.
+    if (!URL.canParse(value) || !/^https?:$/.test(new URL(value).protocol)) {
       return {
         field,
         message: isRtl ? "نشانی کامل وب را وارد کنید؛ مثلاً https://company.example.com" : "Enter a full web address, e.g. https://company.example.com.",

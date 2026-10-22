@@ -119,3 +119,61 @@ async def test_another_organizer_can_neither_edit_nor_delete_a_booth(client: Asy
 
     assert [a.status_code for a in attempts] == [404] * len(attempts)
     assert (await client.get(f"/api/events/{event_id}/booths", headers=bearer(owner))).json() == [booth]
+
+
+UNSAFE_LINKS = [
+    "javascript:alert(document.cookie)",
+    "JavaScript:alert(1)",
+    "data:text/html,<script>alert(1)</script>",
+    "vbscript:msgbox(1)",
+    "//evil.example.com/brochure.pdf",
+    "/relative/brochure.pdf",
+    "ftp://files.example.com/brochure.pdf",
+    "https://",
+    "https://exa mple.com",
+    "https://example.com/\nSet-Cookie: x=1",
+]
+
+
+async def test_booth_links_must_be_absolute_web_addresses(client: AsyncClient) -> None:
+    organizer = await provision_organizer(client, "Acme Congress Co")
+    event_id = await create_event(client, organizer)
+    booth = (await client.post(f"/api/events/{event_id}/booths", json=BOOTH_PAYLOAD, headers=bearer(organizer))).json()
+
+    for field in ("website_url", "brochure_url"):
+        for link in UNSAFE_LINKS:
+            created = await client.post(
+                f"/api/events/{event_id}/booths", json={**BOOTH_PAYLOAD, "slug": "other", field: link},
+                headers=bearer(organizer),
+            )
+            edited = await client.patch(
+                f"/api/events/{event_id}/booths/{booth['id']}", json={field: link}, headers=bearer(organizer)
+            )
+            assert (created.status_code, edited.status_code) == (422, 422), (field, link)
+
+    cleared = await client.patch(
+        f"/api/events/{event_id}/booths/{booth['id']}",
+        json={"website_url": "  ", "brochure_url": " HTTP://Example.com/b.pdf "},
+        headers=bearer(organizer),
+    )
+    assert cleared.status_code == 200, cleared.text
+    assert (cleared.json()["website_url"], cleared.json()["brochure_url"]) == ("", "HTTP://Example.com/b.pdf")
+    listed = (await client.get(f"/api/events/{event_id}/booths", headers=bearer(organizer))).json()
+    assert [b["slug"] for b in listed] == [BOOTH_PAYLOAD["slug"]]
+
+
+async def test_booth_description_is_capped(client: AsyncClient) -> None:
+    organizer = await provision_organizer(client, "Acme Congress Co")
+    event_id = await create_event(client, organizer)
+
+    too_long = await client.post(
+        f"/api/events/{event_id}/booths", json={**BOOTH_PAYLOAD, "description": "x" * 2001}, headers=bearer(organizer)
+    )
+    longest = await client.post(
+        f"/api/events/{event_id}/booths", json={**BOOTH_PAYLOAD, "description": "x" * 2000}, headers=bearer(organizer)
+    )
+    patched = await client.patch(
+        f"/api/events/{event_id}/booths/{longest.json()['id']}", json={"description": "x" * 2001}, headers=bearer(organizer)
+    )
+
+    assert (too_long.status_code, longest.status_code, patched.status_code) == (422, 201, 422)
