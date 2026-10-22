@@ -34,7 +34,7 @@
 	}
 	import /etc/caddy/options/hsts-{$CONGRESS_HSTS:off}.caddy
 
-	log {
+	log access {
 		output stdout
 		format filter {
 			wrap json
@@ -49,6 +49,21 @@
 			request>headers>X-Admin-Token delete
 		}
 	}
+	# SMS short links (/t/<code>, ADR 0015) open an attendee's pass, so the code must not reach a log either. A field
+	# takes one filter, hence a second logger for /t/* with the whole path replaced; every request names its logger.
+	log short_links {
+		output stdout
+		format filter {
+			wrap json
+			request>uri regexp ^/t/.* /t/-
+			request>headers>Authorization delete
+			request>headers>X-Admin-Token delete
+		}
+	}
+	@shortLink path /t/*
+	log_name @shortLink short_links
+	@notShortLink not path /t/*
+	log_name @notShortLink access
 
 	# With CONGRESS_CDN_ONLY=on, anyone but the CDN gets 403 here (before every other handler).
 	import /etc/caddy/options/cdn-gate-{$CONGRESS_CDN_ONLY:off}.caddy

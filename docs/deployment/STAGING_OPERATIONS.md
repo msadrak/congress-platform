@@ -51,7 +51,7 @@ The response contains the organizer API key **once**. No demo accounts or demo d
 | Platform home | `/` |
 | Organizer console | `/organizer` → events → **Program** (sessions, CSV timetable upload), **Venue** (entrances, halls), Booths, **Public page** (Page Studio), **Attendee panel** (preview), Analytics, Front Desk |
 | Public congress | `/e/<slug>` (after Publish) and `/e/<slug>/booths/<id>` |
-| Attendee | `/sign-in`, `/my-tickets`, `/my-network`, `/c/<slug>/my-congress` |
+| Attendee | `/sign-in`, `/my-tickets`, `/my-network`, `/c/<slug>/my-congress`; `/t/<code>` (SMS pass link, opens the pass without sign-in) |
 | Reception | `/reception` (congress code) or `/reception/<event-id>` |
 | Exhibitor | `/booth/<booth-id>` |
 | Gate scanner | `/scan/<point-id>` (pair with a device token) |
@@ -70,7 +70,7 @@ node scripts/staging/stack.mjs up               # after pulling new code: rebuil
 
 **Logs.**
 - JSON-file driver, rotated at 10 MB × 5 per service.
-- Caddy access logs drop `Authorization`, `X-Admin-Token` and the scanner `?token=` query.
+- Caddy access logs drop `Authorization`, `X-Admin-Token` and the scanner `?token=` query, and log SMS pass links as `/t/-` (logger `short_links`), never with their code.
 - The API never logs credentials.
 
 **Restart policy.** Every long-running service is `unless-stopped`, so the stack returns after a host reboot once Docker starts.
@@ -157,6 +157,7 @@ This is deliberately not automated.
    - `CONGRESS_PUBLIC_ORIGIN=https://congress.example.org`
    - `CONGRESS_SITE_ADDRESS=congress.example.org`
    - `CONGRESS_TLS=<ops e-mail>` (automatic Let's Encrypt/ZeroSSL)
+   - optional `CONGRESS_SHORT_LINK_ORIGIN=https://cngr.example`: the origin of the pass links in SMS (`<origin>/t/<code>`, ADR 0015); unset means `CONGRESS_PUBLIC_ORIGIN`. Only for a shorter domain served by this same deployment: add it to `CONGRESS_SITE_ADDRESS` (comma separated) and point its DNS here. Attendees who tap the link use the app on that domain (their pass is kept there), so leave it unset unless the shorter SMS matters.
    - `CONGRESS_BIND=0.0.0.0`, `CONGRESS_HTTPS_PORT=443`, `CONGRESS_HTTP_PORT=80`
 2. Point DNS A/AAAA records to the server and open ports 80/443 only. PostgreSQL and the API stay unpublished.
 3. In `deploy/staging/Caddyfile`, delete the `http://localhost` block. Caddy then redirects HTTP to HTTPS for the domain.
