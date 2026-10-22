@@ -23,13 +23,15 @@ import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { backendImage, syncBackendDependencies } from '../lib/backend-image.mjs';
 import { freePorts, run, startPreview, stopProcess } from '../lib/process.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const require = createRequire(resolve(root, 'web/package.json'));
 const { chromium } = require('playwright');
 const args = new Set(process.argv.slice(2));
-const IMAGE = process.env.CONGRESS_E2E_BACKEND_IMAGE ?? 'congress-t0-backend:2c0085137f';
+// The hashed test-runner image (built on first use) or CONGRESS_E2E_BACKEND_IMAGE: scripts/lib/backend-image.mjs.
+const IMAGE = backendImage();
 const NET = 'congress-studio-net', PG = 'congress-studio-pg', API = 'congress-studio-api';
 const VOL_PG = 'congress-studio-pgdata', VOL_MEDIA = 'congress-studio-media';
 const DB = 'congress_studio', PGU = 'congress_studio', PGPW = randomBytes(18).toString('hex');
@@ -113,7 +115,7 @@ try {
   docker('run', '-d', '--name', API, '-p', `127.0.0.1:${API_PORT}:8000`, '-v', `${VOL_MEDIA}:/data/media`, '--entrypoint', 'sleep', IMAGE, 'infinity');
   for (const d of ['app', 'migrations']) { docker('exec', API, 'rm', '-rf', `/app/${d}`); docker('cp', resolve(root, 'backend', d), `${API}:/app/${d}`); }
   for (const f of ['alembic.ini', 'pyproject.toml', 'uv.lock']) docker('cp', resolve(root, 'backend', f), `${API}:/app/${f}`);
-  docker('exec', '-e', 'UV_PROJECT_ENVIRONMENT=/app/.venv', '-w', '/app', API, 'uv', 'sync', '--frozen', '--no-dev', '--quiet');
+  syncBackendDependencies(API, ['--no-dev']);
   docker('network', 'connect', NET, API);
   docker('exec', ...env(), API, 'sh', '-c', 'cd /app && .venv/bin/alembic upgrade head');
   await startApi();

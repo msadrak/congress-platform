@@ -161,7 +161,7 @@ class DeskOperator(Base):
     event_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("events.id"), index=True)
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), index=True)
     operator_name: Mapped[str] = mapped_column(String(200))
-    is_revoked: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    is_revoked: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", index=True)
     session_version: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0, server_default="0"
     )
@@ -231,6 +231,16 @@ class CheckIn(Base):
     """An admission scan event processed at a Check-In Point."""
 
     __tablename__ = "checkins"
+    __table_args__ = (
+        # At most one admission per ticket at a SINGLE_USE point, enforced under concurrency (migration 0009).
+        Index(
+            "uq_checkin_single_use_admitted",
+            "checkin_point_id",
+            "ticket_id",
+            unique=True,
+            postgresql_where=text("status = 'ADMITTED' AND policy_type = 'SINGLE_USE' AND ticket_id IS NOT NULL"),
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True)  # client-generated scan_id
     checkin_point_id: Mapped[uuid.UUID] = mapped_column(
@@ -240,7 +250,7 @@ class CheckIn(Base):
         ForeignKey("tickets.id"), nullable=True, index=True
     )
     qr_secret: Mapped[str] = mapped_column(String(64), index=True)
-    policy_type: Mapped[str] = mapped_column(String(32), default="MULTI_ENTRY", index=True)
+    policy_type: Mapped[str] = mapped_column(String(32), default="MULTI_ENTRY", server_default="MULTI_ENTRY")
     status: Mapped[str] = mapped_column(String(32))  # ADMITTED or REJECTED
     rejection_reason: Mapped[str | None] = mapped_column(String(64), nullable=True)
     scanned_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
@@ -258,8 +268,8 @@ class ScannerDevice(Base):
         ForeignKey("checkin_points.id"), index=True
     )
     event_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("events.id"), index=True)
-    device_name: Mapped[str] = mapped_column(String(100), default="Scanner Client")
-    is_revoked: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    device_name: Mapped[str] = mapped_column(String(100), default="Scanner Client", server_default="Scanner Client")
+    is_revoked: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", index=True)
     revoked_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )

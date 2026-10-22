@@ -9,12 +9,14 @@ import { randomBytes } from 'node:crypto';
 import { createRequire } from 'node:module';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { backendImage, syncBackendDependencies } from '../lib/backend-image.mjs';
 import { freePorts, run, startPreview, stopProcess } from '../lib/process.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const require = createRequire(resolve(root, 'web/package.json'));
 const { chromium } = require('playwright');
-const IMAGE = process.env.CONGRESS_E2E_BACKEND_IMAGE ?? 'congress-t0-backend:2c0085137f';
+// The hashed test-runner image (built on first use) or CONGRESS_E2E_BACKEND_IMAGE: scripts/lib/backend-image.mjs.
+const IMAGE = backendImage();
 const NET = 'congress-reality-net', PG = 'congress-reality-pg', API = 'congress-reality-api', VOL = 'congress-reality-pgdata';
 const DB = 'congress_reality', PGU = 'congress_reality', PGPW = randomBytes(18).toString('hex');
 const ADMIN = randomBytes(24).toString('hex'), JWTS = randomBytes(32).toString('hex');
@@ -83,7 +85,7 @@ try {
   docker('network', 'connect', NET, API);
   for (const d of ['app', 'migrations']) { docker('exec', API, 'rm', '-rf', `/app/${d}`); docker('cp', resolve(root, 'backend', d), `${API}:/app/${d}`); }
   for (const f of ['alembic.ini', 'pyproject.toml', 'uv.lock']) docker('cp', resolve(root, 'backend', f), `${API}:/app/${f}`);
-  docker('exec', '-e', 'UV_PROJECT_ENVIRONMENT=/app/.venv', '-w', '/app', API, 'uv', 'sync', '--frozen', '--no-dev', '--quiet');
+  syncBackendDependencies(API, ['--no-dev']);
   docker('exec', ...env(), API, 'sh', '-c', 'cd /app && .venv/bin/alembic upgrade head');
   await startUvicorn();
   if (docker('port', PG).stdout.trim()) throw new Error('PostgreSQL publishes a port');
