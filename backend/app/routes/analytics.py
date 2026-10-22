@@ -240,10 +240,10 @@ async def export_attendance_csv(
                 sanitize_csv_cell(checkin.status),
                 sanitize_csv_cell(checkin.rejection_reason or ""),
                 checkin.scanned_at.isoformat(),
-                sanitize_csv_cell(user.full_name if user else ""),
+                sanitize_csv_cell(ticket.attendee_full_name if ticket else ""),
                 sanitize_csv_cell(user.mobile if user else ""),
-                sanitize_csv_cell(user.organization if user else ""),
-                sanitize_csv_cell(user.title if user else ""),
+                sanitize_csv_cell(ticket.attendee_organization if ticket else ""),
+                sanitize_csv_cell(ticket.attendee_title if ticket else ""),
                 sanitize_csv_cell(tier.name if tier else ""),
             ]
         )
