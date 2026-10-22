@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 
 from app.auth import require_platform_admin
 from app.db import SessionDep
+from app.links import SAMPLE_CODE
 from app.models import SmsMessage
 from app.platform_config import (
     SIGN_IN_FIELDS,
@@ -32,6 +33,7 @@ from app.platform_config import (
 )
 from app.rate_limit import LONGEST_WINDOW_SECONDS, Budget, limiter
 from app.sms import SmsGateway, sms_provider
+from app.sms.outbox import link_origin, pass_link
 from app.sms.phone import IranMobile
 from app.sms.provider import SmsIrProvider
 from app.sms.templates import SmsKind, TemplateError, platform_body, render, validate_body
@@ -123,6 +125,8 @@ class SignInUpdate(BaseModel):
 class PlatformStatusOut(BaseModel):
     environment: str
     public_origin: str | None
+    # Origin of the SMS pass links when it differs from public_origin (CONGRESS_SHORT_LINK_ORIGIN).
+    short_link_origin: str | None = None
     sms: SmsSettingsOut
     sign_in: SignInOut
 
@@ -152,6 +156,7 @@ async def platform_status(request: Request) -> PlatformStatusOut:
     return PlatformStatusOut(
         environment=settings.environment, public_origin=settings.public_origin,
         sms=_sms_out(config, settings.environment), sign_in=_sign_in_out(config),
+        short_link_origin=settings.short_link_origin,
     )
 
 
@@ -222,11 +227,11 @@ async def send_platform_test_sms(
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from None
     throttle.hit("platform:sms-test")
     rules = platform_config(request).sign_in
-    origin = (request.app.state.settings.public_origin or str(request.base_url)).rstrip("/")
+    origin = link_origin(request.app.state.settings, str(request.base_url))
     sample = {
         "code": "1" * rules.otp_length, "minutes": str(max(1, rules.otp_ttl_seconds // 60)),
         "name": "نام شرکت‌کننده", "event": "همایش نمونه", "tier": "عمومی", "location": "تهران",
-        "link": f"{origin}/c/sample/my-ticket",
+        "link": pass_link(origin, SAMPLE_CODE),
     }
     text = render(template, sample)
     result = await gateway.send_text(body.mobile, text, kind="test")

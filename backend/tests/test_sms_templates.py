@@ -5,12 +5,13 @@ from typing import Any
 from fastapi import FastAPI
 from httpx import AsyncClient
 
+from app.links import SAMPLE_CODE
 from app.sms.outbox import deliver_due
 from app.sms.gateway import SmsGateway
 from app.sms.provider import RecordingProvider
 from app.sms.templates import KINDS
 from tests.conftest import ADMIN_TOKEN
-from tests.helpers import bearer, provision_organizer, request_code, sign_in
+from tests.helpers import bearer, pass_link, provision_organizer, request_code, sign_in
 from tests.test_events import EVENT
 from tests.test_ticket_tiers import create_event, tier
 
@@ -61,7 +62,7 @@ async def test_panel_starts_from_the_default_wording_with_this_events_sample(cli
     assert body["sample"]["event"] == EVENT["name"]
     assert body["sample"]["tier"] == "VIP Pass"
     assert body["sample"]["location"] == EVENT["location"]
-    assert body["sample"]["link"] == f"http://test/c/{EVENT['slug']}/my-ticket"
+    assert body["sample"]["link"] == f"http://test/t/{SAMPLE_CODE}"
 
 
 async def test_the_events_own_wording_is_what_attendees_receive(app: FastAPI, client: AsyncClient) -> None:
@@ -75,14 +76,14 @@ async def test_the_events_own_wording_is_what_attendees_receive(app: FastAPI, cl
     assert saved.json()["is_custom"] is True
     assert saved.json()["body"] == "سلام {name}! کارت {tier} شما برای {event} در {location}:\n{link}"
 
-    await reserve(client, event_id, tier_id)
+    ticket = await reserve(client, event_id, tier_id)
     await deliver_due(app.state.sessionmaker, app.state.sms)
 
     delivered = recorder(app).sent_to(MOBILE)[-1]
     assert delivered.kind == "ticket_confirmation"
     assert delivered.text == (
         f"سلام Neda Karimi! کارت VIP Pass شما برای {EVENT['name']} در {EVENT['location']}:\n"
-        f"http://test/c/{EVENT['slug']}/my-ticket"
+        f"{await pass_link(app, ticket['id'])}"
     )
 
 

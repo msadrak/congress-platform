@@ -10,6 +10,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app.auth import organizer_is_active, resolve_organizer_key
 from app.db import SessionDep
+from app.links import active_ticket_link, mint_ticket_link
 from app.models import (
     CheckIn,
     CheckInPoint,
@@ -598,8 +599,10 @@ async def create_desk_registration(
         is_active=True,
     )
     session.add(qr)
+    link = await mint_ticket_link(session, ticket, event)
     await queue_ticket_confirmation(
-        session, request.app.state.settings, str(request.base_url), user=user, event=event, ticket=ticket
+        session, request.app.state.settings, str(request.base_url), user=user, event=event, ticket=ticket,
+        code=link.code,
     )
     await session.commit()
 
@@ -788,8 +791,10 @@ async def resend_pass_sms(
     )
     throttle.hit(cooldown, per_ticket, per_event)
 
+    link = await active_ticket_link(session, ticket, event)
     text = await ticket_confirmation_text(
-        session, request.app.state.settings, str(request.base_url), user=user, event=event, ticket=ticket
+        session, request.app.state.settings, str(request.base_url), user=user, event=event, ticket=ticket,
+        code=link.code,
     )
     result = await provider.send_text(user.mobile, text, kind="ticket_resend")
     outcome: Literal["sent", "failed", "unknown"] = "sent" if result.ok else "unknown" if result.unknown else "failed"

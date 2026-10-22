@@ -9,7 +9,7 @@ from sqlalchemy import select
 from app.models import SmsMessage
 from app.sms.gateway import SmsGateway
 from app.sms.provider import RecordingProvider, SmsResult
-from tests.helpers import bearer, provision_organizer
+from tests.helpers import bearer, pass_link, provision_organizer
 from tests.test_events import EVENT
 from tests.test_ticket_tiers import create_event, tier
 
@@ -53,7 +53,7 @@ async def test_desk_resends_the_pass_link_now(app: FastAPI, client: AsyncClient)
     assert delivered.kind == "ticket_resend"
     assert delivered.text == (
         f"Dr. Sima Rad عزیز، ثبت‌نام شما در «{EVENT['name']}» تأیید شد.\n"
-        f"کارت ورود: http://test/c/{EVENT['slug']}/my-ticket"
+        f"کارت ورود: {await pass_link(app, ticket_id)}"
     )
     (logged,) = await resends(app)
     assert (logged.status, logged.mobile, logged.body) == ("sent", MOBILE, delivered.text)
