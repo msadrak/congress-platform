@@ -36,7 +36,7 @@ async function fixture(page: Page, options: Options = {}) {
     if (rest === 'desk/login') return json(200, { access_token: deskB, token_type: 'bearer', event_id: id, event_name: eventName(id), event_slug: id, operator: { id: 'op-2', operator_name: 'Operator Two' } });
     if (rest === 'desk/me') { const status = options.meStatus?.(auth); return status ? error(status) : json(200, meOf(id, auth)); }
     if (rest === 'desk/tiers') return json(200, [tier]);
-    if (rest === 'desk-registrations') return options.registerStatus ? error(options.registerStatus) : json(201, { ticket_id: 'ticket-walkin-1', attendee_name: 'Walk In', attendee_email: 'walk@example.test', organization: '', title: '', ticket_tier_name: 'General', qr_secret: 'synthetic-walkin-qr', issued_by: auth === bearer(organizerKey) ? null : 'Operator One', created_at: '2027-01-01T00:00:00Z' });
+    if (rest === 'desk-registrations') return options.registerStatus ? error(options.registerStatus) : json(201, { ticket_id: 'ticket-walkin-1', attendee_name: 'Walk In', attendee_mobile: null, organization: '', title: '', ticket_tier_name: 'General', qr_secret: 'synthetic-walkin-qr', issued_by: auth === bearer(organizerKey) ? null : 'Operator One', created_at: '2027-01-01T00:00:00Z' });
     if (rest.startsWith('attendees')) return json(200, []);
     return json(404, { detail: 'Not found' });
   });

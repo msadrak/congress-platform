@@ -12,7 +12,7 @@
  *
  * Safety: disposable Docker stack with fixed `congress-studio-*` names — PostgreSQL on a private
  * --internal network without a published port, named volumes for its data and for the media root,
- * generated secrets, API in CONGRESS_ENVIRONMENT=production published on 127.0.0.1 and the web preview on
+ * generated secrets, API in CONGRESS_ENVIRONMENT=staging published on 127.0.0.1 and the web preview on
  * 127.0.0.1, both on free ports picked per run. Everything is removed at the
  * end unless --keep. Requires Docker, the backend image used by congress-e2e.mjs, postgres:16, Edge and
  * the backend virtualenv (to draw the synthetic artwork).
@@ -51,7 +51,9 @@ const wait = async (label, probe, ms = 60000) => {
   throw new Error(`timeout: ${label}`);
 };
 const env = () => [
-  '-e', 'CONGRESS_ENVIRONMENT=production',
+  // Staging (strict) with the console SMS provider: production requires real sms.ir delivery.
+  '-e', 'CONGRESS_ENVIRONMENT=staging',
+  '-e', 'CONGRESS_SMS_PROVIDER=console',
   '-e', `CONGRESS_DATABASE_URL=postgresql+asyncpg://${PGU}:${PGPW}@${PG}:5432/${DB}`,
   '-e', 'CONGRESS_MEDIA_ROOT=/data/media',
   '-e', `CONGRESS_PLATFORM_ADMIN_TOKEN=${ADMIN}`,

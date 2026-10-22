@@ -229,7 +229,6 @@ test("Phase 8 Audit: offline evaluation across ALL admission policies returns PR
         ticket_tier_id: "tier-1",
         ticket_tier_name: "VIP",
         attendee_name: "Test Attendee",
-        attendee_email: "test@example.com",
         is_admitted: false,
         admission_count: 0,
       },

@@ -22,6 +22,8 @@ build/
 .env.*
 !.env.example
 !.env.staging.example
+# Server-specific SSH proxy settings (deploy/proxy)
+deploy/proxy/congress-proxy.conf
 demo_credentials.json
 *.local.json
 # IDE & OS
@@ -42,3 +44,6 @@ web/test-results/
 .staging/
 !.env.hosted.example
 .kilo/
+
+# Reference copy of the official sms.ir SDK; the backend uses its own httpx client (ADR 0012).
+SmsPanelV2.Python/

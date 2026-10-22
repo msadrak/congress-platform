@@ -41,14 +41,16 @@ function spawnArgs(cmd, args) {
  *
  * @param {string} cmd
  * @param {string[]} args
- * @param {{ allowFail?: boolean, cwd?: string, env?: Record<string, string | undefined>,
- *           stdio?: import('node:child_process').StdioOptions }} [opts]  env is merged over process.env.
+ * @param {{ allowFail?: boolean, cwd?: string, env?: Record<string, string | undefined>, input?: string,
+ *           stdio?: import('node:child_process').StdioOptions }} [opts]  env is merged over process.env;
+ *           input is written to the child's stdin.
  */
-export function run(cmd, args = [], { allowFail = false, cwd, env, stdio = 'pipe' } = {}) {
+export function run(cmd, args = [], { allowFail = false, cwd, env, input, stdio = 'pipe' } = {}) {
   const { file, argv, extra } = spawnArgs(cmd, args);
   const r = spawnSync(file, argv, {
     cwd,
     stdio,
+    input,
     env: env ? { ...process.env, ...env } : undefined,
     encoding: 'utf8',
     maxBuffer: 1 << 30,

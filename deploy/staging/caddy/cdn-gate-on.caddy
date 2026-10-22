@@ -1,0 +1,7 @@
+# Same policy as DrGibi drgibi-gateway/cdn_real_ip.conf ($is_trusted_source): ParsPack ranges, loopback and private
+# networks may reach the origin; everyone else gets 403. The connecting address is tested (remote_ip), never a
+# header, so it cannot be forged.
+@direct_visitor not remote_ip {$CONGRESS_TRUSTED_PROXIES} private_ranges 127.0.0.0/8
+handle @direct_visitor {
+	respond "Direct access denied. Please use the CDN.\n" 403
+}

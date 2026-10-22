@@ -21,6 +21,7 @@ import asyncpg
 import pytest
 from alembic import command
 from alembic.config import Config
+from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.engine import URL, make_url
 
@@ -151,14 +152,25 @@ def make_test_settings(media_root: Path) -> Settings:
         platform_admin_token=ADMIN_TOKEN,
         jwt_secret=TEST_JWT_SECRET,
         media_root=media_root,
+        # Tests deliver queued SMS explicitly (app.sms.outbox.deliver_due) instead of a background task.
+        sms_outbox_enabled=False,
+        # Tests sign the same numbers in repeatedly; test_otp_auth.py checks the production send limits.
+        otp_resend_cooldown_seconds=0,
+        otp_sends_per_mobile_per_hour=10_000,
+        otp_sends_per_ip_per_hour=100_000,
     )
 
 
 @pytest.fixture
-async def client(migrated_database: None, media_root: Path) -> AsyncIterator[AsyncClient]:
+async def app(migrated_database: None, media_root: Path) -> AsyncIterator[FastAPI]:
     await _truncate_all()
-    app = create_app(make_test_settings(media_root))
-    async with app.router.lifespan_context(app):
-        transport = ASGITransport(app=app)
-        async with AsyncClient(transport=transport, base_url="http://test") as http:
-            yield http
+    application = create_app(make_test_settings(media_root))
+    async with application.router.lifespan_context(application):
+        yield application
+
+
+@pytest.fixture
+async def client(app: FastAPI) -> AsyncIterator[AsyncClient]:
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as http:
+        yield http

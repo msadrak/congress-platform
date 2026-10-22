@@ -1,0 +1,6 @@
+# A CDN (ParsPack) is in front — same as DrGibi real_ip_header X-Forwarded-For + real_ip_recursive on.
+# Only connections from CONGRESS_TRUSTED_PROXIES may state the visitor's address in CONGRESS_CLIENT_IP_HEADER.
+# Strict: read from the right, skipping trusted addresses (a forged header from the public internet is ignored).
+trusted_proxies static {$CONGRESS_TRUSTED_PROXIES}
+trusted_proxies_strict
+client_ip_headers {$CONGRESS_CLIENT_IP_HEADER:X-Forwarded-For}

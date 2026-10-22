@@ -12,14 +12,14 @@
  * Evidence: docs/deployment/staging-evidence/.
  */
 import { createHash, randomBytes } from 'node:crypto';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import https from 'node:https';
 import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runJourney } from '../integration/journey.mjs';
 import { run } from '../lib/process.mjs';
-import { backup, compose, psql, readEnv, restoreVerify } from './stack.mjs';
+import { backup, compose, persistentPaths, psql, readEnv, restoreVerify, smsCode } from './stack.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const require = createRequire(resolve(root, 'web/package.json'));
@@ -30,6 +30,8 @@ const HTTPS_BASE = env.CONGRESS_PUBLIC_ORIGIN;
 const HTTP_BASE = `http://localhost:${env.CONGRESS_HTTP_PORT || 18080}`;
 const SHOTS = resolve(root, 'docs/deployment/staging-evidence');
 const RUN = Date.now().toString(36).slice(-5);
+// Synthetic attendee number in the unassigned 0900 range, unique per run.
+const ATTENDEE_MOBILE = `0900999${String(parseInt(RUN, 36) % 10000).padStart(4, '0')}`;
 mkdirSync(SHOTS, { recursive: true });
 
 const results = [];
@@ -67,6 +69,15 @@ const api = async (method, path, { key, admin, body, raw, type } = {}) => {
   const text = await r.text();
   let json = null; try { json = JSON.parse(text); } catch { /* not json */ }
   return { status: r.status, json, text };
+};
+
+// SMS sign-in on the staging stack: requires CONGRESS_SMS_PROVIDER=console (nothing is sent; the code is read
+// inside the API container by `stack.mjs sms-code`).
+const otpSignIn = async (number, full_name) => {
+  eq((await api('POST', '/api/auth/otp/request', { body: { mobile: number } })).status, 202, 'otp request');
+  const verified = (await api('POST', '/api/auth/otp/verify', { body: { mobile: number, code: smsCode(number) } })).json;
+  if (verified.status === 'signed_in') return verified;
+  return (await api('POST', '/api/auth/otp/complete', { body: { signup_token: verified.signup_token, full_name, organization: '', title: '' } })).json;
 };
 const sha = (buf) => createHash('sha256').update(buf).digest('hex');
 
@@ -131,7 +142,7 @@ try {
     return `${scripts.length} entry scripts and all container logs checked`;
   });
 
-  browser = await chromium.launch({ channel: 'msedge' });
+  browser = await chromium.launch({ channel: process.env.CONGRESS_BROWSER_CHANNEL ?? 'msedge' });
   await check('05 every portal renders through the proxy (HTTPS), scanner runs in a secure context', async () => {
     const ctx = await browser.newContext({ ignoreHTTPSErrors: true, viewport: { width: 1280, height: 900 }, reducedMotion: 'reduce' });
     await ctx.addInitScript(() => localStorage.setItem('congress_attendee_locale', 'en'));
@@ -189,7 +200,7 @@ try {
     const doc = { ...state.draft, primary_locale: 'en', hero: { ...state.draft.hero, layout: 'cover', cover_asset_id: S.asset, subtitle: { en: 'Staging subtitle', fa: '' } }, seo: { title: { en: `Staging SEO <${RUN}>`, fa: '' }, description: { en: 'Published staging description & more', fa: '' }, share_image_asset_id: S.asset } };
     eq((await api('PUT', `/api/events/${S.eventId}/page`, { key: S.key, body: { revision: state.draft_revision, document: doc } })).status, 200, 'save');
     eq((await api('POST', `/api/events/${S.eventId}/page/publish`, { key: S.key, body: { revision: state.draft_revision + 1 } })).status, 200, 'publish');
-    const user = (await api('POST', '/api/auth/register', { body: { email: `staging.${RUN}@example.com`, password: 'Staging-Passw0rd!', full_name: 'Staging Attendee', organization: '', title: '' } })).json;
+    const user = await otpSignIn(ATTENDEE_MOBILE, 'Staging Attendee');
     eq((await api('POST', `/api/events/${S.eventId}/tickets/reserve`, { key: user.access_token, body: { ticket_tier_id: tier.json.id } })).status, 201, 'reserve');
     // A second, never-published congress whose draft must not leak.
     const secret = await api('POST', '/api/events', { key: S.key, body: { name: `Secret Draft Congress ${RUN}`, slug: `secret-${RUN}`, starts_at: '2027-11-01T08:00:00Z', ends_at: '2027-11-02T17:00:00Z', location: 'Hidden', description: 'Unannounced' } });
@@ -246,9 +257,9 @@ try {
     const after = q("select count(*)||'/'||(select count(*) from users)||'/'||(select count(*) from tickets)||'/'||(select count(*) from event_pages where published is not null)||'/'||(select count(*) from media_assets) from events");
     eq(after, before, 'events/users/tickets/published/media');
     eq(sha((await httpsGet(`/api/public/media/${S.asset}`)).body), S.mediaSha, 'image bytes after restart');
-    const login = await api('POST', '/api/auth/login', { body: { email: `staging.${RUN}@example.com`, password: 'Staging-Passw0rd!' } });
-    eq(login.status, 200, 'attendee login after restart');
-    const tickets = await api('GET', '/api/attendees/me/tickets', { key: login.json.access_token });
+    const login = await otpSignIn(ATTENDEE_MOBILE, 'Staging Attendee');
+    eq(login.user.full_name, 'Staging Attendee', 'attendee SMS sign-in after restart');
+    const tickets = await api('GET', '/api/attendees/me/tickets', { key: login.access_token });
     eq(tickets.json.length, 1, 'attendee ticket after restart');
     return `events/users/tickets/published/media = ${after}`;
   });
@@ -261,10 +272,16 @@ try {
     return `${b.name}: ${checks.length}/${checks.length} restore checks`;
   });
 
-  await check('14 staging volumes untouched by the restore test', async () => {
-    const vols = run('docker', ['volume', 'ls', '--format', '{{.Name}}']).stdout.split(/\r?\n/);
-    for (const v of ['pgdata', 'media', 'caddy_data']) assert(vols.includes(`${PROJECT}_${v}`), `${v} missing`);
-    assert(!vols.some((v) => v.startsWith('congress-restore-')), 'restore volumes left behind');
+  await check('14 staging persistent data untouched by the restore test', async () => {
+    const { postgres, media, caddyData } = persistentPaths();
+    for (const [label, p] of [['postgres', postgres], ['media', media], ['caddy data', caddyData]]) {
+      assert(existsSync(p), `${label} dir missing: ${p}`);
+    }
+    const restores = join(root, '.staging/restores');
+    if (existsSync(restores)) {
+      const left = readdirSync(restores).filter((n) => n.startsWith('congress-restore-'));
+      assert(left.length === 0, `restore data left behind: ${left.join(', ')}`);
+    }
     eq((await api('GET', `/api/public/events/${S.slug}`)).status, 200, 'staging still serves');
   });
 } catch (e) {

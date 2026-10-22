@@ -17,6 +17,7 @@ import pytest
 from httpx import AsyncClient
 
 from tests.conftest import ADMIN_TOKEN
+from tests.helpers import sign_in
 
 
 def bearer(token: str) -> dict[str, str]:
@@ -145,44 +146,22 @@ async def test_full_congress_multi_tenant_lifecycle(client: AsyncClient) -> None
     booth_2_id = booth_2_resp.json()["id"]
 
     # Register staff user and assign to Booth 1
-    staff_email = f"staff-{suffix}@sina.ir"
-    staff_user_resp = await client.post(
-        "/api/auth/register",
-        json={"email": staff_email, "password": "Password123!", "full_name": "Engineer Alavi", "organization": "Sina Robotics", "title": "Exhibition Lead"},
-    )
-    assert staff_user_resp.status_code == 201
-    staff_jwt = staff_user_resp.json()["access_token"]
+    staff_mobile = "09371000001"
+    _, staff_jwt = await sign_in(client, staff_mobile, "Engineer Alavi", "Sina Robotics", "Exhibition Lead")
 
     staff_assign_resp = await client.post(
         f"/api/events/{evt_a_id}/booths/{booth_1_id}/staff",
         headers=bearer(key_a),
-        json={"email": staff_email},
+        json={"mobile": staff_mobile},
     )
     assert staff_assign_resp.status_code == 201
 
     # -------------------------------------------------------------------------
     # STEP 3: Attendee Workflows (Registration, Quotas, Networking, vCard)
     # -------------------------------------------------------------------------
-    u1_reg = await client.post(
-        "/api/auth/register",
-        json={"email": f"u1-{suffix}@gmail.com", "password": "Password123!", "full_name": "Dr. Reza", "organization": "Tehran Uni", "title": "Professor"},
-    )
-    assert u1_reg.status_code == 201
-    u1_tok = u1_reg.json()["access_token"]
-
-    u2_reg = await client.post(
-        "/api/auth/register",
-        json={"email": f"u2-{suffix}@gmail.com", "password": "Password123!", "full_name": "Dr. Sara", "organization": "Sharif Uni", "title": "Researcher"},
-    )
-    assert u2_reg.status_code == 201
-    u2_tok = u2_reg.json()["access_token"]
-
-    u3_reg = await client.post(
-        "/api/auth/register",
-        json={"email": f"u3-{suffix}@gmail.com", "password": "Password123!", "full_name": "Dr. Omid", "organization": "Amirkabir", "title": "Student"},
-    )
-    assert u3_reg.status_code == 201
-    u3_tok = u3_reg.json()["access_token"]
+    _, u1_tok = await sign_in(client, "09371000002", "Dr. Reza", "Tehran Uni", "Professor")
+    _, u2_tok = await sign_in(client, "09371000003", "Dr. Sara", "Sharif Uni", "Researcher")
+    _, u3_tok = await sign_in(client, "09371000004", "Dr. Omid", "Amirkabir", "Student")
     # u1 and u2 reserve VIP tickets
     t1_resp = await client.post(f"/api/events/{evt_a_id}/tickets/reserve", headers=bearer(u1_tok), json={"ticket_tier_id": str(tier_vip_id)})
     assert t1_resp.status_code == 201
@@ -268,7 +247,7 @@ async def test_full_congress_multi_tenant_lifecycle(client: AsyncClient) -> None
     walkin_resp = await client.post(
         f"/api/events/{evt_a_id}/desk-registrations",
         headers=bearer(key_a),
-        json={"email": f"walkin-{suffix}@gmail.com", "full_name": "Maryam Walkin", "ticket_tier_id": str(tier_gen_id)},
+        json={"mobile": "09371000005", "full_name": "Maryam Walkin", "ticket_tier_id": str(tier_gen_id)},
     )
     assert walkin_resp.status_code == 201
     walkin_data = walkin_resp.json()

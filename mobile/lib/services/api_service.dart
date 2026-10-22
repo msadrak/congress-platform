@@ -69,24 +69,6 @@ class ApiService {
     return null;
   }
 
-  Future<String?> loginStaff(String email, String password) async {
-    try {
-      final uri = Uri.parse('$baseUrl/api/auth/login');
-      final response = await _client.post(
-        uri,
-        headers: {'Content-Type': 'application/json'},
-        body: json.encode({'email': email, 'password': password}),
-      );
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body) as Map<String, dynamic>;
-        return data['access_token'] as String?;
-      }
-    } catch (_) {
-      // Offline or network error
-    }
-    return null;
-  }
-
   void dispose() {
     _client.close();
   }

@@ -32,17 +32,17 @@ async def setup_booth_staff_and_attendee(
 
     # Register & assign staff
     _, staff_token = await register_user(
-        client, "staff@siemens.com", "Booth Staff Rep"
+        client, "09121000042", "Booth Staff Rep"
     )
     await client.post(
         f"/api/events/{event_id}/booths/{booth_id}/staff",
-        json={"email": "staff@siemens.com"},
+        json={"mobile": "09121000042"},
         headers=bearer(organizer),
     )
 
     # Register attendee with ticket
     _, attendee_token = await register_user(
-        client, "dr.lead@hospital.org", "Dr. Lead Buyer"
+        client, "09121000046", "Dr. Lead Buyer"
     )
     ticket = (
         await client.post(
@@ -78,7 +78,7 @@ async def test_booth_staff_scans_attendee_badge_and_captures_lead(
     data = scan_resp.json()
     assert data["booth_id"] == booth_id
     assert data["attendee_name"] == "Dr. Lead Buyer"
-    assert data["attendee_email"] == "dr.lead@hospital.org"
+    assert data["attendee_mobile"] == "09121000046"
     assert data["rating"] == "HOT"
     assert data["tags"] == ["Send Quote", "Schedule Demo"]
     assert data["notes"] == "Interested in 5 CT scanner systems for Q3."
@@ -176,7 +176,7 @@ async def test_staff_can_list_booth_leads(
         await setup_booth_staff_and_attendee(client)
     )
 
-    _, token2 = await register_user(client, "lead2@clinic.com", "Second Lead")
+    _, token2 = await register_user(client, "09121000047", "Second Lead")
     tier_id = ticket1["ticket_tier_id"]
     ticket2 = (
         await client.post(
@@ -234,7 +234,7 @@ async def test_scanning_ticket_from_different_event_is_rejected(
         )
     ).json()
 
-    _, user2_token = await register_user(client, "event2.attendee@test.com")
+    _, user2_token = await register_user(client, "09121000048")
     ticket_event2 = (
         await client.post(
             f"/api/events/{event_2_id}/tickets/reserve",

@@ -18,6 +18,11 @@ const MyNetwork = lazy(() => import("./pages/MyNetwork"));
 const MyProfile = lazy(() => import("./pages/MyProfile"));
 const MyTickets = lazy(() => import("./pages/MyTickets"));
 const OrganizerAnalytics = lazy(() => import("./pages/OrganizerAnalytics"));
+const OrganizerSms = lazy(() => import("./pages/OrganizerSms"));
+const PlatformConsole = lazy(() => import("./pages/PlatformConsole"));
+const PlatformSms = lazy(() => import("./pages/PlatformSms"));
+const PlatformSignIn = lazy(() => import("./pages/PlatformSignIn"));
+const PlatformOrganizers = lazy(() => import("./pages/PlatformOrganizers"));
 const OrganizerDesk = lazy(() => import("./pages/OrganizerDesk"));
 const OrganizerEventDetail = lazy(() => import("./pages/OrganizerEventDetail"));
 const OrganizerEvents = lazy(() => import("./pages/OrganizerEvents"));
@@ -44,10 +49,16 @@ export default function App() {
           <Route path="events/:eventId/operators" element={section(<OrganizerEventDetail />)} />
           <Route path="events/:eventId/page" element={section(<OrganizerPageStudio />)} />
           <Route path="events/:eventId/desk" element={section(<OrganizerDesk />)} />
+          <Route path="events/:eventId/sms" element={section(<OrganizerSms />)} />
           <Route path="events/:eventId/analytics" element={section(<OrganizerAnalytics />)} />
         </Route>
         {/* Page Studio preview frame: the public page without the organizer shell (key from this tab's session). */}
         <Route path="/organizer/events/:eventId/page/preview" element={<OrganizerPagePreview />} />
+        <Route path="/platform" element={<PlatformConsole />}>
+          <Route index element={<PlatformSms />} />
+          <Route path="sign-in" element={<PlatformSignIn />} />
+          <Route path="organizers" element={<PlatformOrganizers />} />
+        </Route>
         <Route path="/reception" element={<ReceptionEntry />} />
         <Route path="/reception/e/:slug" element={<ReceptionEntry />} />
         <Route path="/reception/:eventId" element={<ReceptionPortal />} />

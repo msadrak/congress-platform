@@ -32,6 +32,7 @@ import { AitebAttribution } from "../components/brand/Aiteb";
 import { CongressSignature } from "../components/brand/CongressSignature";
 import { BoothGate } from "../components/booth/BoothGate";
 import { LeadCard, LeadMonogram } from "../components/booth/LeadCard";
+import { asciiDigits, formatMobile, telHref } from "../lib/mobile";
 import { RatingChip, RatingControl } from "../components/booth/RatingControl";
 import { TagPicker } from "../components/booth/TagPicker";
 import { LEAD_RATINGS, RATING_META, asRating, type LeadRating } from "../components/booth/rating";
@@ -193,11 +194,14 @@ function ExhibitorPortalContent() {
   };
 
   const leads = useMemo(() => {
-    const needle = searchFilter.trim().toLowerCase();
+    // Persian digits and spaces typed into the search still find a stored 09xxxxxxxxx number.
+    const needle = asciiDigits(searchFilter.trim().toLowerCase());
+    const digits = needle.replace(/[\s-]/g, "");
     return allLeads.filter((l) => {
       if (ratingFilter && l.rating !== ratingFilter) return false;
       if (!needle) return true;
-      return [l.attendee_name, l.attendee_email, l.organization, l.title, l.notes, ...(l.tags ?? [])].join(" ").toLowerCase().includes(needle);
+      if (/^\d{4,}$/.test(digits) && l.attendee_mobile?.includes(digits)) return true;
+      return [l.attendee_name, l.organization, l.title, l.notes, ...(l.tags ?? [])].join(" ").toLowerCase().includes(needle);
     });
   }, [allLeads, searchFilter, ratingFilter]);
 
@@ -825,7 +829,9 @@ function ExhibitorPortalContent() {
                     labels={{
                       captured: t.capturedAtLabel,
                       tier: t.tierColumnLabel,
-                      email: isRtl ? "ایمیل" : "Email",
+                      mobile: isRtl ? "موبایل" : "Mobile",
+                      call: isRtl ? "تماس با" : "Call",
+                      text: isRtl ? "پیامک" : "Text",
                       notes: t.notesLabel,
                       qualify: t.qualifyLeadButton,
                     }}
@@ -1052,13 +1058,15 @@ function ExhibitorPortalContent() {
                   </div>
                   <RatingChip rating={editingLead.rating} locale={locale} size="sm" />
                 </div>
-                <a
-                  href={`mailto:${editingLead.attendee_email}`}
-                  className="mt-2 inline-flex max-w-full items-center gap-1.5 rounded-sm text-[13px] font-medium text-action-primary hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
-                >
-                  <Icon name="mail" size={15} className="shrink-0" />
-                  <bdi dir="ltr" className="min-w-0 break-all font-mono text-[12.5px]">{editingLead.attendee_email}</bdi>
-                </a>
+                {editingLead.attendee_mobile && (
+                  <a
+                    href={telHref(editingLead.attendee_mobile)}
+                    className="mt-2 inline-flex max-w-full items-center gap-1.5 rounded-sm text-[13px] font-medium text-action-primary hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
+                  >
+                    <Icon name="phone" size={15} className="shrink-0" />
+                    <bdi dir="ltr" className="min-w-0 break-all font-mono text-[12.5px]">{formatMobile(editingLead.attendee_mobile, locale)}</bdi>
+                  </a>
+                )}
                 <dl className="mt-3 grid grid-cols-2 gap-3 border-t border-border-subtle pt-3">
                   <div className="min-w-0">
                     <dt className="booth-meta-label">{t.capturedAtLabel}</dt>

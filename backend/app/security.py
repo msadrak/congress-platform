@@ -1,5 +1,4 @@
 import base64
-import hashlib
 import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -8,41 +7,34 @@ from typing import Any
 import jwt
 
 
-def hash_password(password: str) -> str:
-    salt = secrets.token_bytes(16)
-    iterations = 100_000
-    derived = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, iterations)
-    salt_b64 = base64.b64encode(salt).decode("ascii")
-    derived_b64 = base64.b64encode(derived).decode("ascii")
-    return f"pbkdf2_sha256${iterations}${salt_b64}${derived_b64}"
-
-
-def verify_password(plain: str, hashed: str) -> bool:
-    try:
-        scheme, iterations_str, salt_b64, derived_b64 = hashed.split("$")
-        if scheme != "pbkdf2_sha256":
-            return False
-        iterations = int(iterations_str)
-        salt = base64.b64decode(salt_b64.encode("ascii"))
-        expected_derived = base64.b64decode(derived_b64.encode("ascii"))
-        actual_derived = hashlib.pbkdf2_hmac(
-            "sha256", plain.encode("utf-8"), salt, iterations
-        )
-        return secrets.compare_digest(expected_derived, actual_derived)
-    except Exception:
-        return False
-
-
 def create_access_token(
-    user_id: uuid.UUID, email: str, secret: str, expires_delta: timedelta | None = None
+    user_id: uuid.UUID, secret: str, expires_delta: timedelta | None = None
 ) -> str:
     now = datetime.now(timezone.utc)
     exp = now + (expires_delta or timedelta(days=7))
     payload = {
         "sub": str(user_id),
-        "email": email,
         "iat": int(now.timestamp()),
         "exp": int(exp.timestamp()),
+    }
+    return jwt.encode(payload, secret, algorithm="HS256")
+
+
+SIGNUP_TOKEN_MINUTES = 15
+
+
+def create_signup_token(mobile: str, secret: str) -> str:
+    """Proof that a mobile number was verified by SMS code, exchanged for a new account within 15 minutes.
+
+    Its `type` keeps it from ever authenticating as a user, scanner or desk operator.
+    """
+    now = datetime.now(timezone.utc)
+    payload = {
+        "sub": f"signup:{mobile}",
+        "type": "signup",
+        "mobile": mobile,
+        "iat": int(now.timestamp()),
+        "exp": int((now + timedelta(minutes=SIGNUP_TOKEN_MINUTES)).timestamp()),
     }
     return jwt.encode(payload, secret, algorithm="HS256")
 

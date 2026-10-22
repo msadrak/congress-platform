@@ -80,8 +80,10 @@ async function up() {
   for (const f of ['alembic.ini', 'pyproject.toml', 'uv.lock']) docker('cp', resolve(root, 'backend', f), `${API}:/app/${f}`);
   // The image predates some dependencies (Pillow): sync the venv to the lock file while the container is still online.
   docker('exec', '-e', 'UV_PROJECT_ENVIRONMENT=/app/.venv', '-w', '/app', API, 'uv', 'sync', '--frozen', '--no-dev', '--quiet');
-  // Production mode: the hardened configuration (explicit database, media volume, generated secrets) must hold.
-  const env = ['-e', 'CONGRESS_ENVIRONMENT=production', '-e', `CONGRESS_DATABASE_URL=${dbUrl}`, '-e', 'CONGRESS_MEDIA_ROOT=/tmp/congress-media', '-e', `CONGRESS_PLATFORM_ADMIN_TOKEN=${ADMIN_TOKEN}`, '-e', `CONGRESS_JWT_SECRET=${JWT_SECRET}`, '-e', `CONGRESS_CORS_ORIGINS=${JSON.stringify([BASE])}`];
+  // Staging mode: the hardened configuration (explicit database, media volume, generated secrets) must hold. Not
+  // production, which requires real sms.ir delivery: the console provider records SMS for the journey to read, and
+  // the send limits are relaxed because the journey signs the same numbers in repeatedly within seconds.
+  const env = ['-e', 'CONGRESS_ENVIRONMENT=staging', '-e', 'CONGRESS_SMS_PROVIDER=console', '-e', 'CONGRESS_OTP_RESEND_COOLDOWN_SECONDS=0', '-e', 'CONGRESS_OTP_SENDS_PER_MOBILE_PER_HOUR=1000', '-e', 'CONGRESS_OTP_SENDS_PER_IP_PER_HOUR=10000', '-e', `CONGRESS_DATABASE_URL=${dbUrl}`, '-e', 'CONGRESS_MEDIA_ROOT=/tmp/congress-media', '-e', `CONGRESS_PLATFORM_ADMIN_TOKEN=${ADMIN_TOKEN}`, '-e', `CONGRESS_JWT_SECRET=${JWT_SECRET}`, '-e', `CONGRESS_CORS_ORIGINS=${JSON.stringify([BASE])}`];
   docker('exec', ...env, API, 'sh', '-c', 'cd /app && .venv/bin/alembic upgrade head');
   docker('exec', '-d', ...env, API, 'sh', '-c', 'cd /app && .venv/bin/uvicorn app.main:create_app_from_env --factory --host 0.0.0.0 --port 8000 > /tmp/api.log 2>&1');
   await waitFor('API', async () => (await fetch(`${API_URL}/api/ready`)).status === 200);
@@ -107,7 +109,7 @@ async function main() {
     preview = startPreview({ port: WEB_PORT, apiOrigin: API_URL });
     await waitFor('preview server', async () => (await fetch(BASE)).ok);
 
-    const ctx = { root, BASE, API_URL, ADMIN_TOKEN, JWT_SECRET, SHOT_DIR, psql, docker, dockerQuiet, names: { API, PG, DB } };
+    const ctx = { root, BASE, API_URL, ADMIN_TOKEN, JWT_SECRET, SHOT_DIR, psql, docker, dockerQuiet, names: { API, PG, DB }, otpCooldownMs: 0 };
     const result = await runJourney(ctx);
     writeFileSync(resolve(SHOT_DIR, 'last-run.json'), JSON.stringify(result, null, 2));
     failed = result.failed > 0;

@@ -10,9 +10,17 @@ ENV UV_COMPILE_BYTECODE=1 \
     UV_PROJECT_ENVIRONMENT=/app/.venv
 WORKDIR /app
 COPY pyproject.toml uv.lock ./
-RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen --no-dev --no-install-project
+# Build-time proxy (deploy/proxy/congress-proxy.sh deploy). Declared per RUN so layer cache is not tied to proxy env.
+ARG HTTP_PROXY
+ARG HTTPS_PROXY
+ARG NO_PROXY
+RUN --mount=type=cache,target=/root/.cache/uv \
+    HTTP_PROXY=${HTTP_PROXY} HTTPS_PROXY=${HTTPS_PROXY} NO_PROXY=${NO_PROXY} \
+    http_proxy=${HTTP_PROXY} https_proxy=${HTTPS_PROXY} no_proxy=${NO_PROXY} \
+    uv sync --frozen --no-dev --no-install-project
 
-FROM python:3.11-slim-bookworm AS runtime
+# Same base as deps (ghcr.io) — avoids docker.io pulls that often 403 through an SSH SOCKS tunnel.
+FROM ghcr.io/astral-sh/uv:python3.11-bookworm-slim AS runtime
 RUN groupadd --system --gid 10001 congress \
  && useradd --system --uid 10001 --gid congress --home-dir /app --shell /usr/sbin/nologin congress \
  && mkdir -p /data/media \

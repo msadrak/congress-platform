@@ -7,6 +7,7 @@
   - Run tests: `uv run pytest` (only ever targets a marked `*_test` database), or on disposable Docker infrastructure: `node scripts/integration/backend-tests.mjs`
   - Run typecheck: `uv run mypy`
   - After changing a route or a request/response model: `cd web && npm run gen:api` (CI fails when `web/src/api/schema.d.ts` is stale)
+  - SMS (sign-in codes, ticket confirmations; ADR 0012): `development`/`test` use the `console` provider, so nothing is sent and codes are printed in the API log; staging/production default to `smsir`; the sms.ir key and service line come from `CONGRESS_SMSIR_API_KEY`/`CONGRESS_SMSIR_LINE_NUMBER` or the platform console (`/platform`, ADR 0013), which overrides the environment at run time
 - **`web/`**: React 19 + TypeScript + Vite SPA & PWA frontend with Tailwind CSS.
   - Run dev server: `npm run dev`
   - Run unit tests: `npm test`

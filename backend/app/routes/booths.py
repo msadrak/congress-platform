@@ -1,10 +1,9 @@
-import secrets
 import uuid
 from datetime import datetime
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Response, status
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, StringConstraints
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
@@ -12,7 +11,8 @@ from app.db import SessionDep
 from app.models import Booth, BoothBookmark, BoothStaff, EntityQR, Event, User
 from app.routes.auth import CurrentUserDep
 from app.routes.events import OwnedEventDep
-from app.security import generate_entity_qr_secret, hash_password
+from app.security import generate_entity_qr_secret
+from app.sms.phone import IranMobile
 
 router = APIRouter(tags=["booths"])
 
@@ -46,14 +46,16 @@ class BoothOut(BaseModel):
 
 
 class BoothStaffAssign(BaseModel):
-    email: EmailStr
+    mobile: IranMobile
+    # Used only when the number has no account yet; an existing account keeps its own name.
+    full_name: Annotated[str, StringConstraints(strip_whitespace=True, max_length=200)] = ""
 
 
 class BoothStaffOut(BaseModel):
     id: uuid.UUID
     booth_id: uuid.UUID
     user_id: uuid.UUID
-    email: str
+    mobile: str | None
     full_name: str
 
 
@@ -173,14 +175,13 @@ async def assign_booth_staff(
     if booth is None or booth.event_id != event.id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Booth not found")
 
-    email = body.email.strip().lower()
-    user = await session.scalar(select(User).where(User.email == email))
+    user = await session.scalar(select(User).where(User.mobile == body.mobile))
 
     if user is None:
+        # The representative signs in later with an SMS code to this number.
         user = User(
-            email=email,
-            password_hash=hash_password(secrets.token_urlsafe(16)),
-            full_name=email.split("@")[0].capitalize(),
+            mobile=body.mobile,
+            full_name=body.full_name or f"{booth.name} representative",
             organization=booth.name,
         )
         session.add(user)
@@ -196,7 +197,7 @@ async def assign_booth_staff(
             id=existing_staff.id,
             booth_id=booth.id,
             user_id=user.id,
-            email=user.email,
+            mobile=user.mobile,
             full_name=user.full_name,
         )
 
@@ -208,7 +209,7 @@ async def assign_booth_staff(
         id=staff.id,
         booth_id=booth.id,
         user_id=user.id,
-        email=user.email,
+        mobile=user.mobile,
         full_name=user.full_name,
     )
 
@@ -237,7 +238,7 @@ async def list_booth_staff(
             id=staff.id,
             booth_id=staff.booth_id,
             user_id=user.id,
-            email=user.email,
+            mobile=user.mobile,
             full_name=user.full_name,
         )
         for staff, user in rows

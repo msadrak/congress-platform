@@ -6,7 +6,8 @@ import type { Page } from '@playwright/test';
 const b64 = (value: object) => Buffer.from(JSON.stringify(value)).toString('base64url');
 const token = `${b64({ alg: 'HS256' })}.${b64({ sub: 'user-1', type: 'user', exp: 4102444800 })}.sig`;
 const bearer = `Bearer ${token}`;
-const PASSWORD = 'correct-horse-battery';
+const MOBILE = '09121234567';
+const CODE = '482913';
 
 interface FixtureEvent { id: string; name: string; slug: string; [field: string]: unknown }
 interface FixtureBooth { id: string; name: string; slug: string; location: string; description: string; website_url: string; brochure_url: string }
@@ -31,14 +32,15 @@ const ticket = {
   id: 'ticket-alpha', event_id: 'event-a', event_name: 'Alpha Congress', event_slug: 'alpha',
   event_location: 'Fixture Hall', event_starts_at: '2027-05-10T07:00:00Z', event_ends_at: '2027-05-12T15:00:00Z',
   ticket_tier_id: 't', ticket_tier_name: 'Pass alpha', attendee_name: 'Sara Fixture',
-  attendee_email: 'sara@example.test', status: 'active', qr_secret: 'qr-alpha', created_at: '2027-01-01T00:00:00Z',
+  attendee_mobile: MOBILE, status: 'active', qr_secret: 'qr-alpha', created_at: '2027-01-01T00:00:00Z',
 };
-const user = { id: 'user-1', email: 'sara@example.test', full_name: 'Sara Fixture', organization: 'Heart Center', title: 'Cardiologist', share_contact_with_peers: false };
+const user = { id: 'user-1', mobile: MOBILE, full_name: 'Sara Fixture', organization: 'Heart Center', title: 'Cardiologist', share_contact_with_peers: false };
 
 type Recorded = { method: string; path: string; auth: string | undefined; body: unknown };
 interface Options {
-  loginStatus?: number;
-  loginAbort?: boolean;
+  requestStatus?: number;
+  verifyAbort?: boolean;
+  newNumber?: boolean;
   bookmarkFails?: boolean;
   privacyFails?: boolean;
   scanStatus?: number;
@@ -56,10 +58,20 @@ async function fixture(page: Page, options: Options = {}) {
     requests.push({ method, path, auth: request.headers().authorization, body: raw ? JSON.parse(raw) : undefined });
     const json = (status: number, body: unknown) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
 
-    if (path === '/api/auth/login') {
-      if (options.loginAbort) return route.abort('failed');
-      if (options.loginStatus && options.loginStatus !== 200) return json(options.loginStatus, { detail: 'Invalid email or password' });
-      return json(200, { access_token: token, token_type: 'bearer', user });
+    if (path === '/api/auth/otp/request') {
+      if (options.requestStatus) return route.fulfill({ status: options.requestStatus, contentType: 'application/json', headers: { 'Retry-After': '42' }, body: '{"detail":"no"}' });
+      return json(202, { mobile: JSON.parse(raw ?? '{}').mobile, code_length: 6, expires_in: 120, resend_after: 60 });
+    }
+    if (path === '/api/auth/otp/verify') {
+      if (options.verifyAbort) return route.abort('failed');
+      if (JSON.parse(raw ?? '{}').code !== CODE) return json(401, { detail: 'The code is wrong or has expired.' });
+      return options.newNumber
+        ? json(200, { status: 'profile_required', access_token: null, token_type: 'bearer', user: null, signup_token: 'signup-fixture' })
+        : json(200, { status: 'signed_in', access_token: token, token_type: 'bearer', user, signup_token: null });
+    }
+    if (path === '/api/auth/otp/complete') {
+      const body = JSON.parse(raw ?? '{}');
+      return json(201, { access_token: token, token_type: 'bearer', user: { ...user, full_name: body.full_name, organization: body.organization } });
     }
     const pubEvent = path.match(/^\/api\/public\/events\/([^/]+)$/);
     if (pubEvent) return EVENTS[pubEvent[1]] ? json(200, EVENTS[pubEvent[1]]) : json(404, { detail: 'Event not found' });
@@ -74,7 +86,7 @@ async function fixture(page: Page, options: Options = {}) {
     if (path === '/api/attendees/me/network/scan') {
       return options.scanStatus === 409
         ? json(409, { detail: 'This badge belongs to a different congress' })
-        : json(201, { id: 'c', connected_user_id: 'p', full_name: 'Peer', email: null, organization: '', title: '', event_id: 'event-a', private_notes: '', created_at: '2027-01-01T00:00:00Z' });
+        : json(201, { id: 'c', connected_user_id: 'p', full_name: 'Peer', mobile: null, organization: '', title: '', event_id: 'event-a', private_notes: '', created_at: '2027-01-01T00:00:00Z' });
     }
     if (path === '/api/attendees/me/network/privacy') {
       if (method === 'PATCH') {
@@ -105,10 +117,11 @@ async function seed(page: Page, entries: Record<string, string>) {
 const signedIn = (page: Page) => seed(page, { congress_attendee_token: token, congress_attendee_locale: 'en' });
 const anonymous = (page: Page) => seed(page, { congress_attendee_locale: 'en' });
 
-async function fillAndSubmit(page: Page, email: string, password: string) {
-  await page.getByLabel('Email address').fill(email);
-  await page.getByLabel('Password').fill(password);
-  await page.getByRole('button', { name: 'Sign in' }).click();
+async function signInWithCode(page: Page, mobile: string = MOBILE, code: string = CODE) {
+  await page.getByLabel('Mobile number').fill(mobile);
+  await page.getByRole('button', { name: 'Send code' }).click();
+  // The whole code submits itself, as when the phone autofills it from the SMS.
+  await page.getByLabel('Code from the SMS').fill(code);
 }
 
 test.describe('direct attendee sign-in', () => {
@@ -120,38 +133,65 @@ test.describe('direct attendee sign-in', () => {
     await expect(page).toHaveURL(/\/c\/alpha\/sign-in\?next=%2Fc%2Falpha%2Fmy-profile$/);
     await expect(page.getByText('Alpha Congress').first()).toBeVisible();
 
-    await fillAndSubmit(page, 'sara@example.test', PASSWORD);
+    await signInWithCode(page, '۰۹۱۲ ۱۲۳ ۴۵۶۷');  // Persian digits and spaces, as typed on a phone
     await expect(page).toHaveURL(/\/c\/alpha\/my-profile$/);
     await expect(page.getByText('Heart Center')).toBeVisible();
 
-    const login = requests.find(r => r.path === '/api/auth/login');
-    expect(login?.auth).toBeUndefined();
-    expect(await page.evaluate(() => JSON.stringify({ ...localStorage }))).not.toContain(PASSWORD);
+    const sent = requests.find(r => r.path === '/api/auth/otp/request');
+    expect(sent?.body).toEqual({ mobile: MOBILE, purpose: 'signin' });
+    const verify = requests.find(r => r.path === '/api/auth/otp/verify');
+    expect(verify?.auth).toBeUndefined();
+    expect(verify?.body).toEqual({ mobile: MOBILE, code: CODE });
+    expect(await page.evaluate(() => JSON.stringify({ ...localStorage }))).not.toContain(CODE);
   });
 
-  test('missing fields are reported without a request; wrong credentials and network failure are distinct', async ({ page }) => {
-    const requests = await fixture(page, { loginStatus: 401 });
+  test('a missing or invalid number is reported without a request; a wrong code and a network failure are distinct', async ({ page }) => {
+    const requests = await fixture(page);
     await anonymous(page);
     await page.goto('/c/alpha/sign-in');
 
-    await page.getByRole('button', { name: 'Sign in' }).click();
-    await expect(page.getByText('Enter your email address.')).toBeVisible();
-    await expect(page.getByText('Enter your password.')).toBeVisible();
-    await page.getByLabel('Email address').fill('not-an-email');
-    await page.getByLabel('Password').fill('x');
-    await page.getByRole('button', { name: 'Sign in' }).click();
-    await expect(page.getByText('Enter a valid email address.')).toBeVisible();
-    expect(requests.some(r => r.path === '/api/auth/login')).toBe(false);
+    await page.getByRole('button', { name: 'Send code' }).click();
+    await expect(page.getByText('Enter your mobile number.')).toBeVisible();
+    await page.getByLabel('Mobile number').fill('021 1234 5678');
+    await page.getByRole('button', { name: 'Send code' }).click();
+    await expect(page.getByText('Enter a valid Iranian mobile number')).toBeVisible();
+    expect(requests.some(r => r.path === '/api/auth/otp/request')).toBe(false);
 
-    await fillAndSubmit(page, 'sara@example.test', 'wrong-password');
-    await expect(page.getByRole('alert')).toContainText('incorrect');
+    await signInWithCode(page, MOBILE, '000000');
+    await expect(page.getByText('The code is wrong or has expired.')).toBeVisible();
     await expect(page).toHaveURL(/sign-in$/);
     expect(await page.evaluate(() => localStorage.getItem('congress_attendee_token'))).toBeNull();
 
     await page.unrouteAll();
-    await fixture(page, { loginAbort: true });
-    await fillAndSubmit(page, 'sara@example.test', PASSWORD);
+    await fixture(page, { verifyAbort: true });
+    await page.getByLabel('Code from the SMS').fill(CODE);
     await expect(page.getByRole('alert')).toContainText('Could not reach the server');
+  });
+
+  test('a new number completes a short profile, then continues to the destination', async ({ page }) => {
+    const requests = await fixture(page, { newNumber: true });
+    await anonymous(page);
+    await page.goto('/c/alpha/sign-in?next=%2Fc%2Falpha%2Fmy-profile');
+    await signInWithCode(page);
+    await expect(page.getByText('This number is new to us.')).toBeVisible();
+    await page.getByRole('button', { name: 'Create my account' }).click();
+    await expect(page.getByText('Enter your full name.')).toBeVisible();
+    await page.getByLabel('Full name').fill('Neda Karimi');
+    await page.getByLabel('Organization (optional)').fill('Heart Center');
+    await page.getByRole('button', { name: 'Create my account' }).click();
+    await expect(page).toHaveURL(/\/c\/alpha\/my-profile$/);
+    expect(requests.find(r => r.path === '/api/auth/otp/complete')?.body).toEqual({
+      signup_token: 'signup-fixture', full_name: 'Neda Karimi', organization: 'Heart Center', title: '',
+    });
+  });
+
+  test('too many codes requested shows how long to wait', async ({ page }) => {
+    await fixture(page, { requestStatus: 429 });
+    await anonymous(page);
+    await page.goto('/c/alpha/sign-in');
+    await page.getByLabel('Mobile number').fill(MOBILE);
+    await page.getByRole('button', { name: 'Send code' }).click();
+    await expect(page.getByRole('alert')).toContainText('Try again in 42 s');
   });
 
   test('external and unknown return destinations are ignored', async ({ page }) => {
@@ -159,7 +199,7 @@ test.describe('direct attendee sign-in', () => {
     await anonymous(page);
     for (const next of ['https://evil.example/', '//evil.example', '/organizer', '/c/alpha/../../organizer']) {
       await page.goto(`/c/alpha/sign-in?next=${encodeURIComponent(next)}`);
-      await fillAndSubmit(page, 'sara@example.test', PASSWORD);
+      await signInWithCode(page);
       await expect(page).toHaveURL(/\/c\/alpha\/my-congress$/);
       await page.evaluate(() => localStorage.removeItem('congress_attendee_token'));
     }
@@ -169,15 +209,16 @@ test.describe('direct attendee sign-in', () => {
     const requests = await fixture(page);
     await signedIn(page);
     await page.goto('/c/alpha/sign-in?next=%2Fc%2Falpha%2Fmy-ticket');
-    await expect(page.getByTestId('existing-session')).toContainText('sara@example.test');
-    await expect(page.getByLabel('Password')).toHaveCount(0);
+    await expect(page.getByTestId('existing-session')).toContainText('Sara Fixture');
+    await expect(page.getByTestId('existing-session')).toContainText('0912 123 4567');
+    await expect(page.getByLabel('Mobile number')).toHaveCount(0);
     expect(requests.find(r => r.path === '/api/auth/me')?.auth).toBe(bearer);
     await page.getByRole('link', { name: /Continue/ }).click();
     await expect(page).toHaveURL(/\/c\/alpha\/my-ticket$/);
 
     await page.goto('/c/alpha/sign-in');
     await page.getByRole('button', { name: 'Use a different account' }).click();
-    await expect(page.getByLabel('Password')).toBeVisible();
+    await expect(page.getByLabel('Mobile number')).toBeVisible();
     expect(await page.evaluate(() => localStorage.getItem('congress_attendee_token'))).toBeNull();
   });
 
@@ -185,7 +226,7 @@ test.describe('direct attendee sign-in', () => {
     await fixture(page);
     await seed(page, { congress_attendee_token: 'stale-token', congress_attendee_locale: 'en' });
     await page.goto('/c/alpha/sign-in');
-    await expect(page.getByLabel('Password')).toBeVisible();
+    await expect(page.getByLabel('Mobile number')).toBeVisible();
     expect(await page.evaluate(() => localStorage.getItem('congress_attendee_token'))).toBeNull();
   });
 
@@ -203,7 +244,7 @@ test.describe('direct attendee sign-in', () => {
     await seed(page, { congress_attendee_locale: 'fa' });
     await page.goto('/c/alpha/sign-in');
     await expect(page.locator('[dir="rtl"]').first()).toBeVisible();
-    await expect(page.getByLabel('نشانی ایمیل')).toBeVisible();
+    await expect(page.getByLabel('شماره موبایل')).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBe(0);
   });
 });
@@ -274,7 +315,7 @@ test.describe('My Profile', () => {
     await expect(page.getByText('Read-only')).toBeVisible();
     await expect(page.locator('main input')).toHaveCount(0);
 
-    const toggle = page.getByRole('switch', { name: /Share email address/ });
+    const toggle = page.getByRole('switch', { name: /Share mobile number/ });
     await expect(toggle).toHaveAttribute('aria-checked', 'false');
     await toggle.click();
     await expect(toggle).toHaveAttribute('aria-checked', 'true');
@@ -284,7 +325,7 @@ test.describe('My Profile', () => {
     expect(patch?.body).toEqual({ share_contact_with_peers: true });
 
     await page.reload();
-    await expect(page.getByRole('switch', { name: /Share email address/ })).toHaveAttribute('aria-checked', 'true');
+    await expect(page.getByRole('switch', { name: /Share mobile number/ })).toHaveAttribute('aria-checked', 'true');
     expect(requests.some(r => r.method === 'PATCH' && r.path !== '/api/attendees/me/network/privacy')).toBe(false);
   });
 
@@ -292,7 +333,7 @@ test.describe('My Profile', () => {
     await fixture(page, { privacyFails: true });
     await signedIn(page);
     await page.goto('/c/alpha/my-profile');
-    const toggle = page.getByRole('switch', { name: /Share email address/ });
+    const toggle = page.getByRole('switch', { name: /Share mobile number/ });
     await toggle.click();
     await expect(page.getByRole('alert')).toContainText('not saved');
     await expect(toggle).toHaveAttribute('aria-checked', 'false');

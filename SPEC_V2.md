@@ -28,7 +28,7 @@ An integrated **Exhibition Lead Retrieval and Attendee Networking Suite** built 
    - Attendees scan fellow delegates' personal QR badges to create mutual peer connections.
    - Add private personal notes to each connection (e.g. *"Met during keynote panel"*).
    - Instant one-tap **"Add to Phone Contacts" (`.vcf` vCard)** downloads the contact card directly into the native iOS / Android address book.
-   - Privacy-guarded: Public badge scan reveals Name, Organization, and Title; direct email/phone disclosure is opt-in.
+   - Privacy-guarded: Public badge scan reveals Name, Organization, and Title; direct mobile number disclosure is opt-in.
 
 ---
 
@@ -36,11 +36,11 @@ An integrated **Exhibition Lead Retrieval and Attendee Networking Suite** built 
 
 1. As an event organizer, I want to create and configure exhibition booths under an event with company name, booth number/location, description, website, and digital brochure URL, so that commercial sponsors are set up in the system.
 2. As an event organizer, I want each created booth to automatically receive a unique Entity QR code, so that I can print standees and banners for attendees to scan on-site.
-3. As an event organizer, I want to assign authorized booth representatives by email, so that company staff have secure access to their dedicated booth portal.
+3. As an event organizer, I want to assign authorized booth representatives by mobile number, so that company staff have secure access to their dedicated booth portal.
 4. As an event organizer, I want booth representatives from Company A to be strictly isolated from Company B, so that commercial lead data remains confidential.
 5. As an exhibitor representative, I want to log in and access my company's dedicated Booth Lead Portal (`/booth/:boothId`), so that I can manage our exhibition operations on any phone, tablet, or laptop.
 6. As an exhibitor representative, I want to scan visitor attendee badges using my device camera or a USB barcode scanner, so that I can capture leads in under 1 second.
-7. As an exhibitor representative, I want scanning a badge to immediately display the attendee's full contact card (Name, Organization, Title, Email), so that I know who I am speaking with.
+7. As an exhibitor representative, I want scanning a badge to immediately display the attendee's full contact card (Name, Organization, Title, Mobile), so that I know who I am speaking with.
 8. As an exhibitor representative, I want to assign an Interest Rating (`HOT`, `WARM`, `COLD`) to each captured lead, so that our sales team can prioritize follow-ups.
 9. As an exhibitor representative, I want to assign Follow-Up Action Tags (e.g. *"Send Quote"*, *"Schedule Demo"*, *"Product Sample"*, *"General Inquiry"*), so that next steps are clearly defined.
 10. As an exhibitor representative, I want to add and edit freeform qualification notes for each captured lead, so that important details from our conversation are preserved.
@@ -53,7 +53,7 @@ An integrated **Exhibition Lead Retrieval and Attendee Networking Suite** built 
 17. As an attendee, I want to view all my bookmarked booths in my attendee portal at any time, so that I can follow up after the conference.
 18. As an attendee, I want to scan a fellow delegate's personal QR badge, so that we can connect professionally without physical paper business cards.
 19. As an attendee, I want to view a peer's professional profile (Name, Title, Organization) immediately upon scanning, so that I have their verified credentials.
-20. As an attendee, I want to choose whether my email and phone are shared with peers, so that my personal contact information remains under my control.
+20. As an attendee, I want to choose whether my mobile number is shared with peers, so that my personal contact information remains under my control.
 21. As an attendee, I want to add private personal notes to each peer connection, so that I remember where and why we connected.
 22. As an attendee, I want to view all my connections in a dedicated "My Network" list, so that I have an organized digital conference address book.
 23. As an attendee, I want to download a standard `.vcf` vCard file for any peer connection with a single tap, so that their contact details are saved directly into my phone's native address book.
@@ -119,7 +119,7 @@ An integrated **Exhibition Lead Retrieval and Attendee Networking Suite** built 
 - **Booth Management (Organizer):**
   - `POST /api/events/{event_id}/booths`
   - `GET /api/events/{event_id}/booths`
-  - `POST /api/booths/{booth_id}/staff` (assign staff by email)
+  - `POST /api/booths/{booth_id}/staff` (assign staff by mobile number)
 - **Booth Lead Operations (Exhibitor Staff):**
   - `GET /api/booths/{booth_id}`
   - `POST /api/booths/{booth_id}/leads/scan` (captures lead from QR secret)
@@ -177,7 +177,7 @@ An integrated **Exhibition Lead Retrieval and Attendee Networking Suite** built 
   FN:Dr. Mohammad Rezaei
   ORG:Tehran University of Medical Sciences
   TITLE:Associate Professor
-  EMAIL:dr.rezaei@example.com
+  TEL;TYPE=CELL:+989121234567
   END:VCARD
   ```
   This imports directly with zero friction into Apple Contacts, Google Contacts, and Android Address Books.

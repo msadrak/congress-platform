@@ -5,6 +5,15 @@ import type { Page } from '@playwright/test';
 const event = { id: 'event-fixture', name: 'T04 Fixture Congress', slug: 't04-fixture', starts_at: '2027-04-10T08:00:00Z', ends_at: '2027-04-10T18:00:00Z', location: 'Fixture Hall', description: 'Synthetic public transport fixture', ticket_tiers: [{ id: 'tier-fixture', event_id: 'event-fixture', name: 'General', quota: 100, reserved_count: 0, is_open: true, created_at: '2027-01-01T00:00:00Z' }] };
 const booth = { id: 'booth-fixture', name: 'T04 Fixture Booth', slug: 'fixture-booth', location: 'A1', description: 'Fixture company', website_url: '', brochure_url: '', event_name: event.name, event_slug: event.slug, is_bookmarked: true };
 const userToken = 'synthetic-t04-user';
+const MOBILE = '09121234567';
+const CODE = '482913';
+const fixtureUser = { id: 'user-fixture', mobile: MOBILE, full_name: 'Fixture User', organization: '', title: '', share_contact_with_peers: false };
+
+async function enterCode(page: Page, scope = page.locator('body')) {
+  await scope.getByLabel('Mobile number').fill(MOBILE);
+  await scope.getByRole('button', { name: 'Send code' }).click();
+  await scope.getByLabel('Code from the SMS').fill(CODE);
+}
 
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem('congress_attendee_locale', 'en'));
@@ -35,7 +44,7 @@ async function storeCredentials(page: Page, user = true) {
   });
 }
 
-async function fixture(page: Page, options: { saved?: boolean; listStatus?: number; mutationStatus?: number; loginStatus?: number; publicStatus?: number } = {}) {
+async function fixture(page: Page, options: { saved?: boolean; listStatus?: number; mutationStatus?: number; loginStatus?: number; publicStatus?: number; newNumber?: boolean } = {}) {
   const requests: { path: string; method: string; anonymous: boolean; userOnly: boolean }[] = [];
   let saved = options.saved ?? false;
   await page.route(/^https?:\/\/[^/]+\/api\//, async route => {
@@ -48,9 +57,16 @@ async function fixture(page: Page, options: { saved?: boolean; listStatus?: numb
     if (path.startsWith('/api/public/')) { status = options.publicStatus ?? 200; body = status === 404 ? { detail: 'Event not found' } : path.includes('/booths/') ? booth : event; }
     else if (path === '/api/attendees/me/bookmarks/booths') { status = options.listStatus ?? 200; body = status === 401 ? { detail: 'Invalid authorization token' } : saved ? [{ ...booth, booth_id: booth.id, bookmarked_at: '2027-01-01T00:00:00Z' }] : []; }
     else if (path.includes('/bookmarks/booths/')) { status = options.mutationStatus ?? (request.method() === 'POST' ? 201 : 200); saved = request.method() === 'POST'; body = status === 401 ? { detail: 'Invalid authorization token' } : { bookmarked: saved, booth_id: booth.id }; }
-    else if (path === '/api/auth/login' || path === '/api/auth/register') { status = path.endsWith('register') ? 201 : options.loginStatus ?? 200; body = status === 401 ? { detail: 'Invalid email or password' } : { access_token: userToken, token_type: 'bearer', user: { id: 'user-fixture', email: 'fixture@example.test', full_name: 'Fixture User', organization: '', title: '', share_contact_with_peers: false } }; }
+    else if (path === '/api/auth/otp/request') { status = 202; body = { mobile: MOBILE, code_length: 6, expires_in: 120, resend_after: 60 }; }
+    else if (path === '/api/auth/otp/verify') {
+      status = options.loginStatus ?? 200;
+      body = status === 401 ? { detail: 'The code is wrong or has expired.' }
+        : options.newNumber ? { status: 'profile_required', access_token: null, token_type: 'bearer', user: null, signup_token: 'synthetic-signup' }
+        : { status: 'signed_in', access_token: userToken, token_type: 'bearer', user: fixtureUser, signup_token: null };
+    }
+    else if (path === '/api/auth/otp/complete') { status = 201; body = { access_token: userToken, token_type: 'bearer', user: fixtureUser }; }
     else if (path.endsWith('/tickets/reserve')) { status = 201; body = { id: 'ticket-fixture', event_id: event.id, ticket_tier_id: 'tier-fixture', user_id: 'user-fixture', qr_secret: 'synthetic-ticket-qr', created_at: '2027-01-01T00:00:00Z' }; }
-    else if (path.endsWith('/desk/login')) { status = 401; body = { detail: 'Invalid email or password' }; }
+    else if (path.endsWith('/desk/login')) { status = 401; body = { detail: 'The code is wrong or has expired.' }; }
     await route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
   });
   return requests;
@@ -114,25 +130,22 @@ test('public 404 remains visible and anonymous with every credential stored', as
   expect(requests.filter(r => r.path.startsWith('/api/public/')).every(r => r.anonymous)).toBe(true);
 });
 
-for (const loginStatus of [200, 401]) test(`User login ${loginStatus} is anonymous with all sessions stored; reservation/navigation preserved`, async ({ page }) => {
+for (const loginStatus of [200, 401]) test(`User SMS sign-in ${loginStatus} is anonymous with all sessions stored; reservation/navigation preserved`, async ({ page }) => {
   const requests = await fixture(page, { loginStatus });
   await page.goto('/e/t04-fixture');
   await page.getByRole('button', { name: /Reserve Free Pass/ }).click();
-  await page.getByRole('tab', { name: 'I Have an Account' }).click();
   await storeCredentials(page);
-  await page.getByPlaceholder('name@institution.org').fill('fixture@example.test');
-  await page.getByPlaceholder('Minimum 8 characters').fill('fixture-password');
-  await page.locator('[role="dialog"] button[type="submit"]').click();
+  await enterCode(page, page.getByRole('dialog'));
   if (loginStatus === 401) {
-    await expect(page.getByRole('alert')).toContainText('Invalid email or password');
+    await expect(page.getByRole('dialog').getByText('The code is wrong or has expired.')).toBeVisible();
     expect(await page.evaluate(token => localStorage.getItem('congress_attendee_token') === token, userToken)).toBe(true);
     expect(requests.some(r => r.path.endsWith('/tickets/reserve'))).toBe(false);
   } else {
     await expect(page.getByRole('heading', { name: 'Pass Reserved Successfully!' })).toBeVisible();
     expect(requests.filter(r => r.path.endsWith('/tickets/reserve')).every(r => r.userOnly)).toBe(true);
   }
-  expect(requests.filter(r => r.path === '/api/auth/login').length).toBe(1);
-  expect(requests.filter(r => r.path === '/api/auth/login').every(r => r.anonymous)).toBe(true);
+  expect(requests.filter(r => r.path === '/api/auth/otp/verify').length).toBe(1);
+  expect(requests.filter(r => r.path.startsWith('/api/auth/otp/')).every(r => r.anonymous)).toBe(true);
   await unchangedAlternatives(page);
   if (loginStatus === 200) {
     await page.getByRole('button', { name: 'Open My Tickets & QR Pass →' }).click();
@@ -140,18 +153,18 @@ for (const loginStatus of [200, 401]) test(`User login ${loginStatus} is anonymo
   }
 });
 
-test('registration is anonymous with non-User sessions stored and stores returned User for reservation', async ({ page }) => {
-  const requests = await fixture(page);
+test('a new number signs up anonymously with non-User sessions stored and stores the returned User for reservation', async ({ page }) => {
+  const requests = await fixture(page, { newNumber: true });
   await page.goto('/e/t04-fixture');
   await page.getByRole('button', { name: /Reserve Free Pass/ }).click();
   await storeCredentials(page, false);
-  await page.getByPlaceholder('e.g. Dr. Sarah Jenkins').fill('Fixture User');
-  await page.getByPlaceholder('name@institution.org').fill('fixture@example.test');
-  await page.getByPlaceholder('Minimum 8 characters').fill('fixture-password');
-  await page.locator('[role="dialog"] button[type="submit"]').click();
+  const dialog = page.getByRole('dialog');
+  await enterCode(page, dialog);
+  await dialog.getByLabel('Full name').fill('Fixture User');
+  await dialog.getByRole('button', { name: 'Create my account' }).click();
   await expect(page.getByRole('heading', { name: 'Pass Reserved Successfully!' })).toBeVisible();
-  expect(requests.filter(r => r.path === '/api/auth/register').length).toBe(1);
-  expect(requests.filter(r => r.path === '/api/auth/register').every(r => r.anonymous)).toBe(true);
+  expect(requests.filter(r => r.path === '/api/auth/otp/complete').length).toBe(1);
+  expect(requests.filter(r => r.path.startsWith('/api/auth/otp/')).every(r => r.anonymous)).toBe(true);
   expect(requests.filter(r => r.path.endsWith('/tickets/reserve')).every(r => r.userOnly)).toBe(true);
   await unchangedAlternatives(page);
   await page.getByRole('button', { name: 'Open My Tickets & QR Pass →' }).click();
@@ -161,12 +174,11 @@ test('registration is anonymous with non-User sessions stored and stores returne
 test('desk entry 401 is anonymous with credentials populated after form mount', async ({ page }) => {
   const requests = await fixture(page);
   await page.goto('/organizer/events/event-fixture/desk');
-  await expect(page.getByPlaceholder('operator@example.com')).toBeVisible();
+  await expect(page.getByLabel('Mobile number')).toBeVisible();
   await storeCredentials(page);
-  await page.getByPlaceholder('operator@example.com').fill('fixture@example.test');
-  await page.locator('input[type="password"]').fill('fixture-password');
-  await page.locator('form button[type="submit"]').click();
-  await expect(page.getByText('Invalid email or password', { exact: true })).toBeVisible();
+  await enterCode(page);
+  await expect(page.getByRole('alert')).toContainText('The code is wrong or has expired');
+  expect(requests.find(r => r.path === '/api/auth/otp/request')?.anonymous).toBe(true);
   expect(requests.filter(r => r.path.endsWith('/desk/login')).length).toBe(1);
   expect(requests.filter(r => r.path.endsWith('/desk/login')).every(r => r.anonymous)).toBe(true);
   await unchangedAlternatives(page);
@@ -215,27 +227,24 @@ test('late login after slug change does not reserve the old event or reopen stal
   const requests = await fixture(page);
   const started = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();
-  await page.route('**/api/auth/login', async route => {
+  await page.route('**/api/auth/otp/verify', async route => {
     started.resolve();
     await release.promise;
-    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ access_token: userToken, token_type: 'bearer', user: { id: 'user-fixture', email: 'fixture@example.test', full_name: 'Fixture User' } }) });
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ status: 'signed_in', access_token: userToken, token_type: 'bearer', user: fixtureUser, signup_token: null }) });
   });
   await page.route('**/api/public/events/other', async route => {
     await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ ...event, slug: 'other', name: 'Next Congress' }) });
   });
   await page.goto('/e/t04-fixture');
   await page.getByRole('button', { name: /Reserve Free Pass/ }).click();
-  await page.getByRole('tab', { name: 'I Have an Account' }).click();
-  await page.getByPlaceholder('name@institution.org').fill('fixture@example.test');
-  await page.getByPlaceholder('Minimum 8 characters').fill('fixture-password');
-  await page.locator('[role="dialog"] button[type="submit"]').click();
+  await enterCode(page, page.getByRole('dialog'));
   await started.promise;
   await page.evaluate(() => {
     history.pushState({}, '', '/e/other');
     dispatchEvent(new PopStateEvent('popstate'));
   });
   await expect(page.getByRole('heading', { name: 'Next Congress', exact: true })).toBeVisible();
-  const lateResponse = page.waitForResponse(response => response.url().endsWith('/api/auth/login'));
+  const lateResponse = page.waitForResponse(response => response.url().endsWith('/api/auth/otp/verify'));
   release.resolve();
   await lateResponse;
   await expect(page.getByRole('dialog')).toHaveCount(0);

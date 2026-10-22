@@ -30,14 +30,14 @@ An independent, scalable, mobile-first congress management platform built on **F
 ## User Stories
 
 1. As a prospective attendee, I want to self-register for an event from my mobile phone, so that I can secure my free ticket in advance.
-2. As a prospective attendee, I want to provide my name, email, organization, and professional title during registration, so that my credential details are accurately recorded.
+2. As a prospective attendee, I want to register with my mobile number (verified by an SMS code) plus my name, organization, and professional title, so that my credential details are accurately recorded.
 3. As a prospective attendee, I want to set a password during registration, so that I have a secure personal account to access my tickets at any time.
 4. As a registered attendee, I want to view my unique digital QR ticket on my mobile device, so that I can easily present it for scanning at the event venue.
 5. As a registered attendee, I want to download or save an offline copy of my QR ticket, so that I can present it even if my phone has no mobile reception at the venue.
 6. As a front-desk staff member, I want an on-site desk registration interface, so that I can quickly sign up walk-in attendees who did not register online.
 7. As a front-desk staff member, I want desk registration to require minimal fields and complete in seconds, so that entry lines move rapidly.
 8. As a front-desk staff member, I want to immediately issue and preview an attendee's QR code upon completing desk registration, so that they can proceed into the venue without delay.
-9. As a front-desk staff member, I want to search existing registrations by name or email, so that I can help attendees who lost their confirmation or need assistance.
+9. As a front-desk staff member, I want to search existing registrations by name or mobile number, so that I can help attendees who lost their confirmation or need assistance.
 10. As an event organizer, I want to configure multiple Check-In Points across the venue (e.g., Main Entrance, Hall A, Exhibition Booth Area, Dining Hall), so that attendance is tracked across distinct physical locations.
 11. As an event organizer, I want to assign specific Admission Policies to each Check-In Point, so that rules like single-use catering or unlimited hall re-entry are automatically enforced.
 12. As an event organizer, I want the Dining/Catering Check-In Point to strictly reject any attendee who has already scanned during that meal window, so that duplicate meal redemptions are prevented.
@@ -107,7 +107,7 @@ We implement two scanner clients that consume the exact same backend API contrac
   - `CAPACITY_CAPPED`: Tracks net occupancy and rejects when threshold is met.
 
 ### 6. API Contracts (REST / JSON)
-- `POST /api/auth/register`: Public self-registration (name, email, password, affiliation).
+- `POST /api/auth/otp/request`, `/verify`, `/complete`: Passwordless sign-in and self-registration by mobile number and SMS code (ADR 0012).
 - `POST /api/auth/login`: Issue JWT access token for authenticated users.
 - `POST /api/events/{event_id}/desk-registrations`: Staff endpoint for rapid walk-in registration.
 - `GET /api/attendees/me/ticket`: Attendee endpoint to retrieve digital QR ticket.

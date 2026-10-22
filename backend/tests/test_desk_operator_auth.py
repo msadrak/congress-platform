@@ -6,7 +6,7 @@ import jwt
 import pytest
 from httpx import AsyncClient
 
-from tests.helpers import bearer, provision_organizer
+from tests.helpers import bearer, desk_sign_in, provision_organizer, sign_in
 from tests.conftest import TEST_JWT_SECRET
 from tests.test_events import EVENT
 from tests.test_ticket_tiers import create_event, tier
@@ -23,25 +23,25 @@ async def test_organizer_can_create_list_and_revoke_desk_operator(
         f"/api/events/{event_id}/desk/operators",
         json={
             "operator_name": "Sara Ahmadi",
-            "email": "sara.desk@example.com",
+            "mobile": "09121000030",
         },
         headers=bearer(organizer),
     )
     assert create_resp.status_code == 201, create_resp.text
     created_data = create_resp.json()
     assert created_data["operator_name"] == "Sara Ahmadi"
-    assert created_data["email"] == "sara.desk@example.com"
+    assert created_data["mobile"] == "09121000030"
     assert created_data["is_revoked"] is False
-    assert "temporary_password" in created_data
-    assert len(created_data["temporary_password"]) >= 12
+    # No password exists to hand over: the operator signs in with an SMS code to this number.
+    assert "temporary_password" not in created_data
     operator_id = created_data["id"]
 
-    # 2. Cannot create duplicate active operator with same email in same event
+    # 2. Cannot create duplicate active operator with same mobile in same event
     dup_resp = await client.post(
         f"/api/events/{event_id}/desk/operators",
         json={
             "operator_name": "Sara Duplicate",
-            "email": "sara.desk@example.com",
+            "mobile": "09121000030",
         },
         headers=bearer(organizer),
     )
@@ -56,7 +56,7 @@ async def test_organizer_can_create_list_and_revoke_desk_operator(
     operators = list_resp.json()
     assert len(operators) == 1
     assert operators[0]["id"] == operator_id
-    assert operators[0]["email"] == "sara.desk@example.com"
+    assert operators[0]["mobile"] == "09121000030"
 
     # 4. Revoke operator
     revoke_resp = await client.delete(
@@ -79,26 +79,22 @@ async def test_desk_operator_login_and_me_profile(
         f"/api/events/{event_id}/desk/operators",
         json={
             "operator_name": "Ali Moradi",
-            "email": "ali.desk@example.com",
+            "mobile": "09121000031",
         },
         headers=bearer(organizer),
     )
     assert create_resp.status_code == 201
-    temp_password = create_resp.json()["temporary_password"]
 
-    # Invalid password login
+    # Wrong code
     bad_login = await client.post(
         f"/api/events/{event_id}/desk/login",
-        json={"email": "ali.desk@example.com", "password": "wrong-password-123"},
+        json={"mobile": "09121000031", "code": "000000"},
     )
     assert bad_login.status_code == 401
     assert "WWW-Authenticate" not in bad_login.headers
 
-    # Valid login
-    login_resp = await client.post(
-        f"/api/events/{event_id}/desk/login",
-        json={"email": "ali.desk@example.com", "password": temp_password},
-    )
+    # Valid login with the SMS code
+    login_resp = await desk_sign_in(client, event_id, "09121000031")
     assert login_resp.status_code == 200
     login_data = login_resp.json()
     assert "access_token" in login_data
@@ -148,17 +144,14 @@ async def test_desk_operator_can_perform_walkin_registration_with_audit_attribut
         f"/api/events/{event_id}/desk/operators",
         json={
             "operator_name": "Nima Rad",
-            "email": "nima.desk@example.com",
+            "mobile": "09121000032",
         },
         headers=bearer(organizer),
     )
-    temp_pw = op_create.json()["temporary_password"]
+    assert op_create.status_code == 201
 
     # Login as operator
-    login_resp = await client.post(
-        f"/api/events/{event_id}/desk/login",
-        json={"email": "nima.desk@example.com", "password": temp_pw},
-    )
+    login_resp = await desk_sign_in(client, event_id, "09121000032")
     token = login_resp.json()["access_token"]
     op_headers = {"Authorization": f"Bearer {token}"}
 
@@ -176,7 +169,7 @@ async def test_desk_operator_can_perform_walkin_registration_with_audit_attribut
         f"/api/events/{event_id}/desk-registrations",
         json={
             "full_name": "Dr. Farhad Tehrani",
-            "email": "farhad.tehrani@example.com",
+            "mobile": "09121000033",
             "organization": "University of Medical Sciences",
             "title": "Professor",
             "ticket_tier_id": tier_id,
@@ -242,17 +235,13 @@ async def test_cross_event_operator_isolation_and_revocation_enforcement(
         f"/api/events/{event1}/desk/operators",
         json={
             "operator_name": "Gate Operator 1",
-            "email": "gate1@example.com",
+            "mobile": "09121000034",
         },
         headers=bearer(org1),
     )
-    temp_pw = op1_resp.json()["temporary_password"]
     op1_id = op1_resp.json()["id"]
 
-    login1 = await client.post(
-        f"/api/events/{event1}/desk/login",
-        json={"email": "gate1@example.com", "password": temp_pw},
-    )
+    login1 = await desk_sign_in(client, event1, "09121000034")
     token1 = login1.json()["access_token"]
     op1_headers = {"Authorization": f"Bearer {token1}"}
 
@@ -281,12 +270,9 @@ async def test_cross_event_operator_isolation_and_revocation_enforcement(
     )
     assert revoke_resp.status_code == 200
 
-    # Subsequent login is rejected
-    revoked_login = await client.post(
-        f"/api/events/{event1}/desk/login",
-        json={"email": "gate1@example.com", "password": temp_pw},
-    )
-    assert revoked_login.status_code == 403
+    # Subsequent login is rejected: a revoked operator is not even sent a desk code
+    revoked_login = await desk_sign_in(client, event1, "09121000034")
+    assert revoked_login.status_code == 401
     assert "WWW-Authenticate" not in revoked_login.headers
 
     # Existing token cannot be used anymore
@@ -304,23 +290,20 @@ async def test_old_desk_session_never_revives_after_reactivation(
     organizer = await provision_organizer(client, "Generation lifecycle")
     event_id = await create_event(client, organizer)
     base = f"/api/events/{event_id}"
-    assignment = {"email": "generation@example.com", "operator_name": "Reception"}
+    assignment = {"mobile": "09121000035", "operator_name": "Reception"}
     created = await client.post(
         f"{base}/desk/operators", json=assignment, headers=bearer(organizer),
     )
     assert created.status_code == 201
     operator_id = created.json()["id"]
-    login_body = {
-        "email": assignment["email"],
-        "password": created.json()["temporary_password"],
-    }
+    mobile = assignment["mobile"]
     tier_response = await client.post(
         f"{base}/ticket-tiers", json=tier(name="Reception", quota=30),
         headers=bearer(organizer),
     )
     assert tier_response.status_code == 201
     tier_id = tier_response.json()["id"]
-    login = await client.post(f"{base}/desk/login", json=login_body)
+    login = await desk_sign_in(client, event_id, mobile)
     assert login.status_code == 200
     old_headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
     initial_claims = jwt.decode(
@@ -350,8 +333,8 @@ async def test_old_desk_session_never_revives_after_reactivation(
             headers=bearer(organizer),
         )
         assert revoke.status_code == 200
-        denied_login = await client.post(f"{base}/desk/login", json=login_body)
-        assert denied_login.status_code == 403
+        denied_login = await desk_sign_in(client, event_id, mobile)
+        assert denied_login.status_code == 401
         assert "WWW-Authenticate" not in denied_login.headers
         for headers in retained_headers:
             for path in reads:
@@ -370,7 +353,6 @@ async def test_old_desk_session_never_revives_after_reactivation(
         )
         assert reactivated.status_code == 201
         assert reactivated.json()["id"] == operator_id
-        assert reactivated.json()["temporary_password"] is None
         for headers in retained_headers:
             for path in reads:
                 denied = await client.get(path, headers=headers)
@@ -383,7 +365,7 @@ async def test_old_desk_session_never_revives_after_reactivation(
             )
             assert denied_issue.status_code == 401
             assert denied_issue.headers["WWW-Authenticate"] == "Bearer"
-        fresh_login = await client.post(f"{base}/desk/login", json=login_body)
+        fresh_login = await desk_sign_in(client, event_id, mobile)
         assert fresh_login.status_code == 200
         fresh_claims = jwt.decode(
             fresh_login.json()["access_token"], TEST_JWT_SECRET, algorithms=["HS256"],
@@ -409,16 +391,14 @@ async def provision_generation_operator(
 ) -> tuple[dict[str, str], str, dict[str, str], str, str]:
     organizer = await provision_organizer(client, "Generation negatives")
     event_id = await create_event(client, organizer)
-    assignment = {"email": "claims@example.com", "operator_name": "Claims operator"}
+    assignment = {"mobile": "09121000036", "operator_name": "Claims operator"}
     created = await client.post(
         f"/api/events/{event_id}/desk/operators",
         json=assignment, headers=bearer(organizer),
     )
     assert created.status_code == 201
-    login_body = {
-        "email": assignment["email"], "password": created.json()["temporary_password"],
-    }
-    login = await client.post(f"/api/events/{event_id}/desk/login", json=login_body)
+    login_body = {"mobile": assignment["mobile"]}
+    login = await desk_sign_in(client, event_id, assignment["mobile"])
     assert login.status_code == 200
     return organizer, event_id, login_body, created.json()["id"], login.json()["access_token"]
 
@@ -484,7 +464,7 @@ async def test_concurrent_desk_lifecycle_preserves_every_generation(
     )
     base = f"/api/events/{event_id}"
     management_headers = bearer(organizer)
-    assignment = {"email": login_body["email"], "operator_name": "Concurrent"}
+    assignment = {"mobile": login_body["mobile"], "operator_name": "Concurrent"}
     for round_number in range(3):
         revokes = await asyncio.gather(*(
             client.request(
@@ -500,7 +480,7 @@ async def test_concurrent_desk_lifecycle_preserves_every_generation(
             for _ in range(6)
         ))
         assert sorted(response.status_code for response in activations) == [201] + [409] * 5
-        fresh = await client.post(f"{base}/desk/login", json=login_body)
+        fresh = await desk_sign_in(client, event_id, login_body["mobile"])
         assert fresh.status_code == 200
         claims = jwt.decode(fresh.json()["access_token"], TEST_JWT_SECRET, algorithms=["HS256"])
         assert claims["session_version"] == (round_number + 1) * 7
@@ -519,14 +499,14 @@ async def test_concurrent_desk_lifecycle_preserves_every_generation(
     assert outcomes[0].status_code in (201, 409)
     assert outcomes[1].status_code == 200
     expected_version = 22 + (outcomes[0].status_code == 201)
-    login = await client.post(f"{base}/desk/login", json=login_body)
-    if login.status_code == 403:
+    login = await desk_sign_in(client, event_id, login_body["mobile"])
+    if login.status_code == 401:
         reactivated = await client.post(
             f"{base}/desk/operators", json=assignment, headers=management_headers,
         )
         assert reactivated.status_code == 201
         expected_version += 1
-        login = await client.post(f"{base}/desk/login", json=login_body)
+        login = await desk_sign_in(client, event_id, login_body["mobile"])
     assert login.status_code == 200
     claims = jwt.decode(login.json()["access_token"], TEST_JWT_SECRET, algorithms=["HS256"])
     assert claims["session_version"] == expected_version
@@ -546,7 +526,7 @@ async def test_desk_generation_does_not_grant_management_or_cross_event_authorit
     headers = {"Authorization": f"Bearer {token}"}
     for method, path, body in (
         ("GET", f"{base}/desk/operators", None),
-        ("POST", f"{base}/desk/operators", {"email": "intruder@example.com", "operator_name": "Intruder"}),
+        ("POST", f"{base}/desk/operators", {"mobile": "09121000020", "operator_name": "Intruder"}),
         ("POST", f"{base}/desk/operators/{operator_id}/revoke", None),
         ("DELETE", f"{base}/desk/operators/{operator_id}", None),
     ):
@@ -572,13 +552,11 @@ async def test_desk_generation_does_not_grant_management_or_cross_event_authorit
         f"{foreign_base}/desk/operators/{operator_id}", headers=bearer(foreign),
     )
     assert wrong_operator.status_code == 404
-    user_login = await client.post("/api/auth/login", json=login_body)
-    assert user_login.status_code == 200
-    user_token = user_login.json()["access_token"]
+    _, user_token = await sign_in(client, login_body["mobile"])
     user_me = await client.get(
         "/api/auth/me", headers={"Authorization": f"Bearer {user_token}"},
     )
     assert user_me.status_code == 200
-    assert user_me.json()["email"] == login_body["email"]
+    assert user_me.json()["mobile"] == login_body["mobile"]
     allowed = await client.get(f"{base}/desk/me", headers=bearer(organizer))
     assert allowed.status_code == 200

@@ -12,8 +12,8 @@ const EVENTS: Record<string, FixtureEvent> = {
   alpha: eventOf('alpha', 'event-a', 'Alpha Congress'),
   beta: eventOf('beta', 'event-b', 'Beta Summit'),
 };
-const ticketOf = (slug: string) => ({ id: `ticket-${slug}`, event_id: EVENTS[slug].id, event_name: EVENTS[slug].name, event_slug: slug, event_location: 'Fixture Hall', event_starts_at: '2027-05-10T07:00:00Z', event_ends_at: '2027-05-12T15:00:00Z', ticket_tier_id: 't', ticket_tier_name: `Pass ${slug}`, attendee_name: 'Sara Fixture', attendee_email: 'sara@example.test', status: 'active', qr_secret: `qr-${slug}`, created_at: '2027-01-01T00:00:00Z' });
-const connectionOf = (slug: string) => ({ id: `conn-${slug}`, connected_user_id: `peer-${slug}`, full_name: `Peer of ${slug}`, email: null, organization: 'Org', title: 'Dr', event_id: EVENTS[slug].id, private_notes: `Note at ${slug}`, created_at: '2027-01-01T00:00:00Z' });
+const ticketOf = (slug: string) => ({ id: `ticket-${slug}`, event_id: EVENTS[slug].id, event_name: EVENTS[slug].name, event_slug: slug, event_location: 'Fixture Hall', event_starts_at: '2027-05-10T07:00:00Z', event_ends_at: '2027-05-12T15:00:00Z', ticket_tier_id: 't', ticket_tier_name: `Pass ${slug}`, attendee_name: 'Sara Fixture', attendee_mobile: '09121234567', status: 'active', qr_secret: `qr-${slug}`, created_at: '2027-01-01T00:00:00Z' });
+const connectionOf = (slug: string) => ({ id: `conn-${slug}`, connected_user_id: `peer-${slug}`, full_name: `Peer of ${slug}`, mobile: null, organization: 'Org', title: 'Dr', event_id: EVENTS[slug].id, private_notes: `Note at ${slug}`, created_at: '2027-01-01T00:00:00Z' });
 
 type Recorded = { method: string; path: string; auth: string | undefined };
 
@@ -39,7 +39,7 @@ async function fixture(page: Page, options: { publicStatus?: number; slowEvent?:
     if (path === '/api/attendees/me/network') return json(200, [connectionOf('alpha'), connectionOf('beta')]);
     if (path === '/api/attendees/me/network/privacy') return json(200, { share_contact_with_peers: false });
     if (path === '/api/attendees/me/bookmarks/booths') return json(200, []);
-    if (path === '/api/auth/me') return json(200, { id: 'user-1', email: 'sara@example.test', full_name: 'Sara Fixture', organization: 'Heart Center', title: 'Cardiologist', share_contact_with_peers: false });
+    if (path === '/api/auth/me') return json(200, { id: 'user-1', mobile: '09121234567', full_name: 'Sara Fixture', organization: 'Heart Center', title: 'Cardiologist', share_contact_with_peers: false });
     if (path === '/api/me/access') return json(200, { user_id: 'user-1', events: ['alpha', 'beta'].map(s => ({ event_id: EVENTS[s].id, event_slug: s, event_name: EVENTS[s].name, roles: ['ATTENDEE'], ticket_ids: [`ticket-${s}`], desk_operator_ids: [], booth_ids: [], partner_ids: [] })) });
     return json(404, { detail: 'Not found' });
   });

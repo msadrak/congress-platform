@@ -137,7 +137,7 @@ async def test_attendee_jwt_cannot_access_scanner_endpoints(client: AsyncClient)
     )
     point_id = point_res.json()["id"]
 
-    _, attendee_token = await register_user(client, "attendee@sec.com", "Att User")
+    _, attendee_token = await register_user(client, "09121000063", "Att User")
 
     res = await client.get(
         f"/api/checkin-points/{point_id}/manifest",
@@ -394,10 +394,10 @@ async def create_unique_test_event(client: AsyncClient, organizer: dict[str, str
 
 
 async def create_test_attendee_ticket(
-    client: AsyncClient, event_id: str, tier_id: str, email: str, name: str
+    client: AsyncClient, event_id: str, tier_id: str, mobile: str, name: str
 ) -> dict[str, Any]:
     """Helper to register user and mint a free ticket."""
-    _, token = await register_user(client, email, name)
+    _, token = await register_user(client, mobile, name)
     resp = await client.post(
         f"/api/events/{event_id}/tickets/reserve",
         json={"ticket_tier_id": tier_id},
@@ -425,7 +425,7 @@ async def test_issue_20_same_point_idempotent_replay_preserves_result(
     )
     point_id = p_res.json()["id"]
     tkt = await create_test_attendee_ticket(
-        client, event_id, tier_res.json()["id"], "same_point@test.org", "Alice Same"
+        client, event_id, tier_res.json()["id"], "09121000064", "Alice Same"
     )
 
     scan_id = str(uuid.uuid4())
@@ -490,7 +490,7 @@ async def test_issue_20_cross_point_same_event_replay_rejected_without_data_leak
     point2_id = p2_res.json()["id"]
 
     tkt = await create_test_attendee_ticket(
-        client, event_id, tier_res.json()["id"], "gate_a@test.org", "Bob GateA"
+        client, event_id, tier_res.json()["id"], "09121000065", "Bob GateA"
     )
     scan_id = str(uuid.uuid4())
 
@@ -569,7 +569,7 @@ async def test_issue_20_cross_tenant_replay_rejected_without_data_leak(
 
     # Attendee on Tenant A
     tkt_a = await create_test_attendee_ticket(
-        client, event_a, tier_a.json()["id"], "alpha_user@alpha.org", "Dr. Alpha Secret"
+        client, event_a, tier_a.json()["id"], "09121000066", "Dr. Alpha Secret"
     )
     scan_id = str(uuid.uuid4())
 
@@ -645,7 +645,7 @@ async def test_issue_20_mismatched_qr_secret_same_scan_id_rejected(
     )
     point_id = p_res.json()["id"]
     tkt = await create_test_attendee_ticket(
-        client, event_id, tier_res.json()["id"], "mismatch@test.org", "Mismatch User"
+        client, event_id, tier_res.json()["id"], "09121000067", "Mismatch User"
     )
     scan_id = str(uuid.uuid4())
 

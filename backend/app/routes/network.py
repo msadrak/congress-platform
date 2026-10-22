@@ -9,6 +9,7 @@ from sqlalchemy import select
 from app.db import SessionDep
 from app.models import Connection, EntityQR, Ticket, User
 from app.routes.auth import CurrentUserDep
+from app.sms.phone import to_e164
 
 router = APIRouter(prefix="/api/attendees/me/network", tags=["networking"])
 
@@ -40,7 +41,8 @@ class ConnectionOut(BaseModel):
     id: uuid.UUID
     connected_user_id: uuid.UUID
     full_name: str
-    email: str | None = None
+    # Only when the peer opted in to sharing their contact details.
+    mobile: str | None = None
     organization: str
     title: str
     event_id: uuid.UUID
@@ -104,12 +106,12 @@ async def scan_peer_badge(
             existing.private_notes = body.private_notes.strip()
             await session.commit()
         response.status_code = status.HTTP_200_OK
-        email = peer.email if peer.share_contact_with_peers else None
+        mobile = peer.mobile if peer.share_contact_with_peers else None
         return ConnectionOut(
             id=existing.id,
             connected_user_id=peer.id,
             full_name=peer.full_name,
-            email=email,
+            mobile=mobile,
             organization=peer.organization,
             title=peer.title,
             event_id=existing.event_id,
@@ -128,12 +130,12 @@ async def scan_peer_badge(
     await session.commit()
     response.status_code = status.HTTP_201_CREATED
 
-    email = peer.email if peer.share_contact_with_peers else None
+    mobile = peer.mobile if peer.share_contact_with_peers else None
     return ConnectionOut(
         id=conn.id,
         connected_user_id=peer.id,
         full_name=peer.full_name,
-        email=email,
+        mobile=mobile,
         organization=peer.organization,
         title=peer.title,
         event_id=conn.event_id,
@@ -161,7 +163,7 @@ async def list_my_connections(
             id=conn.id,
             connected_user_id=peer.id,
             full_name=peer.full_name,
-            email=peer.email if peer.share_contact_with_peers else None,
+            mobile=peer.mobile if peer.share_contact_with_peers else None,
             organization=peer.organization,
             title=peer.title,
             event_id=conn.event_id,
@@ -217,12 +219,12 @@ async def update_connection_notes(
     if peer is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Peer not found")
 
-    email = peer.email if peer.share_contact_with_peers else None
+    mobile = peer.mobile if peer.share_contact_with_peers else None
     return ConnectionOut(
         id=conn.id,
         connected_user_id=peer.id,
         full_name=peer.full_name,
-        email=email,
+        mobile=mobile,
         organization=peer.organization,
         title=peer.title,
         event_id=conn.event_id,
@@ -258,8 +260,8 @@ async def export_connection_vcard(
         f"ORG:{peer.organization}",
         f"TITLE:{peer.title}",
     ]
-    if peer.share_contact_with_peers:
-        vcard_lines.append(f"EMAIL;TYPE=INTERNET:{peer.email}")
+    if peer.share_contact_with_peers and peer.mobile:
+        vcard_lines.append(f"TEL;TYPE=CELL:{to_e164(peer.mobile)}")
     if conn.private_notes:
         vcard_lines.append(f"NOTE:{conn.private_notes}")
     vcard_lines.append("END:VCARD")

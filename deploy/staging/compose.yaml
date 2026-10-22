@@ -3,8 +3,10 @@
 #   node scripts/staging/stack.mjs init   # generates .staging/staging.env (secrets, outside Git)
 #   node scripts/staging/stack.mjs up     # build, migrate, start, wait for health
 #
-# Volumes hold everything that must survive rebuilds: PostgreSQL data, Page Studio media and Caddy's
-# certificates. Never run `docker compose down -v` on this project.
+# Persistent data lives on the host (DrGibi-style), not in anonymous Docker volumes:
+#   ${CONGRESS_PERSISTENT_DATA_ROOT}/data/postgres|media|caddy/...
+# Set CONGRESS_PERSISTENT_DATA_ROOT in .staging/staging.env (default ${HOME}/congress-persistent-data).
+# Run scripts/staging/fix-persistent-permissions.sh once before the first start.
 name: congress-staging
 
 x-logging: &logging
@@ -15,8 +17,6 @@ x-logging: &logging
 
 x-backend: &backend
   image: congress-platform/api:${CONGRESS_IMAGE_TAG:-staging}
-  build:
-    context: ../../backend
   logging: *logging
   networks: [backend]
   environment:
@@ -27,6 +27,9 @@ x-backend: &backend
     CONGRESS_MEDIA_ROOT: /data/media
     CONGRESS_PUBLIC_ORIGIN: ${CONGRESS_PUBLIC_ORIGIN:?set CONGRESS_PUBLIC_ORIGIN}
     CONGRESS_CORS_ORIGINS: '["${CONGRESS_PUBLIC_ORIGIN}"]'
+    CONGRESS_SMS_PROVIDER: ${CONGRESS_SMS_PROVIDER:?set CONGRESS_SMS_PROVIDER (smsir or console)}
+    CONGRESS_SMSIR_API_KEY: ${CONGRESS_SMSIR_API_KEY:-}
+    CONGRESS_SMSIR_LINE_NUMBER: ${CONGRESS_SMSIR_LINE_NUMBER:-}
 
 services:
   db:
@@ -39,7 +42,7 @@ services:
       POSTGRES_DB: congress
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - ${CONGRESS_PERSISTENT_DATA_ROOT:?set CONGRESS_PERSISTENT_DATA_ROOT in .staging/staging.env}/data/postgres:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U congress -d congress"]
       interval: 5s
@@ -50,6 +53,8 @@ services:
 
   migrate:
     <<: *backend
+    # The api image, built once by the api service: Compose with Bake (buildx) refuses to build one image twice.
+    pull_policy: never
     command: ["alembic", "upgrade", "head"]
     restart: "no"
     healthcheck:
@@ -60,16 +65,19 @@ services:
 
   api:
     <<: *backend
+    build:
+      context: ../../backend
     restart: unless-stopped
     volumes:
-      - media:/data/media
+      - ${CONGRESS_PERSISTENT_DATA_ROOT:?set CONGRESS_PERSISTENT_DATA_ROOT}/data/media:/data/media
     depends_on:
       db:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
     stop_grace_period: 30s
-    # No ports: Caddy is the only entry point.
+    # No ports: Caddy is the only entry point. `egress` is outbound only (sms.ir); the database stays internal.
+    networks: [backend, egress]
 
   web:
     image: congress-platform/web:${CONGRESS_IMAGE_TAG:-staging}
@@ -85,17 +93,24 @@ services:
       CONGRESS_LOCAL_HTTP: ${CONGRESS_LOCAL_HTTP:-on}
       CONGRESS_HSTS: ${CONGRESS_HSTS:-off}
       CONGRESS_ADMIN_ALLOW: ${CONGRESS_ADMIN_ALLOW:-private_ranges}
+      CONGRESS_DEFAULT_SNI: ${CONGRESS_DEFAULT_SNI:-localhost}
+      # CDN in front (docs/deployment/CDN.md). `node scripts/staging/stack.mjs cdn ...` writes these; all off by default.
+      CONGRESS_CDN: ${CONGRESS_CDN:-off}
+      CONGRESS_CDN_ONLY: ${CONGRESS_CDN_ONLY:-off}
+      CONGRESS_TRUSTED_PROXIES: ${CONGRESS_TRUSTED_PROXIES:-}
+      CONGRESS_CLIENT_IP_HEADER: ${CONGRESS_CLIENT_IP_HEADER:-X-Forwarded-For}
+      CONGRESS_ORIGIN_TLS: ${CONGRESS_ORIGIN_TLS:-on}
     ports:
       - "${CONGRESS_BIND:-127.0.0.1}:${CONGRESS_HTTPS_PORT:-8443}:443"
       - "${CONGRESS_BIND:-127.0.0.1}:${CONGRESS_HTTP_PORT:-18080}:80"
     volumes:
-      - caddy_data:/data
-      - caddy_config:/config
+      - ${CONGRESS_PERSISTENT_DATA_ROOT:?set CONGRESS_PERSISTENT_DATA_ROOT}/data/caddy/data:/data
+      - ${CONGRESS_PERSISTENT_DATA_ROOT:?set CONGRESS_PERSISTENT_DATA_ROOT}/data/caddy/config:/config
     depends_on:
       api:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget -q -O /dev/null --header 'Host: localhost' http://127.0.0.1/api/ready && wget -q -O /dev/null --header 'Host: localhost' http://127.0.0.1/"]
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8081/api/ready && wget -q -O /dev/null http://127.0.0.1:8081/"]
       interval: 15s
       timeout: 5s
       retries: 5
@@ -105,9 +120,6 @@ networks:
   backend:
     internal: true
   edge: {}
+  # Outbound internet for the API alone (SMS delivery through api.sms.ir); nothing is published on it.
+  egress: {}
 
-volumes:
-  pgdata:
-  media:
-  caddy_data:
-  caddy_config:

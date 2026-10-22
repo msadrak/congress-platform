@@ -1,11 +1,13 @@
-import React, { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   ATTENDEE_TOKEN_STORAGE,
   formatApiError,
   createApiClient,
+  type AuthResponse,
   type PublicEvent as PublicEventType,
 } from "../api/client";
+import { MobileOtpForm } from "../components/auth/MobileOtpForm";
 import { isStoredAttendeeToken, rejectAttendeeToken } from "../lib/attendeeSession";
 import { PublicLayout } from "../layouts/PublicLayout";
 import { normalizeDocument, standardDocument, type PageImages } from "../lib/pageDocument";
@@ -22,7 +24,6 @@ import { PassesPanel } from "../components/public/page/PassesPanel";
 export default function PublicEvent() {
   const { slug } = useParams<{ slug: string }>();
   const navigate = useNavigate();
-  const formId = useId();
   const [event, setEvent] = useState<PublicEventType | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -32,16 +33,8 @@ export default function PublicEvent() {
 
   // Modal states
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
-  const [authMode, setAuthMode] = useState<"register" | "login">("register");
   const [isSuccessModalOpen, setIsSuccessModalOpen] = useState(false);
   const [alreadyHasTicket, setAlreadyHasTicket] = useState(false);
-
-  // Form fields
-  const [fullName, setFullName] = useState("");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [organization, setOrganization] = useState("");
-  const [title, setTitle] = useState("");
 
   const [submitting, setSubmitting] = useState(false);
   const [modalError, setModalError] = useState<string | null>(null);
@@ -118,7 +111,6 @@ export default function PublicEvent() {
     // The token can be stale (another tab changed the stored session): never reserve with it.
     if (!isStoredAttendeeToken(token)) {
       setAlreadyHasTicket(false);
-      setAuthMode("login");
       setModalError(c.errSessionChanged);
       setIsAuthModalOpen(true);
       setSubmitting(false);
@@ -148,7 +140,6 @@ export default function PublicEvent() {
       if (response.status === 401) {
         rejectAttendeeToken(token);
         setAlreadyHasTicket(false);
-        setAuthMode("login");
         setModalError(c.errSessionExpired);
         setIsAuthModalOpen(true);
         setSubmitting(false);
@@ -207,81 +198,14 @@ export default function PublicEvent() {
     }
   };
 
-  const handleAuthAndReserve = async (e: React.FormEvent) => {
-    e.preventDefault();
+  // Signed in (or signed up) by SMS code inside the dialog: keep the session, then reserve the chosen pass.
+  const handleSignedInAndReserve = async (auth: AuthResponse) => {
     if (!selectedTier || !event) return;
-    const context = pageContext.current;
-    if (!context?.active) return;
+    if (!pageContext.current?.active) return;
+    localStorage.setItem(ATTENDEE_TOKEN_STORAGE, auth.access_token);
     setModalError(null);
     setSubmitting(true);
-
-    const client = createApiClient({ kind: "anonymous" });
-
-    // Edge case 1: If account was created on previous attempt but reservation failed,
-    // reuse the stored token directly rather than re-registering and triggering a 409 conflict
-    const existingToken =
-      typeof window !== "undefined"
-        ? localStorage.getItem(ATTENDEE_TOKEN_STORAGE)
-        : null;
-    if (existingToken && authMode === "register") {
-      await executeReservation(existingToken, selectedTier.id);
-      return;
-    }
-
-    if (authMode === "register") {
-      if (!fullName.trim() || !email.trim() || !password) {
-        setModalError(c.errRequired);
-        setSubmitting(false);
-        return;
-      }
-
-      const { data, error: err } = await client.POST("/api/auth/register", {
-        body: {
-          email: email.trim(),
-          password,
-          full_name: fullName.trim(),
-          organization: organization.trim(),
-          title: title.trim(),
-        },
-      });
-      if (!context.active) return;
-      if (err) {
-        setModalError(formatApiError(err));
-        setSubmitting(false);
-        return;
-      }
-
-      if (data) {
-        localStorage.setItem(ATTENDEE_TOKEN_STORAGE, data.access_token);
-        await executeReservation(data.access_token, selectedTier.id);
-      }
-    } else {
-      // Login mode
-      if (!email.trim() || !password) {
-        setModalError(c.errLoginRequired);
-        setSubmitting(false);
-        return;
-      }
-
-      const { data, error: err } = await client.POST("/api/auth/login", {
-        body: {
-          email: email.trim(),
-          password,
-        },
-      });
-      if (!context.active) return;
-
-      if (err) {
-        setModalError(formatApiError(err));
-        setSubmitting(false);
-        return;
-      }
-
-      if (data) {
-        localStorage.setItem(ATTENDEE_TOKEN_STORAGE, data.access_token);
-        await executeReservation(data.access_token, selectedTier.id);
-      }
-    }
+    await executeReservation(auth.access_token, selectedTier.id);
   };
 
   // Loading skeleton state
@@ -340,15 +264,6 @@ export default function PublicEvent() {
     );
   }
 
-  const required = (
-    <span aria-hidden="true" className="text-status-danger-text">
-      *
-    </span>
-  );
-  const tabClass = (active: boolean) =>
-    `min-h-[44px] rounded-lg px-3 text-sm font-semibold transition-[background-color,color,box-shadow] cursor-pointer ${
-      active ? "bg-surface-panel text-text-primary shadow-soft" : "text-text-secondary hover:text-text-primary"
-    }`;
   const logo = doc.branding.logo_asset_id ? images[doc.branding.logo_asset_id] ?? null : null;
 
   return (
@@ -382,145 +297,30 @@ export default function PublicEvent() {
             setModalError(null);
           }
         }}
-        title={authMode === "register" ? c.dialogRegisterTitle : c.dialogLoginTitle}
+        title={c.dialogSignInTitle}
         description={selectedTier ? c.dialogDescription(isolateFor(selectedTier.name, locale)) : undefined}
         size="md"
       >
-        <div className="space-y-6">
-          {/* Auth Mode Toggle Tabs */}
-          <div role="tablist" aria-label={c.modeLabel} className="grid grid-cols-2 gap-1 rounded-xl border border-border-default bg-surface-panel-subtle p-1">
-            <button
-              type="button"
-              role="tab"
-              aria-selected={authMode === "register"}
-              onClick={() => {
-                setAuthMode("register");
-                setModalError(null);
-              }}
-              className={tabClass(authMode === "register")}
+        <div className="space-y-5">
+          {submitting ? (
+            <p role="status" className="flex items-center gap-2.5 rounded-xl bg-surface-panel-subtle p-3.5 text-sm text-text-secondary">
+              <Icon name="ticket" size={18} className="shrink-0 text-aiteb-indigo" />
+              {c.submitting}
+            </p>
+          ) : (
+            <MobileOtpForm locale={locale} onSignedIn={(auth) => void handleSignedInAndReserve(auth)} verifyLabel={c.submitVerify} />
+          )}
+
+          {modalError && (
+            <div
+              role="alert"
+              aria-live="assertive"
+              className="flex items-start gap-3 rounded-xl border border-status-danger-border bg-status-danger-bg p-3.5 text-sm leading-relaxed text-status-danger-text"
             >
-              {c.modeRegister}
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={authMode === "login"}
-              onClick={() => {
-                setAuthMode("login");
-                setModalError(null);
-              }}
-              className={tabClass(authMode === "login")}
-            >
-              {c.modeLogin}
-            </button>
-          </div>
-
-          <form onSubmit={handleAuthAndReserve} className="space-y-4">
-            {authMode === "register" && (
-              <div>
-                <label htmlFor={`${formId}-name`} className="ui-label">
-                  {c.fullName} {required}
-                </label>
-                <input
-                  id={`${formId}-name`}
-                  type="text"
-                  required
-                  autoComplete="name"
-                  value={fullName}
-                  onChange={(e) => setFullName(e.target.value)}
-                  placeholder={c.fullNamePlaceholder}
-                  className="ui-input"
-                />
-              </div>
-            )}
-
-            <div>
-              <label htmlFor={`${formId}-email`} className="ui-label">
-                {c.email} {required}
-              </label>
-              <input
-                id={`${formId}-email`}
-                type="email"
-                required
-                dir="ltr"
-                autoComplete="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder={c.emailPlaceholder}
-                className="ui-input rtl:text-right"
-              />
+              <Icon name="alert" size={18} className="mt-0.5" />
+              <span>{modalError}</span>
             </div>
-
-            <div>
-              <label htmlFor={`${formId}-password`} className="ui-label">
-                {c.password} {required}
-              </label>
-              <input
-                id={`${formId}-password`}
-                type="password"
-                required
-                minLength={8}
-                dir="ltr"
-                autoComplete={authMode === "register" ? "new-password" : "current-password"}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder={c.passwordPlaceholder}
-                className="ui-input rtl:text-right"
-              />
-            </div>
-
-            {authMode === "register" && (
-              <div className="grid grid-cols-1 gap-4 border-t border-border-subtle pt-4 sm:grid-cols-2">
-                <p className="-mb-1 text-xs font-medium text-text-muted sm:col-span-2">{c.optional}</p>
-                <div>
-                  <label htmlFor={`${formId}-org`} className="ui-label">
-                    {c.organization}
-                  </label>
-                  <input
-                    id={`${formId}-org`}
-                    type="text"
-                    autoComplete="organization"
-                    value={organization}
-                    onChange={(e) => setOrganization(e.target.value)}
-                    placeholder={c.organizationPlaceholder}
-                    className="ui-input"
-                  />
-                </div>
-                <div>
-                  <label htmlFor={`${formId}-title`} className="ui-label">
-                    {c.title}
-                  </label>
-                  <input
-                    id={`${formId}-title`}
-                    type="text"
-                    autoComplete="organization-title"
-                    value={title}
-                    onChange={(e) => setTitle(e.target.value)}
-                    placeholder={c.titlePlaceholder}
-                    className="ui-input"
-                  />
-                </div>
-              </div>
-            )}
-
-            {modalError && (
-              <div
-                role="alert"
-                aria-live="assertive"
-                className="flex items-start gap-3 rounded-xl border border-status-danger-border bg-status-danger-bg p-3.5 text-sm leading-relaxed text-status-danger-text"
-              >
-                <Icon name="alert" size={18} className="mt-0.5" />
-                <span>{modalError}</span>
-              </div>
-            )}
-
-            <div className="pt-2">
-              <Button type="submit" variant="primary" size="lg" isFullWidth disabled={submitting}>
-                {submitting ? c.submitting : authMode === "register" ? c.submitRegister : c.submitLogin}
-                {!submitting && <Icon name="arrow-right" size={18} />}
-              </Button>
-            </div>
-          </form>
+          )}
         </div>
       </Dialog>
 
