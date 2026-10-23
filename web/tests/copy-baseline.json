@@ -31,11 +31,6 @@
   "src/components/operator/OperatorMenu.tsx": {
     "ternary": 1
   },
-  "src/components/QrCameraInput.tsx": {
-    "ternary": 7,
-    "persian": 7,
-    "asciiEllipsis": 1
-  },
   "src/layouts/AttendeeLayout.tsx": {
     "persian": 17,
     "ternary": 2
@@ -58,10 +53,6 @@
     "ternary": 3
   },
   "src/lib/timeZoneLabel.ts": {
-    "ternary": 2
-  },
-  "src/pages/AttendeeSignIn.tsx": {
-    "persian": 24,
     "ternary": 2
   },
   "src/pages/CongressDetails.tsx": {

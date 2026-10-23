@@ -33,11 +33,11 @@ export function OperatorBar({ title, subtitle, icon, chip, actions, status, menu
         {icon && <Icon name={icon} size={20} className={ink ? "text-aiteb-orchid" : "text-action-primary"} />}
         <div className="flex min-w-0 flex-1 items-center gap-2">
           <div className="min-w-0">
-            <h1 className="truncate text-base leading-tight font-bold" title={title}>
+            <h1 dir="auto" className="truncate text-base leading-tight font-bold" title={title}>
               {title}
             </h1>
             {subtitle && (
-              <p className={`truncate text-xs leading-tight ${ink ? "text-ink-200" : "text-text-muted"}`} title={subtitle}>
+              <p dir="auto" className={`truncate text-xs leading-tight ${ink ? "text-ink-200" : "text-text-muted"}`} title={subtitle}>
                 {subtitle}
               </p>
             )}

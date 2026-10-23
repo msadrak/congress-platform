@@ -47,9 +47,9 @@ const ROOTS = [join(WEB, "src"), join(WEB, "index.html"), join(REPO, "backend/ap
  * or term is ever added. Paths are relative to the repository root.
  */
 const ALLOWED: Readonly<Record<string, readonly string[]>> = {
+  // UX-ATT-SHELL (team2): these two files are still being rewritten there.
   "web/src/components/attendee/attendeeCopy.ts": ["بلیت", "نشست", "گردید"],
   "web/src/lib/attendeeSession.ts": ["نشست"],
-  "web/src/pages/AttendeeSignIn.tsx": ["فضای کاری", "پرتال", "سرنخ"],
 };
 
 function* files(path: string): Generator<string> {

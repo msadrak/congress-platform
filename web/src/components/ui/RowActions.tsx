@@ -122,6 +122,15 @@ function ActionMenu({ items, label, onSelect }: { items: readonly RowAction[]; l
       if (menuRef.current?.contains(target) || triggerRef.current?.contains(target)) return;
       setPosition(null);
     }
+    // Escape closes only the menu. A Dialog listens for Escape on window, so stop the key on the way down
+    // (document, capture phase), before it can reach any window or document listener.
+    function onEscape(event: globalThis.KeyboardEvent) {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopPropagation();
+      setPosition(null);
+      triggerRef.current?.focus();
+    }
     // The menu is fixed to where the button was: close it once the button moves (scroll, resize, layout).
     function onViewportChange() {
       const rect = triggerRef.current?.getBoundingClientRect();
@@ -130,22 +139,18 @@ function ActionMenu({ items, label, onSelect }: { items: readonly RowAction[]; l
       setPosition(null);
     }
     document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onEscape, true);
     window.addEventListener("scroll", onViewportChange, true);
     window.addEventListener("resize", onViewportChange);
     return () => {
       document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onEscape, true);
       window.removeEventListener("scroll", onViewportChange, true);
       window.removeEventListener("resize", onViewportChange);
     };
   }, [open, startAt]);
 
   function onMenuKeyDown(event: KeyboardEvent<HTMLDivElement>) {
-    if (event.key === "Escape") {
-      event.preventDefault();
-      event.stopPropagation();
-      close(true);
-      return;
-    }
     if (event.key === "Tab") {
       close(false);
       return;

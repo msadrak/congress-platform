@@ -7,8 +7,8 @@ import { fieldWiring } from "../src/components/ui/fieldA11y.ts";
 import { rovingTarget } from "../src/components/ui/rovingKeys.ts";
 import { buttonClassName, buttonStateProps } from "../src/components/ui/buttonStyles.ts";
 
-// Compile the .tsx primitives on import (see uiTsxHooks.mjs), then render them to markup.
-register("./uiTsxHooks.mjs", import.meta.url);
+// Compile the .tsx primitives on import (see support/tsxLoader.mjs), then render them to markup.
+register("./support/tsxLoader.mjs", import.meta.url);
 const { Field } = await import("../src/components/ui/Field.tsx");
 const { TextInput, Select } = await import("../src/components/ui/Input.tsx");
 const { Button } = await import("../src/components/ui/Button.tsx");

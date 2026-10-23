@@ -182,7 +182,16 @@ test('a row click opens the drawer; rows carry no edit button and show the check
   await expect(drawer.getByTestId('participant-drawer')).toBeVisible();
   // The congress clock (Tehran), not the browser's (New York): 08:00 UTC is 11:30 in Tehran.
   await expect(drawer).toContainText('11:30');
+  // Escape inside the ⋯ menu closes only the menu; the next Escape closes the drawer.
+  await expect(async () => {
+    if (!(await page.getByRole('menu').isVisible())) await drawer.getByRole('button', { name: 'More actions' }).click();
+    await expect(page.getByRole('menu')).toBeVisible({ timeout: 1000 });
+  }).toPass();
   await page.keyboard.press('Escape');
+  await expect(page.getByRole('menu')).toHaveCount(0);
+  await expect(drawer.getByTestId('participant-drawer')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(drawer.getByTestId('participant-drawer')).toHaveCount(0);
   // The keyboard way in: the name is a button inside the row.
   await rows(page).filter({ hasText: 'Mina Rahimi' }).getByRole('button', { name: /Mina Rahimi/ }).focus();
   await page.keyboard.press('Enter');

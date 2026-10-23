@@ -56,7 +56,7 @@ export function PairingPanel({ copy, locale, pointId, onPair }: PairingPanelProp
     <div className="flex flex-col gap-2.5">
       {scanning ? (
         <div data-testid="scanner-pair-camera">
-          <QrCameraInput isRtl={locale === "fa"} onDecode={onDecode} autoStart continuous />
+          <QrCameraInput locale={locale} onDecode={onDecode} autoStart continuous />
         </div>
       ) : (
         <Button type="button" tone="ink" size="lg" icon="qr" isFullWidth loading={busy} onClick={() => setScanning(true)}>

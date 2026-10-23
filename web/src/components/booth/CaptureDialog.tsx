@@ -331,7 +331,7 @@ export function CaptureDialog({
         </div>
       ) : (
         <div className="space-y-4">
-          <QrCameraInput isRtl={locale === "fa"} disabled={submitting} autoStart={!fine} onDecode={(value) => void capture(value)} />
+          <QrCameraInput locale={locale} disabled={submitting} autoStart={!fine} onDecode={(value) => void capture(value)} />
           {manualOpen ? (
             <form id={formId} onSubmit={handleSubmit}>
               <Field label={text.codeLabel} required>

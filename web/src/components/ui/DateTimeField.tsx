@@ -35,8 +35,6 @@ export interface DateFieldProps {
 }
 
 const DAYS = Array.from({ length: 31 }, (_, i) => i + 1);
-/** `.ui-select` has no invalid look of its own yet (`.ui-input` does). */
-const SELECT_INVALID = "aria-invalid:border-status-danger-solid";
 
 function CalendarField({ withTime, label, value, onChange, locale, timeZone, hint, error, required, disabled, className = "" }: DateFieldProps & { withTime: boolean }) {
   const id = useId();
@@ -82,7 +80,7 @@ function CalendarField({ withTime, label, value, onChange, locale, timeZone, hin
         <select
           {...control}
           aria-label={copy.day}
-          className={`ui-select w-20 ${SELECT_INVALID}`}
+          className="ui-select w-20"
           value={draft.day || ""}
           onChange={(e) => update({ day: Number(e.target.value) }, true)}
         >
@@ -96,7 +94,7 @@ function CalendarField({ withTime, label, value, onChange, locale, timeZone, hin
         <select
           {...control}
           aria-label={copy.month}
-          className={`ui-select min-w-0 flex-1 basis-32 ${SELECT_INVALID}`}
+          className="ui-select min-w-0 flex-1 basis-32"
           value={draft.month || ""}
           onChange={(e) => update({ month: Number(e.target.value) }, true)}
         >

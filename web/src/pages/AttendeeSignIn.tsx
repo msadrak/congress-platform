@@ -16,8 +16,11 @@ import { useAttendeeSession } from "../hooks/useAttendeeSession";
 import { usePageTitle } from "../hooks/usePageTitle";
 import { eventAccentStyle } from "../lib/eventAccent";
 import { formatMobile } from "../lib/mobile";
-import { useAttendeeLocale } from "../lib/i18n";
+import { useLocale } from "../lib/i18n";
+import { signInCopy } from "../copy/signIn";
 import { safeNextPath } from "../lib/safeRedirect";
+
+const OTHER_LOCALE = { fa: "en", en: "fa" } as const;
 
 /** How long a still-valid session is shown before continuing on its own. */
 const AUTO_CONTINUE_MS = 2000;
@@ -29,61 +32,6 @@ type SessionCheck =
   | { status: "unverified" }
   | { status: "valid"; user: UserOut };
 
-const COPY = {
-  en: {
-    title: "Sign in to your attendee portal",
-    subtitleCongress: "Continue to",
-    subtitleGeneric: "Your passes and networking, in one place.",
-    profileHeading: "Complete your profile",
-    signedInAs: "You are signed in as",
-    continue: "Continue",
-    continuing: "Taking you there in a moment…",
-    signOut: "Not you? Sign out",
-    noAccount: "No pass yet?",
-    reserve: "Reserve a pass for this congress",
-    congressMissing: "That congress could not be found. After signing in you will see your passes instead.",
-    noAccountGeneric: "No pass yet? Open the registration link your congress sent you.",
-    skip: "Skip to sign-in",
-    boothTitle: "Sign in to your booth workspace",
-    boothSubtitle: "Use the mobile number your organizer assigned to this booth.",
-    toggleLabel: "تغییر زبان به فارسی",
-    toggle: "فارسی",
-    portalAttendee: "Attendee Portal",
-    portalExhibitor: "Exhibitor Portal",
-    panelGeneric: "Your congress, in your pocket.",
-    panelGenericLead: "Your pass, your connections and the exhibition — one sign-in for every congress you attend.",
-    panelBoothLead: "Capture, qualify and export the leads your booth team meets.",
-    when: "When",
-    where: "Where",
-  },
-  fa: {
-    title: "ورود به سامانه شرکت‌کنندگان",
-    subtitleCongress: "ادامه به",
-    subtitleGeneric: "کارت‌های ورود و شبکه ارتباطی شما در یک‌جا.",
-    profileHeading: "تکمیل اطلاعات",
-    signedInAs: "با این حساب وارد شده‌اید:",
-    continue: "ادامه",
-    continuing: "چند لحظه دیگر به مقصد می‌روید…",
-    signOut: "شما نیستید؟ خروج",
-    noAccount: "هنوز کارت ورود ندارید؟",
-    reserve: "رزرو کارت ورود برای این همایش",
-    congressMissing: "این همایش پیدا نشد. پس از ورود، کارت‌های ورود خودتان را می‌بینید.",
-    noAccountGeneric: "هنوز کارت ورود ندارید؟ از پیوند ثبت‌نامی که همایش برایتان فرستاده است وارد شوید.",
-    skip: "پرش به فرم ورود",
-    boothTitle: "ورود به فضای کاری غرفه",
-    boothSubtitle: "با شماره موبایلی وارد شوید که برگزارکننده به این غرفه اختصاص داده است.",
-    toggleLabel: "Switch language to English",
-    toggle: "English",
-    portalAttendee: "سامانه شرکت‌کنندگان",
-    portalExhibitor: "پرتال غرفه",
-    panelGeneric: "همایش شما، همیشه همراه شما.",
-    panelGenericLead: "کارت ورود، ارتباطات و نمایشگاه؛ یک ورود برای همه همایش‌هایی که در آن شرکت می‌کنید.",
-    panelBoothLead: "ثبت، ارزیابی و خروجی گرفتن از سرنخ‌هایی که تیم غرفه با آن‌ها آشنا می‌شود.",
-    when: "زمان برگزاری",
-    where: "محل برگزاری",
-  },
-} as const;
-
 /**
  * Direct attendee sign-in by mobile number and SMS code (new numbers create their account here), then a
  * validated return to the intended congress destination. A still-valid session continues on its own after a
@@ -93,9 +41,8 @@ export default function AttendeeSignIn() {
   const { slug, boothId } = useParams<{ slug?: string; boothId?: string }>();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const localeHook = useAttendeeLocale();
-  const { locale, setLocale, dir } = localeHook;
-  const copy = COPY[locale];
+  const { locale, setLocale, dir } = useLocale();
+  const copy = signInCopy[locale];
   const congress = useCongressEvent(slug);
   const congressMissing = Boolean(slug) && congress.status === "missing";
   const knownSlug = slug && !congressMissing ? slug : undefined;
@@ -181,7 +128,6 @@ export default function AttendeeSignIn() {
       <section className="relative isolate overflow-hidden bg-surface-ink text-white lg:sticky lg:top-0 lg:h-screen">
         <CongressSignature seed={seed} tone="ink" animate className="absolute inset-0 -z-20 size-full" />
         <div aria-hidden="true" className="absolute inset-0 -z-10 bg-linear-to-t from-surface-ink via-surface-ink/60 to-surface-ink/10" />
-        <div aria-hidden="true" className="bg-meridian-ink absolute inset-0 -z-10 opacity-50" />
 
         <div className="flex flex-col justify-between gap-8 px-4 pt-[env(safe-area-inset-top)] sm:px-8 lg:h-full lg:p-12">
           <div className="flex min-h-16 items-center justify-between gap-3">
@@ -197,24 +143,20 @@ export default function AttendeeSignIn() {
             )}
             <button
               type="button"
-              onClick={() => setLocale(locale === "fa" ? "en" : "fa")}
+              onClick={() => setLocale(OTHER_LOCALE[locale])}
               aria-label={copy.toggleLabel}
               className="press inline-flex min-h-11 items-center gap-1.5 rounded-full bg-white/10 px-3.5 text-xs font-semibold text-white ring-1 ring-inset ring-white/15 hover:bg-white/15 cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-aiteb-orchid"
             >
               <Icon name="globe" size={16} />
-              <span lang={locale === "fa" ? "en" : "fa"}>{copy.toggle}</span>
+              <span lang={OTHER_LOCALE[locale]}>{copy.toggle}</span>
             </button>
           </div>
 
           <div className="hidden space-y-4 motion-safe:animate-rise lg:block">
-            {boothId ? (
-              <>
-                <p className="max-w-md text-2xl font-semibold leading-[1.15] tracking-[-0.03em] text-balance sm:text-3xl lg:text-4xl">{copy.panelBoothLead}</p>
-              </>
-            ) : congress.status === "ready" ? (
+            {!boothId && congress.status === "ready" ? (
               <>
                 <PhaseBadge startsAt={congress.event.starts_at} endsAt={congress.event.ends_at} locale={locale} tone="ink" />
-                <p className="max-w-md text-3xl font-semibold leading-[1.1] tracking-[-0.03em] text-balance sm:text-4xl lg:text-5xl">{congress.event.name}</p>
+                <p className="max-w-md text-display font-semibold leading-tight text-balance">{congress.event.name}</p>
                 <dl className="hidden max-w-md gap-x-8 gap-y-3 border-t border-white/15 pt-4 text-sm sm:grid sm:grid-cols-[auto_minmax(0,1fr)]">
                   <div className="space-y-0.5">
                     <dt className="text-xs text-ink-300">{copy.when}</dt>
@@ -228,16 +170,15 @@ export default function AttendeeSignIn() {
                   )}
                 </dl>
               </>
-            ) : slug && congress.status === "loading" ? (
-              <div aria-hidden="true" className="space-y-3">
-                <div className="h-3 w-28 rounded bg-white/10" />
-                <div className="h-9 w-64 max-w-full rounded-lg bg-white/10" />
-              </div>
             ) : (
-              <>
-                <p className="max-w-md text-3xl font-semibold leading-[1.1] tracking-[-0.03em] text-balance sm:text-4xl lg:text-5xl">{copy.panelGeneric}</p>
-                <p className="max-w-sm text-sm leading-relaxed text-ink-300">{copy.panelGenericLead}</p>
-              </>
+              !boothId &&
+              slug &&
+              congress.status === "loading" && (
+                <div aria-hidden="true" className="space-y-3">
+                  <div className="h-3 w-28 rounded bg-white/10" />
+                  <div className="h-9 w-64 max-w-full rounded-lg bg-white/10" />
+                </div>
+              )
             )}
           </div>
         </div>
@@ -248,23 +189,13 @@ export default function AttendeeSignIn() {
         <main id="attendee-sign-in" tabIndex={-1} className="flex flex-1 items-start justify-center px-4 py-10 focus:outline-none sm:px-8 sm:py-14 lg:items-center lg:px-12">
           <div className="w-full max-w-md space-y-8">
             <div className="space-y-3">
-              <span aria-hidden="true" className="hidden size-12 place-items-center sm:grid rounded-2xl [border-start-end-radius:20px] bg-aiteb-lavender text-aiteb-indigo">
+              <span aria-hidden="true" className="hidden size-12 place-items-center rounded-card bg-aiteb-lavender text-aiteb-indigo sm:grid">
                 <Icon name={boothId ? "booth" : "key"} size={22} />
               </span>
-              <h1 className="text-[1.75rem] font-semibold leading-tight tracking-[-0.03em] text-text-primary text-balance sm:text-3xl">
+              <h1 className="text-title-lg font-semibold leading-tight text-text-primary text-balance">
                 {heading}
               </h1>
-              <p className="text-sm leading-relaxed text-text-secondary">
-                {boothId ? (
-                  copy.boothSubtitle
-                ) : congressName ? (
-                  <>
-                    {copy.subtitleCongress} <span className="font-semibold text-text-primary">{congressName}</span>
-                  </>
-                ) : (
-                  copy.subtitleGeneric
-                )}
-              </p>
+              {boothId && <p className="text-body-sm leading-relaxed text-text-secondary">{copy.boothSubtitle}</p>}
             </div>
 
             {congressMissing && (
@@ -295,7 +226,7 @@ export default function AttendeeSignIn() {
                     {copy.signedInAs}{" "}
                     <bdi className="block truncate font-semibold text-text-primary">{session.user.full_name}</bdi>
                     {session.user.mobile && (
-                      <bdi dir="ltr" className="block font-mono text-xs text-text-muted">{formatMobile(session.user.mobile, locale)}</bdi>
+                      <bdi dir="ltr" className="block tabular text-caption text-text-muted">{formatMobile(session.user.mobile, locale)}</bdi>
                     )}
                   </p>
                 </div>

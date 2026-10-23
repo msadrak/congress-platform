@@ -203,7 +203,7 @@ test.describe('entry and access', () => {
     expect(requests).toEqual([]);
     await page.getByRole('link', { name: 'Sign in', exact: true }).click();
     await expect(page).toHaveURL(/\/booth\/booth-a\/sign-in\?next=%2Fbooth%2Fbooth-a$/);
-    await expect(page.getByRole('heading', { name: 'Sign in to your booth workspace' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Sign in to the booth panel' })).toBeVisible();
     await signInWithCode(page);
     await expect(page).toHaveURL(/\/booth\/booth-a$/);
     await expect(page.getByText('Lead One').first()).toBeVisible();
@@ -706,7 +706,7 @@ test.describe('layout and language', () => {
     expect(await overflow(page)).toBe(0);
     await page.evaluate(() => localStorage.removeItem('congress_attendee_token'));
     await page.goto('/booth/booth-a/sign-in');
-    await expect(page.getByRole('heading', { name: 'ورود به فضای کاری غرفه' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'ورود به پنل غرفه' })).toBeVisible();
     expect(await overflow(page)).toBe(0);
   });
 });

@@ -5,8 +5,8 @@ import { createElement as h } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { organizerSharedCopy } from "../src/copy/organizerShared.ts";
 
-// Compile the .tsx components on import (see uiTsxHooks.mjs), then render them to markup.
-register("./uiTsxHooks.mjs", import.meta.url);
+// Compile the .tsx components on import (see support/tsxLoader.mjs), then render them to markup.
+register("./support/tsxLoader.mjs", import.meta.url);
 const { SectionHeader, FormAlert, EventStatusBadge } = await import("../src/components/organizer/WorkspaceUi.tsx");
 const { RolePicker } = await import("../src/components/organizer/RolePicker.tsx");
 

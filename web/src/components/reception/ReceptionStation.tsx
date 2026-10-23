@@ -892,7 +892,7 @@ export function ReceptionStation({ eventId, organizer, locale }: ReceptionStatio
       />
 
       <Dialog isOpen={cameraOpen} onClose={() => setCameraOpen(false)} title={c.cameraTitle} size="sm">
-        <QrCameraInput isRtl={locale === "fa"} disabled={!cameraOpen} autoStart onDecode={onCameraDecode} />
+        <QrCameraInput locale={locale} disabled={!cameraOpen} autoStart onDecode={onCameraDecode} />
       </Dialog>
 
       <ConfirmDialog

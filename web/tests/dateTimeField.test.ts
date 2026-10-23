@@ -1,8 +1,8 @@
-import { after, before, test } from "node:test";
+import { before, test } from "node:test";
+import { register } from "node:module";
 import assert from "node:assert/strict";
 import { createElement, type FunctionComponent } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { createServer, type ViteDevServer } from "vite";
 import { fromZonedDateTimeLocal, toZonedDateTimeLocal } from "../src/components/organizer/sessionTime.ts";
 import type { DateFieldProps } from "../src/components/ui/DateTimeField.tsx";
 import { dateDraft, describeWallValue, draftValue, formatWallValue, monthLength, parseTimeOfDay } from "../src/lib/format.ts";
@@ -88,23 +88,14 @@ test("the read-out names the day, the time and the congress's zone", () => {
 
 renderChecks();
 
-/** Render checks of the field itself, compiled by Vite (the tests run on Node's type stripping, which has no JSX). */
+/** Render checks of the field itself (the .tsx compiles through tests/support/tsxLoader.mjs). */
 function renderChecks() {
-  let server: ViteDevServer;
   let fields: { DateTimeField: FunctionComponent<DateFieldProps>; DateField: FunctionComponent<DateFieldProps> };
 
   before(async () => {
-    server = await createServer({
-      configFile: false,
-      root: new URL("..", import.meta.url).pathname,
-      logLevel: "silent",
-      appType: "custom",
-      server: { middlewareMode: true, hmr: false, ws: false },
-      optimizeDeps: { noDiscovery: true, include: [] },
-    });
-    fields = (await server.ssrLoadModule("/src/components/ui/DateTimeField.tsx")) as typeof fields;
+    register("./support/tsxLoader.mjs", import.meta.url);
+    fields = (await import("../src/components/ui/DateTimeField.tsx")) as typeof fields;
   });
-  after(() => server?.close());
 
   const render = (component: FunctionComponent<DateFieldProps>, props: Omit<DateFieldProps, "onChange">) =>
     renderToStaticMarkup(createElement(component, { ...props, onChange: () => undefined }));

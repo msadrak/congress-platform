@@ -4,7 +4,7 @@ import { apiErrorCode, apiErrorDiagnostic, createScannerApiClient, localizedApiE
 import { usePageTitle } from "../hooks/usePageTitle";
 import { useWakeLock } from "../hooks/useWakeLock";
 import { useAppUpdate } from "../hooks/useAppUpdate";
-import { playErrorBuzz, playSuccessChime, playProvisionalChime } from "../lib/audioFeedback";
+import { playErrorBuzz, playSuccessChime, playProvisionalChime, warmUpAudio } from "../lib/audioFeedback";
 import { useLocale } from "../lib/i18n";
 import { canPromptInstall, isIosInstallBrowser, promptInstall, subscribeInstallPrompt } from "../lib/installPrompt";
 import jsQR from "jsqr";
@@ -204,6 +204,9 @@ export default function GateScanner() {
       : { ...contactRef.current, lastFailureAt: now };
     setIsOnline(serverReachable());
   };
+
+  // Build the audio output before the first scan, so the first chime cannot split a barcode-gun burst.
+  useEffect(() => warmUpAudio(), []);
 
   // On mount: restore persisted credential from IndexedDB into memory.
   useEffect(() => {
