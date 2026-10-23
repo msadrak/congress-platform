@@ -36,6 +36,8 @@ Thumbs.db
 .obsidian/
 nul
 web/test-results/
+web/test-results-live/
+web/playwright-live-report/
 
 # Local demo environment (credentials, logs, ports)
 .demo/

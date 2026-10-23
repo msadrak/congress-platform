@@ -88,7 +88,8 @@ export const freePort = async () => (await freePorts(1))[0];
  */
 export function startPreview({ port, apiOrigin }) {
   const vite = resolve(root, 'web/node_modules/vite/bin/vite.js');
-  return spawn(process.execPath, [vite, 'preview', '--host', '127.0.0.1', '--port', String(port), '--strictPort'], {
+  // --configLoader runner: the default bundling loader breaks when web/node_modules is a symlink (worktrees).
+  return spawn(process.execPath, [vite, 'preview', '--configLoader', 'runner', '--host', '127.0.0.1', '--port', String(port), '--strictPort'], {
     cwd: resolve(root, 'web'),
     env: { ...process.env, CONGRESS_API_ORIGIN: apiOrigin },
     stdio: ['ignore', 'ignore', 'inherit'],
