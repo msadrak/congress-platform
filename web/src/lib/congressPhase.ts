@@ -4,30 +4,12 @@
  * `node --test`.
  */
 
+import { safeTimeZone, zonedDayKey } from "./format.ts";
+
+/** Moved to `lib/format.ts` (every `Intl.DateTimeFormat` lives there); re-exported for the existing callers. */
+export { safeTimeZone, zonedDayKey };
+
 const DAY_MS = 86_400_000;
-
-/** The IANA zone when the runtime knows it; otherwise `undefined` (the visitor's own zone). */
-export function safeTimeZone(timeZone: string | null | undefined): string | undefined {
-  if (!timeZone) return undefined;
-  try {
-    new Intl.DateTimeFormat("en-US", { timeZone });
-    return timeZone;
-  } catch {
-    return undefined;
-  }
-}
-
-/** The calendar day of a moment in `timeZone` (visitor's zone when omitted), as `YYYY-MM-DD`. */
-export function zonedDayKey(value: string | number | Date, timeZone?: string): string {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: safeTimeZone(timeZone),
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(new Date(value));
-  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((p) => p.type === type)?.value ?? "00";
-  return `${part("year")}-${part("month")}-${part("day")}`;
-}
 
 /** Whole calendar days from day key `from` to day key `to` (negative when `to` is earlier). */
 export function daysBetween(from: string, to: string): number {

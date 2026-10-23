@@ -4,9 +4,8 @@ import { distinctValues, groupSessionsByDay, initialDayKey, liveAndNext } from "
 import { Badge } from "../ui/Badge";
 import { Icon } from "../ui/Icon";
 import { safeTimeZone } from "../../lib/congressPhase";
-import { formatDate, formatTime } from "../../lib/format";
+import { formatDate, formatTime, venueZoneLabel } from "../../lib/format";
 import { num, publicCopy, type PublicLocale } from "./copy";
-import { venueZoneLabel } from "./format";
 
 /** "Now" for live badges and the now/next card, refreshed every minute. */
 function useNow(): number {

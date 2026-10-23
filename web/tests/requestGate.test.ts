@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createRequestGate } from "../src/lib/requestGate.ts";
-import { timeZoneLabel } from "../src/lib/timeZoneLabel.ts";
+import { timeZoneLabel } from "../src/lib/format.ts";
 
 test("only the newest request may write its answer", () => {
   const gate = createRequestGate();

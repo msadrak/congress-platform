@@ -164,7 +164,8 @@ test("OperatorBar puts the title in a one-line h1 with the status and menu at th
   );
   assert.match(markup, /^<header class="sticky top-0[^"]*pt-safe/);
   assert.match(markup, /class="[^"]*h-14[^"]*"/);
-  assert.match(markup, /<h1 class="truncate[^"]*" title="درِ اصلی">درِ اصلی<\/h1>/);
+  // dir="auto": a Persian booth or point name in the English interface truncates at its own end.
+  assert.match(markup, /<h1 dir="auto" class="truncate[^"]*" title="درِ اصلی">درِ اصلی<\/h1>/);
   assert.ok(markup.indexOf("آنلاین") < markup.indexOf('aria-haspopup="menu"'));
 });
 

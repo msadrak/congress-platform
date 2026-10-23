@@ -41,9 +41,6 @@
   "src/lib/errorMessages.ts": {
     "devTerm": 1
   },
-  "src/lib/format.ts": {
-    "ternary": 3
-  },
   "src/lib/i18n.ts": {
     "asciiEllipsis": 7,
     "devTerm": 1,
@@ -51,9 +48,6 @@
   },
   "src/lib/programFiles.ts": {
     "ternary": 3
-  },
-  "src/lib/timeZoneLabel.ts": {
-    "ternary": 2
   },
   "src/pages/CongressDetails.tsx": {
     "ternary": 4,

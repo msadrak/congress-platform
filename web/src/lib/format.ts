@@ -11,14 +11,11 @@
  * Pure (no DOM, no React), so it is unit tested under `node --test`.
  */
 
-import { safeTimeZone } from "./congressPhase.ts";
 import { isValidJalali, gregorianToJalali, jalaliToGregorian } from "./jalali.ts";
 import { formatMobile } from "./mobile.ts";
-import { zonedWallTimeToIso } from "./sessionCsv.ts";
-import { timeZoneLabel } from "./timeZoneLabel.ts";
 
-/** `formatMobile`: «۰۹۱۲ ۳۴۵ ۶۷۸۹», always inside an LTR island. `timeZoneLabel`: «وقت تهران» / "Tehran time". */
-export { formatMobile, timeZoneLabel };
+/** `formatMobile`: «۰۹۱۲ ۳۴۵ ۶۷۸۹», always inside an LTR island. */
+export { formatMobile };
 
 export type Locale = "fa" | "en";
 export type Instant = string | number | Date;
@@ -117,6 +114,7 @@ function dateTimeFormat(tag: string, options: Intl.DateTimeFormatOptions, timeZo
   return cached;
 }
 
+const pad = (n: number, width = 2) => String(n).padStart(width, "0");
 const toEpoch = (value: Instant): number => (value instanceof Date ? value.getTime() : new Date(value).getTime());
 
 /** "08:30" or "08:30:05" on the clocks of `timeZone`, in Latin digits. */
@@ -198,6 +196,11 @@ export function formatEventDate(
   return formatDate(value, style, locale, timeZone);
 }
 
+const RANGE: Record<Locale, { tag: string; join: string }> = {
+  fa: { tag: "fa-IR-u-ca-persian", join: " تا " },
+  en: { tag: "en-GB", join: " – " },
+};
+
 /**
  * The days a congress spans: «۱۹ تا ۲۱ آبان ۱۴۰۵» / "10–12 November 2026", one date when both fall on the
  * same day (or the end is not after the start). Unreadable values come back as "start – end".
@@ -207,7 +210,7 @@ export function formatDateRange(start: Instant, end: Instant, locale: Locale, ti
   const to = toEpoch(end);
   if (Number.isNaN(from) || Number.isNaN(to)) return `${String(start)} – ${String(end)}`;
   const format = dateTimeFormat(
-    locale === "fa" ? "fa-IR-u-ca-persian" : "en-GB",
+    RANGE[locale].tag,
     { day: "numeric", month: "long", year: "numeric" },
     safeTimeZone(timeZone),
   );
@@ -217,10 +220,137 @@ export function formatDateRange(start: Instant, end: Instant, locale: Locale, ti
     try {
       text = format.formatRange(from, to);
     } catch {
-      text = `${format.format(from)}${locale === "fa" ? " تا " : " – "}${format.format(to)}`;
+      text = `${format.format(from)}${RANGE[locale].join}${format.format(to)}`;
     }
   }
   return locale === "fa" ? persianPunctuation(text) : text;
+}
+
+/* ---------------------------------------------------------- time zones */
+/*
+ * Clock arithmetic on a congress's zone. Every `Intl.DateTimeFormat` of the app lives in this module; the parts
+ * below are read with Latin digits for computation, never shown as they are.
+ */
+
+/** The IANA zone when the runtime knows it; otherwise `undefined` (the reader's own zone). */
+export function safeTimeZone(timeZone: string | null | undefined): string | undefined {
+  if (!timeZone) return undefined;
+  try {
+    dateTimeFormat("en-US", {}, timeZone);
+    return timeZone;
+  } catch {
+    return undefined;
+  }
+}
+
+/** This device's IANA zone. */
+export function deviceTimeZone(): string {
+  return new Intl.DateTimeFormat().resolvedOptions().timeZone;
+}
+
+export interface WallClock {
+  year: number;
+  month: number;
+  day: number;
+  hour: number;
+  minute: number;
+  second: number;
+}
+
+/**
+ * The wall-clock reading of an instant on the clocks of `timeZone` (the reader's when omitted), 24 h. An unknown
+ * zone throws a RangeError, as `Intl` does.
+ */
+export function wallClock(value: Instant, timeZone?: string): WallClock {
+  const parts = dateTimeFormat(
+    "en-US",
+    { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23", numberingSystem: "latn" },
+    timeZone,
+  ).formatToParts(toEpoch(value));
+  const part = (type: Intl.DateTimeFormatPartTypes) => Number(parts.find((p) => p.type === type)?.value ?? 0);
+  return { year: part("year"), month: part("month"), day: part("day"), hour: part("hour") % 24, minute: part("minute"), second: part("second") };
+}
+
+/** The calendar day of a moment in `timeZone` (the reader's zone when omitted or unknown), as `YYYY-MM-DD`. */
+export function zonedDayKey(value: Instant, timeZone?: string | null): string {
+  const c = wallClock(value, safeTimeZone(timeZone));
+  return `${pad(c.year, 4)}-${pad(c.month)}-${pad(c.day)}`;
+}
+
+/** Milliseconds `timeZone` is ahead of UTC at the instant `ms`. */
+export function zoneOffsetMs(ms: number, timeZone: string): number {
+  const c = wallClock(ms, timeZone);
+  return Date.UTC(c.year, c.month - 1, c.day, c.hour, c.minute, c.second) - Math.floor(ms / 1000) * 1000;
+}
+
+/**
+ * The instant at which the clocks of `timeZone` show this wall time (ISO-8601, UTC). When a daylight-saving
+ * change repeats the time the earlier instant wins; when it skips the time, the offset before the change is used.
+ */
+export function zonedWallTimeToIso(
+  timeZone: string,
+  year: number,
+  month: number,
+  day: number,
+  hour: number,
+  minute: number,
+  second = 0,
+): string {
+  const wall = Date.UTC(year, month - 1, day, hour, minute, second);
+  const DAY = 86_400_000;
+  const before = zoneOffsetMs(wall - DAY, timeZone);
+  const candidates = [before, zoneOffsetMs(wall + DAY, timeZone)]
+    .map((offset) => wall - offset)
+    .filter((ms) => ms + zoneOffsetMs(ms, timeZone) === wall);
+  return new Date(candidates.length > 0 ? Math.min(...candidates) : wall - before).toISOString();
+}
+
+/** Names for the zones congresses are held in, as people say them. */
+const KNOWN_ZONES: Record<string, Record<Locale, string>> = {
+  "Asia/Tehran": { fa: "وقت تهران", en: "Tehran time" },
+};
+const INTL_TAG: Record<Locale, string> = { fa: "fa-IR", en: "en-US" };
+/** When no name without Latin letters is known: Persian says "the venue's time"; English shows the IANA name. */
+const VENUE_TIME: Record<Locale, string | null> = { fa: "وقت محل همایش", en: null };
+
+function zoneName(timeZone: string, tag: string, style: Intl.DateTimeFormatOptions["timeZoneName"], at: Instant = Date.now()): string | null {
+  try {
+    const part = dateTimeFormat(tag, { timeZoneName: style }, timeZone)
+      .formatToParts(toEpoch(at))
+      .find((p) => p.type === "timeZoneName");
+    return part?.value.trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * An event's IANA time zone as a label for the reader ("Asia/Tehran" → «وقت تهران» / "Tehran time"): known zones
+ * by name, others by the browser's localized zone name, then its UTC offset. A Persian reader never gets the raw
+ * IANA name or other Latin text; the caller can still show it as a tooltip.
+ */
+export function timeZoneLabel(timeZone: string, locale: Locale): string {
+  const known = KNOWN_ZONES[timeZone];
+  if (known) return known[locale];
+  for (const style of ["longGeneric", "shortOffset"] as const) {
+    const name = zoneName(timeZone, INTL_TAG[locale], style);
+    if (name && (locale === "en" || !/[A-Za-z]/.test(name))) return name;
+  }
+  return VENUE_TIME[locale] ?? timeZone;
+}
+
+/**
+ * The congress zone for a "times are venue time" note, when its offset at `at` differs from this device's:
+ * «وقت تهران» in Persian (never Latin), the short name ("GMT+3:30") in English. Null when the offsets agree or
+ * the zone is unknown.
+ */
+export function venueZoneLabel(timeZone: string | null | undefined, at: Instant, locale: Locale): string | null {
+  const zone = safeTimeZone(timeZone);
+  if (!zone) return null;
+  const device = deviceTimeZone();
+  if (zone === device || zoneName(zone, "en-GB", "longOffset", at) === zoneName(device, "en-GB", "longOffset", at)) return null;
+  if (locale === "fa") return timeZoneLabel(zone, locale);
+  return zoneName(zone, "en-GB", "short", at) ?? zone;
 }
 
 /* ---------------------------------------------------------------- date entry */
@@ -257,7 +387,6 @@ export interface DateDraft {
 export const EMPTY_DATE_DRAFT: DateDraft = { year: "", month: 0, day: 0, time: "" };
 
 const WALL_VALUE = /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2}))?/;
-const pad = (n: number, width = 2) => String(n).padStart(width, "0");
 
 /** Persian and Arabic-Indic digits as Latin ones. */
 export function latinDigits(text: string): string {
@@ -333,5 +462,10 @@ export function describeWallValue(value: string, locale: Locale, timeZone?: stri
   const day = formatDate(at, "day", locale, clockZone);
   const time = formatDate(at, "time", locale, clockZone);
   const label = zone ? ` (${timeZoneLabel(zone, locale)})` : "";
-  return locale === "fa" ? `${day}، ساعت ${time}${label}` : `${day}, ${time}${label}`;
+  return DAY_AT_TIME[locale](day, time, label);
 }
+
+const DAY_AT_TIME: Record<Locale, (day: string, time: string, zone: string) => string> = {
+  fa: (day, time, zone) => `${day}، ساعت ${time}${zone}`,
+  en: (day, time, zone) => `${day}, ${time}${zone}`,
+};

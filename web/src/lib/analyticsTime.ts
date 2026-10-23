@@ -6,7 +6,7 @@
  * `starts_at` instant carrying the event's UTC offset; `bucketSeries` fills the gaps for a chart.
  */
 
-import { formatDate } from "./format.ts";
+import { formatDate, wallClock, type WallClock } from "./format.ts";
 
 export type TimeLocale = "fa" | "en";
 
@@ -29,50 +29,8 @@ const HOUR_MS = 3_600_000;
 /** Longer spans are left sparse rather than drawn as thousands of empty columns. */
 export const MAX_SERIES_HOURS = 24 * 14;
 
-const formatters = new Map<string, Intl.DateTimeFormat>();
-function formatter(locale: string, timeZone: string, options: Intl.DateTimeFormatOptions): Intl.DateTimeFormat {
-  const key = `${locale}|${timeZone}|${JSON.stringify(options)}`;
-  let cached = formatters.get(key);
-  if (!cached) {
-    cached = new Intl.DateTimeFormat(locale, { ...options, timeZone });
-    formatters.set(key, cached);
-  }
-  return cached;
-}
-
 const toInstant = (value: string | number | Date): number =>
   typeof value === "number" ? value : value instanceof Date ? value.getTime() : Date.parse(value);
-
-interface WallClock {
-  year: number;
-  month: number;
-  day: number;
-  hour: number;
-  minute: number;
-  second: number;
-}
-
-/** The wall-clock reading of an instant in `timeZone`, with Latin digits for computation. */
-function wallClock(at: number, timeZone: string): WallClock {
-  const parts = formatter("en-US", timeZone, {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hourCycle: "h23",
-  }).formatToParts(at);
-  const part = (type: Intl.DateTimeFormatPartTypes) => Number(parts.find((p) => p.type === type)?.value ?? 0);
-  return {
-    year: part("year"),
-    month: part("month"),
-    day: part("day"),
-    hour: part("hour") % 24,
-    minute: part("minute"),
-    second: part("second"),
-  };
-}
 
 const pad = (n: number, width = 2) => String(Math.abs(n)).padStart(width, "0");
 const isoDay = (c: WallClock) => `${pad(c.year, 4)}-${pad(c.month)}-${pad(c.day)}`;

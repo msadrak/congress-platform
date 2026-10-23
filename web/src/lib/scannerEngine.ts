@@ -9,6 +9,8 @@
  * inside.
  */
 
+import { wallClock } from "./format.ts";
+
 /** One manifest ticket, keyed by `qr_hash` (sha256 of "<event_id>:<secret>"); raw secrets are never cached. */
 export interface LocalTicket {
   qr_hash: string;
@@ -72,15 +74,8 @@ const DEFAULT_TIME_ZONE = "Asia/Tehran";
  */
 export function admissionWindowKey(resetWindow: string | null | undefined, timeZone: string | null | undefined, at: Date | string): string {
   if (resetWindow !== "DAY") return "event";
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: timeZone || DEFAULT_TIME_ZONE,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    numberingSystem: "latn",
-  }).formatToParts(typeof at === "string" ? new Date(at) : at);
-  const part = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
-  return `${part("year")}-${part("month")}-${part("day")}`;
+  const c = wallClock(at, timeZone || DEFAULT_TIME_ZONE);
+  return `${String(c.year).padStart(4, "0")}-${String(c.month).padStart(2, "0")}-${String(c.day).padStart(2, "0")}`;
 }
 
 function admittedInWindow(ticket: LocalTicket, window: string | undefined): boolean {

@@ -1,5 +1,5 @@
-import { daysBetween, safeTimeZone, zonedDayKey } from "../../lib/congressPhase";
-import { formatDate, formatDateRange as formatRange, timeZoneLabel } from "../../lib/format";
+import { daysBetween } from "../../lib/congressPhase";
+import { formatDate, formatDateRange as formatRange, zonedDayKey } from "../../lib/format";
 import { asciiDigits } from "../../lib/mobile";
 import type { PublicLocale } from "./copy";
 
@@ -43,31 +43,7 @@ export function congressTiming(startIso: string, endIso: string, now = Date.now(
   return { kind: "upcoming", days: Math.max(0, daysBetween(zonedDayKey(now, timeZone), zonedDayKey(start, timeZone))) };
 }
 
-/**
- * The venue zone's short name ("GMT+3:30") when it differs from this device's zone, for a "times are venue
- * time" note; null when they agree or the zone is unknown.
- */
-export function venueZoneNote(timeZone: string | null | undefined, at: string): string | null {
-  const tz = safeTimeZone(timeZone);
-  if (!tz) return null;
-  const device = Intl.DateTimeFormat().resolvedOptions().timeZone;
-  const offset = (zone: string) =>
-    new Intl.DateTimeFormat("en-GB", { timeZone: zone, timeZoneName: "longOffset" }).formatToParts(new Date(at)).find((p) => p.type === "timeZoneName")?.value;
-  if (tz === device || offset(tz) === offset(device)) return null;
-  return new Intl.DateTimeFormat("en-GB", { timeZone: tz, timeZoneName: "short" }).formatToParts(new Date(at)).find((p) => p.type === "timeZoneName")?.value ?? tz;
-}
-
 /** Search text as typed on any keyboard: Persian/Arabic digits and Arabic yeh/kaf match their Persian forms. */
 export function searchText(text: string): string {
   return asciiDigits(text).replace(/ي/g, "ی").replace(/ك/g, "ک").toLowerCase();
-}
-
-/**
- * The venue zone for a "times are venue time" note, when it differs from this device's: «وقت تهران» in Persian
- * (never Latin), the short offset ("GMT+3:30") in English; null when the zones agree or the zone is unknown.
- */
-export function venueZoneLabel(timeZone: string | null | undefined, at: string, locale: PublicLocale): string | null {
-  const note = venueZoneNote(timeZone, at);
-  if (!note || !timeZone) return null;
-  return locale === "en" ? note : timeZoneLabel(timeZone, locale);
 }

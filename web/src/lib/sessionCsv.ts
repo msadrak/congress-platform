@@ -16,7 +16,11 @@
  * Persian/Arabic digits are accepted.
  */
 
+import { zonedWallTimeToIso } from "./format.ts";
 import { isValidJalali, jalaliToGregorian } from "./jalali.ts";
+
+/** Moved to `lib/format.ts`; re-exported for the existing callers. */
+export { zonedWallTimeToIso };
 
 export const SESSION_CSV_FIELDS = ["title", "track", "hall", "speakers", "description", "starts_at", "ends_at"] as const;
 export type SessionCsvField = (typeof SESSION_CSV_FIELDS)[number];
@@ -221,48 +225,6 @@ function validParts(year: number, month: number, day: number, hour: number, minu
   if (month < 1 || month > 12 || hour > 23 || minute > 59 || second > 59) return false;
   // Day 0 of the next month is the last day of this month.
   return day >= 1 && day <= new Date(Date.UTC(year, month, 0)).getUTCDate();
-}
-
-const zoneFormatters: Record<string, Intl.DateTimeFormat> = {};
-
-/** Milliseconds `timeZone` is ahead of UTC at the instant `ms`. */
-function zoneOffset(ms: number, timeZone: string): number {
-  zoneFormatters[timeZone] ??= new Intl.DateTimeFormat("en-US", {
-    timeZone,
-    hourCycle: "h23",
-    year: "numeric",
-    month: "numeric",
-    day: "numeric",
-    hour: "numeric",
-    minute: "numeric",
-    second: "numeric",
-  });
-  const parts: Record<string, number> = {};
-  for (const part of zoneFormatters[timeZone].formatToParts(new Date(ms))) parts[part.type] = Number(part.value);
-  const wall = Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second);
-  return wall - Math.floor(ms / 1000) * 1000;
-}
-
-/**
- * The instant at which the clocks of `timeZone` show this wall time (ISO-8601, UTC). When a daylight-saving
- * change repeats the time the earlier instant wins; when it skips the time, the offset before the change is used.
- */
-export function zonedWallTimeToIso(
-  timeZone: string,
-  year: number,
-  month: number,
-  day: number,
-  hour: number,
-  minute: number,
-  second = 0,
-): string {
-  const wall = Date.UTC(year, month - 1, day, hour, minute, second);
-  const DAY = 86_400_000;
-  const before = zoneOffset(wall - DAY, timeZone);
-  const candidates = [before, zoneOffset(wall + DAY, timeZone)]
-    .map((offset) => wall - offset)
-    .filter((ms) => ms + zoneOffset(ms, timeZone) === wall);
-  return new Date(candidates.length > 0 ? Math.min(...candidates) : wall - before).toISOString();
 }
 
 /**

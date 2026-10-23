@@ -3,8 +3,7 @@
  * registration and tier sales windows) are shown and entered on the EVENT's clock (its IANA zone), never the
  * browser's: an organizer abroad still plans a Tehran congress in Tehran time.
  */
-import { formatDate, type DateStyle } from "../../lib/format.ts";
-import { zonedWallTimeToIso } from "../../lib/sessionCsv.ts";
+import { formatDate, wallClock, zonedWallTimeToIso, type DateStyle } from "../../lib/format.ts";
 
 const pad = (n: number) => String(n).padStart(2, "0");
 
@@ -15,24 +14,12 @@ export function toDateTimeLocal(iso: string | number): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-const wallFormatters: Record<string, Intl.DateTimeFormat> = {};
-
 /** `datetime-local` value (YYYY-MM-DDTHH:MM) of an instant on the clocks of `timeZone`; "" when it is invalid. */
 export function toZonedDateTimeLocal(iso: string | number, timeZone: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "";
-  wallFormatters[timeZone] ??= new Intl.DateTimeFormat("en-US", {
-    timeZone,
-    hourCycle: "h23",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-  const parts: Record<string, string> = {};
-  for (const part of wallFormatters[timeZone].formatToParts(d)) parts[part.type] = part.value;
-  return `${parts.year.padStart(4, "0")}-${parts.month}-${parts.day}T${pad(Number(parts.hour) % 24)}:${parts.minute}`;
+  const c = wallClock(d, timeZone);
+  return `${String(c.year).padStart(4, "0")}-${pad(c.month)}-${pad(c.day)}T${pad(c.hour)}:${pad(c.minute)}`;
 }
 
 const LOCAL_VALUE = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::\d{2}(?:\.\d+)?)?$/;
