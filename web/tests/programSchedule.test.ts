@@ -45,6 +45,21 @@ test("the program opens on today, else the next day to come, else the first", ()
   assert.equal(initialDayKey([], 0), null);
 });
 
+test("with the congress time zone, days are the venue's calendar days", () => {
+  // 21:00 UTC is 00:30 the next day in Tehran (+03:30): the late session belongs to the venue's next day.
+  const venue = [
+    { id: "evening", starts_at: "2026-11-18T20:00:00Z", ends_at: "2026-11-18T20:30:00Z" },
+    { id: "late", starts_at: "2026-11-18T21:00:00Z", ends_at: "2026-11-18T22:00:00Z" },
+  ];
+  const days = groupSessionsByDay(venue, "Asia/Tehran");
+  assert.deepEqual(days.map((d) => d.key), ["2026-11-18", "2026-11-19"]);
+  assert.deepEqual(groupSessionsByDay(venue, "UTC").map((d) => d.key), ["2026-11-18"]);
+  const now = Date.parse("2026-11-18T20:45:00Z"); // 00:15 on the 19th in Tehran
+  assert.equal(initialDayKey(days, now, "Asia/Tehran"), "2026-11-19");
+  assert.deepEqual(liveAndNext(venue, now, "Asia/Tehran")?.next?.id, "late");
+  assert.equal(liveAndNext(venue, now, "UTC")?.next?.id, "late");
+});
+
 test("tracks and halls are listed once, trimmed, without blanks", () => {
   assert.deepEqual(distinctValues(["پنل", " کارگاه ", null, "", "پنل", undefined, "Keynote"]), ["پنل", "کارگاه", "Keynote"]);
 });

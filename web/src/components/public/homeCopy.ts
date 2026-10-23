@@ -38,7 +38,7 @@ export const homeCopy = {
         audience: "Everyone with the link",
         icon: "congress",
         body: "Each congress gets its own registration page: passes with live remaining capacity, free reservation in a minute and an index of exhibitors with their profiles and brochures.",
-        note: "Shared privately by each organizer; there is no public event directory.",
+        note: "Each congress has its own link; congresses the organizer lists also appear above.",
       },
       {
         key: "attendee",
@@ -95,7 +95,7 @@ export const homeCopy = {
         phase: "At the doors",
         title: "Gate scanning & front desk",
         body: "Attendance is verified at the gates by camera or handheld USB scanner while the front desk issues walk-in passes in seconds.",
-        points: ["Local scan buffering for unstable venue networks", "Rapid walk-in search with printable passes", "Live analytics with 10-second refresh & CSV export"],
+        points: ["Local scan buffering for unstable venue networks", "Rapid walk-in search with printable passes", "Live analytics with 30-second refresh & CSV export"],
       },
       {
         phase: "On the floor",
@@ -141,15 +141,15 @@ export const homeCopy = {
         name: "پنل برگزارکننده",
         audience: "برگزارکنندگان",
         icon: "sliders",
-        body: "فضای کاری هر سازمان با کلید API: همایش‌ها، رده‌ها و سهمیهٔ کارت ورود، نقاط پذیرش با سیاست یک‌بار ورود، ورود مکرر یا سقف ظرفیت، غرفه‌های نمایشگاه، نمایندگان غرفه و اپراتورهای پذیرش؛ همراه با آمار زندهٔ حضور و خروجی CSV.",
+        body: "فضای کاری هر سازمان با کلید API: همایش‌ها، انواع کارت ورود و سهمیهٔ هر کدام، نقاط ورود با سیاست یک‌بار ورود، ورود مکرر یا سقف ظرفیت، غرفه‌های نمایشگاه، نمایندگان غرفه و اپراتورهای پذیرش؛ همراه با آمار زندهٔ حضور و خروجی CSV.",
       },
       {
         key: "public",
         name: "صفحهٔ عمومی همایش",
         audience: "هر کسی که پیوند را دارد",
         icon: "congress",
-        body: "هر همایش صفحهٔ ثبت‌نام خودش را دارد: رده‌های کارت ورود با ظرفیت باقی‌ماندهٔ لحظه‌ای، رزرو رایگان در کمتر از یک دقیقه و فهرست غرفه‌داران با معرفی و بروشور.",
-        note: "پیوند را هر برگزارکننده به‌صورت خصوصی منتشر می‌کند؛ فهرست عمومی رویدادها وجود ندارد.",
+        body: "هر همایش صفحهٔ ثبت‌نام خودش را دارد: انواع کارت ورود با ظرفیت باقی‌ماندهٔ لحظه‌ای، رزرو رایگان در کمتر از یک دقیقه و فهرست غرفه‌داران با معرفی و بروشور.",
+        note: "هر همایش پیوند خودش را دارد؛ همایش‌هایی که برگزارکننده بخواهد در فهرست بالای همین صفحه هم می‌آیند.",
       },
       {
         key: "attendee",
@@ -194,19 +194,19 @@ export const homeCopy = {
     viewMyPasses: "مشاهدهٔ کارت‌های ورود من",
     lifecycleEyebrow: "چرخهٔ همایش",
     lifecycleTitle: "همراه همهٔ مراحل همایش شما",
-    lifecycleLead: "از تعریف رده‌های کارت ورود تا جریان عبور از گیت‌ها و ثبت سرنخ غرفه‌ها، همهٔ مراحل در یک روند یکپارچه به هم متصل‌اند.",
+    lifecycleLead: "از تعریف انواع کارت ورود تا جریان عبور از گیت‌ها و ثبت سرنخ غرفه‌ها، همهٔ مراحل در یک روند یکپارچه به هم متصل‌اند.",
     phases: [
       {
         phase: "پیش از همایش",
         title: "راه‌اندازی و ثبت‌نام مستقیم",
-        body: "برگزارکننده رده‌های کارت ورود را با سقف سهمیهٔ دقیق، سیاست‌های پذیرش و فهرست غرفه‌های نمایشگاه تعریف می‌کند.",
+        body: "برگزارکننده انواع کارت ورود را با سقف سهمیهٔ دقیق، سیاست‌های پذیرش و فهرست غرفه‌های نمایشگاه تعریف می‌کند.",
         points: ["پیوند مستقیم و خصوصی برای ثبت‌نام شرکت‌کنندگان", "صدور فوری کارت ورود QR", "صفحهٔ معرفی و بروشور غرفه‌ها"],
       },
       {
         phase: "در ورودی‌ها",
         title: "اسکن گیت و میز پذیرش",
         body: "حضور شرکت‌کنندگان در گیت‌ها با دوربین یا بارکدخوان دستی USB تأیید می‌شود و میز پذیرش در چند ثانیه کارت ورود حضوری صادر می‌کند.",
-        points: ["ذخیرهٔ محلی اسکن‌ها برای شبکهٔ ناپایدار سالن", "جست‌وجوی سریع حضوری با کارت قابل چاپ", "آمار زنده با به‌روزرسانی ده‌ثانیه‌ای و خروجی CSV"],
+        points: ["ذخیرهٔ محلی اسکن‌ها برای شبکهٔ ناپایدار سالن", "جست‌وجوی سریع حضوری با کارت قابل چاپ", "آمار زنده با به‌روزرسانی سی‌ثانیه‌ای و خروجی CSV"],
       },
       {
         phase: "در سالن نمایشگاه",

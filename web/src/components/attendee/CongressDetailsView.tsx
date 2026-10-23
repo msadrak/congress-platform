@@ -62,7 +62,7 @@ export function CongressDetailsView({ event, page, labels, locale, t, agendaOwne
   const n = (value: number) => formatLocalizedNumber(value, locale);
 
   const facts: { icon: IconName; label: string; value: string }[] = [
-    { icon: "calendar", label: isRtl ? "زمان" : "When", value: formatDateRange(event.starts_at, event.ends_at, locale) },
+    { icon: "calendar", label: isRtl ? "زمان" : "When", value: formatDateRange(event.starts_at, event.ends_at, locale, event.timezone) },
   ];
   if (event.location) facts.push({ icon: "pin", label: t.venueLabel, value: event.location });
   if (totalDays !== null) {

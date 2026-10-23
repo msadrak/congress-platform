@@ -52,6 +52,8 @@ interface CongressPageProps {
   mode?: "public" | "preview";
   /** Visible schedule files (PDFs and images), shown after the sections. */
   programFiles?: readonly PublicProgramFile[];
+  /** The page's ticking clock (ms): registration states change on their own when a window opens or closes. */
+  now?: number;
 }
 
 function hasContent(section: PageSection, locale: PublicLocale): boolean {
@@ -78,7 +80,7 @@ function hasContent(section: PageSection, locale: PublicLocale): boolean {
  * sections in their saved order, each drawn by a curated AIteb component. The same component renders
  * `/e/:slug` and the Page Studio preview, so the preview is the page.
  */
-export function CongressPage({ event, doc, images, locale, passes, booths, mode = "public", programFiles = [] }: CongressPageProps) {
+export function CongressPage({ event, doc, images, locale, passes, booths, mode = "public", programFiles = [], now }: CongressPageProps) {
   const c = publicCopy[locale];
   const preview = mode === "preview";
   const logo = doc.branding.logo_asset_id ? images[doc.branding.logo_asset_id] ?? null : null;
@@ -95,7 +97,7 @@ export function CongressPage({ event, doc, images, locale, passes, booths, mode 
       <>
         {sessions.length > 0 && (
           <EditorialSection id="program" headingId="program-heading" index={++index} eyebrow={c.sectionProgramEyebrow} title={c.sectionProgram} lead={c.programLead} locale={locale}>
-            <PublicProgram sessions={sessions} locale={locale} hallIds={new Set(venue.map((p) => p.id))} />
+            <PublicProgram sessions={sessions} locale={locale} timeZone={event.timezone} hallIds={new Set(venue.map((p) => p.id))} />
           </EditorialSection>
         )}
         {programFiles.length > 0 && (
@@ -271,6 +273,7 @@ export function CongressPage({ event, doc, images, locale, passes, booths, mode 
     <>
       <CongressHero
         event={event}
+        now={now}
         locale={locale}
         hero={doc.hero}
         accent={doc.branding.accent}

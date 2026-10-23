@@ -3,7 +3,9 @@ import type { PublicSession } from "../../api/client";
 import { distinctValues, groupSessionsByDay, initialDayKey, liveAndNext } from "../../lib/programSchedule";
 import { Badge } from "../ui/Badge";
 import { Icon } from "../ui/Icon";
+import { safeTimeZone } from "../../lib/congressPhase";
 import { num, publicCopy, type PublicLocale } from "./copy";
+import { venueZoneNote } from "./format";
 
 const DATE_LOCALE: Record<PublicLocale, string> = { en: "en-GB", fa: "fa-IR-u-ca-persian" };
 const TIME_LOCALE: Record<PublicLocale, string> = { en: "en-GB", fa: "fa-IR" };
@@ -18,13 +20,14 @@ function useNow(): number {
   return now;
 }
 
-const clock = (iso: string, locale: PublicLocale) =>
-  new Intl.DateTimeFormat(TIME_LOCALE[locale], { hour: "2-digit", minute: "2-digit" }).format(new Date(iso));
+/** Clock time at the venue (`timeZone`: the congress's zone, already validated). */
+const clock = (iso: string, locale: PublicLocale, timeZone: string | undefined) =>
+  new Intl.DateTimeFormat(TIME_LOCALE[locale], { hour: "2-digit", minute: "2-digit", timeZone }).format(new Date(iso));
 
-const dayLabel = (iso: string, locale: PublicLocale, month: "long" | "short" = "long") =>
-  new Intl.DateTimeFormat(DATE_LOCALE[locale], { weekday: month === "long" ? "long" : "short", day: "numeric", month }).format(new Date(iso));
+const dayLabel = (iso: string, locale: PublicLocale, timeZone: string | undefined, month: "long" | "short" = "long") =>
+  new Intl.DateTimeFormat(DATE_LOCALE[locale], { weekday: month === "long" ? "long" : "short", day: "numeric", month, timeZone }).format(new Date(iso));
 
-/** Hall name, linked to its card in the venue section when that card is on the page. */
+/** Hall name, linked to its card in the venue section when that card is on the page (a full 44px target). */
 function Hall({ session, hallIds }: { session: PublicSession; hallIds: ReadonlySet<string> }) {
   if (!session.hall_name) return null;
   const content = (
@@ -34,7 +37,10 @@ function Hall({ session, hallIds }: { session: PublicSession; hallIds: ReadonlyS
     </>
   );
   return session.hall_id && hallIds.has(session.hall_id) ? (
-    <a href={`#venue-${session.hall_id}`} className="inline-flex min-w-0 items-center gap-1.5 underline-offset-4 hover:text-text-primary hover:underline">
+    <a
+      href={`#venue-${session.hall_id}`}
+      className="-my-3 inline-flex min-h-11 min-w-11 items-center gap-1.5 rounded underline-offset-4 hover:text-text-primary hover:underline focus-visible:outline-2 focus-visible:outline-focus-ring"
+    >
       {content}
     </a>
   ) : (
@@ -42,7 +48,7 @@ function Hall({ session, hallIds }: { session: PublicSession; hallIds: ReadonlyS
   );
 }
 
-function SessionRow({ session, locale, now, hallIds }: { session: PublicSession; locale: PublicLocale; now: number; hallIds: ReadonlySet<string> }) {
+function SessionRow({ session, locale, now, hallIds, timeZone }: { session: PublicSession; locale: PublicLocale; now: number; hallIds: ReadonlySet<string>; timeZone: string | undefined }) {
   const c = publicCopy[locale];
   const start = Date.parse(session.starts_at);
   const end = Date.parse(session.ends_at);
@@ -51,10 +57,10 @@ function SessionRow({ session, locale, now, hallIds }: { session: PublicSession;
   return (
     <li className={`grid grid-cols-[4.5rem_minmax(0,1fr)] gap-x-4 px-4 py-5 sm:grid-cols-[6.5rem_minmax(0,1fr)] sm:gap-x-8 sm:px-6 ${live ? "bg-event-accent/[0.06]" : ""}`}>
       <p className="flex flex-col pt-0.5 tabular">
-        <span className={`text-base font-semibold ${ended ? "text-text-muted" : "text-text-primary"}`}>{clock(session.starts_at, locale)}</span>
+        <span className={`text-base font-semibold ${ended ? "text-text-muted" : "text-text-primary"}`}>{clock(session.starts_at, locale, timeZone)}</span>
         <span className="text-xs text-text-muted">
           <span className="sr-only">{c.until} </span>
-          {clock(session.ends_at, locale)}
+          {clock(session.ends_at, locale, timeZone)}
         </span>
         {ended && <span className="sr-only">{c.sessionEnded}</span>}
       </p>
@@ -98,13 +104,13 @@ function SessionRow({ session, locale, now, hallIds }: { session: PublicSession;
 }
 
 /** On a program day: what is on now and what starts next, on ink so it reads as live status. */
-function NowNext({ live, next, locale }: { live: PublicSession[]; next: PublicSession | null; locale: PublicLocale }) {
+function NowNext({ live, next, locale, timeZone }: { live: PublicSession[]; next: PublicSession | null; locale: PublicLocale; timeZone: string | undefined }) {
   const c = publicCopy[locale];
   const line = (session: PublicSession) => (
     <>
       <span dir="auto" className="block text-base font-semibold leading-snug text-white break-words">{session.title}</span>
       <span className="mt-0.5 block text-xs text-ink-300">
-        <span className="tabular">{clock(session.starts_at, locale)}–{clock(session.ends_at, locale)}</span>
+        <span className="tabular">{clock(session.starts_at, locale, timeZone)}–{clock(session.ends_at, locale, timeZone)}</span>
         {session.hall_name && (
           <>
             {" · "}
@@ -151,31 +157,45 @@ const chip = (active: boolean) =>
 
 /**
  * The public congress program: one day at a time (day buttons when there are several), optional track
- * filter, and on a program day a now/next card. Halls link to the venue section.
+ * filter, and on a program day a now/next card. Halls link to the venue section. Days and times are the
+ * venue's (`timeZone`, the congress's zone), with a note when this device is in another zone.
  */
-export function PublicProgram({ sessions, locale, hallIds }: { sessions: readonly PublicSession[]; locale: PublicLocale; hallIds: ReadonlySet<string> }) {
+export function PublicProgram({ sessions, locale, hallIds, timeZone }: {
+  sessions: readonly PublicSession[];
+  locale: PublicLocale;
+  hallIds: ReadonlySet<string>;
+  timeZone?: string;
+}) {
   const c = publicCopy[locale];
   const now = useNow();
-  const days = groupSessionsByDay(sessions);
+  const tz = safeTimeZone(timeZone);
+  const days = groupSessionsByDay(sessions, tz);
   const tracks = distinctValues(sessions.map((s) => s.track));
   const [chosenDay, setChosenDay] = useState<string | null>(null);
   const [track, setTrack] = useState<string | null>(null);
-  const dayKey = chosenDay && days.some((d) => d.key === chosenDay) ? chosenDay : initialDayKey(days, now);
+  const dayKey = chosenDay && days.some((d) => d.key === chosenDay) ? chosenDay : initialDayKey(days, now, tz);
   const day = days.find((d) => d.key === dayKey) ?? days[0];
   if (!day) return null;
   const shown = track ? day.sessions.filter((s) => s.track?.trim() === track) : day.sessions;
-  const status = liveAndNext(sessions, now);
+  const status = liveAndNext(sessions, now, tz);
+  const zone = venueZoneNote(tz, day.sessions[0].starts_at);
 
   return (
     <div className="space-y-6">
-      {status && <NowNext live={status.live} next={status.next} locale={locale} />}
+      {zone && (
+        <p data-testid="program-zone-note" className="flex items-center gap-1.5 text-xs text-text-muted">
+          <Icon name="clock" size={14} className="shrink-0" />
+          {c.zoneNote(zone)}
+        </p>
+      )}
+      {status && <NowNext live={status.live} next={status.next} locale={locale} timeZone={tz} />}
 
       {days.length > 1 && (
         <div role="group" aria-label={c.programDays} className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 sm:mx-0 sm:flex-wrap sm:px-0">
           {days.map((d, i) => (
             <button key={d.key} type="button" aria-pressed={d.key === day.key} onClick={() => setChosenDay(d.key)} className={chip(d.key === day.key)}>
               <span>{c.programDay(num(i + 1, locale))}</span>
-              <span className={`text-xs font-medium ${d.key === day.key ? "text-ink-200" : "text-text-muted"}`}>{dayLabel(d.sessions[0].starts_at, locale, "short")}</span>
+              <span className={`text-xs font-medium ${d.key === day.key ? "text-ink-200" : "text-text-muted"}`}>{dayLabel(d.sessions[0].starts_at, locale, tz, "short")}</span>
             </button>
           ))}
         </div>
@@ -191,9 +211,9 @@ export function PublicProgram({ sessions, locale, hallIds }: { sessions: readonl
         </div>
       )}
 
-      <section aria-label={dayLabel(day.sessions[0].starts_at, locale)} className="overflow-hidden rounded-2xl border border-border-default bg-surface-panel shadow-soft">
+      <section aria-label={dayLabel(day.sessions[0].starts_at, locale, tz)} className="overflow-hidden rounded-2xl border border-border-default bg-surface-panel shadow-soft">
         <h3 className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 border-b border-border-subtle bg-surface-panel-subtle px-4 py-3 sm:px-6">
-          <span className="text-base font-semibold tracking-[-0.01em] text-text-primary">{dayLabel(day.sessions[0].starts_at, locale)}</span>
+          <span className="text-base font-semibold tracking-[-0.01em] text-text-primary">{dayLabel(day.sessions[0].starts_at, locale, tz)}</span>
           <span className="text-xs text-text-muted tabular">{c.sessionCount(num(shown.length, locale), shown.length)}</span>
         </h3>
         {shown.length === 0 ? (
@@ -201,7 +221,7 @@ export function PublicProgram({ sessions, locale, hallIds }: { sessions: readonl
         ) : (
           <ol className="divide-y divide-border-subtle">
             {shown.map((s) => (
-              <SessionRow key={s.id} session={s} locale={locale} now={now} hallIds={hallIds} />
+              <SessionRow key={s.id} session={s} locale={locale} now={now} hallIds={hallIds} timeZone={tz} />
             ))}
           </ol>
         )}

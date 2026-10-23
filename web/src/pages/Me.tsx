@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { createApiClient, type AttendeeTicketDetail, type BookmarkedBoothOut } from "../api/client";
+import { createApiClient, localizedApiError, type AttendeeTicketDetail, type BookmarkedBoothOut } from "../api/client";
 import { readableApiError } from "../lib/attendeeErrors";
 import { attendeeResponseState, isStoredAttendeeToken, sessionChangedMessage } from "../lib/attendeeSession";
 import { useAttendeeSession } from "../hooks/useAttendeeSession";
@@ -12,11 +12,14 @@ import { signInPath } from "../lib/safeRedirect";
 import { formatLocalizedNumber, useAttendeeLocale, type AttendeeLocale } from "../lib/i18n";
 import { AttendeeLayout } from "../layouts/AttendeeLayout";
 import { Button, LinkButton } from "../components/ui/Button";
-import { Icon } from "../components/ui/Icon";
+import { Icon, type IconName } from "../components/ui/Icon";
 import { CongressSignature } from "../components/brand/CongressSignature";
 import { PhaseBadge } from "../components/attendee/PhaseBadge";
 import { SectionHeader } from "../components/attendee/SectionHeader";
 import { formatDateRange } from "../components/attendee/congressTime";
+import { PublicEventList } from "../components/public/PublicEventList";
+import { useStaffAccess } from "../hooks/useStaffAccess";
+import type { StaffDestinations } from "../lib/staffAccess";
 
 const COPY = {
   fa: {
@@ -38,6 +41,15 @@ const COPY = {
     removeFailed: "حذف نشد؛ دوباره تلاش کنید.",
     restoreFailed: "بازگردانده نشد؛ دوباره تلاش کنید.",
     undo: "بازگرداندن",
+    staffHeading: "محل کار شما در همایش‌ها",
+    staffLead: "پنل غرفه‌هایی که نماینده‌شان هستید و میزهای پذیرشی که اپراتورشان هستید.",
+    myBooths: "غرفه‌های من",
+    receptionDesk: "میز پذیرش",
+    boothFallback: "غرفه",
+    openBooth: "باز کردن پنل غرفه",
+    openDesk: "باز کردن میز پذیرش",
+    staffFailed: "غرفه‌ها و میزهای پذیرش شما بارگذاری نشد.",
+    noPassNote: "برای خودتان هنوز کارت ورودی در همایشی رزرو نکرده‌اید.",
   },
   en: {
     title: "My congresses",
@@ -58,6 +70,15 @@ const COPY = {
     removeFailed: "Couldn't remove — try again.",
     restoreFailed: "Couldn't restore — try again.",
     undo: "Undo",
+    staffHeading: "Where you work at congresses",
+    staffLead: "The booths you staff and the reception desks you operate.",
+    myBooths: "My booths",
+    receptionDesk: "Reception desk",
+    boothFallback: "Booth",
+    openBooth: "Open booth workspace",
+    openDesk: "Open reception desk",
+    staffFailed: "Couldn't load your booths and reception desks.",
+    noPassNote: "You haven't reserved a pass for a congress yet.",
   },
 } as const;
 
@@ -111,12 +132,88 @@ function CongressCardLink({ card, locale }: { card: CongressCard; locale: Attend
   );
 }
 
+function StaffCard({ to, icon, kicker, title, detail, action }: { to: string; icon: IconName; kicker: string; title: string; detail?: string; action: string }) {
+  return (
+    <Link
+      to={to}
+      aria-label={`${action}: ${title}`}
+      data-testid="staff-card"
+      className="press group flex h-full items-center gap-4 rounded-2xl border border-border-default bg-surface-panel p-4 shadow-soft transition-[border-color,box-shadow] hover:border-border-strong hover:shadow-lift focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
+    >
+      <span aria-hidden="true" className="grid size-12 shrink-0 place-items-center rounded-xl bg-aiteb-lavender text-aiteb-indigo [border-start-end-radius:20px]">
+        <Icon name={icon} size={22} />
+      </span>
+      <span className="min-w-0 flex-1 space-y-1">
+        <span dir="auto" className="block text-[11px] font-semibold text-aiteb-indigo break-words">{kicker}</span>
+        <span dir="auto" className="block text-base font-semibold leading-snug tracking-[-0.01em] text-text-primary break-words">{title}</span>
+        {detail && (
+          <span className="flex items-center gap-1.5 text-xs text-text-muted">
+            <Icon name="pin" size={14} className="shrink-0 text-ink-400" />
+            <span dir="auto" className="break-words">{detail}</span>
+          </span>
+        )}
+        <span className="block text-xs font-semibold text-action-primary">{action}</span>
+      </span>
+      <Icon name="arrow-right" size={18} className="shrink-0 text-ink-400 transition-transform group-hover:translate-x-0.5 rtl:group-hover:-translate-x-0.5" />
+    </Link>
+  );
+}
+
+/** Booths the person staffs and desks they operate: the way into `/booth/:id` and `/reception/:eventId`. */
+function StaffSection({ destinations, locale }: { destinations: StaffDestinations; locale: AttendeeLocale }) {
+  const copy = COPY[locale];
+  return (
+    <section aria-labelledby="me-staff" data-testid="staff-section" className="space-y-5">
+      <SectionHeader id="me-staff" title={copy.staffHeading} description={copy.staffLead} />
+      {destinations.booths.length > 0 && (
+        <div className="space-y-3">
+          <h3 className="text-sm font-semibold text-text-muted">{copy.myBooths}</h3>
+          <ul className="grid gap-3 sm:grid-cols-2">
+            {destinations.booths.map((booth) => (
+              <li key={booth.id}>
+                <StaffCard
+                  to={`/booth/${encodeURIComponent(booth.id)}`}
+                  icon="booth"
+                  kicker={booth.eventName}
+                  title={booth.name || copy.boothFallback}
+                  detail={booth.location || undefined}
+                  action={copy.openBooth}
+                />
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {destinations.desks.length > 0 && (
+        <div className="space-y-3">
+          <h3 className="text-sm font-semibold text-text-muted">{copy.receptionDesk}</h3>
+          <ul className="grid gap-3 sm:grid-cols-2">
+            {destinations.desks.map((desk) => (
+              <li key={desk.eventId}>
+                <StaffCard
+                  to={`/reception/${encodeURIComponent(desk.eventId)}`}
+                  icon="id-card"
+                  kicker={copy.receptionDesk}
+                  title={desk.eventName}
+                  action={copy.openDesk}
+                />
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </section>
+  );
+}
+
 /** `/me`: the attendee's congresses (upcoming / live / past), each opening its panel; link passes when signed out. */
 export default function Me() {
   const localeHook = useAttendeeLocale();
   const { locale, t } = localeHook;
   const copy = COPY[locale];
   const { token } = useAttendeeSession();
+  // Booths and reception desks this person works at (descriptive; each portal authorizes on its own).
+  const staff = useStaffAccess(token);
 
   const [tickets, setTickets] = useState<AttendeeTicketDetail[]>([]);
   const [fromCache, setFromCache] = useState(false);
@@ -241,6 +338,9 @@ export default function Me() {
   };
 
   const signIn = signInPath(undefined, "/me");
+  const staffDestinations = staff.state.status === "ready" ? staff.state.destinations : null;
+  const hasStaff = Boolean(staffDestinations && (staffDestinations.booths.length > 0 || staffDestinations.desks.length > 0));
+  const staffSection = staffDestinations && hasStaff ? <StaffSection destinations={staffDestinations} locale={locale} /> : null;
   let body;
   if (loading && tickets.length === 0) {
     body = (
@@ -262,6 +362,14 @@ export default function Me() {
           {copy.retry}
         </Button>
       </div>
+    );
+  } else if (!hasCards && token && hasStaff) {
+    // Booth staff and desk operators without a pass of their own: their workplaces above, a quiet note here.
+    body = (
+      <p className="flex items-center gap-2.5 rounded-2xl border border-dashed border-border-strong px-4 py-3 text-sm text-text-secondary">
+        <Icon name="ticket" size={18} className="shrink-0 text-ink-300" />
+        {copy.noPassNote}
+      </p>
     );
   } else if (!hasCards && token) {
     body = (
@@ -330,7 +438,24 @@ export default function Me() {
           </div>
         )}
 
+        {/* With passes of their own, the congresses come first; without, the workplaces lead. */}
+        {!hasCards && staffSection}
+        {staff.state.status === "error" && (
+          <div role="alert" className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-2xl border border-status-danger-border bg-status-danger-bg px-4 py-3 text-xs text-status-danger-text">
+            <Icon name="alert" size={16} className="shrink-0" />
+            <span className="flex-1">
+              <span className="font-semibold">{copy.staffFailed}</span>
+              {staff.state.error !== null && <> {localizedApiError(staff.state.error, locale)}</>}
+            </span>
+            <Button type="button" variant="ghost" size="sm" className="min-h-11" onClick={staff.retry}>
+              <Icon name="sync" size={16} />
+              {copy.retry}
+            </Button>
+          </div>
+        )}
+
         {body}
+        {hasCards && staffSection}
 
         {!token && (
           <section
@@ -352,6 +477,9 @@ export default function Me() {
             </div>
           </section>
         )}
+
+        {/* Nobody signed in, or no congress yet: never a dead end, the listed congresses are one tap away. */}
+        {!hasCards && !loading && !error && <PublicEventList locale={locale} variant="panel" headingId="me-public-events" />}
 
         {token && booths.length > 0 && (
           <section aria-labelledby="saved-booths-heading" className="space-y-5">

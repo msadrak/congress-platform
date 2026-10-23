@@ -309,7 +309,7 @@ export default function AttendeeSignIn() {
                 {knownSlug ? (
                   <p>
                     {copy.noAccount}{" "}
-                    <Link to={`/e/${encodeURIComponent(knownSlug)}`} className="font-semibold text-action-primary underline-offset-4 hover:underline">
+                    <Link to={`/e/${encodeURIComponent(knownSlug)}`} className="inline-flex min-h-11 items-center rounded font-semibold text-action-primary underline-offset-4 hover:underline">
                       {copy.reserve}
                     </Link>
                   </p>

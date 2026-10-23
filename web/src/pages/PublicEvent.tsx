@@ -27,6 +27,8 @@ import { useHeldPass } from "../components/public/useHeldPass";
 import { CongressPage } from "../components/public/page/CongressPage";
 import { programFilesOf } from "../lib/programFiles";
 import { PassesPanel } from "../components/public/page/PassesPanel";
+import { useNow } from "../components/attendee/useNow";
+import { tierAvailability } from "../lib/registrationWindow";
 
 export default function PublicEvent() {
   const { slug } = useParams<{ slug: string }>();
@@ -78,10 +80,9 @@ export default function PublicEvent() {
         } else if (data) {
           setEvent(data);
           if (data.ticket_tiers && data.ticket_tiers.length > 0) {
-            // Select first available tier with open registration and remaining quota
-            const firstAvailable = data.ticket_tiers.find(
-              (t) => t.is_open && (t.reserved_count ?? 0) < t.quota
-            );
+            // Select the first tier reservable now (registration and sales windows, switch, quota).
+            const at = Date.now();
+            const firstAvailable = data.ticket_tiers.find((t) => tierAvailability(data, t, at).kind === "open");
             setSelectedTierId(firstAvailable ? firstAvailable.id : data.ticket_tiers[0].id);
           }
         }
@@ -120,16 +121,10 @@ export default function PublicEvent() {
     event?.ticket_tiers.find((t) => t.id === selectedTierId) ??
     (event?.ticket_tiers.length ? event.ticket_tiers[0] : null);
 
-  const selectedTierReserved = selectedTier ? (selectedTier.reserved_count ?? 0) : 0;
-  const selectedTierQuota = selectedTier ? selectedTier.quota : 0;
-  const selectedTierState = selectedTier
-    ? selectedTierReserved >= selectedTierQuota
-      ? "SOLD_OUT"
-      : !selectedTier.is_open
-      ? "CLOSED"
-      : "AVAILABLE"
-    : "CLOSED";
-  const isSelectedTierAvailable = selectedTierState === "AVAILABLE";
+  // Registration windows open and close on their own: the page re-renders every 30 s to follow them.
+  const now = useNow();
+  // Never open the sign-in sheet for a reservation the API would refuse (window, sales, switch, quota).
+  const reservableNow = (at: number) => Boolean(event && selectedTier && tierAvailability(event, selectedTier, at).kind === "open");
 
   const executeReservation = async (token: string, tierId: string) => {
     if (!event) return;
@@ -203,7 +198,7 @@ export default function PublicEvent() {
   };
 
   const handleStartReservation = async () => {
-    if (!selectedTier || !event || !isSelectedTierAvailable) return;
+    if (!selectedTier || !event || !reservableNow(Date.now())) return;
     setModalError(null);
 
     if (storedToken) {
@@ -302,11 +297,15 @@ export default function PublicEvent() {
         images={images}
         locale={locale}
         programFiles={programFilesOf(event)}
+        now={now}
         passes={
           <PassesPanel
             slug={event.slug}
             tiers={event.ticket_tiers}
             locale={locale}
+            registration={event}
+            timeZone={event.timezone}
+            now={now}
             accent={doc.branding.accent}
             selectedTierId={selectedTierId}
             onSelectTier={(id) => {

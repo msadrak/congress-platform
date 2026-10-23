@@ -16,6 +16,8 @@ import { loadOwnerScopedTickets } from "../lib/ticketCache";
 import { loadLinkPasses } from "../lib/linkPass";
 import { groupCongresses, knownCongressName, type CongressCard } from "../lib/attendeePasses";
 import { congressPath, useCongressEvent, type AttendeeDestination } from "../lib/congressContext";
+import { NO_STAFF_DESTINATIONS, type StaffDestinations } from "../lib/staffAccess";
+import { loadStaffAccess } from "../hooks/useStaffAccess";
 import "../styles/attendee.css";
 
 interface AttendeeLayoutProps {
@@ -45,6 +47,9 @@ const SHELL_COPY = {
     myCongresses: "همایش‌های من",
     switchCongress: "تغییر همایش",
     allCongresses: "همه همایش‌های من",
+    myBooths: "غرفه‌های من",
+    receptionDesk: "میز پذیرش",
+    boothFallback: "غرفه",
     skip: "پرش به محتوای اصلی",
     footer: "کارت ورود برای استفاده بدون اینترنت روی همین دستگاه می‌ماند؛ در دستگاه مشترک پس از استفاده خارج شوید.",
     logoutTitle: "خروج از حساب در این دستگاه؟",
@@ -58,6 +63,9 @@ const SHELL_COPY = {
     myCongresses: "My congresses",
     switchCongress: "Switch congress",
     allCongresses: "All my congresses",
+    myBooths: "My booths",
+    receptionDesk: "Reception desk",
+    boothFallback: "Booth",
     skip: "Skip to main content",
     footer: "Your pass stays on this device for offline use; log out after using a shared device.",
     logoutTitle: "Log out on this device?",
@@ -145,7 +153,25 @@ function knownOnDevice(token: string | null) {
   return { tickets: cache?.status === "valid" ? cache.tickets : [], links: token ? [] : loadLinkPasses(undefined) };
 }
 
-function CongressSwitcher({ slug, name, accent, kicker, loadOthers, copy }: {
+/** One entry of the switcher menu: an icon tile, a label and an optional small line above it. */
+function SwitcherEntry({ to, icon, label, kicker }: { to: string; icon: IconName; label: string; kicker?: string }) {
+  return (
+    <Link
+      to={to}
+      className={`flex min-h-12 items-center gap-3 rounded-xl px-2.5 py-2 text-sm font-semibold text-text-primary hover:bg-surface-panel-subtle ${focusRing}`}
+    >
+      <span aria-hidden="true" className="grid size-8 shrink-0 place-items-center rounded-lg bg-aiteb-lavender text-aiteb-indigo">
+        <Icon name={icon} size={16} />
+      </span>
+      <span className="flex min-w-0 flex-col">
+        {kicker && <span dir="auto" className="truncate text-[11px] font-medium text-text-muted">{kicker}</span>}
+        <span dir="auto" className="truncate">{label}</span>
+      </span>
+    </Link>
+  );
+}
+
+function CongressSwitcher({ slug, name, accent, kicker, loadOthers, copy, token }: {
   slug: string;
   name: React.ReactNode;
   accent?: AccentName | "auto";
@@ -153,9 +179,19 @@ function CongressSwitcher({ slug, name, accent, kicker, loadOthers, copy }: {
   /** Read when the menu opens, so passes saved since the page opened are listed. */
   loadOthers: () => CongressCard[];
   copy: (typeof SHELL_COPY)[keyof typeof SHELL_COPY];
+  /** The signed-in session: its booths and reception desks are listed too (loaded when the menu first opens). */
+  token: string | null;
 }) {
   const [open, setOpen] = useState(false);
   const [others, setOthers] = useState<CongressCard[]>([]);
+  const [staff, setStaff] = useState<{ token: string; destinations: StaffDestinations } | null>(null);
+  const staffShown = staff && staff.token === token ? staff.destinations : NO_STAFF_DESTINATIONS;
+  const loadStaff = () => {
+    if (!token) return;
+    void loadStaffAccess(token).then((result) => {
+      if (result.status === "ready") setStaff({ token, destinations: result.destinations });
+    });
+  };
   const root = useRef<HTMLDivElement>(null);
   const location = useLocation();
   const [lastPath, setLastPath] = useState(location.pathname);
@@ -187,7 +223,10 @@ function CongressSwitcher({ slug, name, accent, kicker, loadOthers, copy }: {
         aria-controls="congress-switcher"
         aria-label={copy.switchCongress}
         onClick={() => {
-          if (!open) setOthers(loadOthers());
+          if (!open) {
+            setOthers(loadOthers());
+            loadStaff();
+          }
           setOpen(!open);
         }}
         className={`flex h-16 min-w-0 max-w-full items-center gap-3 rounded-xl text-start cursor-pointer ${focusRing}`}
@@ -222,7 +261,17 @@ function CongressSwitcher({ slug, name, accent, kicker, loadOthers, copy }: {
                 </Link>
               </li>
             ))}
-            <li className={others.length > 0 ? "border-t border-border-default pt-0.5" : ""}>
+            {staffShown.booths.map((booth, i) => (
+              <li key={`booth-${booth.id}`} className={i === 0 && others.length > 0 ? "border-t border-border-default pt-0.5" : ""}>
+                <SwitcherEntry to={`/booth/${encodeURIComponent(booth.id)}`} icon="booth" kicker={`${copy.myBooths} · ${booth.eventName}`} label={booth.name || copy.boothFallback} />
+              </li>
+            ))}
+            {staffShown.desks.map((desk, i) => (
+              <li key={`desk-${desk.eventId}`} className={i === 0 && others.length + staffShown.booths.length > 0 ? "border-t border-border-default pt-0.5" : ""}>
+                <SwitcherEntry to={`/reception/${encodeURIComponent(desk.eventId)}`} icon="id-card" kicker={copy.receptionDesk} label={desk.eventName} />
+              </li>
+            ))}
+            <li className={others.length + staffShown.booths.length + staffShown.desks.length > 0 ? "border-t border-border-default pt-0.5" : ""}>
               <Link
                 to="/me"
                 className={`flex min-h-12 items-center gap-3 rounded-xl px-2.5 py-2 text-sm font-semibold text-action-primary hover:bg-surface-panel-subtle ${focusRing}`}
@@ -299,6 +348,7 @@ export function AttendeeLayout({ children, localeProps, eventSlug, destination }
               kicker={copy.myCongresses}
               name={congressName ?? <span className="skeleton inline-block h-3.5 w-36 align-middle" />}
               loadOthers={loadOthers}
+              token={token}
               copy={copy}
             />
           ) : (

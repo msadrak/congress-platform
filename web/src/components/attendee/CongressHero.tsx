@@ -72,7 +72,7 @@ export function CongressHero({ event, page, locale, eyebrow, children }: Congres
                 <Icon name="calendar" size={15} />
                 {fa ? "زمان برگزاری" : "When"}
               </dt>
-              <dd className="font-semibold text-white">{formatDateRange(event.starts_at, event.ends_at, locale)}</dd>
+              <dd className="font-semibold text-white">{formatDateRange(event.starts_at, event.ends_at, locale, event.timezone)}</dd>
             </div>
             {event.location && (
               <div className="min-w-0 space-y-1">
