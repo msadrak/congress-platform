@@ -82,9 +82,9 @@ With `BACKUP_WAL=on`, always go through `stack.mjs` (or add `-f deploy/staging/c
 **Logs.**
 - JSON-file driver, rotated at 10 MB × 5 per service.
 - The API writes one JSON object per line in staging/production (`CONGRESS_LOG_FORMAT=text` for human-readable lines; `text` is the development default): `ts`, `level`, `logger`, `msg`, the access fields (`client`, `method`, `path`, `status`), and `request_id` on every line written while a request is handled.
-- Every response carries `X-Request-ID`: a well-formed incoming id (8–128 characters of `A-Za-z0-9._:-`) is kept, anything else replaced. Ask users or clients for that header value and search the API log for it.
+- Every response carries `X-Request-ID`: a well-formed incoming id (8–128 characters of `A-Za-z0-9._:-`) is kept, anything else replaced. Caddy decides it first (otherwise its own request uuid), passes it to the API and records it as `request_id` in its access log, so even a 502 that Caddy answers while the API is down has one. Ask users or clients for that header value and search both logs for it.
 - The access log leaves out `/api/health` and `/api/ready` and never records query strings. The API never logs credentials.
-- Caddy access logs drop `Authorization`, `X-Admin-Token` and the scanner `?token=` query, and log SMS pass links as `/t/-` (logger `short_links`), never with their code.
+- Caddy access logs drop `Authorization`, `X-Admin-Token`, `Referer` and the scanner `?token=` query, and log SMS pass links as `/t/-` (logger `short_links`), never with their code. Pages whose URL holds a credential (`/t/<code>`, `/scan/<point>?token=…`) are served with `Referrer-Policy: no-referrer`, so the browser does not repeat that URL to anyone. `node scripts/ci/validate-caddyfile.mjs` (CI) proves both with a live probe.
 
 **Restart policy.** Every long-running service is `unless-stopped`, so the stack returns after a host reboot once Docker starts.
 

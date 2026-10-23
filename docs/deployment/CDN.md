@@ -118,5 +118,7 @@ node scripts/staging/stack.mjs cdn parspack --allow-direct
 
 ## Not covered
 
+- **The CDN's own logs see pass-link codes.** Caddy logs `/t/<code>` as `/t/-` and drops `Referer`, but the CDN receives the full URL first; ParsPack's request logs (and any log export you enable there) hold the codes of every SMS pass link opened through it. Keep CDN log retention short, restrict who can read those logs, and never forward them to a third party. Scanner pairing links (`/scan/<point>?token=…`) are in the same position.
+
 - `/platform` and `/api/organizers` stay unreachable through the proxy (`CONGRESS_ADMIN_ALLOW=127.0.0.1/32`): use `stack.mjs organizer ...` on the server, as before. A CDN address can never pass that check.
 - The header name ParsPack uses is not documented in what I could find; `cdn check` shows what arrives, so it is confirmed by the first real request.
