@@ -259,12 +259,12 @@ export function FocalPointField({
       </div>
       {image.url && (
         <div className="flex items-end gap-3">
-          <figure className="min-w-0 flex-1 space-y-1">
+          <figure className="w-44 min-w-0 space-y-1">
             <img src={image.url} alt="" className="aspect-[16/10] w-full rounded-lg object-cover ring-1 ring-border-default" style={{ objectPosition: position }} />
             <figcaption className="text-[11px] text-text-muted">{b.previewWide}</figcaption>
           </figure>
           {phone && (
-            <figure className="w-16 shrink-0 space-y-1">
+            <figure className="w-12 shrink-0 space-y-1">
               <img src={image.url} alt="" className="aspect-[9/19] w-full rounded-lg object-cover ring-1 ring-border-default" style={{ objectPosition: position }} />
               <figcaption className="text-[11px] text-text-muted">{b.previewPhone}</figcaption>
             </figure>
