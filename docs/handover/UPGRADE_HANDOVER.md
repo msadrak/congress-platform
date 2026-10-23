@@ -64,10 +64,10 @@ from the numbers**. The coordinator sets each new migration's `down_revision` to
 merge time and updates the two head tests (`backend/tests/test_desk_session_migration.py` walk list,
 `backend/tests/test_staging_support.py` `expected_revision()` + `match="requires …"`).
 
-Current chain on `integration/upgrade` (head **0029**):
+Current chain on `integration/upgrade` (head **0025**):
 
 ```
-… 0018 → 0019 → 0020 → 0023 → 0024 → 0021 → 0022 → 0027 → 0028 → 0029
+… 0018 → 0019 → 0020 → 0023 → 0024 → 0021 → 0022 → 0027 → 0028 → 0029 → 0030 → 0025
 ```
 
 Rollback rule (CODING_STANDARDS §2.D): only migrations marked `backward_compatible = True` let an older
