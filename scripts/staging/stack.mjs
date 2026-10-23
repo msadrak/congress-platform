@@ -285,6 +285,9 @@ export function buildProxyArgs(env = process.env) {
   return pairs.flatMap(([k, v]) => ['--build-arg', `${k}=${v}`, '--build-arg', `${k.toLowerCase()}=${v}`]);
 }
 
+/** The web image's build argument naming its release (the same id as the image's release tag). */
+export const appBuildEnv = (release) => ({ CONGRESS_APP_BUILD: release });
+
 /** Slow SSH tunnels need longer daemon RPC timeouts and one image at a time. */
 export function buildComposeEnv(env = process.env) {
   const out = {
@@ -311,7 +314,8 @@ async function up() {
   cdnPreflight();
   ensurePersistentHostDirs();
   const release = releaseId();
-  compose(PROJECT, ['build', ...buildProxyArgs()], { env: buildComposeEnv() });
+  // CONGRESS_APP_BUILD (compose.yaml → web build argument): the bundle knows which release it is.
+  compose(PROJECT, ['build', ...buildProxyArgs()], { env: { ...buildComposeEnv(), ...appBuildEnv(release) } });
   tagRelease(release);
   // `up --wait` returns once every service is healthy (migrate must have exited 0 for api to start).
   const r = compose(PROJECT, ['up', '-d', '--wait', '--wait-timeout', '300'], { allowFail: true });

@@ -129,6 +129,11 @@ services:
     build:
       context: ../..
       dockerfile: deploy/web/Dockerfile
+      args:
+        # The release the bundle belongs to (`stack.mjs up` sets it to the release id: short commit, with a -dirty-<time>
+        # suffix for uncommitted changes), so the scanner can show its build and the organizer dashboard can spot
+        # devices running an older one. Empty for a plain `docker compose build`.
+        CONGRESS_APP_BUILD: ${CONGRESS_APP_BUILD:-}
     restart: unless-stopped
     logging: *logging
     networks: [backend, edge]

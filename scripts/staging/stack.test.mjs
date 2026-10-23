@@ -6,7 +6,7 @@ import {
   alertDecision, alertFingerprint, alertText, buildProxyArgs, CDN_IPS_VENDORED, cdnProblems, certFinding, certTarget, chooseBackupType,
   dataDirWarnings, DRILL_API_ENV, encryptionProblems, EVENT_MODE_CONF, fillTemplate, freshSecrets, loadParsPackCdnIpListText,
   missingMediaKeys, missingSecrets, nextReleases, offsiteConfigured, parseAddressRanges, parseEnvText, pgbackrestTime, prefixOf,
-  rcloneEnv, releaseId, rollbackTarget, selectExpired, smsFindings, SNAPSHOT_BACKUP_SCRIPT, SNAPSHOT_FACTS_SQL, timerPlan,
+  appBuildEnv, rcloneEnv, releaseId, rollbackTarget, selectExpired, smsFindings, SNAPSHOT_BACKUP_SCRIPT, SNAPSHOT_FACTS_SQL, timerPlan,
   walComposeEnv, walEnabled, walProblems, writeVendoredCdnIpList,
 } from './stack.mjs';
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -107,6 +107,12 @@ test('rollbackTarget: the previous release by default, an explicit one by id or 
 
 test('releaseId is the short commit of this checkout', () => {
   assert.match(releaseId(), /^([0-9a-f]{7,}(-dirty-\d{8}-\d{6})?|build-\d{8}-\d{6})$/);
+});
+
+test('the web image is built with its release id (CONGRESS_APP_BUILD)', () => {
+  assert.deepEqual(appBuildEnv('41d2af3-dirty-20261023-050000'), { CONGRESS_APP_BUILD: '41d2af3-dirty-20261023-050000' });
+  const compose = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../../deploy/staging/compose.yaml'), 'utf8');
+  assert.match(compose, /dockerfile: deploy\/web\/Dockerfile\n {6}args:\n(?: {8}#.*\n)* {8}CONGRESS_APP_BUILD: \$\{CONGRESS_APP_BUILD:-\}\n/);
 });
 
 test('timerPlan installs the units with this checkout, user and Node, then enables the timers', () => {

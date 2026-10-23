@@ -203,6 +203,7 @@ node scripts/staging/stack.mjs rollback <sha>      # to a given kept release (un
 ```
 
 - Every `up` tags the API and web images it built with the commit's short SHA (`congress-platform/api:<sha>`, `…/web:<sha>`) beside the alias the services run (`CONGRESS_IMAGE_TAG`). Uncommitted or untracked files make the release `<sha>-dirty-<time>`. The last **5** releases are kept in `.staging/releases.json`; older tags are removed.
+- The same release id is built into the web bundle as the `CONGRESS_APP_BUILD` build argument (`deploy/staging/compose.yaml` → `deploy/web/Dockerfile`), so the scanner can show which build it runs and the organizer dashboard can warn when devices run an older one. `up` sets it; a plain `docker compose build` leaves it empty. A `rollback` brings back the older image together with its own build id.
 - `rollback` re-points the alias at the older images and restarts `api` and `web` only. It **never runs migrations and never downgrades the database.** The older API starts only if the schema guard accepts the database: same revision, or ahead by `backward_compatible = True` migrations only. If it refuses, `rollback` prints the API log, puts the previous images back and restarts them.
 - After a rollback, `stack.mjs start` or a later `up` runs the older `migrate` image; `schema_guard migrate` sees the database ahead by compatible migrations and leaves it alone.
 - To return to the newer release: `stack.mjs rollback <newer sha>` (the command prints it).
