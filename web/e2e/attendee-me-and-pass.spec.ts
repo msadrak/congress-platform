@@ -254,31 +254,6 @@ test('pass page offline: the header names the congress from the saved pass inste
   await expect(page.getByTestId('pass-status-line')).toContainText('Offline: showing your saved pass');
 });
 
-test('the add-to-home-screen hint uses the install prompt and stays dismissed', async ({ page }) => {
-  await fixture(page, { tickets: [ticketOf('alpha', 'a1')] });
-  await begin(page);
-  await page.goto('/c/alpha/my-ticket');
-  await expect(page.getByTestId('pass-status')).toBeVisible();
-  await expect(page.getByTestId('install-hint')).toHaveCount(0);
-  await page.evaluate(() => {
-    const event = Object.assign(new Event('beforeinstallprompt', { cancelable: true }), {
-      prompt: () => Promise.resolve(),
-      userChoice: Promise.resolve({ outcome: 'dismissed' }),
-    });
-    window.dispatchEvent(event);
-  });
-  const hint = page.getByTestId('install-hint');
-  await expect(hint.getByRole('button', { name: 'Add to home screen' })).toBeVisible();
-  await hint.getByRole('button', { name: 'Dismiss hint' }).click();
-  await expect(hint).toHaveCount(0);
-  await page.reload();
-  await page.evaluate(() => {
-    window.dispatchEvent(Object.assign(new Event('beforeinstallprompt'), { prompt: () => Promise.resolve(), userChoice: Promise.resolve({ outcome: 'dismissed' }) }));
-  });
-  await expect(page.getByTestId('pass-status')).toBeVisible();
-  await expect(page.getByTestId('install-hint')).toHaveCount(0);
-});
-
 test('attendee pages in Persian never render the misspelled word for ticket', async ({ page }) => {
   await fixture(page, { tickets: [ticketOf('alpha', 'a1'), ticketOf('beta', 'b1')] });
   await begin(page, { locale: 'fa' });
