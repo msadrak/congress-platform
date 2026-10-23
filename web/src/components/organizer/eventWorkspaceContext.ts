@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect } from "react";
-import type { EventOut, createApiClient } from "../../api/client";
+import type { EventOut, OrganizerRole, createApiClient } from "../../api/client";
 import type { OrganizerOutletContext } from "../../pages/OrganizerLayout";
 
 export type OrganizerClient = ReturnType<typeof createApiClient>;
@@ -22,6 +22,11 @@ export interface EventWorkspace extends OrganizerOutletContext {
   replaceEvent: (event: EventOut) => void;
   /** Organizer API client for the current key; null without a key (the layout then shows the key gate). */
   client: OrganizerClient | null;
+  /**
+   * Whether the signed-in role may use an action that needs `needed` (backend/app/roles.py): viewers read,
+   * staff run the day, managers change the setup. Hide or disable what it may not do; the server still decides.
+   */
+  can: (needed: OrganizerRole) => boolean;
 }
 
 interface EventWorkspaceContextValue extends EventWorkspace {
@@ -39,8 +44,8 @@ export const EventWorkspaceContext = createContext<EventWorkspaceContextValue | 
  * 1. Its route is already a child of `events/:eventId` in App.tsx, so the provider is above it.
  * 2. Replace the page's own `GET /api/events/{event_id}` and its `reportEvent` call with
  *    `const { event, loading, error, client, t, isRtl } = useEventWorkspace()`; the provider reports
- *    the event to the layout, and `client` carries the organizer key (check `response.status === 401`
- *    and call `onKeyRejected(apiKey)` as before).
+ *    the event to the layout, and `client` carries the organizer key (a 401 reaches the layout's key gate
+ *    through the API client itself; only raw `fetch` calls report it with `onKeyRejected(apiKey)`).
  * 3. Load the page's own lists with `useEventList(loader)` (pages/organizer/eventLists.ts) and render
  *    `<EventSectionGate listsLoaded={...} />` (pages/organizer/EventSectionUi.tsx) while
  *    `!event || error || !listsLoaded`: the same skeleton and failure card as the other sections.

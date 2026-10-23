@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, type Dispatch, type SetStateAction } from "react";
 import {
-  formatApiError,
+  localizedApiError,
   type BoothOut,
   type CheckInPointOut,
   type DeskOperatorOut,
@@ -38,28 +38,32 @@ export interface EventList<T> {
   reload: () => void;
 }
 
-/** One list of the current event, loaded with the workspace's organizer key. */
-export function useEventList<T>(loader: EventListLoader<T>): EventList<T> {
-  const { eventId, apiKey, client, onKeyRejected } = useEventWorkspace();
+/**
+ * One list of the current event, loaded with the workspace's organizer key. `enabled: false` (a list the
+ * signed-in role may not read) loads nothing and reads as an empty, loaded list.
+ */
+export function useEventList<T>(loader: EventListLoader<T>, enabled = true): EventList<T> {
+  const { eventId, apiKey, client, locale } = useEventWorkspace();
   const [items, setItems] = useState<T[]>([]);
   const [loading, setLoading] = useState(true);
   const [loaded, setLoaded] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  // The failure body is kept and localized when shown, so a language switch re-words it without a refetch.
+  const [failure, setFailure] = useState<{ body: unknown } | null>(null);
+  const error = failure ? localizedApiError(failure.body, locale) : null;
   const [reloadToken, setReloadToken] = useState(0);
 
   useEffect(() => {
     // Without an organizer key nothing is dispatched; the layout shows the key gate.
-    if (!eventId || !apiKey || !client) return;
+    if (!eventId || !apiKey || !client || !enabled) return;
     let isMounted = true;
 
     const loadList = async () => {
       setLoading(true);
+      // A 401 reaches the layout's key gate through the API client (registerUnauthorizedHandler).
       const res = await loader(client, eventId);
-      // 401 invalidates only the key that was sent, even if this page has since unmounted.
-      if (res.response.status === 401) onKeyRejected(apiKey);
       if (!isMounted) return;
       if (!res.error && res.data) setItems(res.data);
-      setError(res.error ? formatApiError(res.error) : null);
+      setFailure(res.error ? { body: res.error } : null);
       setLoaded(true);
       setLoading(false);
     };
@@ -68,9 +72,10 @@ export function useEventList<T>(loader: EventListLoader<T>): EventList<T> {
     return () => {
       isMounted = false;
     };
-  }, [loader, eventId, apiKey, client, onKeyRejected, reloadToken]);
+  }, [loader, eventId, apiKey, client, enabled, reloadToken]);
 
   const reload = useCallback(() => setReloadToken((n) => n + 1), []);
+  if (!enabled) return { items: [], setItems, loading: false, loaded: true, error: null, reload };
   return { items, setItems, loading, loaded, error, reload };
 }
 

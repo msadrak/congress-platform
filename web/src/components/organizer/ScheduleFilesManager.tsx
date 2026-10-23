@@ -27,8 +27,10 @@ interface ScheduleFilesManagerProps {
   eventId: string;
   locale: "fa" | "en";
   isRtl: boolean;
-  /** Called with every response status, so the layout can drop a rejected organizer key. */
+  /** Called with every response status, so the layout can drop a rejected organizer key (raw `fetch`). */
   onStatus: (status: number) => void;
+  /** The signed-in role may only look: no upload, reorder, show/hide or delete. */
+  readOnly?: boolean;
 }
 
 const ERROR_COPY: Record<ProgramFileErrorCode, { fa: string; en: string }> = {
@@ -56,7 +58,7 @@ const byPosition = (a: ProgramFileOut, b: ProgramFileOut) =>
  * The congress schedule as files: upload a PDF or an image with a label, then reorder, show or hide and
  * delete. Visible files are live for attendees as soon as they are saved (no publish step, like the program).
  */
-export function ScheduleFilesManager({ apiKey, eventId, locale, isRtl, onStatus }: ScheduleFilesManagerProps) {
+export function ScheduleFilesManager({ apiKey, eventId, locale, isRtl, onStatus, readOnly = false }: ScheduleFilesManagerProps) {
   const labelId = useId();
   const fileId = useId();
   const lang = isRtl ? "fa" : "en";
@@ -226,43 +228,45 @@ export function ScheduleFilesManager({ apiKey, eventId, locale, isRtl, onStatus 
         </Notice>
       )}
 
-      <form onSubmit={(e) => void upload(e)} className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-end">
-        <div>
-          <label htmlFor={labelId} className="ui-label">
-            {isRtl ? "عنوان فایل" : "Label"}
+      {!readOnly && (
+        <form onSubmit={(e) => void upload(e)} className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-end">
+          <div>
+            <label htmlFor={labelId} className="ui-label">
+              {isRtl ? "عنوان فایل" : "Label"}
+            </label>
+            <input
+              id={labelId}
+              className="ui-input"
+              value={label}
+              maxLength={MAX_PROGRAM_FILE_LABEL}
+              onChange={(e) => setLabel(e.target.value)}
+              placeholder={isRtl ? "مثلاً برنامهٔ روز اول" : "e.g. Day 1 programme"}
+              disabled={full}
+            />
+          </div>
+          <label
+            htmlFor={fileId}
+            className="inline-flex min-h-[44px] max-w-full cursor-pointer items-center gap-2 rounded-[10px] border border-dashed border-border-strong bg-surface-panel-subtle px-4 text-sm font-semibold text-text-primary transition-colors hover:border-action-primary focus-within:outline-2 focus-within:outline-focus-ring"
+          >
+            <Icon name="upload" size={18} />
+            <span className="min-w-0 truncate">{file ? <bdi dir="ltr">{file.name}</bdi> : isRtl ? "انتخاب PDF یا تصویر" : "Choose a PDF or image"}</span>
+            <input
+              key={inputKey}
+              id={fileId}
+              type="file"
+              accept={`.pdf,${PROGRAM_FILE_TYPES.join(",")}`}
+              onChange={chooseFile}
+              className="sr-only"
+              disabled={full}
+            />
           </label>
-          <input
-            id={labelId}
-            className="ui-input"
-            value={label}
-            maxLength={MAX_PROGRAM_FILE_LABEL}
-            onChange={(e) => setLabel(e.target.value)}
-            placeholder={isRtl ? "مثلاً برنامهٔ روز اول" : "e.g. Day 1 programme"}
-            disabled={full}
-          />
-        </div>
-        <label
-          htmlFor={fileId}
-          className="inline-flex min-h-[44px] max-w-full cursor-pointer items-center gap-2 rounded-[10px] border border-dashed border-border-strong bg-surface-panel-subtle px-4 text-sm font-semibold text-text-primary transition-colors hover:border-action-primary focus-within:outline-2 focus-within:outline-focus-ring"
-        >
-          <Icon name="upload" size={18} />
-          <span className="min-w-0 truncate">{file ? <bdi dir="ltr">{file.name}</bdi> : isRtl ? "انتخاب PDF یا تصویر" : "Choose a PDF or image"}</span>
-          <input
-            key={inputKey}
-            id={fileId}
-            type="file"
-            accept={`.pdf,${PROGRAM_FILE_TYPES.join(",")}`}
-            onChange={chooseFile}
-            className="sr-only"
-            disabled={full}
-          />
-        </label>
-        <Button type="submit" variant="primary" size="md" disabled={!file || uploading || full}>
-          <Icon name="upload" size={18} />
-          {uploading ? (isRtl ? "در حال بارگذاری…" : "Uploading…") : isRtl ? "بارگذاری" : "Upload"}
-        </Button>
-      </form>
-      {full && <p className="text-xs text-text-muted">{errorText("limit_reached")}</p>}
+          <Button type="submit" variant="primary" size="md" disabled={!file || uploading || full}>
+            <Icon name="upload" size={18} />
+            {uploading ? (isRtl ? "در حال بارگذاری…" : "Uploading…") : isRtl ? "بارگذاری" : "Upload"}
+          </Button>
+        </form>
+      )}
+      {!readOnly && full && <p className="text-xs text-text-muted">{errorText("limit_reached")}</p>}
       {uploadError && <FormAlert>{errorText(uploadError)}</FormAlert>}
 
       {loading ? (
@@ -305,48 +309,52 @@ export function ScheduleFilesManager({ apiKey, eventId, locale, isRtl, onStatus 
                   <Icon name="arrow-up-right" size={16} />
                   <span>{isRtl ? "مشاهده" : "Open"}</span>
                 </Button>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  disabled={busyId !== null || index === 0}
-                  onClick={() => void move(item, -1)}
-                  aria-label={isRtl ? `انتقال ${item.label} به بالا` : `Move ${item.label} up`}
-                >
-                  <Icon name="arrow-up" size={16} />
-                </Button>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  disabled={busyId !== null || index === files.length - 1}
-                  onClick={() => void move(item, 1)}
-                  aria-label={isRtl ? `انتقال ${item.label} به پایین` : `Move ${item.label} down`}
-                >
-                  <Icon name="arrow-down" size={16} />
-                </Button>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  disabled={busyId !== null}
-                  onClick={() => void toggleVisible(item)}
-                  aria-label={item.is_visible ? (isRtl ? `پنهان کردن ${item.label}` : `Hide ${item.label}`) : isRtl ? `نمایش ${item.label}` : `Show ${item.label}`}
-                >
-                  <Icon name={item.is_visible ? "eye-off" : "eye"} size={16} />
-                  <span>{item.is_visible ? (isRtl ? "پنهان" : "Hide") : isRtl ? "نمایش" : "Show"}</span>
-                </Button>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  disabled={busyId !== null}
-                  onClick={() => setDeleteTarget(item)}
-                  aria-label={isRtl ? `حذف ${item.label}` : `Delete ${item.label}`}
-                >
-                  <Icon name="trash" size={16} />
-                  <span>{isRtl ? "حذف" : "Delete"}</span>
-                </Button>
+                {!readOnly && (
+                  <>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      disabled={busyId !== null || index === 0}
+                      onClick={() => void move(item, -1)}
+                      aria-label={isRtl ? `انتقال ${item.label} به بالا` : `Move ${item.label} up`}
+                    >
+                      <Icon name="arrow-up" size={16} />
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      disabled={busyId !== null || index === files.length - 1}
+                      onClick={() => void move(item, 1)}
+                      aria-label={isRtl ? `انتقال ${item.label} به پایین` : `Move ${item.label} down`}
+                    >
+                      <Icon name="arrow-down" size={16} />
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      disabled={busyId !== null}
+                      onClick={() => void toggleVisible(item)}
+                      aria-label={item.is_visible ? (isRtl ? `پنهان کردن ${item.label}` : `Hide ${item.label}`) : isRtl ? `نمایش ${item.label}` : `Show ${item.label}`}
+                    >
+                      <Icon name={item.is_visible ? "eye-off" : "eye"} size={16} />
+                      <span>{item.is_visible ? (isRtl ? "پنهان" : "Hide") : isRtl ? "نمایش" : "Show"}</span>
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      disabled={busyId !== null}
+                      onClick={() => setDeleteTarget(item)}
+                      aria-label={isRtl ? `حذف ${item.label}` : `Delete ${item.label}`}
+                    >
+                      <Icon name="trash" size={16} />
+                      <span>{isRtl ? "حذف" : "Delete"}</span>
+                    </Button>
+                  </>
+                )}
               </div>
             </li>
           ))}

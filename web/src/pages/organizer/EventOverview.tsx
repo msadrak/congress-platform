@@ -12,6 +12,7 @@ import { EventEditDialog } from "../../components/organizer/EventEditDialog";
 import { eventTiming } from "../../components/organizer/eventTiming";
 import { useEventWorkspace } from "../../components/organizer/eventWorkspaceContext";
 import { EventSectionGate, SectionLoadError, SectionNotice, type SectionNoticeState } from "./EventSectionUi";
+import { EventSettingsPanel } from "./EventSettingsPanel";
 import {
   loadBooths,
   loadCheckInPoints,
@@ -25,11 +26,13 @@ import {
 
 /** `/organizer/events/:eventId`: the congress at a glance, with a count and a link for every section. */
 export default function EventOverview() {
-  const { event, error, apiKey, replaceEvent, locale, t, isRtl } = useEventWorkspace();
+  const { event, error, apiKey, replaceEvent, locale, t, isRtl, can } = useEventWorkspace();
+  const canManage = can("manager");
   const tiers = useEventList(loadTicketTiers);
   const points = useEventList(loadCheckInPoints);
   const booths = useEventList(loadBooths);
-  const operators = useEventList(loadDeskOperators);
+  // Desk operators are a manager's list: a lower role neither loads nor counts them.
+  const operators = useEventList(loadDeskOperators, canManage);
   // Counts only: the program and venue pages hold their lists.
   const sessions = useEventList(loadSessions);
   const places = useEventList(loadVenuePlaces);
@@ -41,7 +44,8 @@ export default function EventOverview() {
 
   if (!event || error || !lists.loaded) return <EventSectionGate listsLoaded={lists.loaded} />;
 
-  const fmt = (n: number) => formatLocalizedNumber(n, locale);
+  const fmt = (n: number | null) => (n === null ? "–" : formatLocalizedNumber(n, locale));
+  const archived = event.archived_at != null;
   const status = eventTimeStatus(event.starts_at, event.ends_at, now);
   const totalReserved = tiers.items.reduce((n, x) => n + x.reserved_count, 0);
   const totalQuota = tiers.items.reduce((n, x) => n + x.quota, 0);
@@ -96,10 +100,12 @@ export default function EventOverview() {
             </div>
           </dl>
           <div className="mt-8 flex flex-wrap gap-2.5">
-            <Button onClick={() => setEditingEvent(event)} variant="light" size="md">
-              <Icon name="note" size={18} />
-              <span>{t.editEventAction || (isRtl ? "ویرایش همایش" : "Edit Event")}</span>
-            </Button>
+            {canManage && !archived && (
+              <Button onClick={() => setEditingEvent(event)} variant="light" size="md">
+                <Icon name="note" size={18} />
+                <span>{t.editEventAction || (isRtl ? "ویرایش همایش" : "Edit Event")}</span>
+              </Button>
+            )}
             <a
               href={`/e/${encodeURIComponent(event.slug)}`}
               target="_blank"
@@ -113,6 +119,16 @@ export default function EventOverview() {
         </div>
       </section>
 
+      {archived && (
+        <div role="status" data-testid="archived-banner" className="flex items-start gap-3 rounded-2xl border border-status-warning-border bg-status-warning-bg p-4 text-sm leading-relaxed text-status-warning-text">
+          <Icon name="lock" size={18} className="mt-0.5 shrink-0" />
+          <p>
+            {isRtl
+              ? "این همایش بایگانی شده است: در سایت عمومی دیده نمی‌شود، رزرو تازه نمی‌پذیرد و تنظیماتش فقط‌خواندنی است. برای تغییر، آن را از بایگانی خارج کنید."
+              : "This congress is archived: it is hidden from the public site, takes no new reservations and its setup is read-only. Unarchive it to make changes."}
+          </p>
+        </div>
+      )}
       <SectionNotice notice={notice} onDismiss={() => setNotice(null)} />
       <SectionLoadError error={lists.error} loading={lists.loading} onRetry={lists.reload} />
 
@@ -121,10 +137,10 @@ export default function EventOverview() {
           {([
             ["program", t.tabProgram, sessions.items.length, isRtl ? "جلسه در برنامه" : "Program sessions", "calendar"],
             ["venue", t.tabVenue, places.items.length, isRtl ? "سالن و ورودی" : "Halls & entrances", "pin"],
-            ["tiers", t.tabTiers, tiers.items.length, isRtl ? "رده بلیت" : "Ticket tiers", "ticket"],
-            ["check-in", t.tabPoints, points.items.length, isRtl ? "ایستگاه اسکن بارکد" : "Scanner stations", "gate"],
+            ["tiers", t.tabTiers, tiers.items.length, isRtl ? "نوع کارت ورود" : "Ticket tiers", "ticket"],
+            ["check-in", t.tabPoints, points.items.length, isRtl ? "نقطه ورود" : "Scanner stations", "gate"],
             ["booths", t.tabBooths, booths.items.length, isRtl ? "غرفه ثبت‌شده" : "Registered booths", "booth"],
-            ["operators", t.tabOperators, activeOperators, isRtl ? "اپراتور فعال" : "Active operators", "users"],
+            ["operators", t.tabOperators, canManage ? activeOperators : null, isRtl ? "اپراتور فعال" : "Active operators", "users"],
           ] as const).map(([key, label, count, caption, icon]) => (
             <Link
               key={key}
@@ -164,11 +180,11 @@ export default function EventOverview() {
               </span>
               <div className="space-y-1">
                 <h2 id="capacity-title" className="text-base font-bold text-text-primary">
-                  {isRtl ? "ظرفیت و رزرو بلیت" : "Ticket capacity & reservations"}
+                  {isRtl ? "ظرفیت و رزرو کارت ورود" : "Ticket capacity & reservations"}
                 </h2>
                 <p className="text-sm leading-relaxed text-text-secondary">
                   {isRtl
-                    ? "هنوز رده بلیتی تعریف نشده است؛ بدون رده بلیت، شرکت‌کنندگان نمی‌توانند ثبت‌نام کنند."
+                    ? "هنوز نوع کارت ورودی تعریف نشده است؛ بدون آن، شرکت‌کنندگان نمی‌توانند ثبت‌نام کنند."
                     : "No ticket tier is defined yet; attendees cannot reserve a pass until you add one."}
                 </p>
               </div>
@@ -186,7 +202,7 @@ export default function EventOverview() {
             <div className="flex flex-col gap-6 border-b border-border-subtle bg-meridian p-5 sm:p-7 lg:border-b-0 lg:border-e">
               <div className="flex items-center justify-between gap-3">
                 <h2 id="capacity-title" className="text-base font-bold tracking-tight text-text-primary">
-                  {isRtl ? "ظرفیت و رزرو بلیت" : "Ticket capacity & reservations"}
+                  {isRtl ? "ظرفیت و رزرو کارت ورود" : "Ticket capacity & reservations"}
                 </h2>
                 <Icon name="ticket" size={20} className="text-aiteb-indigo/60" />
               </div>
@@ -198,7 +214,7 @@ export default function EventOverview() {
                     {fmt(totalQuota)}
                   </span>
                 </span>
-                <span className="mt-2.5 block">{isRtl ? "بلیت رزروشده از کل ظرفیت" : "passes reserved of total quota"}</span>
+                <span className="mt-2.5 block">{isRtl ? "کارت ورود رزروشده از کل ظرفیت" : "passes reserved of total quota"}</span>
               </p>
               <div className="mt-auto space-y-2.5">
                 <Meter value={capacityPct} label={isRtl ? "ظرفیت کل" : "Total capacity"} size="lg" tone={capacityPct >= 100 ? "full" : "default"} />
@@ -241,6 +257,8 @@ export default function EventOverview() {
             </ul>
           </section>
         )}
+
+        <EventSettingsPanel event={event} reservedCount={totalReserved} onEdit={() => setEditingEvent(event)} onNotice={setNotice} />
 
         <div className="grid gap-4 md:grid-cols-2">
           {([

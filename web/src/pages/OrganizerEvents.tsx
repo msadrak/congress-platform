@@ -1,10 +1,12 @@
 import React, { useEffect, useState } from "react";
-import { Link, useOutletContext } from "react-router-dom";
-import { createApiClient, formatApiError, localizedApiError, type EventCreate, type EventOut } from "../api/client";
+import { Link, useLocation, useOutletContext } from "react-router-dom";
+import { createApiClient, localizedApiError, type EventCreate, type EventOut } from "../api/client";
 import { parseSessionDateTime } from "../lib/sessionCsv";
 import { formatLocalizedDate, formatLocalizedNumber } from "../lib/i18n";
 import { eventFormProblem, eventTimeStatus, type EventFormField } from "../lib/organizerWorkspace";
 import { eventAccentStyle } from "../lib/eventAccent";
+import { sessionAllows } from "../components/organizer/roleAccess";
+import { Badge } from "../components/ui/Badge";
 import type { OrganizerOutletContext } from "./OrganizerLayout";
 import { Button, LinkButton } from "../components/ui/Button";
 import { Dialog } from "../components/ui/Dialog";
@@ -21,22 +23,13 @@ import {
 } from "../components/organizer/WorkspaceUi";
 import { EventEditDialog } from "../components/organizer/EventEditDialog";
 import { eventTiming } from "../components/organizer/eventTiming";
-import { DEFAULT_EVENT_TIMEZONE } from "../components/organizer/sessionTime";
+import { DEFAULT_EVENT_TIMEZONE, EVENT_TIMEZONES } from "../components/organizer/sessionTime";
 
-/** Zones offered for a new congress; the API accepts any IANA name. */
-const EVENT_TIMEZONES = [
-  DEFAULT_EVENT_TIMEZONE,
-  "Asia/Dubai",
-  "Asia/Baghdad",
-  "Asia/Kabul",
-  "Asia/Baku",
-  "Europe/Istanbul",
-  "Europe/Moscow",
-  "Europe/Berlin",
-  "Europe/London",
-  "America/New_York",
-  "UTC",
-] as const;
+/** The name of the congress the workspace just deleted (its navigation state), if any. */
+function deletedEventName(state: unknown): string | null {
+  if (typeof state !== "object" || state === null || !("deletedEventName" in state)) return null;
+  return typeof state.deletedEventName === "string" ? state.deletedEventName : null;
+}
 
 /** A `datetime-local` value read as wall-clock time in `timeZone`, as an ISO instant ("" when blank or invalid). */
 function wallTimeIso(value: string, timeZone: string): string {
@@ -45,12 +38,20 @@ function wallTimeIso(value: string, timeZone: string): string {
 }
 
 export default function OrganizerEvents() {
-  const { apiKey, locale, t, isRtl } = useOutletContext<OrganizerOutletContext>();
+  const { apiKey, session, locale, t, isRtl } = useOutletContext<OrganizerOutletContext>();
+  const canManage = sessionAllows(session, "manager");
+  const routeLocation = useLocation();
   const [events, setEvents] = useState<EventOut[]>([]);
   const [now] = useState(() => Date.now());
-  const [notice, setNotice] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(() => {
+    const deleted = deletedEventName(routeLocation.state);
+    if (!deleted) return null;
+    return isRtl ? `همایش «${deleted}» حذف شد.` : `Congress “${deleted}” deleted.`;
+  });
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  // The failure body, localized when shown (a language switch re-words it without a refetch).
+  const [failure, setFailure] = useState<{ body: unknown } | null>(null);
+  const error = failure ? localizedApiError(failure.body, locale) : null;
 
   // Event creation modal state
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -78,13 +79,13 @@ export default function OrganizerEvents() {
     let isMounted = true;
     const fetchEvents = async () => {
       setLoading(true);
-      setError(null);
+      setFailure(null);
       const client = createApiClient({ kind: "organizer", token: apiKey });
       // A 401 reaches the layout's key gate through the API client (registerUnauthorizedHandler).
       const { data, error: err } = await client.GET("/api/events");
       if (!isMounted) return;
       if (err) {
-        setError(formatApiError(err));
+        setFailure({ body: err });
       } else if (data) {
         setEvents(data);
       }
@@ -184,10 +185,12 @@ export default function OrganizerEvents() {
         title={t.eventsListHeading}
         description={t.eventsListSubheading}
         action={
-          <Button type="button" variant="primary" size="md" onClick={() => setIsCreateModalOpen(true)}>
-            <Icon name="plus" size={18} />
-            <span>{t.createEventButton}</span>
-          </Button>
+          canManage ? (
+            <Button type="button" variant="primary" size="md" onClick={() => setIsCreateModalOpen(true)}>
+              <Icon name="plus" size={18} />
+              <span>{t.createEventButton}</span>
+            </Button>
+          ) : undefined
         }
       />
 
@@ -230,10 +233,12 @@ export default function OrganizerEvents() {
           icon="calendar"
           title={t.noEventsFoundTitle}
           action={
-            <Button type="button" variant="primary" size="md" onClick={() => setIsCreateModalOpen(true)}>
-              <Icon name="plus" size={18} />
-              {t.createEventButton}
-            </Button>
+            canManage ? (
+              <Button type="button" variant="primary" size="md" onClick={() => setIsCreateModalOpen(true)}>
+                <Icon name="plus" size={18} />
+                {t.createEventButton}
+              </Button>
+            ) : undefined
           }
         >
           {t.noEventsFoundDesc}
@@ -264,6 +269,11 @@ export default function OrganizerEvents() {
                 <div className="min-w-0 space-y-4 p-5 sm:p-6">
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
                     <EventStatusBadge status={status} isRtl={isRtl} />
+                    {ev.archived_at && (
+                      <Badge variant="warning" size="sm" icon={<Icon name="lock" size={12} />}>
+                        {isRtl ? "بایگانی‌شده" : "Archived"}
+                      </Badge>
+                    )}
                     <span className="text-xs text-text-muted">{eventTiming(ev.starts_at, ev.ends_at, now, locale)}</span>
                   </div>
                   <div className="space-y-1.5">
@@ -310,10 +320,12 @@ export default function OrganizerEvents() {
                     <Icon name="sliders" size={16} />
                     <span className="xl:flex-1 xl:text-start">{t.manageEventAction}</span>
                   </LinkButton>
-                  <Button onClick={() => setEditingEvent(ev)} variant="secondary" size="sm" className="xl:justify-start">
-                    <Icon name="note" size={16} />
-                    <span>{t.editEventAction || (isRtl ? "ویرایش" : "Edit")}</span>
-                  </Button>
+                  {canManage && !ev.archived_at && (
+                    <Button onClick={() => setEditingEvent(ev)} variant="secondary" size="sm" className="xl:justify-start">
+                      <Icon name="note" size={16} />
+                      <span>{t.editEventAction || (isRtl ? "ویرایش" : "Edit")}</span>
+                    </Button>
+                  )}
                   <LinkButton to={`/organizer/events/${ev.id}/desk`} variant="secondary" size="sm" className="xl:justify-start">
                     <Icon name="id-card" size={16} />
                     <span>{t.openDeskAction}</span>

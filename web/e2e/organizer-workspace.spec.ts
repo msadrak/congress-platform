@@ -471,7 +471,7 @@ test('SMS: a failed confirmation is sent again; an unknown one is resent only af
   await expect(unknown.getByRole('button', { name: 'Send again' })).toHaveCount(0);
 });
 
-test('program: sessions are grouped by day, added in local time, and a CSV timetable is checked before it is imported', async ({ page }) => {
+test('program: sessions are grouped by day, added in the event time zone, and a CSV timetable is checked before it is imported', async ({ page }) => {
   const requests = await fixture(page);
   await seed(page);
   await page.goto('/organizer/events/event-a');
@@ -492,8 +492,8 @@ test('program: sessions are grouped by day, added in local time, and a CSV timet
   await dialog.getByRole('button', { name: 'Add session' }).click();
   await expect(dialog).toHaveCount(0);
   await expect(page.getByTestId('program-session')).toHaveCount(2);
-  const startsAt = await page.evaluate(() => new Date('2099-05-10T11:00').toISOString());
-  expect(requests.find(r => r.method === 'POST' && r.path === '/api/events/event-a/sessions')?.body).toMatchObject({ title: 'Imaging workshop', hall_id: 'place-hall2', starts_at: startsAt });
+  // Read on the event's clock (no zone in the fixture: the default Asia/Tehran, UTC+03:30), not the browser's.
+  expect(requests.find(r => r.method === 'POST' && r.path === '/api/events/event-a/sessions')?.body).toMatchObject({ title: 'Imaging workshop', hall_id: 'place-hall2', starts_at: '2099-05-10T07:30:00.000Z' });
 
   await page.getByRole('button', { name: 'Upload timetable' }).click();
   const panel = page.getByTestId('timetable-import');

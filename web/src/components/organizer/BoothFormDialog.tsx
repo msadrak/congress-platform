@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { formatApiError, type BoothOut } from "../../api/client";
+import { apiErrorCode, localizedApiError, type BoothOut } from "../../api/client";
 import { Button } from "../ui/Button";
 import { Dialog } from "../ui/Dialog";
 import { DialogActions, Field, FormAlert } from "./WorkspaceUi";
@@ -61,7 +61,7 @@ type BoothFormDialogProps = {
 /** Create or edit an exhibition booth. A new booth's slug is suggested from its name. */
 export function BoothFormDialog(props: BoothFormDialogProps) {
   const { onClose, onSaved } = props;
-  const { eventId, apiKey, client, onKeyRejected, t, isRtl } = useEventWorkspace();
+  const { eventId, client, locale, t, isRtl } = useEventWorkspace();
   const booth = props.mode === "edit" ? props.booth : null;
   const isEdit = props.mode === "edit";
   const isOpen = props.mode === "edit" ? props.booth !== null : props.isOpen;
@@ -93,7 +93,7 @@ export function BoothFormDialog(props: BoothFormDialogProps) {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (isEdit && (!booth || !eventId || !apiKey)) return;
+    if (isEdit && (!booth || !eventId)) return;
     if (!eventId) return;
     setFormError(null);
     setInvalidField(null);
@@ -111,7 +111,7 @@ export function BoothFormDialog(props: BoothFormDialogProps) {
       setFormError(problem.message);
       return;
     }
-    if (!apiKey || !client) return;
+    if (!client) return;
     setSubmitting(true);
     const { data, error: err, response } = booth
       ? await client.PATCH("/api/events/{event_id}/booths/{booth_id}", {
@@ -122,9 +122,8 @@ export function BoothFormDialog(props: BoothFormDialogProps) {
           params: { path: { event_id: eventId } },
           body,
         });
-    if (response.status === 401) onKeyRejected(apiKey);
     setSubmitting(false);
-    if (booth && response.status === 409) {
+    if (booth && response.status === 409 && apiErrorCode(err) !== "EVENT_ARCHIVED") {
       setInvalidField("slug");
       setFormError(
         isRtl
@@ -132,7 +131,7 @@ export function BoothFormDialog(props: BoothFormDialogProps) {
           : "Another booth already uses this slug; choose a different one."
       );
     } else if (err) {
-      setFormError(formatApiError(err));
+      setFormError(localizedApiError(err, locale));
     } else if (data) {
       if (!booth) setDraft(NEW_BOOTH);
       onSaved(data);
