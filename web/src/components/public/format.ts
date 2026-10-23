@@ -1,8 +1,6 @@
 import { daysBetween, safeTimeZone, zonedDayKey } from "../../lib/congressPhase";
+import { formatDate, formatDateRange as formatRange } from "../../lib/format";
 import type { PublicLocale } from "./copy";
-
-const DATE_LOCALE: Record<PublicLocale, string> = { en: "en-GB", fa: "fa-IR-u-ca-persian" };
-const TIME_LOCALE: Record<PublicLocale, string> = { en: "en-GB", fa: "fa-IR" };
 
 function valid(d: Date) {
   return !Number.isNaN(d.getTime());
@@ -10,31 +8,19 @@ function valid(d: Date) {
 
 /**
  * Every helper takes the congress's IANA `timeZone`: dates and clock times are the venue's, wherever the
- * visitor is (the visitor's own zone when it is missing or unknown to the runtime).
+ * visitor is (the visitor's own zone when it is missing or unknown to the runtime). Dates and times come from
+ * `lib/format.ts`.
  */
 
 /** "12–26 October 2026" / "۱۲ تا ۱۴ آبان ۱۴۰۵" in the calendar of the page language. */
 export function formatDateRange(startIso: string, endIso: string, locale: PublicLocale, timeZone?: string): string {
-  const start = new Date(startIso);
-  const end = new Date(endIso);
-  if (!valid(start)) return startIso;
-  const fmt = new Intl.DateTimeFormat(DATE_LOCALE[locale], { day: "numeric", month: "long", year: "numeric", timeZone: safeTimeZone(timeZone) });
-  if (!valid(end) || end <= start) return fmt.format(start);
-  try {
-    return fmt.formatRange(start, end);
-  } catch {
-    return `${fmt.format(start)} – ${fmt.format(end)}`;
-  }
+  if (!valid(new Date(startIso))) return startIso;
+  return valid(new Date(endIso)) ? formatRange(startIso, endIso, locale, timeZone) : formatDate(startIso, "long", locale, timeZone);
 }
 
-/** "Mon 12 Oct, 15:44" in the page language, at the venue. */
+/** "Mon 12 Oct, 15:44" / «دوشنبه ۲۰ مهر، ۱۵:۴۴» in the page language, at the venue. */
 export function formatMoment(iso: string, locale: PublicLocale, timeZone?: string): string {
-  const d = new Date(iso);
-  if (!valid(d)) return iso;
-  const tz = safeTimeZone(timeZone);
-  const day = new Intl.DateTimeFormat(DATE_LOCALE[locale], { weekday: "short", day: "numeric", month: "short", timeZone: tz }).format(d);
-  const time = new Intl.DateTimeFormat(TIME_LOCALE[locale], { hour: "2-digit", minute: "2-digit", timeZone: tz }).format(d);
-  return locale === "fa" ? `${day}، ${time}` : `${day}, ${time}`;
+  return formatDate(iso, "dayTime", locale, timeZone);
 }
 
 /** Calendar days covered by the congress, counted at the venue. */

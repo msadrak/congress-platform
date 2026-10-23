@@ -1,23 +1,15 @@
 import { safeTimeZone } from "../../lib/congressPhase";
+import { formatDate } from "../../lib/format";
 import type { AttendeeLocale } from "../../lib/i18n";
 
 /** "09:30" / "۰۹:۳۰" at the venue (congress time zone; the visitor's when unknown). */
 export function formatClock(iso: string, locale: AttendeeLocale, timeZone?: string): string {
-  return new Intl.DateTimeFormat(locale === "fa" ? "fa-IR" : "en-GB", {
-    hour: "2-digit",
-    minute: "2-digit",
-    timeZone: safeTimeZone(timeZone),
-  }).format(new Date(iso));
+  return formatDate(iso, "time", locale, timeZone);
 }
 
-/** "Monday 10 May" / «دوشنبه ۲۰ اردیبهشت» at the venue; Solar Hijri for Persian. */
+/** "Monday 10 May" / «دوشنبه ۲۰ اردیبهشت» at the venue ("Mon, May 10" for `short`); Solar Hijri for Persian. */
 export function formatDayLabel(iso: string, locale: AttendeeLocale, timeZone?: string, month: "long" | "short" = "long"): string {
-  return new Intl.DateTimeFormat(locale === "fa" ? "fa-IR-u-ca-persian" : "en-GB", {
-    weekday: month === "long" ? "long" : "short",
-    day: "numeric",
-    month,
-    timeZone: safeTimeZone(timeZone),
-  }).format(new Date(iso));
+  return formatDate(iso, month === "long" ? "heading" : "weekday", locale, timeZone);
 }
 
 /** The congress zone's short name for the "times are venue time" note ("GMT+3:30"), or null. */

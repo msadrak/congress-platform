@@ -1,4 +1,5 @@
-import { daysBetween, homePhase, safeTimeZone, zonedDayKey } from "../../lib/congressPhase";
+import { daysBetween, homePhase, zonedDayKey } from "../../lib/congressPhase";
+import { formatDateRange as formatRange, formatNumber } from "../../lib/format";
 import { formatLocalizedNumber, type AttendeeLocale } from "../../lib/i18n";
 
 /** Where "now" sits relative to a congress's real start/end timestamps. */
@@ -50,23 +51,10 @@ export function phaseLabel(phase: CongressPhase, locale: AttendeeLocale): string
  * venue's when the congress's `timeZone` is given (the visitor's otherwise).
  */
 export function formatDateRange(startsAt: string, endsAt: string, locale: AttendeeLocale, timeZone?: string): string {
-  const starts = new Date(startsAt);
-  const ends = new Date(endsAt);
-  if (Number.isNaN(starts.getTime()) || Number.isNaN(ends.getTime())) return `${startsAt} – ${endsAt}`;
-  const fmt = new Intl.DateTimeFormat(locale === "fa" ? "fa-IR-u-ca-persian" : "en-GB", {
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-    timeZone: safeTimeZone(timeZone),
-  });
-  try {
-    return fmt.formatRange(starts, ends);
-  } catch {
-    return `${fmt.format(starts)} – ${fmt.format(ends)}`;
-  }
+  return formatRange(startsAt, endsAt, locale, timeZone);
 }
 
 /** Two-digit section index, in Persian digits for the Persian UI ("01" / "۰۱"). */
 export function sectionIndex(value: number, locale: AttendeeLocale): string {
-  return new Intl.NumberFormat(locale === "fa" ? "fa-IR" : "en-US", { minimumIntegerDigits: 2, useGrouping: false }).format(value);
+  return formatNumber(value, locale, { minimumIntegerDigits: 2, useGrouping: false });
 }

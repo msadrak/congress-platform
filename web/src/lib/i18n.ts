@@ -789,83 +789,21 @@ export const translations = {
     linkSignInAction: "Sign in to see your pass",
   },
 };
+// Formatting lives in `lib/format.ts` (the one formatter set); these names stay for existing callers.
+import { codeFontClass, formatDate, formatNumber } from "./format.ts";
+export { codeFontClass };
+
 /**
- * Format date using Solar Hijri (Jalali) for Persian and Gregorian for English.
- * Persian reads "پنجشنبه ۲۳ مهر ۱۴۰۵": ICU's fa pattern with a weekday puts the year first and the
- * weekday last behind a Latin comma, so the parts are assembled in natural order instead.
- * `timeZone` defaults to the reader's own.
+ * «پنجشنبه ۲۳ مهر ۱۴۰۵» / "Thu, Oct 15, 2026": `formatDate(…, "day", …)` on the clock of `timeZone` (the
+ * reader's own when it is omitted or unknown). An unreadable date is returned as given.
  */
 export function formatLocalizedDate(dateStr: string, locale: AttendeeLocale, timeZone?: string): string {
-  try {
-    const d = new Date(dateStr);
-    if (isNaN(d.getTime())) return dateStr;
-    if (locale === "fa") {
-      const parts = new Intl.DateTimeFormat("fa-IR-u-ca-persian", {
-        weekday: "long",
-        year: "numeric",
-        month: "long",
-        day: "numeric",
-        timeZone,
-      }).formatToParts(d);
-      const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((p) => p.type === type)?.value ?? "";
-      return [part("weekday"), part("day"), part("month"), part("year")].filter(Boolean).join(" ");
-    }
-    return new Intl.DateTimeFormat("en-US", {
-      weekday: "short",
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-      timeZone,
-    }).format(d);
-  } catch {
-    return dateStr;
-  }
+  return formatDate(dateStr, "day", locale, timeZone);
 }
 
-/**
- * Class for a short code or number shown inline: IBM Plex Mono only covers Latin, so Persian text
- * (Persian digits included) keeps the normal font with tabular numerals.
- */
-export function codeFontClass(text: string): string {
-  return /^[\x20-\x7E]*$/.test(text) ? "font-mono" : "tabular";
-}
-const PERSIAN_DIGITS = "۰۱۲۳۴۵۶۷۸۹";
-/** CLDR's Persian number symbols, spelled out so no engine's `fa-IR` data can bring back a Latin comma. */
-const PERSIAN_GROUP = "\u066C"; // ٬ thousands separator
-const PERSIAN_DECIMAL = "\u066B"; // ٫ decimal separator
-const PERSIAN_MINUS = "\u200E\u2212"; // minus sign, kept left-to-right so it stays on the number's left
-
-function persianNumberPart({ type, value }: Intl.NumberFormatPart): string {
-  switch (type) {
-    case "integer":
-    case "fraction":
-      return value.replace(/[0-9]/g, (digit) => PERSIAN_DIGITS[Number(digit)] ?? digit);
-    case "group":
-      return PERSIAN_GROUP;
-    case "decimal":
-      return PERSIAN_DECIMAL;
-    case "minusSign":
-      return PERSIAN_MINUS;
-    default:
-      return value;
-  }
-}
-
-/**
- * Format numbers using Persian numerals and separators («۵٬۰۰۰»، «۰٫۵») for 'fa' and Latin for 'en'.
- * Persian is assembled from the en-US parts rather than taken from `fa-IR`: separators then do not depend on
- * which Persian data the reader's browser ships, and an engine without any `fa-IR` data cannot change the digits.
- */
+/** «۵٬۰۰۰»، «۰٫۵» for 'fa' and "5,000" for 'en': `formatNumber` in `lib/format.ts`. */
 export function formatLocalizedNumber(num: number, locale: AttendeeLocale): string {
-  try {
-    if (locale === "fa") {
-      if (!Number.isFinite(num)) return new Intl.NumberFormat("fa-IR").format(num);
-      return new Intl.NumberFormat("en-US").formatToParts(num).map(persianNumberPart).join("");
-    }
-    return new Intl.NumberFormat("en-US").format(num);
-  } catch {
-    return String(num);
-  }
+  return formatNumber(num, locale);
 }
 export interface AttendeeLocaleContext {
   locale: AttendeeLocale;
