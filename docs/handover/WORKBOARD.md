@@ -153,4 +153,5 @@ Web only: no migration, no env var, no backend, no new dependency, no `schema.d.
 | FOLLOW-1 | DB pool timeout returns 503 with a retry hint instead of 500 | — |
 | FOLLOW-2 | Remove the remaining manual `onKeyRejected` 401 calls (EventCheckIn, CheckInPointFormDialog, EventOperators, OperatorFormDialog, OrganizerProgram, OrganizerPageStudio) — do it inside the UX-ORG packages that own those files | UX-ORG-2/3 |
 | FOLLOW-3 | Call sites pass `result.response.status` to `localizedApiError` (POLISH-2 third argument) so fa errors get the status-specific sentence | UX phase 1 (each package for its files) |
+| FOLLOW-4 | Rate limits strict under concurrency (per-key advisory locks in `take()`); `event_timezone` on `DeskMeOut`, `DeskLoginResponse`, `BoothOut` used by the desk and booth | merged (`ws/follow4-tz-ratelimit` 8aa0e0f) |
 | TOKEN-2 | Remove `LEGACY_UNVERSIONED_USER_TOKENS_UNTIL` | after 2027-01-08 |
