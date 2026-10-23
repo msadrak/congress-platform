@@ -225,7 +225,10 @@ async def reload_platform(app: FastAPI, session: AsyncSession) -> PlatformConfig
 async def keep_platform_fresh(app: FastAPI, interval_seconds: float) -> None:
     """Runs for the life of the process: applies the saved settings once the database is reachable (if it was
     not at startup) and reloads them whenever another process changed them."""
+    delay = 0.0 if getattr(app.state, "platform_fingerprint", None) is None else interval_seconds
     while True:
+        await asyncio.sleep(delay)
+        delay = interval_seconds
         try:
             async with app.state.sessionmaker() as session:
                 fingerprint = await session.scalar(_FINGERPRINT)
@@ -236,7 +239,6 @@ async def keep_platform_fresh(app: FastAPI, interval_seconds: float) -> None:
             raise
         except Exception:
             logger.debug("Platform settings check failed; retrying", exc_info=True)
-        await asyncio.sleep(interval_seconds)
 
 
 def platform_config(request: Request) -> PlatformConfig:

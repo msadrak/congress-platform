@@ -1,3 +1,4 @@
+import hashlib
 import uuid
 from typing import Annotated, Literal
 
@@ -8,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
 from app.db import SessionDep
+from app.errors import ApiError, error_responses
 from app.models import DeskOperator, SmsMessage, User
 from app.rate_limit import (
     LONGEST_WINDOW_SECONDS,
@@ -15,14 +17,22 @@ from app.rate_limit import (
     OTP_VERIFY_PER_MOBILE,
     Budget,
     client_ip,
+    in_networks,
+    ip_group,
     limiter,
 )
-from app.security import create_access_token, create_signup_token, decode_access_token, is_user_token
+from app.security import (
+    SIGNUP_TOKEN_MINUTES,
+    create_access_token,
+    create_signup_token,
+    decode_access_token,
+    is_user_token,
+)
 from app.sms import SmsProvider, sms_provider
 from app.sms.otp import OtpPurpose, consume_challenge, issue_challenge
 from app.sms.phone import IranMobile, ascii_digits
 from app.platform_config import platform_config
-from app.sms.gateway import NOT_CONFIGURED
+from app.sms.gateway import DAILY_CAP_REACHED, HOURLY_CAP_REACHED, NOT_CONFIGURED
 from app.sms.templates import platform_body, render
 from app.account import AccountExport, delete_account, export_account, refresh_upcoming_snapshots
 
@@ -55,6 +65,8 @@ class OtpRequestOut(BaseModel):
     code_length: int
     expires_in: int
     resend_after: int
+    # uncertain: sms.ir did not confirm in time, so the code may still arrive (the form says so).
+    delivery: Literal["sent", "uncertain"] = "sent"
 
 
 class OtpVerify(BaseModel):
@@ -170,38 +182,56 @@ async def _should_send(session: SessionDep, mobile: str, purpose: OtpPurpose) ->
     return operator is not None
 
 
-@router.post("/otp/request", status_code=status.HTTP_202_ACCEPTED)
+_SEND_ERRORS: dict[str, tuple[str, str]] = {
+    NOT_CONFIGURED: ("SMS_NOT_CONFIGURED", "SMS delivery is not configured yet. Please try again later."),
+    HOURLY_CAP_REACHED: (
+        "SMS_HOURLY_CAP_REACHED", "The platform has reached its hourly SMS limit. Please try again later."
+    ),
+    DAILY_CAP_REACHED: ("SMS_DAILY_CAP_REACHED", "The platform has reached its daily SMS limit. Please try again later."),
+}
+_SEND_FAILED = ("OTP_SEND_FAILED", "The SMS could not be sent. Try again in a moment.")
+
+
+@router.post("/otp/request", status_code=status.HTTP_202_ACCEPTED, responses=error_responses(429, 503))
 async def request_otp(
     body: OtpRequest,
     request: Request,
     session: SessionDep,
     provider: Annotated[SmsProvider, Depends(sms_provider)],
 ) -> OtpRequestOut:
-    """Send a one-time code by SMS. The answer never reveals whether the number has an account."""
+    """Send a one-time code by SMS. The answer never reveals whether the number has an account.
+
+    The code is committed and the database connection released before sms.ir is called, so a slow provider
+    never holds connections the rest of the platform (check-in) needs.
+    """
     settings = request.app.state.settings
     rules = platform_config(request).sign_in
     throttle = limiter(request)
+    ip = client_ip(request)
+    venue = in_networks(ip, rules.trusted_networks)
+    # Per purpose: sign-in requests for a number cannot use up its desk-code budget, or the reverse.
     cooldown, per_mobile, per_ip = (
         f"otp:cooldown:{body.purpose}:{body.mobile}",
-        f"otp:send:{body.mobile}",
-        f"otp:send-ip:{client_ip(request)}",
+        f"otp:send:{body.purpose}:{body.mobile}",
+        f"otp:send-ip:{'venue:' if venue else ''}{ip_group(ip)}",
     )
-    await throttle.check(
+    ip_budget = rules.otp_sends_per_trusted_ip_per_hour if venue else rules.otp_sends_per_ip_per_hour
+    await throttle.consume(
         (cooldown, Budget(1, rules.otp_resend_cooldown_seconds)),
         (per_mobile, Budget(rules.otp_sends_per_mobile_per_hour, LONGEST_WINDOW_SECONDS)),
-        (per_ip, Budget(rules.otp_sends_per_ip_per_hour, LONGEST_WINDOW_SECONDS)),
+        (per_ip, Budget(ip_budget, LONGEST_WINDOW_SECONDS)),
         detail="Too many codes requested. Wait before asking for another one.",
+        code="OTP_RATE_LIMITED",
     )
-    await throttle.hit(cooldown, per_mobile, per_ip)
 
+    delivery: Literal["sent", "uncertain"] = "sent"
     if await _should_send(session, body.mobile, body.purpose):
+        template = await platform_body(session, "otp")
         code = await issue_challenge(
             session, settings, body.mobile, body.purpose, length=rules.otp_length, ttl_seconds=rules.otp_ttl_seconds
         )
-        text = render(
-            await platform_body(session, "otp"),
-            {"code": code, "minutes": str(max(1, rules.otp_ttl_seconds // 60))},
-        )
+        await session.close()  # nothing is held while the provider answers
+        text = render(template, {"code": code, "minutes": str(max(1, rules.otp_ttl_seconds // 60))})
         result = await provider.send_text(body.mobile, text, kind="otp", code=code)
         session.add(
             SmsMessage(
@@ -215,37 +245,43 @@ async def request_otp(
             )
         )
         await session.commit()
-        if not result.ok and not result.unknown:
+        if result.unknown:
+            delivery = "uncertain"
+        elif not result.ok:
             # Nothing reached the phone: let the person retry without waiting out the resend cooldown.
             await throttle.succeed(cooldown)
-            detail = (
-                "SMS delivery is not configured yet. Please try again later."
-                if result.error == NOT_CONFIGURED
-                else "The SMS could not be sent. Try again in a moment."
-            )
-            raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail)
+            error_code, detail = _SEND_ERRORS.get(result.error or "", _SEND_FAILED)
+            raise ApiError(status.HTTP_503_SERVICE_UNAVAILABLE, error_code, detail)
     return OtpRequestOut(
         mobile=body.mobile,
         code_length=rules.otp_length,
         expires_in=rules.otp_ttl_seconds,
         resend_after=rules.otp_resend_cooldown_seconds,
+        delivery=delivery,
     )
 
 
 async def verify_code(
     request: Request, session: SessionDep, mobile: str, code: str, purpose: OtpPurpose
 ) -> None:
-    """Consume the code or raise 401/429; shared by attendee sign-in and desk login."""
+    """Consume the code or raise 401/429; shared by attendee sign-in and desk login.
+
+    The lockout counts wrong codes per number and purpose from one network, so wrong codes typed elsewhere cannot
+    lock the owner out; guessing stays bounded by the 5 attempts each code allows and the per-number send budget.
+    """
     throttle = limiter(request)
-    keys = (f"otp:verify:{purpose}:{mobile}", f"otp:verify-ip:{client_ip(request)}")
-    await throttle.check((keys[0], OTP_VERIFY_PER_MOBILE), (keys[1], OTP_VERIFY_PER_IP))
+    ip = ip_group(client_ip(request))
+    keys = (f"otp:verify:{purpose}:{mobile}:{ip}", f"otp:verify-ip:{ip}")
+    await throttle.check(
+        (keys[0], OTP_VERIFY_PER_MOBILE), (keys[1], OTP_VERIFY_PER_IP), code="OTP_VERIFY_RATE_LIMITED"
+    )
     if not await consume_challenge(session, request.app.state.settings, mobile, purpose, code):
         await throttle.fail(*keys)
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "The code is wrong or has expired.")
+        raise ApiError(status.HTTP_401_UNAUTHORIZED, "OTP_CODE_INVALID", "The code is wrong or has expired.")
     await throttle.succeed(keys[0])
 
 
-@router.post("/otp/verify")
+@router.post("/otp/verify", responses=error_responses(401, 429))
 async def verify_otp(body: OtpVerify, request: Request, session: SessionDep) -> OtpVerifyOut:
     await verify_code(request, session, body.mobile, body.code, "signin")
     user = await session.scalar(select(User).where(User.mobile == body.mobile))
@@ -258,14 +294,19 @@ async def verify_otp(body: OtpVerify, request: Request, session: SessionDep) -> 
     return OtpVerifyOut(status="signed_in", access_token=signed_in.access_token, user=signed_in.user)
 
 
-@router.post("/otp/complete", status_code=status.HTTP_201_CREATED)
+@router.post("/otp/complete", status_code=status.HTTP_201_CREATED, responses=error_responses(401))
 async def complete_signup(body: OtpComplete, request: Request, session: SessionDep) -> AuthResponse:
-    """Create the account for a number verified by /otp/verify."""
+    """Create the account for a number verified by /otp/verify. A signup token works once."""
     payload = decode_access_token(body.signup_token, request.app.state.settings.jwt_secret)
     mobile = payload.get("mobile") if payload and payload.get("type") == "signup" else None
     if not isinstance(mobile, str):
-        raise HTTPException(
-            status.HTTP_401_UNAUTHORIZED, "The verification has expired. Request a new code."
+        raise ApiError(
+            status.HTTP_401_UNAUTHORIZED, "SIGNUP_TOKEN_EXPIRED", "The verification has expired. Request a new code."
+        )
+    spent = f"signup-token:{hashlib.sha256(body.signup_token.encode()).hexdigest()}"
+    if not await limiter(request).claim_once(spent, SIGNUP_TOKEN_MINUTES * 60 + 60):
+        raise ApiError(
+            status.HTTP_401_UNAUTHORIZED, "SIGNUP_TOKEN_USED", "This verification was already used. Request a new code."
         )
     user = User(
         mobile=mobile,
