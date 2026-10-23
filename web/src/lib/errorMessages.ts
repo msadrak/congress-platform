@@ -21,6 +21,9 @@ export const errorMessages: Record<AttendeeLocale, Record<string, string>> = {
     EVENT_STARTED: "همایش آغاز شده است؛ برای لغو ثبت‌نام با برگزارکننده تماس بگیرید.",
     TICKET_ALREADY_CANCELLED: "این بلیت پیش‌تر لغو شده است.",
     TICKET_NOT_FOUND: "این بلیت یافت نشد.",
+    OPERATOR_ALREADY_ASSIGNED: "این شماره پیش‌تر اپراتور پذیرش این همایش است.",
+    IDEMPOTENCY_KEY_REUSED: "این ثبت با اطلاعات دیگری فرستاده شده بود. اطلاعات را بررسی و دوباره ثبت کنید.",
+    IDEMPOTENCY_KEY_IN_PROGRESS: "ثبت قبلی هنوز در حال انجام است. چند لحظه بعد دوباره تلاش کنید.",
   },
   en: {
     EVENT_NOT_FOUND: "This congress could not be found.",
@@ -37,6 +40,9 @@ export const errorMessages: Record<AttendeeLocale, Record<string, string>> = {
     EVENT_STARTED: "The congress has started; ask the organizer to cancel your registration.",
     TICKET_ALREADY_CANCELLED: "This ticket has already been cancelled.",
     TICKET_NOT_FOUND: "This ticket could not be found.",
+    OPERATOR_ALREADY_ASSIGNED: "This number is already a reception operator for this congress.",
+    IDEMPOTENCY_KEY_REUSED: "This submission was already sent with different details. Check the entry and submit again.",
+    IDEMPOTENCY_KEY_IN_PROGRESS: "The previous submission is still being processed. Try again in a moment.",
   },
 };
 
