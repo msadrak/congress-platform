@@ -310,6 +310,8 @@ export function unwrapApiResponse<T>(result: { data?: T; error?: unknown; respon
   return result.data;
 }
 
+const UNEXPECTED_ERROR = "An unexpected error occurred.";
+
 export function formatApiError(err: unknown): string {
   if (typeof err === "object" && err !== null) {
     const e = err as { detail?: unknown; message?: string };
@@ -324,7 +326,7 @@ export function formatApiError(err: unknown): string {
     }
     if (e.message) return e.message;
   }
-  return "An unexpected error occurred.";
+  return UNEXPECTED_ERROR;
 }
 
 /** The stable error code of an error body or ApiResponseError (backend/app/errors.py), if it has one. */
@@ -334,11 +336,100 @@ export function apiErrorCode(error: unknown): string | undefined {
   return typeof body.code === "string" && body.code.length > 0 ? body.code : undefined;
 }
 
-/** The error in the reader's language when its code is known; otherwise the existing `formatApiError` text. */
-export function localizedApiError(error: unknown, locale: AttendeeLocale): string {
+/**
+ * The English text an error carries (the server's `detail`, a validation list, or a thrown Error's message), or
+ * `undefined` when it carries none. It is a diagnostic for logs and support: only English readers are shown it
+ * (see `localizedApiError`), and no decision may depend on its wording.
+ */
+export function apiErrorDiagnostic(error: unknown): string | undefined {
+  const body = error instanceof ApiResponseError ? error.body : error;
+  if (typeof body !== "object" || body === null) return undefined;
+  const text = formatApiError(body);
+  return text === "" || text === UNEXPECTED_ERROR ? undefined : text;
+}
+
+/** What a browser's fetch rejects with, as a TypeError, when no response arrived (wording differs per engine). */
+const FETCH_FAILURE_MESSAGE =
+  /failed to fetch|fetch failed|networkerror|load failed|network request failed|network connection was lost|internet connection appears to be offline/i;
+
+function isFetchFailure(error: unknown): boolean {
+  return error instanceof TypeError && FETCH_FAILURE_MESSAGE.test(error.message);
+}
+
+interface StatusMessages {
+  /** By exact status. */
+  readonly exact: Readonly<Record<number, string>>;
+  /** Any other 5xx. */
+  readonly server: string;
+  /** No status known, or one without a sentence of its own. */
+  readonly other: string;
+}
+
+/** A sentence per kind of failure, for errors that carry no code this build knows. Never names a field or a record. */
+const statusMessages: Record<AttendeeLocale, StatusMessages> = {
+  fa: {
+    exact: {
+      400: "درخواست معتبر نبود. اطلاعات واردشده را بررسی کنید و دوباره تلاش کنید.",
+      401: "نشست شما منقضی شده یا معتبر نیست. دوباره وارد شوید.",
+      403: "اجازهٔ انجام این کار را ندارید.",
+      404: "مورد درخواستی پیدا نشد.",
+      409: "این کار با وضعیت فعلی در تعارض است. صفحه را به‌روز کنید و دوباره تلاش کنید.",
+      413: "حجم اطلاعات یا فایل ارسالی بیشتر از حد مجاز است.",
+      415: "این نوع فایل پشتیبانی نمی‌شود.",
+      422: "برخی از اطلاعات واردشده معتبر نیست. آن‌ها را بررسی و اصلاح کنید.",
+      429: "تعداد درخواست‌ها زیاد است. کمی صبر کنید و دوباره تلاش کنید.",
+    },
+    server: "در سرور خطایی رخ داد. کمی بعد دوباره تلاش کنید.",
+    other: "انجام نشد. دوباره تلاش کنید.",
+  },
+  en: {
+    exact: {
+      400: "The request was not valid. Check the details and try again.",
+      401: "Your session has expired or is not valid. Please sign in again.",
+      403: "You do not have permission to do this.",
+      404: "What you asked for was not found.",
+      409: "This conflicts with the current state. Refresh the page and try again.",
+      413: "What you sent is too large.",
+      415: "This type of file is not supported.",
+      422: "Some of the details you entered are not valid. Check them and try again.",
+      429: "Too many requests. Wait a moment and try again.",
+    },
+    server: "Something went wrong on the server. Try again in a little while.",
+    other: "Something went wrong. Please try again.",
+  },
+};
+
+/** The generic sentence for an HTTP status (any 5xx shares one); the neutral one when the status is unknown. */
+export function genericApiErrorMessage(status: number | undefined, locale: AttendeeLocale): string {
+  const messages = statusMessages[locale];
+  if (status === undefined) return messages.other;
+  const exact = Object.hasOwn(messages.exact, status) ? messages.exact[status] : undefined;
+  if (exact !== undefined) return exact;
+  return status >= 500 && status < 600 ? messages.server : messages.other;
+}
+
+/**
+ * The status an error stands for: the caller's (they hold the Response), an `ApiResponseError`'s own, or 422 for
+ * a validation body. A bare error body from `result.error` carries no status otherwise.
+ */
+function apiErrorStatus(error: unknown, status: number | undefined): number | undefined {
+  if (status !== undefined) return status;
+  if (error instanceof ApiResponseError) return error.status;
+  const body = typeof error === "object" && error !== null ? error : undefined;
+  return body !== undefined && "detail" in body && Array.isArray(body.detail) ? 422 : undefined;
+}
+
+/**
+ * The error in the reader's language. A code this build knows gets its message from `errorMessages`; an
+ * unreachable server gets the network message. Anything else is a localized generic sentence chosen by HTTP
+ * status: Persian readers never see the server's English `detail`, English readers see it when there is one.
+ * Pass `status` (`result.response.status`) when you only have the bare `result.error` body.
+ */
+export function localizedApiError(error: unknown, locale: AttendeeLocale, status?: number): string {
   const code = apiErrorCode(error);
-  if (code === NETWORK_FAILURE_CODE) return networkErrorMessage[locale];
+  if (code === NETWORK_FAILURE_CODE || isFetchFailure(error)) return networkErrorMessage[locale];
   const messages = errorMessages[locale];
   if (code !== undefined && Object.hasOwn(messages, code)) return messages[code];
-  return formatApiError(error instanceof ApiResponseError ? error.body : error);
+  const english = locale === "en" ? apiErrorDiagnostic(error) : undefined;
+  return english ?? genericApiErrorMessage(apiErrorStatus(error, status), locale);
 }

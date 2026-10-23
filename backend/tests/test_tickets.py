@@ -174,3 +174,34 @@ async def test_attendee_can_retrieve_their_tickets_list(
     assert t["ticket_tier_name"] == "Standard Pass"
     assert t["attendee_name"] == "Sara Tehrani"
     assert len(t["qr_secret"]) == 26
+    assert t["event_timezone"] == "Asia/Tehran"
+
+
+async def test_each_ticket_names_the_time_zone_of_its_own_congress(client: AsyncClient) -> None:
+    """A pass shows its dates in its congress's zone, so a visitor abroad still reads the congress's own days."""
+    organizer = await provision_organizer(client, "Acme Congress Co")
+    _, token = await register_user(client, "09121000073", "Reza Ahmadi")
+    zones = {"tehran-congress": None, "berlin-congress": "Europe/Berlin"}
+    for slug, zone in zones.items():
+        body = {**EVENT, "slug": slug, "name": slug, **({"timezone": zone} if zone else {})}
+        created = await client.post("/api/events", json=body, headers=bearer(organizer))
+        assert created.status_code == 201, created.text
+        event_id = created.json()["id"]
+        await publish_page(client, organizer, event_id)
+        tier_resp = await client.post(
+            f"/api/events/{event_id}/ticket-tiers", json=tier(name="Delegate", quota=10), headers=bearer(organizer)
+        )
+        reserved = await client.post(
+            f"/api/events/{event_id}/tickets/reserve",
+            json={"ticket_tier_id": tier_resp.json()["id"]},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert reserved.status_code == 201, reserved.text
+
+    mine = await client.get("/api/attendees/me/tickets", headers={"Authorization": f"Bearer {token}"})
+
+    assert mine.status_code == 200
+    assert {t["event_slug"]: t["event_timezone"] for t in mine.json()} == {
+        "tehran-congress": "Asia/Tehran",
+        "berlin-congress": "Europe/Berlin",
+    }

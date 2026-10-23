@@ -829,13 +829,38 @@ export function formatLocalizedDate(dateStr: string, locale: AttendeeLocale, tim
 export function codeFontClass(text: string): string {
   return /^[\x20-\x7E]*$/.test(text) ? "font-mono" : "tabular";
 }
+const PERSIAN_DIGITS = "۰۱۲۳۴۵۶۷۸۹";
+/** CLDR's Persian number symbols, spelled out so no engine's `fa-IR` data can bring back a Latin comma. */
+const PERSIAN_GROUP = "\u066C"; // ٬ thousands separator
+const PERSIAN_DECIMAL = "\u066B"; // ٫ decimal separator
+const PERSIAN_MINUS = "\u200E\u2212"; // minus sign, kept left-to-right so it stays on the number's left
+
+function persianNumberPart({ type, value }: Intl.NumberFormatPart): string {
+  switch (type) {
+    case "integer":
+    case "fraction":
+      return value.replace(/[0-9]/g, (digit) => PERSIAN_DIGITS[Number(digit)] ?? digit);
+    case "group":
+      return PERSIAN_GROUP;
+    case "decimal":
+      return PERSIAN_DECIMAL;
+    case "minusSign":
+      return PERSIAN_MINUS;
+    default:
+      return value;
+  }
+}
+
 /**
- * Format numbers using Persian numerals for 'fa' and Latin for 'en'.
+ * Format numbers using Persian numerals and separators («۵٬۰۰۰»، «۰٫۵») for 'fa' and Latin for 'en'.
+ * Persian is assembled from the en-US parts rather than taken from `fa-IR`: separators then do not depend on
+ * which Persian data the reader's browser ships, and an engine without any `fa-IR` data cannot change the digits.
  */
 export function formatLocalizedNumber(num: number, locale: AttendeeLocale): string {
   try {
     if (locale === "fa") {
-      return new Intl.NumberFormat("fa-IR").format(num);
+      if (!Number.isFinite(num)) return new Intl.NumberFormat("fa-IR").format(num);
+      return new Intl.NumberFormat("en-US").formatToParts(num).map(persianNumberPart).join("");
     }
     return new Intl.NumberFormat("en-US").format(num);
   } catch {

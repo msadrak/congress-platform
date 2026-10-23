@@ -107,6 +107,8 @@ export function linkPassCard(pass: LinkPass): PassCardTicket {
     event_location: pass.event.location,
     event_starts_at: pass.event.starts_at,
     event_ends_at: pass.event.ends_at,
+    // Absent from a pass saved before the server sent it: the card then reads its dates in the device's zone.
+    event_timezone: pass.event_timezone,
     ticket_tier_name: pass.tier_name,
     attendee_name: pass.attendee.full_name,
     qr_secret: pass.qr_secret,

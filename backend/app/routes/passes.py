@@ -63,6 +63,8 @@ class LinkPassOut(BaseModel):
     expires_at: datetime
     event: LinkPassEvent
     attendee: LinkPassAttendee
+    # The congress's own IANA zone (`events.timezone`): the pass shows its dates in it, not in the phone's zone.
+    event_timezone: str
 
 
 class LinkErrorOut(BaseModel):
@@ -159,4 +161,5 @@ async def resolve_pass_link(
         attendee=LinkPassAttendee(
             full_name=ticket.attendee_full_name, organization=ticket.attendee_organization, title=ticket.attendee_title
         ),
+        event_timezone=event.timezone,
     )

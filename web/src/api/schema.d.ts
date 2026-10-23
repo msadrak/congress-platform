@@ -2903,6 +2903,8 @@ export interface components {
              * Format: date-time
              */
             event_ends_at: string;
+            /** Event Timezone */
+            event_timezone: string;
             /**
              * Ticket Tier Id
              * Format: uuid
@@ -4540,6 +4542,8 @@ export interface components {
             expires_at: string;
             event: components["schemas"]["LinkPassEvent"];
             attendee: components["schemas"]["LinkPassAttendee"];
+            /** Event Timezone */
+            event_timezone: string;
         };
         /**
          * LocalizedLabel

@@ -53,6 +53,7 @@ function pass(overrides: Partial<LinkPass> = {}, slug = "spring"): LinkPass {
       location: "Tehran",
     },
     attendee: { full_name: "Dr. Neda Karimi", organization: "Heart Center", title: "Cardiologist" },
+    event_timezone: "Asia/Tehran",
     ...overrides,
   };
 }
@@ -134,6 +135,7 @@ test("the pass card shows the link pass without the mobile number", () => {
     event_location: "Tehran",
     event_starts_at: "2027-04-10T08:00:00Z",
     event_ends_at: "2027-04-12T18:00:00Z",
+    event_timezone: "Asia/Tehran",
     ticket_tier_name: "Delegate",
     attendee_name: "Dr. Neda Karimi",
     qr_secret: "qr-spring",
@@ -143,6 +145,18 @@ test("the pass card shows the link pass without the mobile number", () => {
   assert.equal(isLinkPass(pass()), true);
   assert.equal(isLinkPass({ ...pass(), qr_secret: "" }), false);
   assert.equal(isLinkPass(null), false);
+});
+
+test("a pass saved before the server sent the congress's zone still loads, and its card has none", () => {
+  const storage = new MemoryStorage();
+  const { event_timezone: _zone, ...saved } = pass();
+  storage.setItem(`${LINK_PASS_KEY_PREFIX}ticket-spring`, JSON.stringify({ savedAt: NOW, pass: saved }));
+
+  const [loaded] = loadLinkPasses("spring", NOW, storage);
+
+  assert.ok(loaded, "the older pass is kept, not dropped as malformed");
+  assert.equal(isLinkPass(saved), true);
+  assert.equal(linkPassCard(loaded).event_timezone, undefined);
 });
 
 test("resolve outcomes map to the friendly pages", () => {
