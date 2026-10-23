@@ -3,7 +3,10 @@
  * One complete congress on a disposable, isolated stack: real browser -> vite preview (production
  * build, service worker enabled) -> FastAPI -> PostgreSQL.
  *
- *   node scripts/integration/congress-e2e.mjs [--keep] [--skip-build] [--skip-scanner-spec]
+ *   node scripts/integration/congress-e2e.mjs [--keep] [--skip-build]
+ *
+ * The per-persona Playwright journeys against a live stack are web/e2e-live (scripts/integration/live-e2e.mjs);
+ * this script is the older single-run journey with database cross-checks.
  *
  * Safety: everything is created with fixed `congress-e2e-*` names on a private --internal Docker
  * network. PostgreSQL has no published port; only the API is published, on 127.0.0.1 at a free port
@@ -115,15 +118,6 @@ async function main() {
     const result = await runJourney(ctx);
     writeFileSync(resolve(SHOT_DIR, 'last-run.json'), JSON.stringify(result, null, 2));
     failed = result.failed > 0;
-
-    if (!args.has('--skip-scanner-spec')) {
-      const spec = run('npx', ['playwright', 'test', 'e2e/scanner-real-api.spec.ts', '--retries=0'], {
-        cwd: resolve(root, 'web'), allowFail: true,
-        env: { PLAYWRIGHT_BASE_URL: BASE, CONGRESS_API_BASE_URL: API_URL, CONGRESS_PLATFORM_ADMIN_TOKEN: ADMIN_TOKEN, CI: '', FORCE_COLOR: '0', NO_COLOR: '1' },
-      });
-      console.log(`scanner-real-api.spec.ts exit=${spec.status}\n${(spec.stdout || '').split('\n').slice(-6).join('\n')}`);
-      if (spec.status !== 0) failed = true;
-    }
   } finally {
     stopProcess(preview);
     if (!args.has('--keep')) teardown();
