@@ -1,5 +1,20 @@
 # Specification: V1 Core Registration and Attendance Tracking System
 
+> **Historical specification (October 2026, V1). Not maintained; parts are outdated.**
+>
+> **Current sources of truth:** the ADRs in `docs/adr/` (with their "Status / Implementation notes" sections where present),
+> `GLOSSARY.md`, `AGENTS.md`, and `docs/pilot/MASTER-PILOT-READINESS.md` for what the platform is cleared to run.
+>
+> Outdated here:
+> - **Password sign-in** (user story 3 and related): sign-in is a mobile number plus an SMS code; passwords and e-mail
+>   were removed (ADR 0012).
+> - **Redis** for caching, rate limiting and queues: not used. Inventory is a PostgreSQL conditional update; throttling
+>   and the SMS outbox run inside the single API process (ADR 0002 and 0006 status).
+> - **Native Flutter scanner** with ML Kit and SQLite: never built and now parked (`mobile/README.md`). The web PWA at
+>   `/scan/:pointId` is the only scanner.
+> - Admission policies are narrower than described: no single-use time windows, no entry/exit, capacity counts total
+>   admissions (ADR 0010 status). There is no check-in point hierarchy (ADR 0004 status).
+
 ## Problem Statement
 
 At large congresses and conventions, registration and entry gate operations are often the most stressful and vulnerable touchpoints for both organizers and attendees. 

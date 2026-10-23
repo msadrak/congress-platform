@@ -1,7 +1,7 @@
 import createClient from "openapi-fetch";
 import type { components, paths } from "./schema";
 import type { AttendeeLocale } from "../lib/i18n";
-import { errorMessages } from "../lib/errorMessages.ts";
+import { errorMessages, networkErrorMessage } from "../lib/errorMessages.ts";
 
 export type ErrorResponse = components["schemas"]["ErrorResponse"];
 export type EventOut = components["schemas"]["EventOut"];
@@ -48,6 +48,8 @@ export type AttendanceAnalyticsResponse = components["schemas"]["AttendanceAnaly
 export type GateMetric = components["schemas"]["GateMetric"];
 export type CateringMetric = components["schemas"]["CateringMetric"];
 export type HourlyScanCount = components["schemas"]["HourlyScanCount"];
+export type TierRegistration = components["schemas"]["TierRegistration"];
+export type TicketStatusCount = components["schemas"]["TicketStatusCount"];
 export type BoothOut = components["schemas"]["BoothOut"];
 export type BoothCreate = components["schemas"]["BoothCreate"];
 export type BoothUpdate = components["schemas"]["BoothUpdate"];
@@ -84,6 +86,12 @@ export type EventSessionImportRow = components["schemas"]["EventSessionImportRow
 export type EventSessionImportOut = components["schemas"]["EventSessionImportOut"];
 export type PublicVenuePlace = components["schemas"]["PublicVenuePlace"];
 export type PublicSession = components["schemas"]["PublicSession"];
+export type ParticipantOut = components["schemas"]["ParticipantOut"];
+export type ParticipantDetail = components["schemas"]["ParticipantDetail"];
+export type ParticipantPage = components["schemas"]["ParticipantPage"];
+export type ParticipantUpdate = components["schemas"]["ParticipantUpdate"];
+export type ParticipantCancel = components["schemas"]["ParticipantCancel"];
+export type ParticipantTransfer = components["schemas"]["ParticipantTransfer"];
 export const ORGANIZER_KEY_STORAGE = "congress_organizer_api_key";
 export const ATTENDEE_TOKEN_STORAGE = "congress_attendee_token";
 /** Tab-scoped (sessionStorage): the most powerful credential is never kept across browser sessions. */
@@ -102,6 +110,42 @@ export type ApiAuthority =
 export interface ApiClientOptions {
   readonly baseUrl?: string;
   readonly fetch?: (request: Request) => Promise<Response>;
+  /**
+   * Who hears a 401 for this client's credential. Omitted: the handler registered for the authority's
+   * kind (`registerUnauthorizedHandler`), looked up when the response arrives. `null`: nobody, the
+   * caller decides (My Tickets keeping its labelled offline pass, see lib/attendeeSession.ts).
+   */
+  readonly onUnauthorized?: ((token: string) => void) | null;
+  /**
+   * "result": a failed fetch (offline, DNS, connection reset) resolves to a synthetic 503 that
+   * `isNetworkFailure` recognises, instead of rejecting. The default "throw" keeps native errors,
+   * which the scanner's offline logic relies on.
+   */
+  readonly networkErrors?: "throw" | "result";
+}
+
+type CredentialKind = Exclude<ApiAuthority["kind"], "anonymous">;
+const unauthorizedHandlers: Partial<Record<CredentialKind, (token: string) => void>> = {};
+
+/**
+ * Registers the session owner that invalidates a credential of `kind` on a 401 (attendee session:
+ * reject the token; organizer layout: its key gate's sign-out). The handler receives the exact token
+ * that was sent and must ignore it when it is no longer the stored one. Returns the unregister function.
+ */
+export function registerUnauthorizedHandler(kind: CredentialKind, handler: (token: string) => void): () => void {
+  unauthorizedHandlers[kind] = handler;
+  return () => {
+    if (unauthorizedHandlers[kind] === handler) delete unauthorizedHandlers[kind];
+  };
+}
+
+const NETWORK_FAILURE_HEADER = "X-Congress-Network-Failure";
+/** The code of the synthetic network-failure body; the server never sends it. */
+export const NETWORK_FAILURE_CODE = "NETWORK_UNREACHABLE";
+
+/** True for the synthetic response of a `networkErrors: "result"` client when no response arrived. */
+export function isNetworkFailure(response: Response): boolean {
+  return response.headers.get(NETWORK_FAILURE_HEADER) === "1";
 }
 
 export class ApiContextError extends Error {
@@ -163,6 +207,19 @@ export function createApiClient(authority: ApiAuthority | null, options: ApiClie
         request.headers.delete("Authorization");
         request.headers.set("X-Admin-Token", context.token);
       } else request.headers.set("Authorization", `Bearer ${context.token}`);
+    },
+    onResponse({ response }) {
+      if (response.status !== 401 || context.kind === "anonymous" || isNetworkFailure(response)) return;
+      const handler = options.onUnauthorized === undefined ? unauthorizedHandlers[context.kind] : options.onUnauthorized;
+      handler?.(context.token);
+    },
+    onError({ error }) {
+      // An aborted request was cancelled on purpose; it is not a network failure.
+      if (options.networkErrors !== "result" || (error instanceof Error && error.name === "AbortError")) return;
+      return Response.json(
+        { detail: "Could not reach the server.", code: NETWORK_FAILURE_CODE },
+        { status: 503, headers: { [NETWORK_FAILURE_HEADER]: "1" } },
+      );
     },
   });
   return client;
@@ -266,6 +323,7 @@ export function apiErrorCode(error: unknown): string | undefined {
 /** The error in the reader's language when its code is known; otherwise the existing `formatApiError` text. */
 export function localizedApiError(error: unknown, locale: AttendeeLocale): string {
   const code = apiErrorCode(error);
+  if (code === NETWORK_FAILURE_CODE) return networkErrorMessage[locale];
   const messages = errorMessages[locale];
   if (code !== undefined && Object.hasOwn(messages, code)) return messages[code];
   return formatApiError(error instanceof ApiResponseError ? error.body : error);

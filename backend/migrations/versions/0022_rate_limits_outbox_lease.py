@@ -1,7 +1,7 @@
 """Shared rate limits and the SMS outbox lease
 
 Revision ID: 0022
-Revises: 0019
+Revises: 0023
 Create Date: 2026-10-23
 
 `rate_limit_counters` holds throttling counts in PostgreSQL so every API process (and every restart) sees the
@@ -14,7 +14,7 @@ from alembic import op
 import sqlalchemy as sa
 
 revision: str = "0022"
-down_revision: Union[str, Sequence[str], None] = "0019"
+down_revision: Union[str, Sequence[str], None] = "0023"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

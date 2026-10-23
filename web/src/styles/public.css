@@ -25,22 +25,30 @@
   }
 }
 
-/* Over a photograph the scrim is denser and never fully opens, so white text and the status chips keep
-   AA contrast whatever the organizer uploads. */
+/* Over a photograph the scrim never fully opens behind the text, so white text and the status chips keep
+   AA contrast whatever the organizer uploads; the far side stays open so the photograph is seen. */
 .pub-hero-scrim--cover {
   background:
-    linear-gradient(90deg, rgb(14 12 43 / 0.9) 0%, rgb(14 12 43 / 0.7) 38%, rgb(14 12 43 / 0.22) 72%, rgb(14 12 43 / 0.08) 100%),
-    linear-gradient(0deg, rgb(14 12 43 / 0.95) 0%, rgb(14 12 43 / 0.62) 38%, rgb(14 12 43 / 0) 78%);
+    linear-gradient(90deg, rgb(14 12 43 / 0.88) 0%, rgb(14 12 43 / 0.66) 38%, rgb(14 12 43 / 0.14) 70%, rgb(14 12 43 / 0) 100%),
+    linear-gradient(0deg, rgb(14 12 43 / 0.94) 0%, rgb(14 12 43 / 0.78) 32%, rgb(14 12 43 / 0.35) 52%, rgb(14 12 43 / 0) 72%);
 }
 [dir="rtl"] .pub-hero-scrim--cover {
   background:
-    linear-gradient(270deg, rgb(14 12 43 / 0.9) 0%, rgb(14 12 43 / 0.7) 38%, rgb(14 12 43 / 0.22) 72%, rgb(14 12 43 / 0.08) 100%),
-    linear-gradient(0deg, rgb(14 12 43 / 0.95) 0%, rgb(14 12 43 / 0.62) 38%, rgb(14 12 43 / 0) 78%);
+    linear-gradient(270deg, rgb(14 12 43 / 0.88) 0%, rgb(14 12 43 / 0.66) 38%, rgb(14 12 43 / 0.14) 70%, rgb(14 12 43 / 0) 100%),
+    linear-gradient(0deg, rgb(14 12 43 / 0.94) 0%, rgb(14 12 43 / 0.78) 32%, rgb(14 12 43 / 0.35) 52%, rgb(14 12 43 / 0) 72%);
 }
+/* Phones: the text starts below an open band (--pub-cover-band, set by the hero), so the top of the
+   photograph shows clearly and the scrim turns dense exactly where the text begins. */
 @media (max-width: 47.99rem) {
   .pub-hero-scrim--cover,
   [dir="rtl"] .pub-hero-scrim--cover {
-    background: linear-gradient(0deg, rgb(14 12 43 / 0.97) 0%, rgb(14 12 43 / 0.86) 55%, rgb(14 12 43 / 0.45) 100%);
+    background: linear-gradient(
+      180deg,
+      rgb(14 12 43 / 0.08) 0,
+      rgb(14 12 43 / 0.2) calc(var(--pub-cover-band, 34svh) - 5rem),
+      rgb(14 12 43 / 0.9) calc(var(--pub-cover-band, 34svh) + 1rem),
+      rgb(14 12 43 / 0.96) 100%
+    );
   }
 }
 

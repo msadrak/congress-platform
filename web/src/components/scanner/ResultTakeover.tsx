@@ -46,7 +46,7 @@ export function ResultTakeover({ result, t, copy }: { result: LocalScanResult; t
 
         {/* The duplicate title already says why; its reason chip would only repeat it (the log keeps the reason). */}
         {result.rejection_reason && kind !== "duplicate" && (
-          <p className="scanner-takeover-reason">{rejectionLabel(t, result.rejection_reason) ?? t.reasonInvalidTicket}</p>
+          <p className="scanner-takeover-reason">{rejectionLabel(t, copy, result.rejection_reason) ?? t.reasonInvalidTicket}</p>
         )}
       </div>
     </div>

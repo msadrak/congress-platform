@@ -12,11 +12,13 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from app.config import STRICT_ENVIRONMENTS, Settings, describe_settings_error
 from app.errors import ApiError, api_error_handler
 from app.logging_setup import configure_logging
+from app.observability import install_observability
 from app.rate_limit import FailureLimiter
 from app.schema_guard import assert_schema_current
 from app.platform_config import apply_platform, environment_config, keep_platform_fresh, reload_platform
 from app.sms import build_gateway
 from app.sms.outbox import run_outbox
+from app.retention import run_retention
 from app.routes import (
     access,
     analytics,
@@ -30,6 +32,7 @@ from app.routes import (
     network,
     organizers,
     pages,
+    participants,
     passes,
     platform,
     program,
@@ -63,8 +66,11 @@ def create_app(settings: Settings) -> FastAPI:
             if settings.sms_outbox_enabled
             else None
         )
+        retention = (
+            asyncio.create_task(run_retention(app.state.sessionmaker, settings)) if settings.retention_enabled else None
+        )
         yield
-        for task in (outbox, platform_loader):
+        for task in (outbox, retention, platform_loader):
             if task is not None:
                 task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
@@ -91,6 +97,7 @@ def create_app(settings: Settings) -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    install_observability(app, settings)
     app.include_router(health.router)
     app.include_router(auth.router)
     app.include_router(access.router)
@@ -98,6 +105,7 @@ def create_app(settings: Settings) -> FastAPI:
     app.include_router(events.router)
     app.include_router(ticket_tiers.router)
     app.include_router(tickets.router)
+    app.include_router(participants.router)
     app.include_router(checkin.router)
     app.include_router(desk.router)
     app.include_router(analytics.router)
@@ -122,9 +130,10 @@ def create_app_from_env() -> FastAPI:
 
     A misconfigured deployment stops here with a list of what to fix, before it opens any connection.
     """
-    configure_logging()
     try:
         settings = Settings()
     except ValidationError as exc:
+        configure_logging()
         raise SystemExit(describe_settings_error(exc)) from None
+    configure_logging(settings.effective_log_format)
     return create_app(settings)

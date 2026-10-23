@@ -92,6 +92,9 @@ jobs:
         working-directory: web
         run: npm run lint
 
+      - name: Operations tool unit tests (scripts/staging)
+        run: node --test scripts/staging/stack.test.mjs
+
   api-schema:
     name: API client types match the backend
     runs-on: ubuntu-latest

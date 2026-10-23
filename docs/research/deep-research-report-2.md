@@ -1,13 +1,13 @@
 # Second Research Report — Corrections, Decisions, and an MVP Spec
 
-This document is the decision layer over `deep-research-report.md` (Persian) and four primary-source research files in `research/`:
+This document is the decision layer over `deep-research-report.md` (Persian) and four primary-source research files in this folder (`docs/research/`):
 
 | Code | File | Scope | Sources |
 |---|---|---|---|
-| [O] | `research/offline-sync.md` | Offline-first check-in: sync pattern, idempotency, local badge printing, RTL/Jalali | 27 |
-| [A] | `research/auth-security.md` | QR anti-fraud, auth, encryption, OTP abuse, audit logging | 26 |
-| [I] | `research/iran-platform-rails.md` | Shaparak payments, SMS/OTP rails, Iranian law, sanctions, identity | 67 |
-| [B] | `research/buy-vs-build.md` | Iranian vendors, open-source platforms, Postgres throughput, CME, solo-build reality | 38 |
+| [O] | `offline-sync.md` | Offline-first check-in: sync pattern, idempotency, local badge printing, RTL/Jalali | 27 |
+| [A] | `auth-security.md` | QR anti-fraud, auth, encryption, OTP abuse, audit logging | 26 |
+| [I] | `iran-platform-rails.md` | Shaparak payments, SMS/OTP rails, Iranian law, sanctions, identity | 67 |
+| [B] | `buy-vs-build.md` | Iranian vendors, open-source platforms, Postgres throughput, CME, solo-build reality | 38 |
 
 Every claim below cites one of those files (by code and section); see their Sources lists for URLs. Purpose: fix what the first report got wrong or left open, pin the decisions it dodged, and size an MVP a solo developer can actually ship.
 

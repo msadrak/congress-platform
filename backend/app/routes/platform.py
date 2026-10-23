@@ -220,12 +220,12 @@ async def send_platform_test_sms(
 ) -> PlatformSmsTestOut:
     """Send a sample of a platform message through the gateway as it is configured now."""
     throttle = limiter(request)
-    throttle.check(("platform:sms-test", TEST_SENDS), detail="Too many test messages. Try again later.")
+    await throttle.check(("platform:sms-test", TEST_SENDS), detail="Too many test messages. Try again later.")
     try:
         template = validate_body(body.kind, body.body) if body.body is not None else await platform_body(session, body.kind)
     except TemplateError as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from None
-    throttle.hit("platform:sms-test")
+    await throttle.hit("platform:sms-test")
     rules = platform_config(request).sign_in
     origin = link_origin(request.app.state.settings, str(request.base_url))
     sample = {

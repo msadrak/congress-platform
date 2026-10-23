@@ -41,7 +41,7 @@ async def test_new_number_signs_up_with_sms_code_and_receives_access_token(
     assert user["full_name"] == "Dr. Mohammad Rezaei"
     assert user["organization"] == "Tehran University of Medical Sciences"
     assert user["title"] == "Associate Professor"
-    assert set(user) == {"id", "mobile", "full_name", "organization", "title", "share_contact_with_peers"}
+    assert set(user) == {"id", "mobile", "full_name", "organization", "title", "share_contact_with_peers", "share_contact_with_exhibitors"}
 
 
 async def test_known_number_signs_in_with_sms_code(

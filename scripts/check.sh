@@ -60,6 +60,8 @@ npm run lint
 echo "  -> Running production Vite build..."
 npm run build
 cd ..
+echo "  -> Running the operations tool unit tests (scripts/staging)..."
+node --test scripts/staging/stack.test.mjs
 
 # 3. Mobile Verification
 echo ""

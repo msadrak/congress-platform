@@ -1,5 +1,16 @@
 # Specification: Milestone V2 — Exhibition Lead Retrieval & Attendee Networking
 
+> **Historical specification (October 2026, milestone V2). Not maintained; parts are outdated.**
+>
+> **Current sources of truth:** the ADRs in `docs/adr/` (with their "Status / Implementation notes" sections where present),
+> `GLOSSARY.md`, `AGENTS.md`, and `docs/pilot/MASTER-PILOT-READINESS.md` for what the platform is cleared to run.
+> Lead retrieval and networking are governed by ADR 0011; identity by ADR 0012.
+>
+> Outdated platform-wide (see `SPEC.md`'s banner): password sign-in (now mobile + SMS code, ADR 0012), Redis/Celery
+> (not used), the native Flutter scanner (parked), and the "production-ready" framing of the delivery report
+> (the pilot verdict is a conditional GO for a controlled pilot, NO-GO for unrestricted production). "Partner" as a
+> generalization of Exhibitor is planned, not built (`GLOSSARY.md`).
+
 ## Problem Statement
 
 At commercial congresses and conferences, physical networking and exhibition booth interactions are burdened by outdated, high-friction paper mechanisms:

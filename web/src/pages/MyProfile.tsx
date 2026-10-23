@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
-import { ATTENDEE_TOKEN_STORAGE, createApiClient, type PrivacyPreferenceOut, type UserOut } from "../api/client";
+import { createApiClient, type PrivacyPreferenceOut, type UserOut } from "../api/client";
 import { AttendeeLayout } from "../layouts/AttendeeLayout";
 import { Icon } from "../components/ui/Icon";
 import { Button } from "../components/ui/Button";
 import { ArcMotif } from "../components/brand/Aiteb";
-import { useAttendeeLocale } from "../lib/i18n";
-import { isStoredAttendeeToken, rejectAttendeeToken } from "../lib/attendeeSession";
+import { codeFontClass, useAttendeeLocale } from "../lib/i18n";
+import { attendeeResponseState, isStoredAttendeeToken } from "../lib/attendeeSession";
+import { useAttendeeSession } from "../hooks/useAttendeeSession";
 import { congressPath } from "../lib/congressContext";
 import { signInPath } from "../lib/safeRedirect";
 import { formatMobile } from "../lib/mobile";
@@ -31,7 +32,7 @@ export default function MyProfile() {
   const { slug = "" } = useParams<{ slug: string }>();
   const localeHook = useAttendeeLocale();
   const { locale, t, isRtl } = localeHook;
-  const token = typeof window !== "undefined" ? localStorage.getItem(ATTENDEE_TOKEN_STORAGE) : null;
+  const { token } = useAttendeeSession();
   const [state, setState] = useState<ProfileState>({ status: "loading" });
   const [saving, setSaving] = useState(false);
   const [privacyMessage, setPrivacyMessage] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
@@ -42,9 +43,10 @@ export default function MyProfile() {
     const client = createApiClient({ kind: "user", token });
     Promise.all([client.GET("/api/auth/me"), client.GET("/api/attendees/me/network/privacy")])
       .then(([me, privacy]) => {
-        if (!active || !isStoredAttendeeToken(token)) return;
-        if (me.response.status === 401) {
-          rejectAttendeeToken(token);
+        if (!active) return;
+        const session = attendeeResponseState(token, me.response.status);
+        if (session === "changed") return;
+        if (session === "expired") {
           setState({ status: "signed-out" });
         } else if (me.data) {
           setState({ status: "ready", user: me.data, privacy: privacy.data ?? null });
@@ -72,12 +74,7 @@ export default function MyProfile() {
       const { data, response } = await createApiClient({ kind: "user", token }).PATCH("/api/attendees/me/network/privacy", {
         body: { share_contact_with_peers: !current.share_contact_with_peers },
       });
-      if (!isStoredAttendeeToken(token)) {
-        setState({ status: "signed-out" });
-        return;
-      }
-      if (response.status === 401) {
-        rejectAttendeeToken(token);
+      if (attendeeResponseState(token, response.status) !== "current") {
         setState({ status: "signed-out" });
       } else if (data) {
         // The visible value is the one the server persisted, not the one we asked for.
@@ -150,7 +147,7 @@ export default function MyProfile() {
               {user.mobile && (
                 <p className="flex min-w-0 items-center gap-2 text-sm text-text-secondary">
                   <Icon name="phone" size={16} className="text-ink-400" />
-                  <bdi dir="ltr" className="truncate font-mono">{formatMobile(user.mobile, locale)}</bdi>
+                  <bdi dir="ltr" className={`truncate ${codeFontClass(formatMobile(user.mobile, locale))}`}>{formatMobile(user.mobile, locale)}</bdi>
                 </p>
               )}
             </div>

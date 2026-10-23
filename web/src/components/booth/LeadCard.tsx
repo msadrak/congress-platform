@@ -1,5 +1,6 @@
 import type { LeadOut } from "../../api/client";
 import { formatMobile, telHref } from "../../lib/mobile";
+import { codeFontClass } from "../../lib/i18n";
 import { Button } from "../ui/Button";
 import { Icon } from "../ui/Icon";
 import { RatingChip } from "./RatingControl";
@@ -60,7 +61,7 @@ export function LeadCard({ lead, locale, capturedAt, labels, onQualify }: LeadCa
                     className="inline-flex min-h-[44px] max-w-full items-center gap-1.5 rounded-sm px-1 text-[13px] font-medium text-action-primary hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
                   >
                     <Icon name="phone" size={15} className="shrink-0" />
-                    <bdi dir="ltr" className="min-w-0 break-all font-mono text-[12.5px]">{formatMobile(lead.attendee_mobile, locale)}</bdi>
+                    <bdi dir="ltr" className={`min-w-0 break-all ${codeFontClass(formatMobile(lead.attendee_mobile, locale))} text-[12.5px]`}>{formatMobile(lead.attendee_mobile, locale)}</bdi>
                   </a>
                   <a
                     href={telHref(lead.attendee_mobile, "sms")}

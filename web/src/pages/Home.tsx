@@ -8,6 +8,7 @@ import { CongressSignature } from "../components/brand/CongressSignature";
 import { indexLabel, usePublicLocale, type PublicLocale } from "../components/public/copy";
 import { homeCopy, type EnvironmentCopy } from "../components/public/homeCopy";
 import { BELOW_HEADER_MIN_H } from "../components/public/viewport";
+import { usePageTitle } from "../hooks/usePageTitle";
 
 type HomeCopy = (typeof homeCopy)[PublicLocale];
 
@@ -48,6 +49,7 @@ export default function Home() {
   const { locale, setLocale } = usePublicLocale();
   const h = homeCopy[locale];
   const pad = (n: number) => indexLabel(n, locale);
+  usePageTitle(locale === "fa" ? "سامانهٔ همایش" : "Congress platform");
   return (
     <PublicLayout locale={locale} onLocaleChange={setLocale}>
       {/* 1. Hero: header plus hero fill one screen on desktop; type and rhythm follow the viewport height. */}
@@ -77,7 +79,8 @@ export default function Home() {
                 {h.ctaOrganizer}
                 <Icon name="arrow-right" size={20} />
               </LinkButton>
-              <LinkButton to="/my-tickets" variant="secondary" size="xl">
+              {/* Attendees landing here from a pass link or search find their pass by mobile number. */}
+              <LinkButton to="/sign-in" variant="secondary" size="xl">
                 <Icon name="ticket" size={20} />
                 {h.ctaAttendee}
               </LinkButton>
@@ -105,7 +108,6 @@ export default function Home() {
                     <span className="w-6 font-mono text-xs text-aiteb-orchid tabular">{pad(i + 1)}</span>
                     <Icon name={env.icon} size={18} className="text-ink-300" />
                     <span className="flex-1 text-sm font-medium">{env.name}</span>
-                    <span className="hidden font-mono text-[11px] text-ink-400 sm:inline ltr-isolate">{env.route}</span>
                   </li>
                 ))}
               </ol>
@@ -165,7 +167,6 @@ export default function Home() {
                   <div className="space-y-2">
                     <p className={`text-xs font-semibold ${lead ? "text-aiteb-orchid" : "text-aiteb-indigo"}`}>{env.audience}</p>
                     <h3 className={`text-2xl font-semibold tracking-[-0.02em] ${lead ? "text-white" : "text-text-primary"}`}>{env.name}</h3>
-                    <p className={`font-mono text-xs ltr-isolate ${lead ? "text-ink-300" : "text-text-muted"}`}>{env.route}</p>
                   </div>
                   <p className={`max-w-xl text-sm leading-relaxed ${lead ? "text-ink-200" : "text-text-secondary"}`}>{env.body}</p>
                   <div className="mt-auto pt-2">
@@ -182,11 +183,7 @@ export default function Home() {
             <aside className="flex flex-col justify-between gap-6 bg-aiteb-lavender p-6 sm:p-8">
               <div className="space-y-2">
                 <p className="text-xs font-semibold text-aiteb-indigo">{h.registerTitle}</p>
-                <p className="text-sm leading-relaxed text-text-secondary">
-                  {h.registerBodyLead}{" "}
-                  <code className="rounded border border-action-subtle-border bg-white px-1.5 py-0.5 text-xs text-aiteb-indigo ltr-isolate">/e/:slug</code>
-                  {h.registerBodyTail}
-                </p>
+                <p className="text-sm leading-relaxed text-text-secondary">{h.registerBody}</p>
               </div>
               <LinkButton to="/my-tickets" variant="outline" size="md" className="self-start">
                 {h.viewMyPasses}

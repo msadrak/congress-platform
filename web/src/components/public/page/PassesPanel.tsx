@@ -1,6 +1,5 @@
 import { Link } from "react-router-dom";
 import type { TicketTierOut } from "../../../api/client";
-import { translations } from "../../../lib/i18n";
 import type { AccentChoice } from "../../../lib/pageDocument";
 import { CongressSignature } from "../../brand/CongressSignature";
 import { Button, LinkButton } from "../../ui/Button";
@@ -19,6 +18,7 @@ interface PassesPanelProps {
   onSelectTier: (id: string) => void;
   onReserve: () => void;
   submitting?: boolean;
+  /** The attendee holds a pass for this congress (found on load, reserved now, or refused as a duplicate). */
   alreadyHasTicket?: boolean;
   /** Why the last reservation failed, shown above the dock until the attendee retries. */
   error?: string | null;
@@ -41,7 +41,7 @@ export function PassesPanel({
   disabledNote,
 }: PassesPanelProps) {
   const c = publicCopy[locale];
-  const t = translations[locale];
+  const passPath = `/c/${encodeURIComponent(slug)}/my-ticket`;
   const selectedTier = tiers.find((tier) => tier.id === selectedTierId) ?? tiers[0] ?? null;
   const state = selectedTier ? tierState(selectedTier) : "CLOSED";
   const available = state === "AVAILABLE";
@@ -49,13 +49,13 @@ export function PassesPanel({
   const reserveLabel = submitting
     ? c.processing
     : state === "SOLD_OUT"
-      ? t.reserveButtonSoldOut
+      ? c.tierStatusSoldOut
       : state === "CLOSED"
-        ? t.reserveButtonClosed
+        ? c.tierStatusClosed
         : c.reserve;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {tiers.length === 0 ? (
         <div className="flex items-start gap-4 rounded-2xl border border-dashed border-border-strong bg-surface-panel p-6 sm:p-8">
           <span className="grid size-11 shrink-0 place-items-center rounded-xl bg-surface-panel-subtle text-text-muted">
@@ -76,23 +76,14 @@ export function PassesPanel({
       )}
 
       {alreadyHasTicket && (
-        <div
-          role="alert"
-          className="flex flex-col gap-4 rounded-2xl border border-action-subtle-border bg-aiteb-lavender p-5 sm:flex-row sm:items-center sm:justify-between"
-        >
-          <div className="flex items-start gap-3">
-            <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-surface-panel text-aiteb-indigo shadow-soft">
-              <Icon name="ticket" size={20} />
-            </span>
-            <div className="space-y-0.5">
-              <p className="text-sm font-bold text-aiteb-indigo">{c.activePassTitle}</p>
-              <p className="text-sm text-text-secondary">{c.activePassBody}</p>
-            </div>
+        <div role="status" className="flex items-start gap-3 rounded-2xl border border-action-subtle-border bg-aiteb-lavender p-4">
+          <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-surface-panel text-aiteb-indigo shadow-soft">
+            <Icon name="ticket" size={20} />
+          </span>
+          <div className="space-y-0.5">
+            <p className="text-sm font-bold text-aiteb-indigo">{c.activePassTitle}</p>
+            <p className="text-sm text-text-secondary">{c.activePassBody}</p>
           </div>
-          <LinkButton to={`/c/${slug}/my-ticket`} variant="primary" size="md">
-            {c.viewMyPass}
-            <Icon name="arrow-right" size={16} />
-          </LinkButton>
         </div>
       )}
 
@@ -107,36 +98,48 @@ export function PassesPanel({
         </div>
       )}
 
-      {/* Reservation dock: sticks to the viewport bottom while the passes are on screen. */}
-      <div className="sticky bottom-[max(0.75rem,env(safe-area-inset-bottom))] z-30 lg:static">
-        <div className="flex flex-col gap-4 bg-surface-ink p-4 text-white shadow-pop shape-arc sm:flex-row sm:items-center sm:gap-6 sm:p-5">
-          <div className="flex min-w-0 flex-1 items-center gap-4">
-            <span aria-hidden="true" className="relative hidden size-12 shrink-0 overflow-hidden rounded-xl ring-1 ring-white/15 [border-start-end-radius:20px] sm:block">
-              <CongressSignature seed={slug} accent={accent} tone="ink" className="absolute inset-0 size-full scale-150" />
-            </span>
-            <div className="min-w-0">
-              <p className="text-[11px] font-medium text-ink-300">{c.selectedPass}</p>
-              <p className="truncate text-base font-semibold">{selectedTier ? <Bidi text={selectedTier.name} /> : c.noTiersTitle}</p>
-              {selectedTier && available && (
-                <p className="text-xs text-ink-300">
-                  {c.freeAdmission} · {t.tierCapacityRemaining} <span className="tabular text-white">{num(remaining, locale)}</span>
-                </p>
-              )}
-            </div>
-          </div>
-          <Button
-            type="button"
-            variant="light"
-            size="lg"
-            className="w-full sm:w-auto sm:min-w-[14rem]"
-            disabled={submitting || tiers.length === 0 || !available || Boolean(disabledNote)}
-            aria-busy={submitting}
-            title={disabledNote}
-            onClick={onReserve}
-          >
-            {reserveLabel}
-            {!submitting && available && <Icon name="arrow-right" size={18} />}
-          </Button>
+      {/* Reservation dock: one compact row right after the passes (never floating over them). Once the
+          attendee holds a pass for this congress it opens that pass instead. */}
+      <div>
+        <div className="flex min-h-[72px] items-center gap-3 bg-surface-ink py-3 ps-4 pe-3 text-white shadow-pop shape-arc sm:gap-5 sm:ps-5">
+          <span aria-hidden="true" className="relative hidden size-11 shrink-0 overflow-hidden rounded-xl ring-1 ring-white/15 [border-start-end-radius:18px] sm:block">
+            <CongressSignature seed={slug} accent={accent} tone="ink" className="absolute inset-0 size-full scale-150" />
+          </span>
+          {alreadyHasTicket ? (
+            <>
+              <p className="min-w-0 flex-1 text-sm font-semibold leading-snug sm:text-[15px]">{c.passReady}</p>
+              <LinkButton to={passPath} variant="light" size="md" className="shrink-0">
+                <Icon name="qr" size={18} />
+                {c.viewMyPass}
+              </LinkButton>
+            </>
+          ) : (
+            <>
+              <div className="min-w-0 flex-1">
+                <p className="text-[11px] font-medium text-ink-300 max-sm:sr-only">{c.selectedPass}</p>
+                <p className="truncate text-[15px] font-semibold">{selectedTier ? <Bidi text={selectedTier.name} /> : c.noTiersTitle}</p>
+                {selectedTier && available && (
+                  <p className="truncate text-xs text-ink-300">
+                    {c.freeAdmission} · <span className="max-sm:sr-only">{c.capacityRemaining} </span>
+                    <span className="tabular text-white">{num(remaining, locale)}</span>
+                  </p>
+                )}
+              </div>
+              <Button
+                type="button"
+                variant="light"
+                size="md"
+                className="shrink-0 sm:min-w-[13rem]"
+                disabled={submitting || tiers.length === 0 || !available || Boolean(disabledNote)}
+                aria-busy={submitting}
+                title={disabledNote}
+                onClick={onReserve}
+              >
+                {reserveLabel}
+                {!submitting && available && <Icon name="arrow-right" size={18} className="max-sm:hidden" />}
+              </Button>
+            </>
+          )}
         </div>
         {disabledNote && <p className="mt-2 text-center text-xs font-medium text-text-muted">{disabledNote}</p>}
       </div>
@@ -146,15 +149,19 @@ export function PassesPanel({
           <Icon name="device" size={16} />
           {c.digitalNote}
         </span>
-        <span aria-hidden="true" className="hidden lg:inline">
-          ·
-        </span>
-        <span>
-          {c.alreadyRegistered}{" "}
-          <Link to="/my-tickets" className="font-semibold text-event-accent hover:underline">
-            {c.viewExisting}
-          </Link>
-        </span>
+        {!alreadyHasTicket && (
+          <>
+            <span aria-hidden="true" className="hidden lg:inline">
+              ·
+            </span>
+            <span>
+              {c.alreadyRegistered}{" "}
+              <Link to={passPath} className="inline-flex min-h-11 items-center font-semibold text-event-accent hover:underline lg:min-h-0">
+                {c.viewExisting}
+              </Link>
+            </span>
+          </>
+        )}
       </div>
     </div>
   );

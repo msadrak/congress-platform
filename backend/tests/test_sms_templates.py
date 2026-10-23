@@ -53,7 +53,8 @@ async def test_panel_starts_from_the_default_wording_with_this_events_sample(cli
     assert panel.status_code == 200
     body = panel.json()
     assert body["delivery"] == "console"
-    (template,) = body["templates"]
+    template, *lifecycle = body["templates"]
+    assert [t["kind"] for t in lifecycle] == ["ticket_cancelled", "ticket_reissued"]
     assert template == {
         "kind": "ticket_confirmation",
         "body": KINDS["ticket_confirmation"].default,
@@ -146,7 +147,7 @@ async def test_platform_wording_is_the_default_and_an_event_override_wins(app: F
     assert recorder(app).sent_to(MOBILE)[-1].text.startswith("Own: ")
 
     listed = (await client.get("/api/platform/sms-templates", headers=ADMIN)).json()
-    assert {t["kind"] for t in listed} == {"otp", "ticket_confirmation"}
+    assert {t["kind"] for t in listed} == {"otp", "ticket_confirmation", "ticket_cancelled", "ticket_reissued"}
 
 
 async def test_platform_sets_the_sign_in_code_text(app: FastAPI, client: AsyncClient) -> None:

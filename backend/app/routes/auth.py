@@ -1,7 +1,7 @@
 import uuid
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, StringConstraints
 from sqlalchemy import select
@@ -24,6 +24,7 @@ from app.sms.phone import IranMobile, ascii_digits
 from app.platform_config import platform_config
 from app.sms.gateway import NOT_CONFIGURED
 from app.sms.templates import platform_body, render
+from app.account import AccountExport, delete_account, export_account, refresh_upcoming_snapshots
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 _bearer = HTTPBearer(auto_error=False)
@@ -77,6 +78,18 @@ class UserOut(BaseModel):
     organization: str
     title: str
     share_contact_with_peers: bool = False
+    share_contact_with_exhibitors: bool = False
+
+
+class ProfileUpdate(BaseModel):
+    """The account's own details. Name changes also apply to registrations for congresses that have not ended."""
+
+    full_name: NameStr | None = None
+    organization: Annotated[str, StringConstraints(strip_whitespace=True, max_length=200)] | None = None
+    title: Annotated[str, StringConstraints(strip_whitespace=True, max_length=100)] | None = None
+    # Exhibitors who scan this person's pass see the mobile number only with this consent.
+    share_contact_with_exhibitors: bool | None = None
+
 
 class AuthResponse(BaseModel):
     access_token: str
@@ -125,7 +138,7 @@ async def current_user(
         )
 
     user = await session.get(User, user_id)
-    if user is None:
+    if user is None or user.deleted_at is not None:
         raise HTTPException(
             status.HTTP_401_UNAUTHORIZED, "User account not found",
             headers={"WWW-Authenticate": "Bearer"},
@@ -173,13 +186,13 @@ async def request_otp(
         f"otp:send:{body.mobile}",
         f"otp:send-ip:{client_ip(request)}",
     )
-    throttle.check(
+    await throttle.check(
         (cooldown, Budget(1, rules.otp_resend_cooldown_seconds)),
         (per_mobile, Budget(rules.otp_sends_per_mobile_per_hour, LONGEST_WINDOW_SECONDS)),
         (per_ip, Budget(rules.otp_sends_per_ip_per_hour, LONGEST_WINDOW_SECONDS)),
         detail="Too many codes requested. Wait before asking for another one.",
     )
-    throttle.hit(cooldown, per_mobile, per_ip)
+    await throttle.hit(cooldown, per_mobile, per_ip)
 
     if await _should_send(session, body.mobile, body.purpose):
         code = await issue_challenge(
@@ -204,7 +217,7 @@ async def request_otp(
         await session.commit()
         if not result.ok and not result.unknown:
             # Nothing reached the phone: let the person retry without waiting out the resend cooldown.
-            throttle.succeed(cooldown)
+            await throttle.succeed(cooldown)
             detail = (
                 "SMS delivery is not configured yet. Please try again later."
                 if result.error == NOT_CONFIGURED
@@ -225,11 +238,11 @@ async def verify_code(
     """Consume the code or raise 401/429; shared by attendee sign-in and desk login."""
     throttle = limiter(request)
     keys = (f"otp:verify:{purpose}:{mobile}", f"otp:verify-ip:{client_ip(request)}")
-    throttle.check((keys[0], OTP_VERIFY_PER_MOBILE), (keys[1], OTP_VERIFY_PER_IP))
+    await throttle.check((keys[0], OTP_VERIFY_PER_MOBILE), (keys[1], OTP_VERIFY_PER_IP))
     if not await consume_challenge(session, request.app.state.settings, mobile, purpose, code):
-        throttle.fail(*keys)
+        await throttle.fail(*keys)
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "The code is wrong or has expired.")
-    throttle.succeed(keys[0])
+    await throttle.succeed(keys[0])
 
 
 @router.post("/otp/verify")
@@ -276,3 +289,35 @@ async def complete_signup(body: OtpComplete, request: Request, session: SessionD
 @router.get("/me")
 async def get_my_profile(user: CurrentUserDep) -> UserOut:
     return UserOut.model_validate(user)
+
+
+@router.patch("/me")
+async def update_my_profile(body: ProfileUpdate, user: CurrentUserDep, session: SessionDep) -> UserOut:
+    """Update the account; name, organization and title also replace the registration details of the
+    person's active tickets for congresses that have not ended (past registrations keep theirs)."""
+    if body.full_name is not None:
+        user.full_name = body.full_name
+    if body.organization is not None:
+        user.organization = body.organization
+    if body.title is not None:
+        user.title = body.title
+    if body.share_contact_with_exhibitors is not None:
+        user.share_contact_with_exhibitors = body.share_contact_with_exhibitors
+    if {"full_name", "organization", "title"} & body.model_fields_set:
+        await refresh_upcoming_snapshots(session, user)
+    await session.commit()
+    return UserOut.model_validate(user)
+
+
+@router.get("/me/export")
+async def export_my_data(user: CurrentUserDep, session: SessionDep) -> AccountExport:
+    """A copy of everything the platform holds about the signed-in person."""
+    return await export_account(session, user)
+
+
+@router.delete("/me", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_my_account(user: CurrentUserDep, session: SessionDep) -> Response:
+    """Delete the account: it is anonymised (see app/account.py) and this session stops working."""
+    await delete_account(session, user)
+    await session.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

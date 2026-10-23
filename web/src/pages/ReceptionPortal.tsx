@@ -7,6 +7,7 @@ import { Button } from "../components/ui/Button";
 import { Icon } from "../components/ui/Icon";
 import { SkipLink } from "../components/ui/SkipLink";
 import { useAttendeeLocale } from "../lib/i18n";
+import { usePageTitle } from "../hooks/usePageTitle";
 import "../styles/reception.css";
 
 const EVENT_ID = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
@@ -15,6 +16,8 @@ const SLUG = /^[A-Za-z0-9_-]+$/;
 /** Independent Reception shell: no Organizer navigation, no Organizer credential, Desk authority only. */
 function ReceptionShell({ children }: { children: React.ReactNode }) {
   const { locale, setLocale, isRtl, dir } = useAttendeeLocale();
+  // Both the congress-code entry and the station itself; inside the organizer console the layout names the tab.
+  usePageTitle(isRtl ? "ایستگاه پذیرش" : "Reception station");
   return (
     <div dir={dir} lang={locale} className="min-h-screen bg-surface-page text-text-primary flex flex-col font-sans">
       <SkipLink targetId="reception-main-content">{isRtl ? "پرش به محتوای میز پذیرش" : "Skip to reception content"}</SkipLink>

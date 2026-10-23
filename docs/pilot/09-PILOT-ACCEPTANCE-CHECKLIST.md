@@ -1,5 +1,12 @@
 # 09 — Controlled-Pilot Acceptance Checklist & Gate Verification
 
+> **Historical checklist (2026-10-11), kept as evidence. Re-verify before use.** Gate 3 speaks of issuing
+> **passwords** to staff: there are none any more. Desk operators and booth staff sign in with a mobile number and an
+> SMS code (ADR 0012); organizers use their API key and scanners their device tokens. Gate 6 says the fail-closed
+> offline capacity default is implemented: `web/src/lib/scannerEngine.ts` has the option, but neither the scanner nor
+> the manifest turns it on yet, so an offline capped point admits provisionally (ADR 0010 status). The overall verdict
+> is in `docs/pilot/MASTER-PILOT-READINESS.md`.
+
 **Evaluation Date:** 2026-10-11  
 **Target Release:** Controlled On-Premise Pilot (`v1.0.0-pilot.1`)  
 **Standard:** Explicit Gate Status Classification (`PASS` / `FAIL` / `BLOCKED` / `NOT TESTED` / `NOT APPLICABLE`)  

@@ -323,6 +323,54 @@ async def test_a_page_cannot_reference_another_events_image(client: AsyncClient)
     assert "not one of this event's images" in response.text
 
 
+async def test_the_mobile_hero_image_is_published_and_protected_like_the_cover(client: AsyncClient) -> None:
+    organizer = await provision_organizer(client, "Acme Congress Co")
+    event_id = await create_event(client, organizer)
+    cover = (await upload(client, organizer, event_id, image_bytes(size=(96, 36)))).json()["id"]
+    mobile = (await upload(client, organizer, event_id, image_bytes(size=(40, 50)))).json()["id"]
+    state = (await client.get(f"/api/events/{event_id}/page", headers=bearer(organizer))).json()
+    document = copy.deepcopy(state["draft"])
+    document["hero"].update(layout="cover", cover_asset_id=cover, mobile_cover_asset_id=mobile, focal_x=30, focal_y=60)
+    saved = await client.put(
+        f"/api/events/{event_id}/page",
+        json={"revision": state["draft_revision"], "document": document},
+        headers=bearer(organizer),
+    )
+    assert saved.status_code == 200, saved.text
+
+    # The draft keeps it: an image the draft uses cannot be deleted.
+    blocked = await client.delete(f"/api/events/{event_id}/media/{mobile}", headers=bearer(organizer))
+    assert blocked.status_code == 409
+    assert (await client.get(f"/api/public/media/{mobile}")).status_code == 404  # draft only
+
+    await publish_page(client, organizer, event_id)
+    assert (await client.get(f"/api/public/media/{mobile}")).status_code == 200
+    page = (await client.get(f"/api/public/events/{EVENT['slug']}")).json()["page"]
+    assert {a["id"]: (a["width"], a["height"]) for a in page["assets"]} == {cover: (96, 36), mobile: (40, 50)}
+    assert page["document"]["hero"]["mobile_cover_asset_id"] == mobile
+
+
+async def test_a_page_cannot_use_another_events_image_on_phones(client: AsyncClient) -> None:
+    organizer = await provision_organizer(client, "Acme Congress Co")
+    event_id = await create_event(client, organizer)
+    other = await client.post(
+        "/api/events", json={**EVENT, "slug": "winter-congress-2027"}, headers=bearer(organizer)
+    )
+    foreign_asset = (await upload(client, organizer, other.json()["id"], image_bytes())).json()["id"]
+    state = (await client.get(f"/api/events/{event_id}/page", headers=bearer(organizer))).json()
+    document = copy.deepcopy(state["draft"])
+    document["hero"]["mobile_cover_asset_id"] = foreign_asset
+
+    response = await client.put(
+        f"/api/events/{event_id}/page",
+        json={"revision": state["draft_revision"], "document": document},
+        headers=bearer(organizer),
+    )
+
+    assert response.status_code == 400
+    assert "not one of this event's images" in response.text
+
+
 async def test_images_in_use_cannot_be_deleted(client: AsyncClient, media_root: Path) -> None:
     organizer = await provision_organizer(client, "Acme Congress Co")
     event_id = await create_event(client, organizer)

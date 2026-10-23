@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
+import { wireManifest } from './scannerFixtures';
 
 // Shipping /scan/:pointId page + synthetic, intercepted /api/ responses: not FastAPI/PostgreSQL E2E.
 // Offline reload, queue and reconciliation behavior stays covered by scanner-offline.spec.ts.
@@ -26,10 +27,14 @@ async function fixture(page: Page, options: Options = {}) {
     const path = new URL(request.url()).pathname;
     requests.push({ method: request.method(), path, auth: request.headers().authorization, body: request.postDataJSON() });
     const json = (status: number, body: unknown) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
-    if (path.endsWith('/manifest')) return options.manifestStatus ? json(options.manifestStatus, { detail: 'Scanner device token has been revoked' }) : json(200, MANIFEST);
+    if (path.endsWith('/manifest')) return options.manifestStatus ? json(options.manifestStatus, { detail: 'Scanner device token has been revoked' }) : json(200, wireManifest(MANIFEST));
     if (path.endsWith('/scans/batch')) {
       const posted = request.postDataJSON() as { scans: { scan_id: string; qr_secret: string }[] };
       return json(200, { results: posted.scans.map(s => ({ scan_id: s.scan_id, qr_secret: s.qr_secret, status: 'ADMITTED', attendee_name: 'Alice', ticket_tier_name: 'General' })) });
+    }
+    if (path.endsWith('/scan')) {
+      const posted = request.postDataJSON() as { scan_id: string; qr_secret: string };
+      return json(200, { scan_id: posted.scan_id, qr_secret: posted.qr_secret, status: 'ADMITTED', attendee_name: 'Alice', ticket_tier_name: 'General', clock_skew: false });
     }
     if (path.endsWith('/devices/self/revoke')) return options.revokeStatus ? json(options.revokeStatus, { detail: 'Server error' }) : json(200, { is_revoked: true });
     return json(404, { detail: 'Not found' });
@@ -48,7 +53,7 @@ async function seedHumanSessions(page: Page) {
 
 async function injectScan(page: Page, scanId: string) {
   await page.evaluate(({ pointId, scanId }) => new Promise<void>((resolve, reject) => {
-    const open = indexedDB.open('congress_scanner_db', 2);
+    const open = indexedDB.open('congress_scanner_db');
     open.onerror = () => reject(open.error);
     open.onsuccess = () => {
       const db = open.result;
@@ -61,7 +66,7 @@ async function injectScan(page: Page, scanId: string) {
 }
 
 const scanCount = (page: Page) => page.evaluate(() => new Promise<number>(resolve => {
-  const open = indexedDB.open('congress_scanner_db', 2);
+  const open = indexedDB.open('congress_scanner_db');
   open.onerror = () => resolve(-1);
   open.onsuccess = () => {
     const count = open.result.transaction('queued_scans', 'readonly').objectStore('queued_scans').count();
@@ -90,7 +95,7 @@ async function unpair(page: Page) {
   await page.getByRole('button', { name: /Confirm Unpair/i }).click();
 }
 
-test('manifest, batch and self-revoke send only the scanner token, with unchanged payloads and URL', async ({ page }) => {
+test('manifest, batch and self-revoke send only the scanner token, with the device verdict and unchanged URL', async ({ page }) => {
   const requests = await fixture(page);
   await seedHumanSessions(page);
   requests.length = 0;
@@ -102,11 +107,13 @@ test('manifest, batch and self-revoke send only the scanner token, with unchange
   expect(paths).toEqual(expect.arrayContaining(['GET /api/checkin-points/:point/manifest', 'POST /api/checkin-points/:point/scans/batch', 'POST /api/checkin-points/:point/devices/self/revoke']));
   expect(requests.every(r => r.auth === bearer(SCANNER_TOKEN))).toBe(true);
   const batch = requests.find(r => r.path.endsWith('/scans/batch'));
-  expect(batch?.body).toEqual({ scans: [{ scan_id: 'authority-scan-001', qr_secret: 'ticket-a-001', scanned_at: '2027-01-01T10:00:00.000Z' }] });
+  expect(batch?.body).toEqual({
+    scans: [{ scan_id: 'authority-scan-001', qr_secret: 'ticket-a-001', scanned_at: '2027-01-01T10:00:00.000Z', client_verdict: 'PROVISIONAL', client_rejection_reason: null }],
+  });
   expect(page.url()).toContain(`/scan/${POINT_ID}`);
-  // Revocation confirmed: the device token is gone, the scan history stays on the device.
+  // Revocation confirmed: the device token is gone, and so is the uploaded scan history.
   expect(await storedScannerToken(page)).toBeNull();
-  expect(await scanCount(page)).toBe(1);
+  expect(await scanCount(page)).toBe(0);
 });
 
 test('without a scanner credential no request is sent and human sessions are never attached', async ({ page }) => {

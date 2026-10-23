@@ -1,5 +1,13 @@
 # Phase 00 — Baseline Architecture Audit
 
+> **Historical audit (2026-10-11), kept as evidence. Superseded in parts.**
+>
+> Since then, **e-mail and passwords were removed**: attendees, booth staff and desk operators sign in with an Iranian
+> mobile number and a one-time SMS code (ADR 0012, migration `0015`); organizers keep their API key and scanners their
+> device tokens. Read e-mail fields, password checks, "wrong password" errors and operator password lifecycles below as
+> the state of that date. Current sources of truth: `docs/adr/` (with their status sections), `GLOSSARY.md` and
+> `docs/pilot/MASTER-PILOT-READINESS.md`.
+
 **Date:** 2026-10-11
 **Mode:** Plan / Investigation only — no application code, migrations, or git history were modified.
 

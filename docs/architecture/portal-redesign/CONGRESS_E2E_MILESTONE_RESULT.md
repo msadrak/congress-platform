@@ -1,5 +1,13 @@
 # Congress end-to-end integration — milestone 06
 
+> **Historical milestone result, kept as evidence. Superseded in parts.**
+>
+> Since then, **e-mail and passwords were removed**: attendees, booth staff and desk operators sign in with an Iranian
+> mobile number and a one-time SMS code (ADR 0012, migration `0015`); organizers keep their API key and scanners their
+> device tokens. Read e-mail fields, password checks, "wrong password" errors and operator password lifecycles below as
+> the state of that date. Current sources of truth: `docs/adr/` (with their status sections), `GLOSSARY.md` and
+> `docs/pilot/MASTER-PILOT-READINESS.md`.
+
 Branch `integration/task-05h`, base `d162330504058a27373557bf9f79269baac635ac`.
 
 **Complete journey: PASS** — 45/45 checks on the final tree (two consecutive full runs passed; one earlier run had a single transient `fetch failed` in the harness at step A8, not reproduced). `scanner-real-api.spec.ts`, which had never been executed, was run against the same real stack and **passed** (1/1).

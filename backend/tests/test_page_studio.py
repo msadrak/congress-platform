@@ -146,6 +146,53 @@ async def test_invalid_documents_are_rejected(client: AsyncClient) -> None:
     assert (await page_state(client, organizer, event_id))["draft_revision"] == revision
 
 
+async def test_hero_layout_and_focal_point_are_published_as_saved(client: AsyncClient) -> None:
+    organizer = await provision_organizer(client, "Acme Congress Co")
+    event_id = await create_event(client, organizer)
+    state = await page_state(client, organizer, event_id)
+    # A document saved before the banner layout and the focal point existed carries none of the new fields.
+    legacy = copy.deepcopy(state["draft"])
+    for key in ("focal_x", "focal_y", "mobile_cover_asset_id"):
+        legacy["hero"].pop(key)
+    saved = await save_draft(client, organizer, event_id, state["draft_revision"], legacy)
+    assert saved.status_code == 200, saved.text
+    hero = (await page_state(client, organizer, event_id))["draft"]["hero"]
+    assert {k: hero[k] for k in ("layout", "focal_x", "focal_y", "mobile_cover_asset_id")} == {
+        "layout": "signature", "focal_x": 50, "focal_y": 50, "mobile_cover_asset_id": None,
+    }
+
+    for layout, focal in (("banner", (50, 50)), ("cover", (0, 100)), ("split", (25, 70))):
+        current = await page_state(client, organizer, event_id)
+        document = copy.deepcopy(current["draft"])
+        document["hero"].update(layout=layout, focal_x=focal[0], focal_y=focal[1])
+        saved = await save_draft(client, organizer, event_id, current["draft_revision"], document)
+        assert saved.status_code == 200, saved.text
+        await publish_page(client, organizer, event_id)
+        hero = (await client.get(PUBLIC)).json()["page"]["document"]["hero"]
+        assert (hero["layout"], hero["focal_x"], hero["focal_y"]) == (layout, *focal)
+
+
+async def test_invalid_hero_presentation_is_rejected(client: AsyncClient) -> None:
+    organizer = await provision_organizer(client, "Acme Congress Co")
+    event_id = await create_event(client, organizer)
+    state = await page_state(client, organizer, event_id)
+    revision = state["draft_revision"]
+
+    for patch in (
+        {"layout": "fullscreen"},
+        {"focal_x": 101},
+        {"focal_y": -1},
+        {"focal_x": "left"},
+        {"focal_y": 33.5},
+        {"mobile_cover_asset_id": "not-a-uuid"},
+    ):
+        document = copy.deepcopy(state["draft"])
+        document["hero"].update(patch)
+        response = await save_draft(client, organizer, event_id, revision, document)
+        assert response.status_code == 422, (patch, response.text)
+    assert (await page_state(client, organizer, event_id))["draft_revision"] == revision
+
+
 async def test_page_text_is_stored_as_plain_text_without_control_characters(client: AsyncClient) -> None:
     organizer = await provision_organizer(client, "Acme Congress Co")
     event_id = await create_event(client, organizer)

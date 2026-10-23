@@ -23,6 +23,7 @@ from app.sms import SmsGateway, sms_provider
 from app.sms.outbox import confirmation_values, link_origin
 from app.sms.phone import IranMobile, mask_mobile
 from app.sms.templates import (
+    EVENT_KINDS,
     KINDS,
     SmsKind,
     TemplateError,
@@ -40,7 +41,7 @@ platform_router = APIRouter(
     prefix="/api/platform/sms-templates", tags=["platform"], dependencies=[Depends(require_platform_admin)]
 )
 
-EventKind = Literal["ticket_confirmation"]
+EventKind = Literal["ticket_confirmation", "ticket_cancelled", "ticket_reissued"]
 TEST_SENDS_PER_EVENT = Budget(10, LONGEST_WINDOW_SECONDS)
 SAMPLE_NAME = "نام شرکت‌کننده"
 
@@ -131,7 +132,7 @@ async def _sample(request: Request, session: SessionDep, event: OwnedEventDep) -
 async def get_sms_panel(event: OwnedEventDep, request: Request, session: SessionDep) -> SmsPanelOut:
     return SmsPanelOut(
         delivery=request.app.state.settings.sms_provider,
-        templates=[await _event_template(session, "ticket_confirmation", event.id)],
+        templates=[await _event_template(session, kind, event.id) for kind in EVENT_KINDS],
         sample=await _sample(request, session, event),
     )
 
@@ -168,7 +169,7 @@ async def send_test_sms(
     """Send the message, filled with sample values, to one number (a real SMS from the service line)."""
     throttle = limiter(request)
     key = f"sms:test:{event.id}"
-    throttle.check((key, TEST_SENDS_PER_EVENT), detail="Too many test messages. Try again later.")
+    await throttle.check((key, TEST_SENDS_PER_EVENT), detail="Too many test messages. Try again later.")
     try:
         template = (
             validate_body(body.kind, body.body)
@@ -177,7 +178,7 @@ async def send_test_sms(
         )
     except TemplateError as exc:
         raise _template_error(exc) from None
-    throttle.hit(key)
+    await throttle.hit(key)
     text = render(template, await _sample(request, session, event))
     result = await provider.send_text(body.mobile, text, kind="test")
     outcome: Literal["sent", "failed", "unknown"] = "sent" if result.ok else "unknown" if result.unknown else "failed"

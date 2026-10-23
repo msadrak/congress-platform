@@ -1,4 +1,4 @@
-import React, { useState, useSyncExternalStore } from "react";
+import React, { useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAttendeeLocale, type AttendeeLocaleContext } from "../lib/i18n";
 import { SkipLink } from "../components/ui/SkipLink";
@@ -7,9 +7,9 @@ import { ConfirmDialog } from "../components/ui/ConfirmDialog";
 import { AitebAttribution } from "../components/brand/Aiteb";
 import { CongressSignature } from "../components/brand/CongressSignature";
 import { ArcStroke } from "../components/attendee/ArcStroke";
-import { clearOwnerScopedTickets } from "../lib/ticketCache";
 import { eventAccentStyle } from "../lib/eventAccent";
-import { ATTENDEE_TOKEN_STORAGE } from "../api/client";
+import { useAttendeeSession } from "../hooks/useAttendeeSession";
+import { usePageTitle } from "../hooks/usePageTitle";
 import { signInPath } from "../lib/safeRedirect";
 import {
   ATTENDEE_DESTINATIONS,
@@ -38,12 +38,6 @@ const DESTINATION_ICONS: Record<AttendeeDestination, IconName> = {
 
 const focusRing = "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring";
 const headerAction = `press inline-flex min-h-11 min-w-11 items-center justify-center gap-1.5 rounded-full px-2.5 text-xs font-semibold text-text-muted transition-colors hover:bg-surface-panel-subtle hover:text-text-primary cursor-pointer ${focusRing}`;
-
-/** Another tab signing in or out changes the stored token; this tab only hears it as a `storage` event. */
-function subscribeToStorage(onChange: () => void): () => void {
-  window.addEventListener("storage", onChange);
-  return () => window.removeEventListener("storage", onChange);
-}
 
 /** Desktop navigation: quiet text tabs, the active one underlined by a brand arc. */
 function TopNav({ slug, active, labels, navLabel }: {
@@ -122,12 +116,8 @@ export function AttendeeLayout({ children, activeTab, localeProps, eventSlug, de
   const navigate = useNavigate();
   const congress = useCongressEvent(eventSlug);
   const [confirmingLogout, setConfirmingLogout] = useState(false);
-  // Re-read on every render and on another tab's change, so the header never offers "log out" to nobody.
-  const signedIn = useSyncExternalStore(
-    subscribeToStorage,
-    () => localStorage.getItem(ATTENDEE_TOKEN_STORAGE) !== null,
-    () => false,
-  );
+  // Re-read on this tab's and another tab's change, so the header never offers "log out" to nobody.
+  const { signedIn, signOut } = useAttendeeSession();
   const shellLabels: Record<AttendeeDestination, string> = {
     "my-congress": t.navMyCongress,
     "my-network": t.navMyNetwork,
@@ -139,11 +129,7 @@ export function AttendeeLayout({ children, activeTab, localeProps, eventSlug, de
   const currentTab = activeTab || (location.pathname.includes("/my-network") ? "network" : "tickets");
 
   const handleLogout = () => {
-    const token = typeof window !== "undefined" ? localStorage.getItem(ATTENDEE_TOKEN_STORAGE) : null;
-    clearOwnerScopedTickets(token);
-    if (typeof window !== "undefined") {
-      localStorage.removeItem(ATTENDEE_TOKEN_STORAGE);
-    }
+    signOut();
     setConfirmingLogout(false);
     // Back to this congress's sign-in: the platform home is not an attendee page.
     navigate(eventSlug ? `/c/${encodeURIComponent(eventSlug)}/sign-in` : "/sign-in");
@@ -154,6 +140,7 @@ export function AttendeeLayout({ children, activeTab, localeProps, eventSlug, de
   };
 
   const congressName = eventSlug ? (congress.status === "ready" ? congress.event.name : null) : null;
+  usePageTitle(destination ? shellLabels[destination] : currentTab === "network" ? t.myNetwork : t.myPasses, congressName);
   // The accent chosen in Page Studio (published) colours the whole panel; "auto" derives it from the slug.
   const accent = congress.status === "ready" ? congress.event.page?.document.branding?.accent : undefined;
   const legacyTabs: { key: "tickets" | "network"; to: string; icon: IconName; label: string }[] = [

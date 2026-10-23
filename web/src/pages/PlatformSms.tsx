@@ -2,6 +2,8 @@ import { useEffect, useState, type FormEvent } from "react";
 import { formatApiError, type SmsCheckOut, type SmsSettingsOut, type SmsTemplateOut } from "../api/client";
 import { asciiDigits } from "../lib/mobile";
 import { formatLocalizedNumber } from "../lib/i18n";
+import { networkErrorMessage } from "../lib/errorMessages";
+import { useMutation } from "../hooks/useMutation";
 import { Button } from "../components/ui/Button";
 import { ConfirmDialog } from "../components/ui/ConfirmDialog";
 import { Icon } from "../components/ui/Icon";
@@ -16,28 +18,47 @@ export default function PlatformSms() {
   const [mode, setMode] = useState(status.sms.mode);
   const [apiKey, setApiKey] = useState("");
   const [line, setLine] = useState(status.sms.line_number ? String(status.sms.line_number) : "");
-  const [saving, setSaving] = useState(false);
+  // Each request ends its own spinner whatever happens (useMutation); a network failure is its error.
+  const saveRequest = useMutation(locale);
+  const resetRequest = useMutation(locale);
+  const checkRequest = useMutation(locale);
+  const saving = saveRequest.busy;
+  const resetting = resetRequest.busy;
+  const checking = checkRequest.busy;
+  /** An HTTP failure's message for save or reset; network failures live in the mutations. */
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
-  const [resetting, setResetting] = useState(false);
   const [confirmKeyReset, setConfirmKeyReset] = useState(false);
-  const [checking, setChecking] = useState(false);
   const [check, setCheck] = useState<SmsCheckOut | null>(null);
   const [templates, setTemplates] = useState<SmsTemplateOut[] | null>(null);
   const [templatesError, setTemplatesError] = useState<string | null>(null);
+  const [templatesOffline, setTemplatesOffline] = useState(false);
+  const shownSaveError = saveError ?? saveRequest.error ?? resetRequest.error;
 
   useEffect(() => {
     let active = true;
-    client.GET("/api/platform/sms-templates").then(({ data, error, response }) => {
-      checkResponse(response.status);
-      if (!active) return;
-      if (data) setTemplates(data);
-      else setTemplatesError(error ? formatApiError(error) : "—");
-    });
+    client
+      .GET("/api/platform/sms-templates")
+      .then(({ data, error, response }) => {
+        checkResponse(response.status);
+        if (!active) return;
+        if (data) setTemplates(data);
+        else setTemplatesError(error ? formatApiError(error) : "—");
+      })
+      .catch(() => {
+        if (active) setTemplatesOffline(true);
+      });
     return () => {
       active = false;
     };
   }, [client, checkResponse]);
+
+  const clearSaveMessages = () => {
+    setSaveError(null);
+    setSaved(null);
+    saveRequest.setError(null);
+    resetRequest.setError(null);
+  };
 
   const lineNumber = (() => {
     const digits = asciiDigits(line.trim());
@@ -48,16 +69,15 @@ export default function PlatformSms() {
   const save = async (e: FormEvent) => {
     e.preventDefault();
     if (saving || lineInvalid) return;
-    setSaving(true);
-    setSaveError(null);
-    setSaved(null);
+    clearSaveMessages();
     const body: { mode?: "smsir" | "console"; api_key?: string; line_number?: number; reset: [] } = { reset: [] };
     if (mode !== sms.mode || sms.mode_source === "environment") body.mode = mode;
     if (apiKey.trim()) body.api_key = apiKey.trim();
     if (lineNumber !== null && lineNumber !== sms.line_number) body.line_number = lineNumber;
-    const { data, error, response } = await client.PUT("/api/platform/sms", { body });
+    const result = await saveRequest.run(() => client.PUT("/api/platform/sms", { body }));
+    if (!result.ok) return;
+    const { data, error, response } = result.value;
     checkResponse(response.status);
-    setSaving(false);
     if (data) {
       setSms(data);
       setMode(data.mode);
@@ -71,42 +91,36 @@ export default function PlatformSms() {
 
   const resetToEnvironment = async (field: "mode" | "api_key" | "line_number") => {
     if (resetting) return;
-    setResetting(true);
-    setSaveError(null);
-    setSaved(null);
-    try {
-      const { data, error, response } = await client.PUT("/api/platform/sms", { body: { reset: [field] } });
-      checkResponse(response.status);
-      if (data) {
-        setSms(data);
-        setMode(data.mode);
-        setLine(data.line_number ? String(data.line_number) : "");
-        setSaved(
-          {
-            mode: isRtl ? "حالت ارسال اکنون از مقدار .env پیروی می‌کند." : "Delivery now follows the .env value.",
-            api_key: isRtl ? "کلید ذخیره‌شده در پنل حذف شد؛ در صورت وجود، کلید .env استفاده می‌شود." : "The key saved here was removed; the .env key is used if there is one.",
-            line_number: isRtl ? "شماره خط اکنون از مقدار .env پیروی می‌کند." : "The line number now follows the .env value.",
-          }[field],
-        );
-        void refreshStatus();
-      } else {
-        setSaveError(error ? formatApiError(error) : isRtl ? "تغییری اعمال نشد." : "Nothing was changed.");
-      }
-    } catch {
-      setSaveError(isRtl ? "اتصال به سرور برقرار نشد." : "Could not reach the server.");
-    } finally {
-      setResetting(false);
+    clearSaveMessages();
+    const result = await resetRequest.run(() => client.PUT("/api/platform/sms", { body: { reset: [field] } }));
+    if (!result.ok) return;
+    const { data, error, response } = result.value;
+    checkResponse(response.status);
+    if (data) {
+      setSms(data);
+      setMode(data.mode);
+      setLine(data.line_number ? String(data.line_number) : "");
+      setSaved(
+        {
+          mode: isRtl ? "حالت ارسال اکنون از مقدار .env پیروی می‌کند." : "Delivery now follows the .env value.",
+          api_key: isRtl ? "کلید ذخیره‌شده در پنل حذف شد؛ در صورت وجود، کلید .env استفاده می‌شود." : "The key saved here was removed; the .env key is used if there is one.",
+          line_number: isRtl ? "شماره خط اکنون از مقدار .env پیروی می‌کند." : "The line number now follows the .env value.",
+        }[field],
+      );
+      void refreshStatus();
+    } else {
+      setSaveError(error ? formatApiError(error) : isRtl ? "تغییری اعمال نشد." : "Nothing was changed.");
     }
   };
 
   const runCheck = async () => {
-    setChecking(true);
     setCheck(null);
-    const { data, response } = await client.POST("/api/platform/sms/check", {
-      body: { api_key: apiKey.trim() || null, line_number: lineNumber },
-    });
+    const result = await checkRequest.run(() =>
+      client.POST("/api/platform/sms/check", { body: { api_key: apiKey.trim() || null, line_number: lineNumber } }),
+    );
+    if (!result.ok) return;
+    const { data, response } = result.value;
     checkResponse(response.status);
-    setChecking(false);
     setCheck(data ?? { ok: false, credit: null, lines: [], line_ok: null, error: `HTTP_${response.status}` });
   };
 
@@ -204,7 +218,7 @@ export default function PlatformSms() {
             )}
           </div>
 
-          {saveError && <FormAlert>{saveError}</FormAlert>}
+          {shownSaveError && <FormAlert>{shownSaveError}</FormAlert>}
           {saved && <p role="status" className="text-sm font-medium text-status-success-text">{saved}</p>}
 
           <div className="flex flex-wrap items-center gap-2">
@@ -218,6 +232,7 @@ export default function PlatformSms() {
             </Button>
           </div>
 
+          {checkRequest.error && <FormAlert>{checkRequest.error}</FormAlert>}
           {check && (
             <div role="status" data-testid="gateway-check" className={`space-y-1 rounded-xl border px-4 py-3 text-sm ${check.ok ? "border-status-success-border bg-status-success-bg text-status-success-text" : "border-status-danger-border bg-status-danger-bg text-status-danger-text"}`}>
               {check.ok ? (
@@ -244,13 +259,14 @@ export default function PlatformSms() {
       </section>
 
       {templatesError && <FormAlert>{templatesError}</FormAlert>}
+      {templatesOffline && <FormAlert>{networkErrorMessage[locale]}</FormAlert>}
       {templates?.map((template) => (
         <SmsTemplateEditor
           key={template.kind}
           template={template}
-          sample={samples[template.kind]}
+          sample={samples[template.kind] ?? samples.ticket_confirmation}
           locale={locale}
-          title={template.kind === "otp" ? (isRtl ? "پیامک کد ورود (همه همایش‌ها)" : "Sign-in code SMS (every congress)") : isRtl ? "پیامک پیش‌فرض تأیید ثبت‌نام" : "Default ticket confirmation SMS"}
+          title={template.kind === "otp" ? (isRtl ? "پیامک کد ورود (همه همایش‌ها)" : "Sign-in code SMS (every congress)") : template.kind === "ticket_cancelled" ? (isRtl ? "پیامک پیش‌فرض لغو بلیت" : "Default ticket cancellation SMS") : template.kind === "ticket_reissued" ? (isRtl ? "پیامک پیش‌فرض صدور دوبارهٔ کارت ورود" : "Default pass reissue SMS") : isRtl ? "پیامک پیش‌فرض تأیید ثبت‌نام" : "Default ticket confirmation SMS"}
           customLabel={isRtl ? "متن سفارشی" : "Custom text"}
           defaultLabel={isRtl ? "متن داخلی سامانه" : "Built-in text"}
           resetDescription={isRtl ? "متن سفارشی حذف و متن داخلی سامانه استفاده می‌شود." : "The custom text is removed and the built-in text is used."}
