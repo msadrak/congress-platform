@@ -18,6 +18,8 @@ test("the console offers an action to roles that reach it, and to a session it d
   assert.equal(sessionAllows({ role: "viewer" }, "staff"), false);
   assert.equal(sessionAllows(null, "owner"), true);
   assert.equal(sessionAllows(undefined, "manager"), true);
+  // Not a session at all (e.g. an empty list from a misrouted response): unknown, so offered.
+  assert.equal(sessionAllows(JSON.parse("[]"), "manager"), true);
 });
 
 test("an automatic row names the route without the prefix and its ids", () => {
