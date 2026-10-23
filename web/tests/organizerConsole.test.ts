@@ -38,9 +38,12 @@ test("a route without a label names its subject, and Persian never shows the raw
   assert.equal(describeActivity(unknown, "fa").action, "ثبت کرد · نقطه ورود");
   assert.equal(describeActivity(unknown, "en").action, "created · check-in point");
   const stranger = automatic("PUT", "/api/widgets/{widget_id}/frobnicate");
-  assert.equal(describeActivity(stranger, "fa").action, "ذخیره کرد");
+  assert.equal(describeActivity(stranger, "fa").action, "موردی را ذخیره کرد");
   assert.doesNotMatch(describeActivity(stranger, "fa").action, /[A-Za-z]/);
   assert.equal(describeActivity(stranger, "en").action, "saved · widgets › frobnicate");
+  // An unknown child of a congress is not "the congress".
+  const child = automatic("DELETE", "/api/events/{event_id}/brand-new/{thing_id}");
+  assert.equal(describeActivity(child, "fa").action, "موردی را حذف کرد");
   assert.equal(activityAction("something.new", "fa"), "تغییری ثبت کرد");
   assert.equal(activityAction("something.new", "en"), "something.new");
 });

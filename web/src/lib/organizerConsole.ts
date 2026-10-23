@@ -241,6 +241,14 @@ const ROUTE_NOUNS: Record<string, readonly [string, string]> = {
   analytics: ["آمار", "analytics"],
 };
 
+/** Persian for an automatic row whose route names nothing the tables know. */
+const FA_UNNAMED: Record<string, string> = {
+  "http.post": "موردی را ثبت کرد",
+  "http.put": "موردی را ذخیره کرد",
+  "http.patch": "موردی را ویرایش کرد",
+  "http.delete": "موردی را حذف کرد",
+};
+
 /** The phrase of an automatic row (`http.*`, `export.download`) from its route template. */
 function routePhrase(action: string, route: string, locale: AttendeeLocale): string {
   const method = action === "export.download" ? "GET" : action.replace(/^http\./, "").toUpperCase();
@@ -251,12 +259,15 @@ function routePhrase(action: string, route: string, locale: AttendeeLocale): str
     .replace(/^\/api\//, "")
     .split("/")
     .filter((part) => part && !part.startsWith("{"));
-  // The most specific segment the table knows names the subject (".../checkin-points/{id}/heartbeat" → check-in point).
-  const known = [...segments].reverse().find((part) => Object.hasOwn(ROUTE_NOUNS, part));
+  // The most specific segment the table knows names the subject (".../checkin-points/{id}/heartbeat" → check-in
+  // point). "events" only names a route of its own: under it, an unknown child is not the congress itself.
+  const known = [...segments]
+    .reverse()
+    .find((part) => Object.hasOwn(ROUTE_NOUNS, part) && (part !== "events" || segments.length === 1));
   const verb = activityAction(action, locale);
   if (known) return `${verb} · ${ROUTE_NOUNS[known][index]}`;
   // A Persian reader never sees a raw route; an English one gets its words.
-  return locale === "fa" ? verb : `${verb} · ${segments.join(" › ").replace(/-/g, " ")}`;
+  return locale === "fa" ? (FA_UNNAMED[action] ?? verb) : `${verb} · ${segments.join(" › ").replace(/-/g, " ")}`;
 }
 
 /**
