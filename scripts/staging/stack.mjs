@@ -95,7 +95,10 @@ export function compose(project, args, opts = {}) {
     if (problems.length) throw new Error(`BACKUP_WAL=on but:\n  - ${problems.join('\n  - ')}\n(settings: ${ENV_FILE} or ${OPS_ENV_FILE})`);
   }
   const files = wal ? [COMPOSE_FILE, COMPOSE_WAL_FILE] : [COMPOSE_FILE];
-  const env = { ...(wal ? walComposeEnv(settings, { archive: project === PROJECT }) : {}), ...opts.env };
+  // The override also goes into Compose's own environment: a variable exported in the shell wins over --env-file,
+  // so an exported CONGRESS_PERSISTENT_DATA_ROOT (as `init` documents) would otherwise point a restore drill's
+  // database at the live data directory.
+  const env = { ...(wal ? walComposeEnv(settings, { archive: project === PROJECT }) : {}), ...opts.envOverride, ...opts.env };
   const envFile = composeEnvFile(opts.envOverride);
   try {
     return run('docker', ['compose', '-p', project, '--env-file', envFile, ...files.flatMap((f) => ['-f', f]), ...args], { ...opts, env: Object.keys(env).length ? env : undefined });
