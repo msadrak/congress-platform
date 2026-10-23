@@ -196,8 +196,12 @@ for (const status of [404, 403, 500]) {
     await seed(page, keyA);
     requests.length = 0;
     await page.goto('/organizer/events/event-foreign');
-    await expect(page.getByRole('heading', { name: 'Failed to Load Event' })).toBeVisible();
-    await expect(page.getByText(status === 404 ? 'Event not found' : status === 403 ? 'Forbidden' : 'Server error')).toBeVisible();
+    if (status === 404) {
+      await expect(page.getByRole('heading', { name: 'Congress not found' })).toBeVisible();
+    } else {
+      await expect(page.getByRole('heading', { name: 'Failed to Load Event' })).toBeVisible();
+      await expect(page.getByText(status === 403 ? 'Forbidden' : 'Server error')).toBeVisible();
+    }
     await expect(page.getByText('Event A')).toHaveCount(0);
     await page.goto('/organizer/events/event-foreign/analytics');
     await expect(page.getByText('Event A')).toHaveCount(0);
