@@ -65,10 +65,10 @@ from the numbers**. The coordinator sets each new migration's `down_revision` to
 merge time and updates the two head tests (`backend/tests/test_desk_session_migration.py` walk list,
 `backend/tests/test_staging_support.py` `expected_revision()` + `match="requires …"`).
 
-Current chain on `integration/upgrade` (head **0026**):
+Current chain on `integration/upgrade` (head **0031** once `ws/booth-profile` is merged):
 
 ```
-… 0018 → 0019 → 0020 → 0023 → 0024 → 0021 → 0022 → 0027 → 0028 → 0029 → 0030 → 0025 → 0026
+… 0018 → 0019 → 0020 → 0023 → 0024 → 0021 → 0022 → 0027 → 0028 → 0029 → 0030 → 0025 → 0026 → 0031
 ```
 
 Rollback rule (CODING_STANDARDS §2.D): only migrations marked `backward_compatible = True` let an older
@@ -152,7 +152,7 @@ choice (SMS-2), merging `integration/upgrade` into `main`.
 4. Only with off-host copies (`BACKUP_S3_*`): add `BACKUP_ENCRYPTION_KEY` (`openssl rand -base64 48`) to
    `/etc/congress/backup.env` and the password manager, ideally with a new `BACKUP_S3_PREFIX`.
 5. `git pull`, then `node scripts/staging/stack.mjs up`. It adds `CONGRESS_SECRET_BOX_KEY` to `.staging/staging.env`
-   itself, runs 0019–0030 in one transaction (under a minute on the rehearsal data) and records the first release.
+   itself, runs 0019–0031 in one transaction (under a minute on the rehearsal data) and records the first release.
 6. `node scripts/staging/stack.mjs check`. Then save the updated `.staging/staging.env` with the server's secrets.
 7. Linux timers: `sudo node scripts/staging/stack.mjs install-timers --user <operating user>` once.
 8. Reload the scanner devices. Tell organizers and operators about the new screens.
@@ -177,6 +177,7 @@ Migrations 0019, 0020, 0021, 0022 and 0023 are not rollback-compatible, so going
 | 0030 | user session version (attendee logout everywhere) | yes |
 | 0025 | check-in policies, occupancy, session attendance, device heartbeat | yes |
 | 0026 | badge prints, desk check-ins | yes |
+| 0031 | booth logo (`booths.logo_asset_id`) | yes |
 
 **New environment variables (all optional unless noted):**
 `CONGRESS_SHORT_LINK_ORIGIN`, `CONGRESS_SECRET_BOX_KEY` (recommended; added by `up`),
@@ -217,6 +218,9 @@ the API image now starts with `python -m app.serve`), `ALERT_HEARTBEAT_URL`, `AL
     `/organizer/events/:id/venue` → program `?tab=venue`, `…/panel` → Page Studio `?preview=panel`; platform SMS is now
     `/platform/sms`. Desk and organizer sessions stay per tab (no install prompt there). Tell organizers and
     operators the screens changed before the next congress.
+14. Booth representatives edit their booth page (description, website, brochure, logo) from the booth panel menu
+    «ویرایش صفحهٔ غرفه»; the name, page address and stand stay the organizer's. Booths get logos (organizer booth form,
+    public booth page, booth directory). Logos are congress images: they count toward the 200-image limit per congress.
 
 ## 8. Environment and tooling notes (important)
 
