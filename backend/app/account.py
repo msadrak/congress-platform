@@ -13,6 +13,7 @@ reference it and a congress's attendance statistics must still add up. What iden
 * exhibitor leads about them stay with the exhibitor (rating and notes are the exhibitor's data) but no longer
   carry a name, organization or mobile;
 * booth-staff assignments are removed, and desk-operator access and organizer memberships are revoked;
+* every session of the account ends (`session_version` is incremented);
 * pending SMS to them, and any the outbox has claimed but not sent yet, are not sent (`ACCOUNT_DELETED`); sent
   SMS lose their text and keep only a masked number, and sign-in codes for the number are deleted.
 """
@@ -62,6 +63,11 @@ async def refresh_upcoming_snapshots(session: AsyncSession, user: User) -> int:
     return int(getattr(result, "rowcount", 0) or 0)
 
 
+async def end_sessions(session: AsyncSession, user: User) -> None:
+    """Every access token issued to the account so far stops working (caller commits)."""
+    await session.execute(update(User).where(User.id == user.id).values(session_version=User.session_version + 1))
+
+
 async def delete_account(session: AsyncSession, user: User) -> None:
     """Anonymise the account as described in the module docstring (caller commits)."""
     now = datetime.now(timezone.utc)
@@ -100,6 +106,7 @@ async def delete_account(session: AsyncSession, user: User) -> None:
             update(SmsMessage).where(SmsMessage.mobile == user.mobile).values(mobile=mask_mobile(user.mobile), body=None)
         )
 
+    await end_sessions(session, user)
     user.full_name = DELETED_NAME
     user.organization = ""
     user.title = ""
