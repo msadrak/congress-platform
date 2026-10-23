@@ -79,7 +79,7 @@ test('a new page opens at its top', async ({ page }) => {
   });
   await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(2000);
 
-  await page.locator('nav.fixed').getByRole('link', { name: 'My Profile' }).click();
+  await page.getByTestId('profile-entry').click();
   await expect(page).toHaveURL(/\/c\/alpha\/my-profile$/);
   await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
 });
