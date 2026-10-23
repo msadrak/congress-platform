@@ -13,8 +13,8 @@ reference it and a congress's attendance statistics must still add up. What iden
 * exhibitor leads about them stay with the exhibitor (rating and notes are the exhibitor's data) but no longer
   carry a name, organization or mobile;
 * booth-staff assignments are removed, and desk-operator access and organizer memberships are revoked;
-* pending SMS to them are not sent, sent SMS lose their text and keep only a masked number, and sign-in codes
-  for the number are deleted.
+* pending SMS to them, and any the outbox has claimed but not sent yet, are not sent (`ACCOUNT_DELETED`); sent
+  SMS lose their text and keep only a masked number, and sign-in codes for the number are deleted.
 """
 
 import uuid
@@ -42,6 +42,7 @@ from app.models import (
     TicketTier,
     User,
 )
+from app.sms.outbox import ACCOUNT_DELETED
 from app.sms.phone import mask_mobile
 from app.ticket_lifecycle import DELETED_NAME, attendee_snapshot, cancel_ticket
 
@@ -89,10 +90,11 @@ async def delete_account(session: AsyncSession, user: User) -> None:
     )
     if user.mobile:
         await session.execute(delete(OtpChallenge).where(OtpChallenge.mobile == user.mobile))
+        # The outbox checks a message it has already claimed (`sending`) again just before sending it.
         await session.execute(
             update(SmsMessage)
-            .where(SmsMessage.mobile == user.mobile, SmsMessage.status == "pending")
-            .values(status="failed", last_error="account deleted")
+            .where(SmsMessage.mobile == user.mobile, SmsMessage.status.in_(("pending", "sending")))
+            .values(status="failed", last_error=ACCOUNT_DELETED, lease_until=None)
         )
         await session.execute(
             update(SmsMessage).where(SmsMessage.mobile == user.mobile).values(mobile=mask_mobile(user.mobile), body=None)
