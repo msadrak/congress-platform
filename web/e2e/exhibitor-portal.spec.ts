@@ -3,7 +3,7 @@ import { expect, test } from '@playwright/test';
 import type { BrowserContext, Page } from '@playwright/test';
 
 // Shipping Exhibitor pages + synthetic, intercepted /api/ responses: not FastAPI/PostgreSQL E2E.
-// The real-backend journey is recorded in EXHIBITOR_PORTAL_MILESTONE_RESULT.md.
+// The real-backend journey is web/e2e-live/exhibitor.spec.ts.
 const b64 = (value: object) => Buffer.from(JSON.stringify(value)).toString('base64url');
 const jwt = (sub: string) => `${b64({ alg: 'HS256' })}.${b64({ sub, type: 'user', exp: 4102444800 })}.sig`;
 const STAFF = jwt('staff-a');
@@ -24,14 +24,16 @@ interface Options {
   extraLeads?: number;
   /** Flip `removed` to answer booth-a calls with 403 BOOTH_STAFF_REQUIRED, as for a removed representative. */
   control?: { removed: boolean; suspended?: boolean; archived?: boolean };
-  /** Stand name shown on the booth placard. */
+  /** Stand name shown in the menu. */
   boothLocation?: string;
+  /** `GET /api/booths/{id}` says the congress is archived (BoothOut.event_archived). */
+  eventArchived?: boolean;
 }
 const REMOVED = { detail: 'You are not authorized to access this booth portal', code: 'BOOTH_STAFF_REQUIRED' };
 const SUSPENDED = { detail: 'Booth access for this congress is suspended', code: 'BOOTH_ACCESS_SUSPENDED' };
 const ARCHIVED = { detail: 'This congress is archived: its leads are read-only', code: 'EVENT_ARCHIVED' };
 
-const BOOTH = (id: string) => ({ id, event_id: id === 'booth-a' ? 'event-1' : 'event-2', name: id === 'booth-a' ? 'Alpha Devices Booth' : 'Beta Labs Booth', slug: id === 'booth-a' ? 'alpha-devices' : 'beta-labs', location: 'Hall 1 · A-12', description: '', website_url: '', brochure_url: '', qr_secret: 'booth-qr', created_at: '2099-01-01T00:00:00Z' });
+const BOOTH = (id: string) => ({ id, event_id: id === 'booth-a' ? 'event-1' : 'event-2', name: id === 'booth-a' ? 'Alpha Devices Booth' : 'Beta Labs Booth', slug: id === 'booth-a' ? 'alpha-devices' : 'beta-labs', location: 'Hall 1 · A-12', description: '', website_url: '', brochure_url: '', qr_secret: 'booth-qr', created_at: '2099-01-01T00:00:00Z', event_archived: false });
 
 async function fixture(page: Page, options: Options = {}) {
   const requests: Recorded[] = [];
@@ -79,7 +81,7 @@ async function fixture(page: Page, options: Options = {}) {
     // An archived congress: lead changes are refused, reads, search and export stay open.
     if (options.control?.archived && (rest === '/leads/scan' || (/^\/leads\/[^/]+(\/restore)?$/.test(rest) && method !== 'GET'))) return json(409, ARCHIVED);
     const active = () => leads[id].filter(l => !l.deleted_at);
-    if (rest === '') return json(200, { ...BOOTH(id), ...(options.boothLocation ? { location: options.boothLocation } : {}) });
+    if (rest === '') return json(200, { ...BOOTH(id), ...(options.boothLocation ? { location: options.boothLocation } : {}), ...(options.eventArchived ? { event_archived: true } : {}) });
     if (rest === '/leads' && method === 'GET') return json(200, active());
     if (rest === '/leads/search' && method === 'GET') {
       const q = (url.searchParams.get('q') ?? '').toLowerCase();
@@ -169,9 +171,26 @@ async function signInWithCode(page: Page, mobile = STAFF_MOBILE) {
   await page.getByRole('button', { name: 'Send code' }).click();
   await page.getByLabel('Code from the SMS').fill(CODE);
 }
-const codeInput = (page: Page) => page.getByPlaceholder('e.g. ABC123XYZ...');
-const openCapture = (page: Page) => page.getByRole('button', { name: /Capture Lead/ }).first().click();
-const saveLead = (page: Page) => page.getByRole('button', { name: 'Save Lead' }).click();
+const codeInput = (page: Page) => page.getByLabel('Pass QR code');
+const openCapture = (page: Page) => page.getByRole('button', { name: 'Capture lead' }).first().click();
+const saveLead = (page: Page) => page.getByRole('button', { name: 'Save lead' }).click();
+const scansOf = (requests: Recorded[]) => requests.filter(r => r.path.endsWith('/leads/scan'));
+const card = (page: Page, name: string) => page.getByRole('article').filter({ hasText: name });
+const menuItem = async (page: Page, name: string) => {
+  await page.getByRole('button', { name: /^(Menu|منو)$/ }).click();
+  return page.getByRole('menuitem', { name, exact: true });
+};
+/** A barcode gun: the whole code within milliseconds, then Enter. */
+const gunScan = async (page: Page, code: string) => {
+  await page.keyboard.type(code, { delay: 4 });
+  await page.keyboard.press('Enter');
+};
+const pill = (page: Page) => page.getByRole('banner').locator('[data-status]');
+/** Opens the collapsed pending-queue row. */
+const expandPending = async (page: Page) => {
+  const toggle = page.getByTestId('pending-sync').locator('button[aria-expanded]');
+  if ((await toggle.getAttribute('aria-expanded')) !== 'true') await toggle.click();
+};
 
 test.describe('entry and access', () => {
   test('signed out: sign-in path returns to the same booth, unsafe destinations are ignored, no Organizer fallback', async ({ page }) => {
@@ -179,9 +198,9 @@ test.describe('entry and access', () => {
     await seed(page);
     requests.length = 0;
     await page.goto('/booth/booth-a');
-    await expect(page.getByRole('heading', { name: 'Exhibitor Staff Sign In' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Sign in to the booth' })).toBeVisible();
     expect(requests).toEqual([]);
-    await page.getByRole('link', { name: /Sign In to Booth Workspace/ }).click();
+    await page.getByRole('link', { name: 'Sign in', exact: true }).click();
     await expect(page).toHaveURL(/\/booth\/booth-a\/sign-in\?next=%2Fbooth%2Fbooth-a$/);
     await expect(page.getByRole('heading', { name: 'Sign in to your booth workspace' })).toBeVisible();
     await signInWithCode(page);
@@ -205,23 +224,26 @@ test.describe('entry and access', () => {
     await seed(page, OUTSIDER);
     requests.length = 0;
     await page.goto('/booth/booth-a');
-    await expect(page.getByRole('heading', { name: 'Commercial Access Restricted' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'No access to this booth' })).toBeVisible();
     await expect(page.getByText('Lead One')).toHaveCount(0);
-    await expect(page.getByRole('link', { name: 'Sign in with a different account' })).toHaveAttribute('href', /\/booth\/booth-a\/sign-in/);
+    await expect(page.getByRole('link', { name: 'Sign in with another account' })).toHaveAttribute('href', /\/booth\/booth-a\/sign-in/);
     expect(await storedToken(page)).toBe(OUTSIDER);
     expect(requests.every(r => r.auth === bearer(OUTSIDER))).toBe(true);
   });
 
-  test('the workspace names the booth and congress and links the public profile; booth B is not reachable for booth A staff', async ({ page }) => {
+  test('the bar names the booth and congress, the menu links the public profile and records the launch; booth B is not reachable', async ({ page }) => {
     await fixture(page);
     await seed(page, STAFF);
     await page.setViewportSize({ width: 1280, height: 800 });
     await page.goto('/booth/booth-a');
-    await expect(page.getByText('Alpha Devices Booth').first()).toBeVisible();
-    await expect(page.getByTestId('booth-event')).toContainText('Alpha Congress 2099');
-    await expect(page.getByRole('link', { name: 'Public booth profile' })).toHaveAttribute('href', '/e/alpha-congress/booths/booth-a');
+    await expect(page.getByRole('heading', { level: 1, name: 'Alpha Devices Booth' })).toBeVisible();
+    await expect(page.getByRole('banner')).toContainText('Alpha Congress 2099');
+    // The home-screen icon reopens this booth.
+    await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('congress_operator_launch') ?? 'null')?.path)).toBe('/booth/booth-a');
+    await (await menuItem(page, 'Public booth profile')).click();
+    await expect(page).toHaveURL(/\/e\/alpha-congress\/booths\/booth-a$/);
     await page.goto('/booth/booth-b');
-    await expect(page.getByRole('heading', { name: 'Commercial Access Restricted' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'No access to this booth' })).toBeVisible();
     await expect(page.getByText('Secret Competitor Lead')).toHaveCount(0);
     await expect(page.getByText('Alpha Devices Booth')).toHaveCount(0);
   });
@@ -249,50 +271,54 @@ test.describe('entry and access', () => {
 });
 
 test.describe('capture and qualification', () => {
-  test('scan → confirm who → keep qualification on re-scan → next attendee', async ({ page }) => {
+  test('a typed code saves at once; the result rates in one tap; a re-scan keeps the rating; next attendee', async ({ page }) => {
     const requests = await fixture(page);
     await seed(page, STAFF);
     await page.goto('/booth/booth-a');
     await expect(page.getByText('Lead One').first()).toBeVisible();
     await openCapture(page);
+    // A desktop pointer: the code field is open and focused for a keyboard or a gun.
     await expect(codeInput(page)).toBeFocused();
     await codeInput(page).fill('new-attendee');
     await saveLead(page);
     const result = page.getByTestId('capture-result');
-    await expect(result).toContainText('Lead saved.');
+    await expect(result).toContainText('New lead');
     await expect(result).toContainText('Captured new-attendee');
-    const scans = () => requests.filter(r => r.path.endsWith('/leads/scan'));
     // Nothing the operator did not choose is sent: the badge alone.
-    expect(scans()[0].body).toEqual({ qr_secret: 'new-attendee' });
+    expect(scansOf(requests)[0].body).toEqual({ qr_secret: 'new-attendee' });
 
-    // Focus lands on the next step, so Enter continues and a keyboard-wedge reader is not lost.
-    await expect(result.getByRole('button', { name: /Next attendee/ })).toBeFocused();
+    // Focus lands on «Next», so Enter continues and a keyboard-wedge reader is not lost.
+    await expect(page.getByRole('button', { name: 'Next' })).toBeFocused();
     await page.keyboard.press('Enter');
     await expect(codeInput(page)).toBeFocused();
-    // Re-scan with a deliberate rating only.
     await codeInput(page).fill('new-attendee');
-    await page.getByRole('dialog').getByRole('button', { name: /Hot/ }).click();
     await saveLead(page);
-    await expect(page.getByTestId('capture-result')).toContainText('already a lead');
-    expect(scans()[1].body).toEqual({ qr_secret: 'new-attendee', rating: 'HOT' });
-    expect(scans().length).toBe(2);
-    await page.getByTestId('capture-result').getByRole('button', { name: 'Done' }).click();
-    await expect(page.getByText('Captured new-attendee')).toHaveCount(1);
+    await expect(page.getByTestId('capture-result')).toContainText('Already a lead');
+    expect(scansOf(requests)[1].body).toEqual({ qr_secret: 'new-attendee' });
+    // One tap on a rating chip saves it.
+    await page.getByRole('dialog').getByRole('button', { name: /High/ }).click();
+    await expect.poll(() => requests.filter(r => r.method === 'PATCH').map(r => r.body)).toEqual([{ rating: 'HOT' }]);
+    await expect(page.getByRole('dialog').getByRole('button', { name: /High/ })).toHaveAttribute('aria-pressed', 'true');
+    expect(scansOf(requests).length).toBe(2);
+    await page.getByRole('button', { name: 'Done' }).click();
+    await expect(card(page, 'Captured new-attendee')).toHaveCount(1);
+    await expect(card(page, 'Captured new-attendee')).toContainText('High');
   });
 
-  test('invalid and other-congress badges are explained and the typed code is kept', async ({ page }) => {
+  test('invalid and other-congress badges show a red result, and «Next» goes on', async ({ page }) => {
     await fixture(page);
     await seed(page, STAFF);
     await page.goto('/booth/booth-a');
     await openCapture(page);
     await codeInput(page).fill('bad-code');
     await saveLead(page);
-    await expect(page.getByRole('alert')).toContainText('not valid');
-    await expect(codeInput(page)).toHaveValue('bad-code');
+    await expect(page.getByTestId('capture-result')).toHaveAttribute('data-result', 'invalid');
+    await expect(page.getByRole('alert')).toContainText('Invalid code');
+    await page.getByRole('button', { name: 'Next' }).click();
     await codeInput(page).fill('other-event');
     await saveLead(page);
-    await expect(page.getByRole('alert')).toContainText('different congress');
-    await expect(page.getByTestId('capture-result')).toHaveCount(0);
+    await expect(page.getByTestId('capture-result')).toHaveAttribute('data-result', 'other');
+    await expect(page.getByRole('alert')).toContainText('Other congress');
   });
 
   test('a double submit sends one request', async ({ page }) => {
@@ -301,9 +327,9 @@ test.describe('capture and qualification', () => {
     await page.goto('/booth/booth-a');
     await openCapture(page);
     await codeInput(page).fill('fast-double');
-    await page.getByRole('button', { name: 'Save Lead' }).dblclick();
+    await page.getByRole('button', { name: 'Save lead' }).dblclick();
     await expect(page.getByTestId('capture-result')).toBeVisible();
-    expect(requests.filter(r => r.path.endsWith('/leads/scan')).length).toBe(1);
+    expect(scansOf(requests).length).toBe(1);
   });
 
   test('a dropped connection claims no success, keeps the code and never retries by itself', async ({ page }) => {
@@ -313,90 +339,88 @@ test.describe('capture and qualification', () => {
     await openCapture(page);
     await codeInput(page).fill('lost-signal');
     await saveLead(page);
-    await expect(page.getByRole('alert')).toContainText('not known whether the lead was saved');
+    await expect(page.getByRole('alert')).toContainText('Connection lost');
     await expect(page.getByTestId('capture-result')).toHaveCount(0);
     await expect(codeInput(page)).toHaveValue('lost-signal');
     await page.waitForTimeout(800);
-    expect(requests.filter(r => r.path.endsWith('/leads/scan')).length).toBe(1);
+    expect(scansOf(requests).length).toBe(1);
   });
 
-  test('qualify from the list: rating and tag saved, counts follow, failure keeps the form', async ({ page }) => {
+  test('qualify from the list: tapping the card opens it, rating saved, counts follow, failure keeps the form', async ({ page }) => {
     const requests = await fixture(page, { patchAborts: true });
     await seed(page, STAFF);
     await page.goto('/booth/booth-a');
-    const card = page.getByRole('article').filter({ hasText: 'Lead Two' });
-    await card.getByRole('button', { name: 'Qualify & Follow Up' }).click();
-    const dialog = page.getByRole('dialog');
-    await dialog.getByRole('button', { name: /Hot/ }).click();
-    await dialog.getByRole('button', { name: 'Save Qualification Changes' }).click();
-    await expect(dialog.getByRole('alert')).toContainText('not confirmed');
-    await expect(dialog.getByRole('button', { name: /Hot/ })).toBeVisible();
+    await card(page, 'Lead Two').getByRole('button', { name: 'Lead Two', exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: 'Lead Two' });
+    await dialog.getByRole('button', { name: /High/ }).click();
+    await dialog.getByRole('button', { name: 'Save' }).click();
+    await expect(dialog.getByRole('alert')).toContainText('Connection lost');
+    await expect(dialog.getByRole('button', { name: /High/ })).toHaveAttribute('aria-pressed', 'true');
 
     await page.unrouteAll();
     await fixture(page);
-    await dialog.getByRole('button', { name: 'Save Qualification Changes' }).click();
-    await expect(dialog.getByText('Lead qualification updated successfully.')).toBeVisible();
+    await dialog.getByRole('button', { name: 'Save' }).click();
+    await expect(dialog.getByText('Lead updated.')).toBeVisible();
     await expect(dialog).toHaveCount(0);
-    await expect(card.getByText(/Hot|HOT/).first()).toBeVisible();
+    await expect(card(page, 'Lead Two')).toContainText('High');
     expect(requests.filter(r => r.method === 'PATCH').length).toBe(1);
   });
 
-  test('qualify from the capture result: one dialog at a time, and a typed but un-added tag is saved', async ({ page }) => {
+  test('«Note» on the capture result: one dialog at a time, and a typed but un-added tag is saved', async ({ page }) => {
     const requests = await fixture(page);
     await seed(page, STAFF);
     await page.goto('/booth/booth-a');
     await openCapture(page);
     await codeInput(page).fill('new-attendee');
     await saveLead(page);
-    await page.getByTestId('capture-result').getByRole('button', { name: 'Qualify & Follow Up' }).click();
+    await page.getByTestId('capture-result').getByRole('button', { name: 'Note' }).click();
     const dialog = page.getByRole('dialog');
     await expect(dialog).toHaveCount(1);
-    await expect(dialog.getByRole('heading', { name: /Captured new-attendee/ })).toBeVisible();
-    await dialog.getByLabel('Type custom tag and press Enter...').fill('Call Monday');
-    await dialog.getByRole('button', { name: 'Save Qualification Changes' }).click();
-    await expect(dialog.getByText('Lead qualification updated successfully.')).toBeVisible();
+    await expect(dialog.getByRole('heading', { name: 'Captured new-attendee' })).toBeVisible();
+    await dialog.getByLabel('New tag').fill('Call Monday');
+    await dialog.getByRole('button', { name: 'Save' }).click();
+    await expect(dialog.getByText('Lead updated.')).toBeVisible();
     await expect(dialog).toHaveCount(0);
     expect(requests.find(r => r.method === 'PATCH')?.body).toMatchObject({ tags: expect.arrayContaining(['Call Monday']) });
   });
 
-  // Changed with the paged lead list: search and rating now go to the server (`/leads/search`), and the count
-  // reads "N of <matching>" plus the booth total, instead of filtering a full list in the browser.
   test('search and rating filters ask the server and keep the booth totals in view', async ({ page }) => {
     const requests = await fixture(page);
     await seed(page, STAFF);
     await page.goto('/booth/booth-a');
     await expect(page.getByText('Lead One').first()).toBeVisible();
     const searches = () => requests.filter(r => r.path === '/api/booths/booth-a/leads/search' && r.query.get('limit') !== '1');
-    await page.getByPlaceholder(/Search/).fill('lead two');
+    await page.getByPlaceholder('Name, mobile or organization').fill('lead two');
     await expect(page.getByRole('article')).toHaveCount(1);
     await expect(page.getByText('Showing 1 of 1 leads')).toBeVisible();
     await expect(page.getByText('2 in this booth')).toBeVisible();
     expect(searches().at(-1)?.query.get('q')).toBe('lead two');
-    await page.getByPlaceholder(/Search/).fill('zzz');
+    await page.getByPlaceholder('Name, mobile or organization').fill('zzz');
     await expect(page.getByRole('article')).toHaveCount(0);
-    await expect(page.getByText('No captured leads match')).toBeVisible();
-    await page.getByPlaceholder(/Search/).fill('');
-    await page.getByRole('button', { name: /Hot/ }).first().click();
+    await expect(page.getByText('No matching leads')).toBeVisible();
+    await page.getByPlaceholder('Name, mobile or organization').fill('');
+    await page.getByRole('button', { name: /High/ }).first().click();
     await expect(page.getByRole('article')).toHaveCount(1);
     await expect(page.getByText('Showing 1 of 1 leads')).toBeVisible();
     expect(searches().at(-1)?.query.get('rating')).toBe('HOT');
     expect(searches().at(-1)?.query.has('q')).toBe(false);
     // The chips keep the booth-wide counts.
-    await expect(page.getByRole('button', { name: /All Ratings/ })).toContainText('2');
+    await expect(page.getByRole('button', { name: /^All/ })).toContainText('2');
   });
 
-  test('CSV export asks only for this booth and downloads its file', async ({ page }) => {
+  test('CSV export from the menu asks only for this booth and downloads its file', async ({ page }) => {
     const requests = await fixture(page);
     await seed(page, STAFF);
     await page.goto('/booth/booth-a');
     await expect(page.getByText('Lead One').first()).toBeVisible();
     const download = page.waitForEvent('download');
-    await page.getByRole('button', { name: 'Export CSV' }).click();
+    await (await menuItem(page, 'Export CSV')).click();
     const file = await download;
     expect(file.suggestedFilename()).toBe('alpha-devices-leads.csv');
     expect(await readFile(await file.path(), 'utf8')).toContain('Lead One,booth-a');
     expect(requests.filter(r => r.path.includes('export-csv')).map(r => r.path)).toEqual(['/api/booths/booth-a/leads/export-csv']);
     expect(requests.some(r => r.path.includes('booth-b'))).toBe(false);
+    await expect(page.getByTestId('toast')).toContainText('Download started.');
   });
 
   test('the lead list failing shows an error with retry and never stale leads', async ({ page }) => {
@@ -405,8 +429,130 @@ test.describe('capture and qualification', () => {
     await page.route('**/api/booths/booth-a/leads/search*', route => route.fulfill({ status: 500, contentType: 'application/json', body: '{"detail":"Server error"}' }));
     await page.goto('/booth/booth-a');
     await expect(page.getByRole('alert').filter({ hasText: 'lead list could not be loaded' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Try again' })).toBeVisible();
     await expect(page.getByText('Alpha Devices Booth').first()).toBeVisible();
     await expect(page.getByRole('article')).toHaveCount(0);
+  });
+});
+
+test.describe('fast capture (ops WP-F)', () => {
+  test('390×844: the first lead card starts above 400 px, in both languages', async ({ page }) => {
+    await fixture(page);
+    for (const locale of ['fa', 'en']) {
+      await seed(page, STAFF, locale);
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.goto('/booth/booth-a');
+      const first = page.getByRole('article').first();
+      await expect(first).toBeVisible();
+      expect((await first.boundingBox())!.y).toBeLessThan(400);
+      expect(await overflow(page)).toBe(0);
+    }
+  });
+
+  test('a gun scan with nothing open captures directly: one POST, the result says «New lead»', async ({ page }) => {
+    const requests = await fixture(page);
+    await seed(page, STAFF);
+    await page.goto('/booth/booth-a');
+    await expect(page.getByText('Lead One').first()).toBeVisible();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await gunScan(page, 'qrsecretgun00001abcdefghij');
+    await expect(page.getByTestId('capture-result')).toContainText('New lead');
+    await expect(page.getByTestId('capture-result')).toContainText('Captured qrsecretgun00001abcdefghij');
+    expect(scansOf(requests).map(r => r.body)).toEqual([{ qr_secret: 'qrsecretgun00001abcdefghij' }]);
+    // The next visitor's gun scan, straight from the result.
+    await gunScan(page, 'qrsecretgun00002abcdefghij');
+    await expect(page.getByTestId('capture-result')).toContainText('Captured qrsecretgun00002abcdefghij');
+    expect(scansOf(requests)).toHaveLength(2);
+  });
+
+  test('offline: the status pill in the bar says so', async ({ page, context }) => {
+    await fixture(page);
+    await seed(page, STAFF);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto('/booth/booth-a');
+    await expect(page.getByText('Lead One').first()).toBeVisible();
+    await expect(pill(page)).toHaveAttribute('data-status', 'online');
+    await context.setOffline(true);
+    await expect(pill(page)).toHaveAttribute('data-status', 'offline');
+    await expect(pill(page)).toBeInViewport();
+    await expect(pill(page)).toContainText('Offline');
+    await context.setOffline(false);
+  });
+
+  test('the pending queue never shows a full badge code, only its last four characters', async ({ page, context }) => {
+    await fixture(page);
+    await seed(page, STAFF);
+    await page.goto('/booth/booth-a');
+    await expect(page.getByText('Lead One').first()).toBeVisible();
+    await context.setOffline(true);
+    await gunScan(page, 'qrsecretlead0001abcdefghij');
+    await expect(page.getByTestId('capture-queued')).toContainText('Saved offline');
+    await page.getByRole('button', { name: 'Done' }).click();
+    await expect(pill(page)).toContainText('1 queued');
+    await expandPending(page);
+    const row = page.getByTestId('pending-scan');
+    await expect(row).toContainText('…ghij');
+    await expect(row.getByRole('button', { name: 'Discard scan …ghij' })).toBeVisible();
+    const screen = await page.evaluate(() => document.body.innerText + [...document.querySelectorAll('[aria-label],[title]')].map(e => `${e.getAttribute('aria-label')} ${e.getAttribute('title')}`).join(' '));
+    expect(screen).not.toMatch(/qrsecret[a-z0-9]{8,}/);
+    await context.setOffline(false);
+  });
+
+  test('copy: no «(Rating)», «(CSV)», «کیوآر», «پیشخوان», «پرتال» or «✓» on the Persian booth screens', async ({ page }) => {
+    await fixture(page);
+    await seed(page, STAFF, 'fa');
+    await page.goto('/booth/booth-a');
+    await expect(page.getByText('Lead One').first()).toBeVisible();
+    const banned = /\(Rating\)|\(CSV\)|کیوآر|پیشخوان|پرتال|✓/;
+    expect(await page.locator('body').innerText()).not.toMatch(banned);
+    await page.getByRole('button', { name: 'منو' }).click();
+    expect(await page.locator('body').innerText()).not.toMatch(banned);
+    await page.keyboard.press('Escape');
+    await page.getByRole('button', { name: 'ثبت لید' }).first().click();
+    await expect(page.getByRole('dialog')).toBeVisible();
+    expect(await page.locator('body').innerText()).not.toMatch(banned);
+    await page.keyboard.press('Escape');
+    await card(page, 'Lead Two').getByRole('button', { name: 'Lead Two', exact: true }).click();
+    await expect(page.getByRole('dialog', { name: 'Lead Two' })).toBeVisible();
+    expect(await page.locator('body').innerText()).not.toMatch(banned);
+  });
+
+  test('lead times read on the congress clock with Persian digits', async ({ page }) => {
+    await fixture(page);
+    await seed(page, STAFF, 'fa');
+    await page.goto('/booth/booth-a');
+    // 2099-01-01T00:00Z is 03:30 in Tehran.
+    await expect(card(page, 'Lead One').getByTestId('lead-time')).toContainText('۰۳:۳۰');
+    await expect(card(page, 'Lead One').getByTestId('lead-time')).not.toContainText(/[0-9]/);
+  });
+});
+
+test.describe('touch phone', () => {
+  test.use({ hasTouch: true, viewport: { width: 390, height: 844 } });
+
+  test('the capture sheet focuses no field (the keyboard would cover the camera) and holds the screen awake', async ({ page }) => {
+    await fixture(page);
+    await page.addInitScript(() => {
+      const w = window as unknown as { __wakeLocks: number };
+      w.__wakeLocks = 0;
+      Object.defineProperty(navigator, 'wakeLock', {
+        configurable: true,
+        value: { request: async () => { w.__wakeLocks += 1; return { released: false, release: async () => undefined }; } },
+      });
+    });
+    await seed(page, STAFF);
+    await page.goto('/booth/booth-a');
+    await expect(page.getByText('Lead One').first()).toBeVisible();
+    await page.getByTestId('capture-dock').getByRole('button', { name: 'Capture lead' }).tap();
+    await expect(page.getByRole('dialog')).toBeVisible();
+    await page.waitForTimeout(400);
+    expect(await page.evaluate(() => document.activeElement?.tagName)).not.toMatch(/INPUT|TEXTAREA/);
+    await expect(codeInput(page)).toHaveCount(0);
+    await expect.poll(() => page.evaluate(() => (window as unknown as { __wakeLocks: number }).__wakeLocks)).toBeGreaterThan(0);
+    // «Enter code» opens the field without focusing it for the keyboard.
+    await page.getByRole('button', { name: 'Enter code' }).tap();
+    await expect(codeInput(page)).toBeVisible();
+    expect(await page.evaluate(() => document.activeElement?.tagName)).not.toBe('INPUT');
   });
 });
 
@@ -433,24 +579,38 @@ test.describe('camera input', () => {
   });
   const state = (page: Page) => page.evaluate(() => { const w = window as unknown as { __stopped: number; __streams: number }; return { stopped: w.__stopped, streams: w.__streams }; });
 
-  test('opt-in camera decodes one badge into the code field, then releases the camera', async ({ page }) => {
+  test('a decoded badge is saved at once, and the camera is released', async ({ page }) => {
     const requests = await fixture(page);
     await installCamera(page);
     await seed(page, STAFF);
     await page.goto('/booth/booth-a');
     await openCapture(page);
+    // A desktop pointer and no granted permission: the camera waits for the button.
     expect((await state(page)).streams).toBe(0);
     await page.getByRole('button', { name: 'Scan with camera' }).click();
     await expect(page.getByLabel('Camera preview')).toBeVisible();
     await page.evaluate(() => { (window as unknown as { __code: string }).__code = 'camera-badge'; });
-    await expect(codeInput(page)).toHaveValue('camera-badge');
-    await expect.poll(async () => (await state(page)).stopped).toBeGreaterThan(0);
-    await expect(page.getByLabel('Camera preview')).toBeHidden();
-    // Decoding alone captured nothing.
-    expect(requests.filter(r => r.path.endsWith('/leads/scan'))).toEqual([]);
-    await saveLead(page);
     await expect(page.getByTestId('capture-result')).toContainText('Captured camera-badge');
-    expect(requests.filter(r => r.path.endsWith('/leads/scan')).length).toBe(1);
+    await expect.poll(async () => (await state(page)).stopped).toBeGreaterThan(0);
+    expect(scansOf(requests).map(r => r.body)).toEqual([{ qr_secret: 'camera-badge' }]);
+  });
+
+  test.describe('on a phone with camera permission granted', () => {
+    test.use({ hasTouch: true, viewport: { width: 390, height: 844 } });
+
+    test('one tap: the camera starts by itself and a decode saves the lead', async ({ page, context }) => {
+      const requests = await fixture(page);
+      await installCamera(page);
+      await context.grantPermissions(['camera']);
+      await seed(page, STAFF);
+      await page.goto('/booth/booth-a');
+      await expect(page.getByText('Lead One').first()).toBeVisible();
+      await page.getByTestId('capture-dock').getByRole('button', { name: 'Capture lead' }).tap();
+      await expect(page.getByLabel('Camera preview')).toBeVisible();
+      await page.evaluate(() => { (window as unknown as { __code: string }).__code = 'one-tap-badge'; });
+      await expect(page.getByTestId('capture-result')).toContainText('New lead');
+      expect(scansOf(requests).map(r => r.body)).toEqual([{ qr_secret: 'one-tap-badge' }]);
+    });
   });
 
   test('denied permission falls back to manual entry', async ({ page }) => {
@@ -467,7 +627,7 @@ test.describe('camera input', () => {
     await expect(page.getByTestId('capture-result')).toContainText('Captured manual-after-denial');
   });
 
-  test('closing the dialog stops the camera, including a stream that resolves late', async ({ page }) => {
+  test('closing the sheet stops the camera, including a stream that resolves late', async ({ page }) => {
     await fixture(page);
     await installCamera(page);
     await seed(page, STAFF);
@@ -491,35 +651,35 @@ test.describe('camera input', () => {
 });
 
 test.describe('layout and language', () => {
-  test('phone: sticky capture button, no horizontal overflow', async ({ page }) => {
+  test('phone: the capture dock, no horizontal overflow', async ({ page }) => {
     await fixture(page);
     await seed(page, STAFF);
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto('/booth/booth-a');
     await expect(page.getByText('Lead One').first()).toBeVisible();
     expect(await overflow(page)).toBe(0);
-    const sticky = page.getByRole('button', { name: /Capture Lead/ }).last();
-    await expect(sticky).toBeVisible();
-    expect((await sticky.boundingBox())!.height).toBeGreaterThanOrEqual(44);
-    await sticky.click();
+    const dock = page.getByTestId('capture-dock').getByRole('button', { name: 'Capture lead' });
+    await expect(dock).toBeInViewport();
+    expect((await dock.boundingBox())!.height).toBeGreaterThanOrEqual(48);
+    await dock.click();
     await expect(codeInput(page)).toBeVisible();
     expect(await overflow(page)).toBe(0);
   });
 
-  test('a long stand name never squeezes the booth code at 390 px (cells stack), in both languages', async ({ page }) => {
+  test('a long stand name never squeezes the booth code at 390 px, in both languages', async ({ page }) => {
     await fixture(page, { boothLocation: 'Main Exhibition Hall, North Wing, Second Floor, Stand A-12 beside the café' });
     for (const locale of ['en', 'fa']) {
       await seed(page, STAFF, locale);
       await page.setViewportSize({ width: 390, height: 844 });
       await page.goto('/booth/booth-a');
+      await page.getByRole('button', { name: /^(Menu|منو)$/ }).click();
       const code = page.getByTestId('booth-code');
       await expect(code).toHaveText('alpha-devices');
       const box = (await code.boundingBox())!;
       const lineHeight = await code.evaluate(el => parseFloat(getComputedStyle(el).lineHeight) || 21);
-      // One line, and wide enough for the whole code.
       expect(box.height).toBeLessThanOrEqual(lineHeight * 1.5);
-      expect(box.width).toBeGreaterThan(80);
       expect(await overflow(page)).toBe(0);
+      await page.keyboard.press('Escape');
     }
   });
 
@@ -532,7 +692,7 @@ test.describe('layout and language', () => {
     await expect(page.getByText('Server error')).toHaveCount(0);
   });
 
-  test('Persian RTL at 320px fits for the workspace, the capture dialog and the sign-in page', async ({ page }) => {
+  test('Persian RTL at 320px fits for the panel, the capture sheet and the sign-in page', async ({ page }) => {
     await fixture(page);
     await seed(page, STAFF, 'fa');
     await page.setViewportSize({ width: 320, height: 700 });
@@ -540,7 +700,7 @@ test.describe('layout and language', () => {
     await expect(page.locator('[dir="rtl"]').first()).toBeVisible();
     await expect(page.getByText('Lead One').first()).toBeVisible();
     expect(await overflow(page)).toBe(0);
-    await page.getByRole('button', { name: /ثبت لید/ }).last().click();
+    await page.getByRole('button', { name: 'ثبت لید' }).last().click();
     await expect(page.getByRole('dialog')).toBeVisible();
     expect(await overflow(page)).toBe(0);
     await page.evaluate(() => localStorage.removeItem('congress_attendee_token'));
@@ -552,7 +712,6 @@ test.describe('layout and language', () => {
 
 test.describe('paged list, trash and offline capture', () => {
   const pages = (requests: Recorded[]) => requests.filter(r => r.path === '/api/booths/booth-a/leads/search' && r.query.get('limit') !== '1');
-  const card = (page: Page, name: string) => page.getByRole('article').filter({ hasText: name });
 
   test('search with load more: pages by cursor, counts "N of total", stacks at 390 px', async ({ page }) => {
     const requests = await fixture(page, { extraLeads: 43 });
@@ -571,7 +730,7 @@ test.describe('paged list, trash and offline capture', () => {
     await expect(page.getByRole('button', { name: /Load more leads/ })).toHaveCount(0);
 
     // A new search starts again from the first page, without a cursor.
-    await page.getByPlaceholder(/Search/).fill('Visitor 1');
+    await page.getByPlaceholder('Name, mobile or organization').fill('Visitor 1');
     await expect(page.getByText('Showing 10 of 10 leads')).toBeVisible();
     const last = pages(requests).at(-1)!;
     expect(last.query.get('q')).toBe('Visitor 1');
@@ -585,19 +744,19 @@ test.describe('paged list, trash and offline capture', () => {
     await page.goto('/booth/booth-a');
     await expect(page.getByText('Lead One').first()).toBeVisible();
     const before = pages(requests).length;
-    await page.getByPlaceholder(/Search/).pressSequentially('one', { delay: 40 });
+    await page.getByPlaceholder('Name, mobile or organization').pressSequentially('one', { delay: 40 });
     await expect(page.getByRole('article')).toHaveCount(1);
     await page.waitForTimeout(500);
     expect(pages(requests).slice(before).map(r => r.query.get('q'))).toEqual(['one']);
   });
 
-  test('a lead without a shared mobile says so; one with consent shows its number', async ({ page }) => {
+  test('a lead without a shared mobile says «Number hidden»; one with consent shows its number', async ({ page }) => {
     await fixture(page);
     await seed(page, STAFF);
     await page.goto('/booth/booth-a');
-    await expect(card(page, 'Lead One').getByTestId('lead-consent')).toHaveText('Contact shared');
     await expect(card(page, 'Lead One').getByRole('link', { name: /Call Lead One/ })).toBeVisible();
-    await expect(card(page, 'Lead Two').getByTestId('lead-consent')).toContainText('No consent to share');
+    await expect(card(page, 'Lead One').getByTestId('lead-number-hidden')).toHaveCount(0);
+    await expect(card(page, 'Lead Two').getByTestId('lead-number-hidden')).toHaveText('Number hidden');
     await expect(card(page, 'Lead Two').getByRole('link', { name: /Call/ })).toHaveCount(0);
   });
 
@@ -610,12 +769,12 @@ test.describe('paged list, trash and offline capture', () => {
     const toast = page.getByTestId('undo-toast');
     await expect(toast).toContainText('Lead Two moved to the trash.');
     expect(requests.filter(r => r.method === 'DELETE').map(r => r.path)).toEqual(['/api/booths/booth-a/leads/lead-2']);
-    await expect(page.getByRole('button', { name: /^Trash/ })).toContainText('1');
+    await expect(page.getByRole('radio', { name: /^Trash/ })).toContainText('1');
     await toast.getByRole('button', { name: 'Undo' }).click();
     await expect(card(page, 'Lead Two')).toBeVisible();
     await expect(toast).toHaveCount(0);
     expect(requests.filter(r => r.method === 'POST' && r.path.endsWith('/restore')).map(r => r.path)).toEqual(['/api/booths/booth-a/leads/lead-2/restore']);
-    await expect(page.getByText('Lead Two was restored.').first()).toBeVisible();
+    await expect(page.getByTestId('toast')).toContainText('Lead Two was restored.');
   });
 
   test('trash view lists deleted leads and restores one', async ({ page }) => {
@@ -623,16 +782,17 @@ test.describe('paged list, trash and offline capture', () => {
     await seed(page, STAFF);
     await page.goto('/booth/booth-a');
     await card(page, 'Lead Two').getByRole('button', { name: 'Delete lead Lead Two' }).click();
-    await page.getByTestId('undo-toast').getByRole('button', { name: 'Dismiss' }).click();
-    await page.getByRole('button', { name: /^Trash/ }).click();
+    await page.getByTestId('undo-toast').getByRole('button', { name: 'Close' }).click();
+    await page.getByRole('radio', { name: /^Trash/ }).click();
     await expect(page.getByRole('article')).toHaveCount(1);
     await expect(card(page, 'Lead Two')).toContainText('Deleted');
     expect(pages(requests).at(-1)?.query.get('state')).toBe('deleted');
-    await expect(card(page, 'Lead Two').getByRole('button', { name: /Qualify/ })).toHaveCount(0);
+    // A deleted lead is not opened for qualification.
+    await expect(card(page, 'Lead Two').getByRole('button', { name: 'Lead Two', exact: true })).toHaveCount(0);
     await card(page, 'Lead Two').getByRole('button', { name: 'Restore lead Lead Two' }).click();
     await expect(page.getByRole('article')).toHaveCount(0);
     await expect(page.getByText('The trash is empty')).toBeVisible();
-    await page.getByRole('button', { name: /^Leads/ }).click();
+    await page.getByRole('radio', { name: /^Leads/ }).click();
     await expect(card(page, 'Lead Two')).toBeVisible();
     await expect(page.getByRole('article')).toHaveCount(2);
   });
@@ -643,18 +803,15 @@ test.describe('paged list, trash and offline capture', () => {
     await page.goto('/booth/booth-a');
     await card(page, 'Lead Two').getByRole('button', { name: 'Delete lead Lead Two' }).click();
     await expect(card(page, 'Lead Two')).toHaveCount(0);
-    await page.getByLabel('Include deleted leads').check();
     const download = page.waitForEvent('download');
-    await page.getByRole('button', { name: 'Export CSV' }).click();
+    await (await menuItem(page, 'Export CSV with deleted')).click();
     const file = await download;
     expect(await readFile(await file.path(), 'utf8')).toContain('Lead Two,booth-a');
     const exports = requests.filter(r => r.path.endsWith('/export-csv'));
     expect(exports.map(r => r.query.get('include_deleted'))).toEqual(['true']);
-    await expect(page.getByText(/including deleted leads/).first()).toBeVisible();
 
-    await page.getByLabel('Include deleted leads').uncheck();
     const plain = page.waitForEvent('download');
-    await page.getByRole('button', { name: 'Export CSV' }).click();
+    await (await menuItem(page, 'Export CSV')).click();
     expect(await readFile(await (await plain).path(), 'utf8')).not.toContain('Lead Two');
     expect(requests.filter(r => r.path.endsWith('/export-csv')).at(-1)?.query.has('include_deleted')).toBe(false);
   });
@@ -666,11 +823,11 @@ test.describe('paged list, trash and offline capture', () => {
     await page.goto('/booth/booth-a');
     await expect(page.getByText('Lead One').first()).toBeVisible();
     control.removed = true;
-    await page.getByPlaceholder(/Search/).fill('lead');
+    await page.getByPlaceholder('Name, mobile or organization').fill('lead');
     await expect(page.getByRole('heading', { name: 'Your access to this booth was removed' })).toBeVisible();
-    await expect(page.getByTestId('access-removed')).toContainText('removed you from this booth');
+    await expect(page.getByText('Contact the organizer if this is a mistake.')).toBeVisible();
     await expect(page.getByText('Lead One')).toHaveCount(0);
-    await expect(page.getByRole('button', { name: /Retry/ })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /Try again/ })).toHaveCount(0);
     expect(await storedToken(page)).toBe(STAFF);
     const after = requests.filter(r => r.path.startsWith('/api/booths/booth-a')).length;
     await page.waitForTimeout(1500);
@@ -685,43 +842,50 @@ test.describe('paged list, trash and offline capture', () => {
     await context.setOffline(true);
     await expect(page.getByTestId('offline-banner')).toBeVisible();
     // What needs the server is disabled while offline; capture stays available (it queues).
-    await expect(page.getByRole('button', { name: 'Export CSV' })).toBeDisabled();
     await expect(card(page, 'Lead One').getByRole('button', { name: 'Delete lead Lead One' })).toBeDisabled();
+    await expect(await menuItem(page, 'Export CSV')).toHaveAttribute('aria-disabled', 'true');
+    await page.keyboard.press('Escape');
 
     await openCapture(page);
     await codeInput(page).fill('offline-attendee');
-    await page.getByRole('dialog').getByRole('button', { name: /Hot/ }).click();
     await saveLead(page);
-    await expect(page.getByTestId('capture-queued')).toContainText('Saved on this device');
-    await page.getByTestId('capture-queued').getByRole('button', { name: /Next attendee/ }).click();
+    const queued = page.getByTestId('capture-queued');
+    await expect(queued).toContainText('Saved offline');
+    // A rating chosen on the result travels with the waiting scan.
+    await queued.getByRole('button', { name: /High/ }).click();
+    await expect(queued.getByRole('button', { name: /High/ })).toHaveAttribute('aria-pressed', 'true');
+    await page.getByRole('button', { name: 'Next' }).click();
     await codeInput(page).fill('bad-code');
     await saveLead(page);
     await expect(page.getByTestId('capture-queued')).toBeVisible();
-    await page.getByTestId('capture-queued').getByRole('button', { name: 'Done' }).click();
+    await page.getByRole('button', { name: 'Done' }).click();
 
     const pending = page.getByTestId('pending-sync');
+    await expect(pending).toContainText('2 waiting to send');
+    await expandPending(page);
     await expect(pending.getByTestId('pending-scan')).toHaveCount(2);
-    await expect(pending).toContainText('offline-attendee');
+    await expect(pending).toContainText('…ndee');
+    await expect(pending).not.toContainText('offline-attendee');
     await expect(pending).toContainText('Waiting for a connection');
-    const scans = () => requests.filter(r => r.path.endsWith('/leads/scan'));
-    expect(scans()).toEqual([]);
+    expect(scansOf(requests)).toEqual([]);
 
     // The queue survives leaving the page (IndexedDB). The page is left while still offline, so it cannot
     // start sending before it is gone.
     await page.goto('about:blank');
     await context.setOffline(false);
     await page.goto('/booth/booth-a');
-    // Back online: the good scan is sent with exactly its chosen qualification; the refused one stays, explained.
+    // Back online: the good scan is sent with exactly its chosen rating; the refused one stays, explained.
     await expect(card(page, 'Captured offline-attendee')).toBeVisible();
+    await expandPending(page);
     await expect(pending.getByTestId('pending-scan')).toHaveCount(1);
     const failed = pending.getByTestId('pending-scan');
     await expect(failed).toHaveAttribute('data-state', 'failed');
-    await expect(failed).toContainText('bad-code');
-    await expect(failed).toContainText('not valid');
-    expect(scans().map(r => r.body)).toEqual(expect.arrayContaining([{ qr_secret: 'offline-attendee', rating: 'HOT' }, { qr_secret: 'bad-code' }]));
-    expect(scans().filter(r => (r.body as { qr_secret: string }).qr_secret === 'offline-attendee')).toHaveLength(1);
+    await expect(failed).toContainText('…code');
+    await expect(failed).toContainText('Invalid pass QR code.');
+    expect(scansOf(requests).map(r => r.body)).toEqual(expect.arrayContaining([{ qr_secret: 'offline-attendee', rating: 'HOT' }, { qr_secret: 'bad-code' }]));
+    expect(scansOf(requests).filter(r => (r.body as { qr_secret: string }).qr_secret === 'offline-attendee')).toHaveLength(1);
 
-    await failed.getByRole('button', { name: 'Discard scan bad-code' }).click();
+    await failed.getByRole('button', { name: 'Discard scan …code' }).click();
     await expect(pending).toHaveCount(0);
   });
 
@@ -734,13 +898,13 @@ test.describe('paged list, trash and offline capture', () => {
     await openCapture(page);
     await codeInput(page).fill('later-attendee');
     await saveLead(page);
-    await page.getByTestId('capture-queued').getByRole('button', { name: 'Done' }).click();
-    await expect(page.getByTestId('pending-scan')).toHaveCount(1);
+    await page.getByRole('button', { name: 'Done' }).click();
+    await expect(page.getByTestId('pending-sync')).toContainText('1 waiting to send');
     await context.setOffline(false);
     await expect(card(page, 'Captured later-attendee')).toBeVisible();
     await expect(page.getByTestId('pending-sync')).toHaveCount(0);
-    await expect(page.getByText('1 lead(s) saved on this device were sent.').first()).toBeVisible();
-    expect(requests.filter(r => r.path.endsWith('/leads/scan')).map(r => r.body)).toEqual([{ qr_secret: 'later-attendee' }]);
+    await expect(page.getByTestId('toast')).toContainText('1 saved lead(s) sent.');
+    expect(scansOf(requests).map(r => r.body)).toEqual([{ qr_secret: 'later-attendee' }]);
   });
 
   test('after a dropped connection the operator can keep the scan on the device instead', async ({ page }) => {
@@ -750,18 +914,18 @@ test.describe('paged list, trash and offline capture', () => {
     await openCapture(page);
     await codeInput(page).fill('lost-signal');
     await saveLead(page);
-    await expect(page.getByRole('alert')).toContainText('not known whether the lead was saved');
-    await page.getByRole('button', { name: 'Save on this device and send later' }).click();
+    await expect(page.getByRole('alert')).toContainText('Connection lost');
+    await page.getByRole('button', { name: 'Save on this device' }).click();
     await expect(page.getByTestId('capture-queued')).toBeVisible();
-    await page.getByTestId('capture-queued').getByRole('button', { name: 'Done' }).click();
+    await page.getByRole('button', { name: 'Done' }).click();
     // Online, so the queue tries at once; the aborted answer leaves it waiting for a backoff retry.
-    await expect(page.getByTestId('pending-scan')).toContainText('lost-signal');
-    await expect.poll(() => requests.filter(r => r.path.endsWith('/leads/scan')).length).toBeGreaterThanOrEqual(2);
+    await expandPending(page);
+    await expect(page.getByTestId('pending-scan')).toContainText('…gnal');
+    await expect.poll(() => scansOf(requests).length).toBeGreaterThanOrEqual(2);
   });
 });
 
 test.describe('suspended organizer and archived congress', () => {
-  const card = (page: Page, name: string) => page.getByRole('article').filter({ hasText: name });
   const boothCalls = (requests: Recorded[]) => requests.filter(r => r.path.startsWith('/api/booths/booth-a')).length;
 
   async function queueOffline(page: Page, context: BrowserContext, code: string) {
@@ -769,18 +933,18 @@ test.describe('suspended organizer and archived congress', () => {
     await openCapture(page);
     await codeInput(page).fill(code);
     await saveLead(page);
-    await page.getByTestId('capture-queued').getByRole('button', { name: 'Done' }).click();
-    await expect(page.getByTestId('pending-scan')).toHaveCount(1);
+    await page.getByRole('button', { name: 'Done' }).click();
+    await expect(page.getByTestId('pending-sync')).toContainText('1 waiting to send');
   }
 
   test('a suspended organizer: a final screen from the first load, nothing retries', async ({ page }) => {
     const requests = await fixture(page, { control: { removed: false, suspended: true } });
     await seed(page, STAFF);
     await page.goto('/booth/booth-a');
-    await expect(page.getByRole('heading', { name: 'Access to this booth is suspended' })).toBeVisible();
-    await expect(page.getByTestId('access-suspended')).toContainText('suspended this congress');
-    await expect(page.getByRole('heading', { name: 'Commercial Access Restricted' })).toHaveCount(0);
-    await expect(page.getByRole('button', { name: /Retry|Capture Lead/ })).toHaveCount(0);
+    await expect(page.getByRole('heading', { name: 'Booth temporarily unavailable' })).toBeVisible();
+    await expect(page.getByText('Access is paused. Contact the organizer.')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'No access to this booth' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /Try again|Capture lead/ })).toHaveCount(0);
     expect(await storedToken(page)).toBe(STAFF);
     const after = boothCalls(requests);
     await page.waitForTimeout(1500);
@@ -796,49 +960,68 @@ test.describe('suspended organizer and archived congress', () => {
     await queueOffline(page, context, 'waiting-attendee');
     control.suspended = true;
     await context.setOffline(false);
-    await expect(page.getByRole('heading', { name: 'Access to this booth is suspended' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Booth temporarily unavailable' })).toBeVisible();
     await expect(page.getByTestId('access-suspended')).toContainText('1 unsent scan(s) remain on this device');
-    const scans = requests.filter(r => r.path.endsWith('/leads/scan')).length;
+    const scans = scansOf(requests).length;
     expect(scans).toBe(1);
     await page.waitForTimeout(1500);
-    expect(requests.filter(r => r.path.endsWith('/leads/scan')).length).toBe(scans);
+    expect(scansOf(requests).length).toBe(scans);
   });
 
-  test('an archived congress: a read-only notice, changes disabled, search and export still work', async ({ page }) => {
+  test('event_archived from the booth: no capture dock or button, pill «Archived», a gun scan sends nothing; search and export work', async ({ page }) => {
+    const requests = await fixture(page, { eventArchived: true });
+    await seed(page, STAFF);
+    for (const width of [390, 1280]) {
+      await page.setViewportSize({ width, height: 844 });
+      await page.goto('/booth/booth-a');
+      await expect(page.getByText('Lead One').first()).toBeVisible();
+      await expect(pill(page)).toHaveAttribute('data-status', 'archived');
+      await expect(pill(page)).toContainText('Archived');
+      await expect(page.getByTestId('capture-dock')).toHaveCount(0);
+      await expect(page.getByRole('button', { name: 'Capture lead' })).toHaveCount(0);
+    }
+    await expect(page.getByTestId('archived-notice')).toContainText('Archived: view and export only.');
+    await expect(card(page, 'Lead One').getByRole('button', { name: 'Delete lead Lead One' })).toBeDisabled();
+    await expect(card(page, 'Lead One').getByRole('button', { name: 'Lead One', exact: true })).toHaveCount(0);
+    await gunScan(page, 'qrsecretlate0001abcdefghij');
+    await page.waitForTimeout(400);
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    expect(scansOf(requests)).toEqual([]);
+
+    await page.getByPlaceholder('Name, mobile or organization').fill('lead one');
+    await expect(page.getByRole('article')).toHaveCount(1);
+    const download = page.waitForEvent('download');
+    await (await menuItem(page, 'Export CSV')).click();
+    expect(await readFile(await (await download).path(), 'utf8')).toContain('Lead One,booth-a');
+  });
+
+  test('archived after loading (409 on a change): exhibitor wording, changes disabled, the dock goes', async ({ page }) => {
     const requests = await fixture(page, { control: { removed: false, archived: true } });
     await seed(page, STAFF);
-    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.setViewportSize({ width: 390, height: 844 });
     await page.goto('/booth/booth-a');
+    await expect(page.getByTestId('capture-dock')).toBeVisible();
     await card(page, 'Lead Two').getByRole('button', { name: 'Delete lead Lead Two' }).click();
-    const notice = page.getByTestId('archived-notice');
-    await expect(notice).toContainText('This congress is closed');
-    await expect(notice).toContainText('You can still view, search and export');
-    await expect(page.getByRole('alert')).toContainText('leads can no longer be captured or changed');
+    await expect(page.getByTestId('archived-notice')).toContainText('Archived: view and export only.');
+    await expect(page.getByRole('alert')).toContainText("leads can't be captured or changed");
     // The shared organizer wording for EVENT_ARCHIVED is not shown to exhibitors.
     await expect(page.getByText('Unarchive it')).toHaveCount(0);
     await expect(card(page, 'Lead Two')).toBeVisible();
     await expect(card(page, 'Lead One').getByRole('button', { name: 'Delete lead Lead One' })).toBeDisabled();
-    await expect(card(page, 'Lead One').getByRole('button', { name: /Qualify/ })).toHaveCount(0);
-    await expect(page.getByRole('button', { name: /Capture Lead/ }).first()).toBeDisabled();
-
-    await page.getByPlaceholder(/Search/).fill('lead one');
-    await expect(page.getByRole('article')).toHaveCount(1);
-    const download = page.waitForEvent('download');
-    await page.getByRole('button', { name: 'Export CSV' }).click();
-    expect(await readFile(await (await download).path(), 'utf8')).toContain('Lead One,booth-a');
+    await expect(page.getByTestId('capture-dock')).toHaveCount(0);
+    await expect(pill(page)).toHaveAttribute('data-status', 'archived');
     expect(requests.filter(r => r.method === 'DELETE')).toHaveLength(1);
   });
 
   test('an archived congress in Persian reads exhibitor wording', async ({ page }) => {
-    await fixture(page, { control: { removed: false, archived: true } });
+    await fixture(page, { eventArchived: true });
     await seed(page, STAFF, 'fa');
     await page.goto('/booth/booth-a');
-    await page.getByRole('article').filter({ hasText: 'Lead Two' }).getByRole('button', { name: /حذف/ }).click();
-    await expect(page.getByTestId('archived-notice')).toContainText('این همایش بسته شده است');
-    await expect(page.getByRole('alert')).toContainText('ثبت یا تغییر لید دیگر ممکن نیست');
+    await expect(page.getByTestId('archived-notice')).toContainText('همایش بایگانی شده؛ فقط مشاهده و خروجی ممکن است.');
+    await expect(pill(page)).toContainText('بایگانی‌شده');
   });
 
-  test('scans queued offline meet an archived congress: kept, marked "congress closed", never retried', async ({ page, context }) => {
+  test('scans queued offline meet an archived congress: kept, marked archived, never retried', async ({ page, context }) => {
     const control = { removed: false, archived: false };
     const requests = await fixture(page, { control });
     await seed(page, STAFF);
@@ -847,11 +1030,12 @@ test.describe('suspended organizer and archived congress', () => {
     await queueOffline(page, context, 'late-attendee');
     control.archived = true;
     await context.setOffline(false);
+    await expect(page.getByTestId('archived-notice')).toBeVisible();
+    await expandPending(page);
     const item = page.getByTestId('pending-scan');
     await expect(item).toHaveAttribute('data-state', 'failed');
-    await expect(item).toContainText('The congress is closed, so this scan is not sent');
-    await expect(page.getByTestId('archived-notice')).toBeVisible();
-    const scans = () => requests.filter(r => r.path.endsWith('/leads/scan')).length;
+    await expect(item).toContainText('The congress is archived; this scan is not sent.');
+    const scans = () => scansOf(requests).length;
     expect(scans()).toBe(1);
     await page.waitForTimeout(2500);
     expect(scans()).toBe(1);

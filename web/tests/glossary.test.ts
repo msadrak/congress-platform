@@ -48,8 +48,6 @@ const ROOTS = [join(WEB, "src"), join(WEB, "index.html"), join(REPO, "backend/ap
  */
 const ALLOWED: Readonly<Record<string, readonly string[]>> = {
   "web/src/components/attendee/attendeeCopy.ts": ["بلیت", "نشست", "گردید"],
-  "web/src/components/booth/LeadList.tsx": ["نمایید"],
-  "web/src/components/booth/boothText.ts": ["تلاش مجدد", "پیشخوان"],
   "web/src/components/organizer/BoothStaffDialog.tsx": ["پورتال"],
   "web/src/components/organizer/EventEditDialog.tsx": ["اسلاگ"],
   "web/src/components/organizer/OperatorFormDialog.tsx": ["گیت"],
@@ -72,7 +70,6 @@ const ALLOWED: Readonly<Record<string, readonly string[]>> = {
   "web/src/lib/organizerConsole.ts": ["جست‌وجو", "کنسول", "نشست", "بارگیری"],
   "web/src/lib/participants.ts": ["بلیت", "گیت"],
   "web/src/pages/AttendeeSignIn.tsx": ["فضای کاری", "پرتال", "سرنخ"],
-  "web/src/pages/ExhibitorPortal.tsx": ["پیشخوان", "تلاش مجدد", "نشست", "پرتال"],
   "web/src/pages/MyTickets.tsx": ["نشست"],
   "web/src/pages/OrganizerEvents.tsx": ["بلیت"],
   "web/src/pages/OrganizerLayout.tsx": ["فضای کاری", "کنسول"],

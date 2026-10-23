@@ -1,26 +1,21 @@
-import React, { useEffect, useRef, useState } from "react";
-import {
-  apiErrorCode,
-  createApiClient,
-
-  type LeadOut,
-  type LeadScanInput,
-  type LeadScanRequest,
-} from "../../api/client";
+import React, { useCallback, useEffect, useId, useRef, useState } from "react";
+import { apiErrorCode, createApiClient, type LeadOut, type LeadScanInput, type LeadScanRequest } from "../../api/client";
+import { boothCopy, type BoothCopy } from "../../copy/booth";
+import { useHidScanner } from "../../hooks/useHidScanner";
+import { useWakeLock } from "../../hooks/useWakeLock";
 import { attendeeResponseState, isStoredAttendeeToken, sessionChangedMessage } from "../../lib/attendeeSession";
-import { translations, type AttendeeLocale } from "../../lib/i18n";
+import type { AttendeeLocale } from "../../lib/i18n";
 import { accessBlockOf, isEventArchived, type AccessBlock } from "../../lib/leadList";
-import { boothText, codedMessage } from "./boothText";
 import { QrCameraInput } from "../QrCameraInput";
-import { Badge } from "../ui/Badge";
+import { VerdictBanner } from "../operator/VerdictBanner";
 import { Button } from "../ui/Button";
 import { Dialog } from "../ui/Dialog";
-import { Icon } from "../ui/Icon";
-import { BoothSpinner } from "./BoothSpinner";
-import { LeadMonogram } from "./LeadCard";
-import { RatingChip, RatingControl } from "./RatingControl";
-import { TagPicker } from "./TagPicker";
-import type { LeadRating } from "./rating";
+import { Field } from "../ui/Field";
+import { CodeInput } from "../ui/Input";
+import { Notice } from "../ui/Notice";
+import { codedMessage } from "./boothText";
+import { RatingControl } from "./RatingControl";
+import { asRating, type LeadRating } from "./rating";
 
 interface CaptureDialogProps {
   isOpen: boolean;
@@ -28,10 +23,13 @@ interface CaptureDialogProps {
   boothId: string;
   token: string;
   locale: AttendeeLocale;
-  tagPresets: string[];
+  /** A code a barcode gun read before the sheet opened: it is saved at once. */
+  initialCode?: string;
   /** A lead was saved (201 new, 200 already a lead of this booth). */
   onCaptured: (lead: LeadOut, existed: boolean) => void;
-  /** "Qualify" from the confirmation: the portal closes this dialog and opens qualification. */
+  /** A rating chosen on the result was saved. */
+  onLeadChanged: (lead: LeadOut) => void;
+  /** «یادداشت» on the result: the portal closes this sheet and opens qualification. */
   onQualify: (lead: LeadOut) => void;
   /** Stores the scan on this device to send later; false when the device could not keep it. */
   onQueue: (input: LeadScanInput) => Promise<boolean>;
@@ -43,94 +41,104 @@ interface CaptureDialogProps {
   onSessionChanged: () => void;
 }
 
+type CaptureResult =
+  | { kind: "new" | "existing"; lead: LeadOut }
+  | { kind: "queued"; code: string }
+  | { kind: "invalid" | "other"; code: string };
+
+/** The result goes back to the camera by itself after this long, unless the operator touched it. */
+const AUTO_NEXT_MS = 4000;
+
+function finePointer(): boolean {
+  return typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia("(pointer: fine)").matches;
+}
+
 /**
- * Capture station: camera, keyboard-wedge reader or typed badge code, optional quick qualification, and the
- * confirmation of who was captured. The portal remounts it (key) for every opening, so each capture starts clean.
+ * The capture sheet: the camera starts by itself where permission was already granted, and a decoded badge, a
+ * barcode-gun scan or a typed code is saved at once. The result shows who was captured with one-tap rating
+ * chips and «بعدی». On touch screens the code field stays closed (the keyboard would cover the camera) until
+ * «وارد کردن کد» opens it. The portal remounts the sheet (key) for every opening, so each capture starts clean.
  */
-export function CaptureDialog({ isOpen, onClose, boothId, token, locale, tagPresets, onCaptured, onQualify, onQueue, onAccessBlocked, onArchived, onSessionChanged }: CaptureDialogProps) {
-  const t = translations[locale];
-  const text = boothText(locale);
-  const isRtl = locale === "fa";
-  // The scan was stored on this device (no connection) instead of sent.
-  const [queued, setQueued] = useState(false);
+export function CaptureDialog({
+  isOpen,
+  onClose,
+  boothId,
+  token,
+  locale,
+  initialCode,
+  onCaptured,
+  onLeadChanged,
+  onQualify,
+  onQueue,
+  onAccessBlocked,
+  onArchived,
+  onSessionChanged,
+}: CaptureDialogProps) {
+  const text = boothCopy[locale];
+  const formId = useId();
+  const [fine] = useState(finePointer);
+  const [manualOpen, setManualOpen] = useState(fine);
+  const [code, setCode] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   // After a dropped connection: the scan the operator may keep on the device to send later.
   const [offerQueue, setOfferQueue] = useState<LeadScanInput | null>(null);
-  const [qrSecret, setQrSecret] = useState("");
-  const [captureRating, setCaptureRating] = useState<LeadRating>("WARM");
-  const [captureTags, setCaptureTags] = useState<string[]>([]);
-  const [captureNotes, setCaptureNotes] = useState("");
-  const [touched, setTouched] = useState({ rating: false, tags: false });
-  const [submitting, setSubmitting] = useState(false);
-  const [captureError, setCaptureError] = useState<string | null>(null);
-  const [captureFeedback, setCaptureFeedback] = useState<string | null>(null);
-  // Result of the last capture: who was captured, and whether the lead already existed.
-  const [capturedLead, setCapturedLead] = useState<{ lead: LeadOut; existed: boolean } | null>(null);
+  const [result, setResult] = useState<CaptureResult | null>(null);
+  const [rating, setRating] = useState<LeadRating | null>(null);
+  const [ratingSaving, setRatingSaving] = useState(false);
+  // The operator touched the result (rating, note): no auto-advance.
+  const [touched, setTouched] = useState(false);
   const inFlight = useRef(false);
   const codeInputRef = useRef<HTMLInputElement>(null);
 
-  const resetCapture = () => {
-    setQrSecret("");
-    setCaptureRating("WARM");
-    setCaptureTags([]);
-    setCaptureNotes("");
-    setTouched({ rating: false, tags: false });
-    setCaptureError(null);
-    setCaptureFeedback(null);
-    setCapturedLead(null);
-    setQueued(false);
+  useWakeLock(isOpen);
+
+  const next = useCallback(() => {
+    setResult(null);
+    setRating(null);
+    setTouched(false);
+    setError(null);
     setOfferQueue(null);
+    setCode("");
+    if (fine) window.setTimeout(() => codeInputRef.current?.focus(), 60);
+  }, [fine]);
+
+  const queueScan = async (input: LeadScanInput) => {
+    if (await onQueue(input)) {
+      setResult({ kind: "queued", code: input.qr_secret });
+      setRating(null);
+      setCode("");
+      setError(null);
+      setOfferQueue(null);
+    } else {
+      setError(`${text.queueFailed} ${text.storageUnavailable}`);
+    }
   };
 
-  useEffect(() => {
-    if (!isOpen || capturedLead || queued) return;
-    // A keyboard-wedge (USB/HID) scanner types into the focused field and presses Enter.
-    const timer = setTimeout(() => codeInputRef.current?.focus(), 120);
-    return () => clearTimeout(timer);
-  }, [isOpen, capturedLead, queued]);
-
-  const close = () => {
-    onClose();
-    resetCapture();
-  };
-
-  const toggleTag = (tag: string) => {
-    setCaptureTags((current) => (current.includes(tag) ? current.filter((x) => x !== tag) : [...current, tag]));
-    setTouched((p) => ({ ...p, tags: true }));
-  };
-
-  const handleCaptureLead = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!qrSecret.trim() || inFlight.current) return;
+  const capture = async (raw: string) => {
+    const qr = raw.trim();
+    if (!qr || inFlight.current) return;
     if (!isStoredAttendeeToken(token)) {
-      setCaptureError(sessionChangedMessage(locale));
+      setError(sessionChangedMessage(locale));
       onSessionChanged();
       return;
     }
 
     inFlight.current = true;
     setSubmitting(true);
-    setCaptureError(null);
-    setCaptureFeedback(null);
+    setResult(null);
+    setRating(null);
+    setTouched(false);
+    setError(null);
     setOfferQueue(null);
-    // Only qualification the operator actually chose is sent, so scanning an attendee who is
-    // already a lead never resets their rating or tags.
-    const input: LeadScanInput = {
-      qr_secret: qrSecret.trim(),
-      ...(touched.rating ? { rating: captureRating } : {}),
-      ...(touched.tags ? { tags: captureTags } : {}),
-      ...(captureNotes.trim() ? { notes: captureNotes.trim() } : {}),
-    };
-    // No connection at all: keep the scan on this device; it is sent once the booth is back online.
-    if (!navigator.onLine) {
-      try {
-        await queueScan(input);
-      } finally {
-        inFlight.current = false;
-        setSubmitting(false);
-      }
-      return;
-    }
+    // The badge alone: scanning an attendee who is already a lead never resets their rating or tags.
+    const input: LeadScanInput = { qr_secret: qr };
     try {
+      // No connection at all: keep the scan on this device; it is sent once the booth is back online.
+      if (!navigator.onLine) {
+        await queueScan(input);
+        return;
+      }
       const client = createApiClient({ kind: "user", token });
       const { data, error: err, response } = await client.POST("/api/booths/{booth_id}/leads/scan", {
         params: { path: { booth_id: boothId } },
@@ -141,38 +149,35 @@ export function CaptureDialog({ isOpen, onClose, boothId, token, locale, tagPres
       // A changed or expired session (the API client removed it) gets no feedback here.
       if (attendeeResponseState(token, response.status) !== "current") return;
       const block = accessBlockOf(response.status, err);
+      const coded = apiErrorCode(err) !== undefined;
       if (block) {
         onAccessBlocked(block);
+      } else if (err && response.status === 404 && !coded) {
+        // The scan's own 404 (not a badge) and 400 (another congress) carry no code.
+        setResult({ kind: "invalid", code: qr });
+        setCode("");
+      } else if (err && response.status === 400 && !coded) {
+        setResult({ kind: "other", code: qr });
+        setCode("");
       } else if (err) {
         if (isEventArchived(response.status, err)) onArchived();
-        // The scan's own 404 (not a badge) and 400 (another congress) carry no code; anything coded is localized.
-        const coded = apiErrorCode(err) !== undefined;
-        setCaptureError(
-          response.status === 404 && !coded
-            ? text.badgeInvalid
-            : response.status === 400 && !coded
-              ? text.badgeOtherEvent
-              : response.status === 403 && !coded
-                ? isRtl ? "شما اجازهٔ ثبت لید برای این غرفه را ندارید." : "You are not authorized to capture leads for this booth."
-                : codedMessage(err, locale) ?? text.scanFailed
-        );
+        setCode(qr);
+        setManualOpen(true);
+        setError(response.status === 403 && !coded ? text.notAllowed : (codedMessage(err, locale) ?? text.scanFailed));
       } else if (data) {
         // 201 = new lead, 200 = this attendee was already a lead of this booth.
         const existed = response.status === 200;
-        setCapturedLead({ lead: data, existed });
-        setCaptureFeedback(existed ? t.leadUpdatedSuccess : t.leadCapturedSuccess);
-        setQrSecret("");
+        setResult({ kind: existed ? "existing" : "new", lead: data });
+        setRating(existed ? asRating(data.rating) : null);
+        setCode("");
         onCaptured(data, existed);
       }
     } catch {
-      // The request may or may not have reached the server. Nothing is retried automatically;
-      // scanning the same badge again is safe (it updates the same lead), but check the list first.
-      // The operator may keep it on the device instead: a repeated scan never makes a second lead.
-      setCaptureError(
-        isRtl
-          ? "اتصال قطع شد و مشخص نیست لید ثبت شده یا نه. فهرست لیدها را بررسی کنید؛ اسکن دوباره همین کارت ورود فقط همان لید را به‌روز می‌کند."
-          : "The connection dropped, so it is not known whether the lead was saved. Check the lead list; scanning the same badge again only updates the same lead."
-      );
+      // The request may or may not have reached the server. Nothing is retried automatically; scanning the same
+      // badge again is safe (it updates the same lead). The operator may keep it on the device instead.
+      setCode(qr);
+      setManualOpen(true);
+      setError(text.connectionLost);
       setOfferQueue(input);
     } finally {
       inFlight.current = false;
@@ -180,242 +185,195 @@ export function CaptureDialog({ isOpen, onClose, boothId, token, locale, tagPres
     }
   };
 
-  const queueScan = async (input: LeadScanInput) => {
-    if (await onQueue(input)) {
-      setQueued(true);
-      setQrSecret("");
-      setCaptureError(null);
-      setOfferQueue(null);
-      setCaptureFeedback(text.queuedTitle);
-    } else {
-      setCaptureError(`${text.queueFailed} ${text.storageUnavailable}`);
+  // The latest `capture` for the gun hook and the opening code, without re-subscribing on every render.
+  const captureRef = useRef(capture);
+  useEffect(() => {
+    captureRef.current = capture;
+  });
+
+  // A barcode-gun scan while the sheet is open saves at once, from the result too (it is the next visitor).
+  useHidScanner((scanned) => void captureRef.current(scanned), isOpen && !submitting);
+
+  // The code the gun read before the sheet opened.
+  const openedWith = useRef(false);
+  useEffect(() => {
+    if (!isOpen || !initialCode || openedWith.current) return;
+    openedWith.current = true;
+    void captureRef.current(initialCode);
+  }, [isOpen, initialCode]);
+
+  // Back to the camera after a few seconds when nobody touches the result.
+  useEffect(() => {
+    if (!result || touched) return;
+    const timer = window.setTimeout(next, AUTO_NEXT_MS);
+    return () => window.clearTimeout(timer);
+  }, [result, touched, next]);
+
+  const rate = async (value: LeadRating) => {
+    if (!result || ratingSaving) return;
+    setTouched(true);
+    setError(null);
+    if (result.kind === "queued") {
+      // The queue folds a second scan of the same badge into the waiting one, with this rating.
+      if (await onQueue({ qr_secret: result.code, rating: value })) setRating(value);
+      else setError(text.queueFailed);
+      return;
+    }
+    if (result.kind !== "new" && result.kind !== "existing") return;
+    if (!isStoredAttendeeToken(token)) {
+      setError(sessionChangedMessage(locale));
+      onSessionChanged();
+      return;
+    }
+    const previous = rating;
+    setRating(value);
+    setRatingSaving(true);
+    try {
+      const { data, error: err, response } = await createApiClient({ kind: "user", token }).PATCH("/api/booths/{booth_id}/leads/{lead_id}", {
+        params: { path: { booth_id: boothId, lead_id: result.lead.id } },
+        body: { rating: value },
+      });
+      if (attendeeResponseState(token, response.status) !== "current") return;
+      const block = accessBlockOf(response.status, err);
+      if (block) {
+        onAccessBlocked(block);
+      } else if (err || !data) {
+        if (isEventArchived(response.status, err)) onArchived();
+        setRating(previous);
+        setError(codedMessage(err, locale) ?? text.saveFailed);
+      } else {
+        setResult({ kind: result.kind, lead: data });
+        onLeadChanged(data);
+      }
+    } catch {
+      setRating(previous);
+      setError(text.saveConnectionLost);
+    } finally {
+      setRatingSaving(false);
     }
   };
 
-  const capturedRole = capturedLead ? [capturedLead.lead.title, capturedLead.lead.organization].filter(Boolean).join(" · ") : "";
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    void capture(code);
+  };
+
+  const verdict = result ? verdictOf(result, text) : null;
+  const lead = result && (result.kind === "new" || result.kind === "existing") ? result.lead : null;
+  const role = lead ? [lead.title, lead.organization].filter(Boolean).join(" · ") : "";
+  const canRate = result !== null && result.kind !== "invalid" && result.kind !== "other";
+
+  const footer = result ? (
+    <>
+      <Button type="button" variant="ghost" size="lg" onClick={onClose}>
+        {text.done}
+      </Button>
+      <Button type="button" variant="primary" size="lg" iconEnd="arrow-right" autoFocus onClick={next} className="sm:min-w-40">
+        {text.next}
+      </Button>
+    </>
+  ) : manualOpen ? (
+    <Button type="submit" form={formId} variant="primary" size="lg" icon="user-plus" loading={submitting}>
+      {text.saveLead}
+    </Button>
+  ) : undefined;
 
   return (
     <Dialog
       isOpen={isOpen}
       onClose={() => {
-        if (!submitting) close();
+        if (!submitting) onClose();
       }}
-      title={t.captureLeadModalTitle}
-      description={t.captureLeadModalDesc}
-      size="lg"
+      title={text.capture}
+      description={result ? undefined : text.captureHint}
+      size="full"
+      footer={footer}
+      className="booth-sheet"
     >
-      {/* Mounted with the dialog (the page behind it is aria-hidden by aria-modal), so the
-          capture result is announced; the confirmation card below is visual only. */}
-      <p role="status" className="sr-only">{captureFeedback?.replace(/^✓\s*/, "") ?? ""}</p>
-      {capturedLead && (
-        <div
-          className={`${capturedLead.existed ? "booth-confirm-existing" : "booth-confirm-new"} space-y-4`}
-          data-testid="capture-result"
-        >
-          <div className="rounded-2xl border border-[var(--confirm-border)] bg-[var(--confirm-bg)] p-4 sm:p-5">
-            <div className="flex items-start gap-3.5">
-              <span aria-hidden="true" className="grid size-12 shrink-0 place-items-center rounded-full bg-[var(--confirm-solid)] text-white shadow-[0_10px_24px_-12px_var(--confirm-solid)] motion-safe:animate-pop">
-                <Icon name={capturedLead.existed ? "layers" : "check"} size={24} strokeWidth={2.25} />
-              </span>
-              <div className="min-w-0 pt-0.5">
-                <p className="booth-meta-label text-[var(--confirm-fg)]">
-                  {capturedLead.existed ? (isRtl ? "لید موجود" : "Existing lead") : (isRtl ? "لید جدید" : "New lead")}
-                </p>
-                <p className="mt-1 text-base font-bold leading-snug text-text-primary">{captureFeedback?.replace(/^✓\s*/, "")}</p>
-                {capturedLead.existed && (
-                  <p className="mt-1 text-[13px] leading-relaxed text-text-secondary">
-                    {isRtl ? "این شرکت‌کننده قبلاً لید این غرفه بود؛ سطح علاقه و برچسب‌های قبلی حفظ شد." : "This attendee was already a lead of this booth; their rating and tags were kept."}
-                  </p>
-                )}
-              </div>
-            </div>
-          </div>
-          <div className="flex items-start gap-3.5 rounded-2xl border border-border-default bg-surface-panel p-4">
-            <LeadMonogram name={capturedLead.lead.attendee_name} rating={capturedLead.lead.rating} size="lg" />
-            <div className="min-w-0 flex-1">
-              <p className="text-lg font-bold leading-snug tracking-[-0.01em] text-text-primary break-words">{capturedLead.lead.attendee_name}</p>
-              {capturedRole && <p className="mt-0.5 text-[13px] text-text-secondary break-words">{capturedRole}</p>}
-              <div className="mt-2.5 flex flex-wrap items-center gap-2">
-                <RatingChip rating={capturedLead.lead.rating} locale={locale} size="sm" />
-                <Badge variant="neutral" size="sm">{capturedLead.lead.ticket_tier_name}</Badge>
-              </div>
-            </div>
-          </div>
-          <div className="grid gap-2 sm:grid-cols-2">
-            <Button
-              type="button"
-              variant="secondary"
-              size="lg"
-              onClick={() => {
-                // One dialog at a time: the capture dialog closes before qualification opens;
-                // the capture button stays one tap away.
-                const lead = capturedLead.lead;
-                close();
-                onQualify(lead);
-              }}
-            >
-              <Icon name="sliders" size={18} />
-              <span>{t.qualifyLeadButton}</span>
-            </Button>
-            <Button
-              type="button"
-              variant="primary"
-              size="lg"
-              autoFocus
-              onClick={() => {
-                resetCapture();
-                setTimeout(() => codeInputRef.current?.focus(), 60);
-              }}
-            >
-              <span>{isRtl ? "شرکت‌کننده بعدی" : "Next attendee"}</span>
-              <Icon name="arrow-right" size={18} />
-            </Button>
-          </div>
-          <Button type="button" variant="ghost" size="md" isFullWidth onClick={close}>
-            {isRtl ? "پایان" : "Done"}
-          </Button>
-        </div>
-      )}
-      {queued && (
-        <div className="space-y-4" data-testid="capture-queued">
-          <div className="rounded-2xl border border-status-warning-border bg-status-warning-bg p-4 sm:p-5">
-            <div className="flex items-start gap-3.5">
-              <span aria-hidden="true" className="grid size-12 shrink-0 place-items-center rounded-full bg-status-warning-solid text-white motion-safe:animate-pop">
-                <Icon name="hourglass" size={22} />
-              </span>
-              <div className="min-w-0 pt-0.5">
-                <p className="text-base font-bold leading-snug text-text-primary">{text.queuedTitle}</p>
-                <p className="mt-1 text-[13px] leading-relaxed text-text-secondary">{text.queuedDesc}</p>
-              </div>
-            </div>
-          </div>
-          <Button
-            type="button"
-            variant="primary"
-            size="lg"
-            isFullWidth
-            autoFocus
-            onClick={() => {
-              resetCapture();
-              setTimeout(() => codeInputRef.current?.focus(), 60);
-            }}
-          >
-            <span>{isRtl ? "شرکت‌کننده بعدی" : "Next attendee"}</span>
-            <Icon name="arrow-right" size={18} />
-          </Button>
-          <Button type="button" variant="ghost" size="md" isFullWidth onClick={close}>
-            {isRtl ? "پایان" : "Done"}
-          </Button>
-        </div>
-      )}
-      {!capturedLead && !queued && (
-        <form onSubmit={handleCaptureLead} className="space-y-5">
-          <QrCameraInput
-            isRtl={isRtl}
-            disabled={submitting}
-            onDecode={(value) => {
-              setQrSecret(value);
-              setCaptureError(null);
-            }}
+      {/* Mounted with the sheet, so the result is announced once; the banner below is the visual. */}
+      <p role="status" className="sr-only">
+        {result?.kind === "new" ? text.leadCaptured : result?.kind === "existing" ? text.leadUpdated : ""}
+      </p>
+
+      {result && verdict ? (
+        <div className="space-y-4" data-testid={result.kind === "queued" ? "capture-queued" : "capture-result"} data-result={result.kind}>
+          <VerdictBanner
+            locale={locale}
+            tone={verdict.tone}
+            title={verdict.title}
+            icon={verdict.icon}
+            name={lead?.attendee_name}
+            meta={role ? <p className="text-body opacity-90"><bdi>{role}</bdi></p> : undefined}
+            reason={verdict.reason}
           />
-
-          <div aria-hidden="true" className="flex items-center gap-3 text-xs font-medium text-text-muted">
-            <span className="h-px flex-1 bg-border-default" />
-            <span>{isRtl ? "یا کد را وارد کنید" : "or enter the code"}</span>
-            <span className="h-px flex-1 bg-border-default" />
-          </div>
-
-          <div>
-            <label htmlFor="booth-badge-code" className="ui-label">
-              {t.badgeCodeLabel} <span aria-hidden="true" className="text-status-danger-solid">*</span>
-            </label>
-            <div className="relative">
-              <Icon name="keyboard" size={19} className="pointer-events-none absolute start-3.5 top-1/2 -translate-y-1/2 text-text-muted" />
-              <input
-                id="booth-badge-code"
-                maxLength={512}
-                ref={codeInputRef}
-                type="text"
-                required
-                autoComplete="off"
-                autoCapitalize="none"
-                spellCheck={false}
-                value={qrSecret}
-                onChange={(e) => setQrSecret(e.target.value)}
-                placeholder={t.badgeCodePlaceholder}
-                className="ui-input min-h-[54px] ps-11 font-mono text-[17px] placeholder:font-sans placeholder:text-base"
-              />
-            </div>
-            <p className="mt-1.5 text-xs leading-relaxed text-text-muted">{t.badgeCodeHint}</p>
-          </div>
-
-          <div className="space-y-5 rounded-2xl border border-border-subtle bg-surface-page p-4">
-            <p className="booth-meta-label flex items-center gap-2">
-              <Icon name="sliders" size={14} />
-              <span>{isRtl ? "ارزیابی سریع (اختیاری)" : "Quick qualification (optional)"}</span>
-            </p>
-            <RatingControl
-              label={t.interestRatingLabel}
-              value={touched.rating ? captureRating : null}
-              onChange={(rating) => {
-                setCaptureRating(rating);
-                setTouched((p) => ({ ...p, rating: true }));
-              }}
-              locale={locale}
-              hint={
-                isRtl
-                  ? "اگر انتخاب نکنید، لید جدید «علاقه متوسط» ثبت می‌شود و لید موجود سطح قبلی خود را نگه می‌دارد."
-                  : "Leave unset and a new lead starts as Warm, while an existing lead keeps its rating."
-              }
-            />
-            <TagPicker label={t.followUpTagsLabel} presets={tagPresets} selected={captureTags} onToggle={toggleTag} />
-            <div>
-              <label htmlFor="booth-capture-notes" className="ui-label">{t.notesLabel}</label>
-              <textarea
-                id="booth-capture-notes"
-                maxLength={2000}
-                rows={2}
-                value={captureNotes}
-                onChange={(e) => setCaptureNotes(e.target.value)}
-                placeholder={t.notesPlaceholder}
-                className="ui-textarea min-h-[4.5rem]"
-              />
-            </div>
-          </div>
-          <div className="sticky -bottom-6 z-10 -mx-5 -mb-6 border-t border-border-subtle bg-surface-panel px-5 pb-5 pt-3 sm:-bottom-7 sm:-mx-7 sm:-mb-7 sm:px-7 sm:pb-6">
-            {captureError && (
-              <div role="alert" aria-live="assertive" className="mb-3 flex items-start gap-2.5 rounded-xl border border-status-danger-border bg-status-danger-bg p-3 text-[13px] leading-relaxed text-status-danger-text motion-safe:animate-pop">
-                <Icon name="alert" size={18} className="shrink-0" />
-                <span>{captureError}</span>
+          {canRate && (
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+              <div className="min-w-0 flex-1">
+                <RatingControl label={text.interest} value={rating} onChange={(value) => void rate(value)} locale={locale} size="compact" disabled={ratingSaving} />
               </div>
-            )}
-            {offerQueue && (
-              <Button
-                type="button"
-                variant="secondary"
-                size="md"
-                isFullWidth
-                disabled={submitting}
-                onClick={() => void queueScan(offerQueue)}
-                className="mb-3 whitespace-normal"
-              >
-                <Icon name="hourglass" size={17} className="shrink-0" />
-                <span>{text.saveOffline}</span>
-              </Button>
-            )}
-            <div className="flex gap-2 sm:justify-end">
-              {/* Phones dismiss with the header close button; the bar keeps the one action that matters. */}
-              <Button type="button" variant="ghost" size="lg" disabled={submitting} onClick={onClose} className="shrink-0 max-sm:hidden">
-                {isRtl ? "انصراف" : "Cancel"}
-              </Button>
-              <Button type="submit" variant="primary" size="lg" disabled={submitting} aria-busy={submitting} className="min-w-0 flex-1 sm:flex-none sm:min-w-[15rem]">
-                {submitting ? <BoothSpinner /> : <Icon name="user-plus" size={19} className="shrink-0" />}
-                <span className="whitespace-normal leading-tight">{submitting ? (isRtl ? "در حال ذخیره…" : "Saving…") : t.saveLeadAction}</span>
-              </Button>
+              {lead && (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  icon="note"
+                  onClick={() => {
+                    // One dialog at a time: the sheet closes before qualification opens.
+                    onClose();
+                    onQualify(lead);
+                  }}
+                >
+                  {text.note}
+                </Button>
+              )}
             </div>
-          </div>
-        </form>
+          )}
+          {error && <Notice tone="danger">{error}</Notice>}
+        </div>
+      ) : (
+        <div className="space-y-4">
+          <QrCameraInput isRtl={locale === "fa"} disabled={submitting} autoStart={!fine} onDecode={(value) => void capture(value)} />
+          {manualOpen ? (
+            <form id={formId} onSubmit={handleSubmit}>
+              <Field label={text.codeLabel} required>
+                <CodeInput
+                  ref={codeInputRef}
+                  maxLength={512}
+                  required
+                  autoFocus={fine}
+                  enterKeyHint="go"
+                  value={code}
+                  onChange={(e) => setCode(e.target.value)}
+                />
+              </Field>
+            </form>
+          ) : (
+            <Button type="button" variant="ghost" icon="keyboard" onClick={() => setManualOpen(true)}>
+              {text.enterCode}
+            </Button>
+          )}
+          {error && <Notice tone="danger">{error}</Notice>}
+          {offerQueue && (
+            <Button type="button" variant="secondary" icon="hourglass" isFullWidth disabled={submitting} onClick={() => void queueScan(offerQueue)}>
+              {text.saveOffline}
+            </Button>
+          )}
+        </div>
       )}
     </Dialog>
   );
+}
+
+function verdictOf(result: CaptureResult, text: BoothCopy) {
+  switch (result.kind) {
+    case "new":
+      return { tone: "admitted" as const, title: text.newLead, icon: "check" as const, reason: undefined };
+    case "existing":
+      return { tone: "info" as const, title: text.existingLead, icon: "layers" as const, reason: text.existingReason };
+    case "queued":
+      return { tone: "admitted-offline" as const, title: text.savedOffline, icon: "hourglass" as const, reason: text.savedOfflineReason };
+    case "invalid":
+      return { tone: "rejected" as const, title: text.invalidCode, icon: "x" as const, reason: undefined };
+    case "other":
+      return { tone: "rejected" as const, title: text.otherCongress, icon: "x" as const, reason: undefined };
+  }
 }

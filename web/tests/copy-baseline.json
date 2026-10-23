@@ -33,21 +33,6 @@
     "persian": 33,
     "ternary": 1
   },
-  "src/components/booth/CaptureDialog.tsx": {
-    "ternary": 14,
-    "persian": 14
-  },
-  "src/components/booth/LeadList.tsx": {
-    "ternary": 9,
-    "persian": 9
-  },
-  "src/components/booth/PendingSyncPanel.tsx": {
-    "ternary": 1
-  },
-  "src/components/booth/QualifyDialog.tsx": {
-    "ternary": 3,
-    "persian": 3
-  },
   "src/components/BoothDirectory.tsx": {
     "persian": 19,
     "ternary": 20
@@ -252,10 +237,6 @@
   "src/pages/CongressDetails.tsx": {
     "ternary": 4,
     "persian": 4
-  },
-  "src/pages/ExhibitorPortal.tsx": {
-    "ternary": 19,
-    "persian": 18
   },
   "src/pages/GateScanner.tsx": {
     "ternary": 1
