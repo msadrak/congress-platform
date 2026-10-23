@@ -6,7 +6,7 @@ import { Badge } from "../../ui/Badge";
 import { Button } from "../../ui/Button";
 import { Icon } from "../../ui/Icon";
 import { Monogram } from "../Monogram";
-import { networkCopy } from "../attendeeCopy";
+import { attendeeCopy } from "../../../copy/attendee";
 
 interface ContactCardProps {
   contact: ConnectionOut;
@@ -21,7 +21,7 @@ interface ContactCardProps {
 
 /** One contact: identity, mobile when shared, the private note (editable), vCard and removal. */
 export function ContactCard({ contact, locale, fresh, savingNote, onSaveNote, onVcard, onRemove }: ContactCardProps) {
-  const c = networkCopy[locale];
+  const c = attendeeCopy[locale].network;
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
   const noteId = `notes-${contact.id}`;
@@ -61,7 +61,7 @@ export function ContactCard({ contact, locale, fresh, savingNote, onSaveNote, on
             {contact.mobile ? (
               <a
                 href={telHref(contact.mobile)}
-                className="inline-flex min-h-11 max-w-full items-center gap-1.5 rounded font-mono text-action-primary underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-focus-ring"
+                className="inline-flex min-h-12 max-w-full items-center gap-1.5 rounded font-mono text-action-primary underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-focus-ring"
               >
                 <Icon name="phone" size={15} />
                 <bdi dir="ltr" className="truncate">{formatMobile(contact.mobile, locale)}</bdi>
@@ -96,7 +96,7 @@ export function ContactCard({ contact, locale, fresh, savingNote, onSaveNote, on
                 setDraft(contact.private_notes || "");
                 setEditing(true);
               }}
-              className="-my-2 -me-2 inline-flex min-h-11 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg px-2 text-xs font-semibold text-action-primary underline-offset-4 hover:underline cursor-pointer focus-visible:outline-2 focus-visible:outline-focus-ring"
+              className="-my-2 -me-2 inline-flex min-h-12 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg px-2 text-xs font-semibold text-action-primary underline-offset-4 hover:underline cursor-pointer focus-visible:outline-2 focus-visible:outline-focus-ring"
             >
               {c.editNote}
             </button>

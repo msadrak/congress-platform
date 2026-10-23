@@ -26,7 +26,7 @@ test('an exhibitor and desk operator without a pass sees their booths and desk o
 
   const staff = page.getByTestId('staff-section');
   await expect(staff.getByRole('heading', { name: 'My booths' })).toBeVisible();
-  await expect(staff.getByRole('link', { name: 'Open booth workspace: Aria Med' })).toHaveAttribute('href', '/booth/booth-7');
+  await expect(staff.getByRole('link', { name: 'Open booth panel: Aria Med' })).toHaveAttribute('href', '/booth/booth-7');
   await expect(staff.getByText('Hall B, stand 12')).toBeVisible();
   await expect(staff.getByRole('heading', { name: 'Reception desk' })).toBeVisible();
   await expect(staff.getByRole('link', { name: 'Open reception desk: Beta Summit' })).toHaveAttribute('href', '/reception/event-b');

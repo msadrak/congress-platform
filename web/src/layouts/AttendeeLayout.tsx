@@ -1,9 +1,14 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { useAttendeeLocale, type AttendeeLocaleContext } from "../lib/i18n";
-import { SkipLink } from "../components/ui/SkipLink";
-import { Icon, type IconName } from "../components/ui/Icon";
+import { useAttendeeLocale, type AttendeeLocale, type AttendeeLocaleContext } from "../lib/i18n";
+import { attendeeCopy } from "../copy/attendee";
+import { Avatar } from "../components/ui/Avatar";
+import { Button, LinkButton } from "../components/ui/Button";
 import { ConfirmDialog } from "../components/ui/ConfirmDialog";
+import { Icon, type IconName } from "../components/ui/Icon";
+import { LanguageToggle } from "../components/ui/LanguageToggle";
+import { SkipLink } from "../components/ui/SkipLink";
+import { TabNav } from "../components/ui/TabNav";
 import { AitebAttribution } from "../components/brand/Aiteb";
 import { CongressSignature } from "../components/brand/CongressSignature";
 import { ArcStroke } from "../components/attendee/ArcStroke";
@@ -41,75 +46,17 @@ const TAB_ICONS: Record<PanelTab, IconName> = {
   "my-ticket": "ticket",
 };
 
-const SHELL_COPY = {
-  fa: {
-    tabs: { "my-congress": "همایش من", details: "برنامه", "my-network": "شبکه", "my-ticket": "کارت ورود" } satisfies Record<PanelTab, string>,
-    myCongresses: "همایش‌های من",
-    switchCongress: "تغییر همایش",
-    allCongresses: "همه همایش‌های من",
-    myBooths: "غرفه‌های من",
-    receptionDesk: "میز پذیرش",
-    boothFallback: "غرفه",
-    skip: "پرش به محتوای اصلی",
-    footer: "کارت ورود برای استفاده بدون اینترنت روی همین دستگاه می‌ماند؛ در دستگاه مشترک پس از استفاده خارج شوید.",
-    logoutTitle: "خروج از حساب در این دستگاه؟",
-    logoutBody: "کارت ورود ذخیره‌شده برای استفاده آفلاین از این دستگاه حذف می‌شود.",
-    logoutConfirm: "خروج",
-    cancel: "انصراف",
-    languageLabel: "Switch language to English",
-  },
-  en: {
-    tabs: { "my-congress": "My congress", details: "Program", "my-network": "Network", "my-ticket": "Pass" } satisfies Record<PanelTab, string>,
-    myCongresses: "My congresses",
-    switchCongress: "Switch congress",
-    allCongresses: "All my congresses",
-    myBooths: "My booths",
-    receptionDesk: "Reception desk",
-    boothFallback: "Booth",
-    skip: "Skip to main content",
-    footer: "Your pass stays on this device for offline use; log out after using a shared device.",
-    logoutTitle: "Log out on this device?",
-    logoutBody: "Your saved offline pass will be removed from this device.",
-    logoutConfirm: "Log out",
-    cancel: "Cancel",
-    languageLabel: "تغییر زبان به فارسی",
-  },
-} as const;
+type ShellCopy = (typeof attendeeCopy)[AttendeeLocale]["shell"];
 
 const focusRing = "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring";
-const headerAction = `press inline-flex min-h-11 min-w-11 items-center justify-center gap-1.5 rounded-full px-2.5 text-xs font-semibold text-text-muted transition-colors hover:bg-surface-panel-subtle hover:text-text-primary cursor-pointer ${focusRing}`;
 
-/** Desktop navigation: quiet text tabs, the active one underlined by a brand arc. */
-function TopNav({ slug, active, labels, navLabel }: {
-  slug: string;
-  active?: AttendeeDestination;
-  labels: Record<PanelTab, string>;
-  navLabel: string;
-}) {
+/** Desktop navigation: the four tabs under the header, the current one underlined. */
+function TopNav({ slug, labels, navLabel }: { slug: string; labels: Record<PanelTab, string>; navLabel: string }) {
+  const items = PANEL_TABS.map((d) => ({ to: congressPath(slug, d), label: labels[d], icon: TAB_ICONS[d] }));
   return (
-    <nav aria-label={navLabel} className="hidden md:flex md:col-span-2 md:row-start-2 items-stretch gap-1 -mx-3">
-      {PANEL_TABS.map((d) => {
-        const isActive = active === d;
-        return (
-          <Link
-            key={d}
-            to={congressPath(slug, d)}
-            aria-current={isActive ? "page" : undefined}
-            className={`group relative inline-flex min-h-12 items-center gap-2 rounded-lg px-3 text-sm font-semibold whitespace-nowrap transition-colors ${focusRing} ${
-              isActive ? "text-text-primary" : "text-text-muted hover:text-text-primary"
-            }`}
-          >
-            <Icon
-              name={TAB_ICONS[d]}
-              size={18}
-              className={isActive ? "text-event-accent" : "text-ink-400 transition-colors group-hover:text-text-secondary"}
-            />
-            {labels[d]}
-            {isActive && <ArcStroke className="pointer-events-none absolute inset-x-2 -bottom-px h-2.5 w-[calc(100%-1rem)]" />}
-          </Link>
-        );
-      })}
-    </nav>
+    <div className="hidden md:block md:col-span-2 md:row-start-2 -mx-3 [&>nav]:border-b-0">
+      <TabNav items={items} label={navLabel} />
+    </div>
   );
 }
 
@@ -171,14 +118,17 @@ function SwitcherEntry({ to, icon, label, kicker }: { to: string; icon: IconName
   );
 }
 
-function CongressSwitcher({ slug, name, accent, kicker, loadOthers, copy, token }: {
+function CongressSwitcher({ slug, name, accent, kicker, loadOthers, copy, token, locale, onLocaleChange }: {
   slug: string;
   name: React.ReactNode;
   accent?: AccentName | "auto";
   kicker: string;
   /** Read when the menu opens, so passes saved since the page opened are listed. */
   loadOthers: () => CongressCard[];
-  copy: (typeof SHELL_COPY)[keyof typeof SHELL_COPY];
+  copy: ShellCopy;
+  locale: AttendeeLocale;
+  /** On a phone the language switch lives in this menu, not in the header. */
+  onLocaleChange: (next: AttendeeLocale) => void;
   /** The signed-in session: its booths and reception desks are listed too (loaded when the menu first opens). */
   token: string | null;
 }) {
@@ -282,6 +232,9 @@ function CongressSwitcher({ slug, name, accent, kicker, loadOthers, copy, token 
                 {copy.allCongresses}
               </Link>
             </li>
+            <li className="border-t border-border-default pt-0.5 md:hidden">
+              <LanguageToggle locale={locale} onChange={onLocaleChange} className="w-full justify-start" />
+            </li>
           </ul>
         </div>
       )}
@@ -291,8 +244,8 @@ function CongressSwitcher({ slug, name, accent, kicker, loadOthers, copy, token 
 
 export function AttendeeLayout({ children, localeProps, eventSlug, destination }: AttendeeLayoutProps) {
   const localHook = useAttendeeLocale();
-  const { locale, setLocale, t, isRtl, dir } = localeProps || localHook;
-  const copy = SHELL_COPY[locale];
+  const { locale, setLocale, dir } = localeProps || localHook;
+  const copy = attendeeCopy[locale].shell;
   const location = useLocation();
   const navigate = useNavigate();
   const congress = useCongressEvent(eventSlug);
@@ -320,15 +273,15 @@ export function AttendeeLayout({ children, localeProps, eventSlug, destination }
       ? congress.event.name
       : knownCongressName(eventSlug, known.tickets, known.links)
     : null;
-  const pageLabel = destination
-    ? destination === "my-profile"
-      ? t.navMyProfile
-      : copy.tabs[destination]
-    : copy.myCongresses;
+  const pageLabel = destination ? (destination === "my-profile" ? copy.profile : copy.tabs[destination]) : copy.myCongresses;
   usePageTitle(pageLabel, congressName);
   // The accent chosen in Page Studio (published) colours the whole panel; "auto" derives it from the slug.
   const accent = congress.status === "ready" ? congress.event.page?.document.branding?.accent : undefined;
   const profileActive = destination === "my-profile";
+  // Inside a congress the header holds the switcher and the avatar; the language switch and log out sit in the
+  // switcher menu and the profile on a phone. Outside one (`/me`) there is nowhere else, so they stay in the header.
+  const inCongress = Boolean(eventSlug);
+  const holder = known.tickets[0]?.attendee_name;
 
   return (
     <div
@@ -350,6 +303,8 @@ export function AttendeeLayout({ children, localeProps, eventSlug, destination }
               loadOthers={loadOthers}
               token={token}
               copy={copy}
+              locale={locale}
+              onLocaleChange={setLocale}
             />
           ) : (
             <Link to="/me" className={`flex h-16 min-w-0 items-center gap-3 rounded-xl ${focusRing}`}>
@@ -360,73 +315,58 @@ export function AttendeeLayout({ children, localeProps, eventSlug, destination }
             </Link>
           )}
 
-          {eventSlug && <TopNav slug={eventSlug} active={destination} labels={copy.tabs} navLabel={t.attendeePortal} />}
+          {eventSlug && <TopNav slug={eventSlug} labels={copy.tabs} navLabel={copy.nav} />}
 
-          {/* Controls: language, profile, log in / log out */}
-          <div className="flex items-center justify-end gap-0.5">
-            <button
-              type="button"
-              onClick={() => setLocale(locale === "fa" ? "en" : "fa")}
-              className={`press inline-flex min-h-11 items-center gap-1.5 rounded-full px-2.5 text-xs font-semibold text-text-secondary transition-colors hover:bg-surface-panel-subtle hover:text-text-primary cursor-pointer ${focusRing}`}
-              aria-label={copy.languageLabel}
-            >
-              <Icon name="globe" size={18} />
-              <span lang={isRtl ? "en" : "fa"} className="max-sm:sr-only">{t.languageToggle}</span>
-            </button>
+          <div className="flex items-center justify-end gap-1">
+            <LanguageToggle locale={locale} onChange={setLocale} className={inCongress ? "max-md:hidden" : ""} />
             {eventSlug && signedIn && (
               <Link
                 to={congressPath(eventSlug, "my-profile")}
-                aria-label={t.navMyProfile}
-                title={t.navMyProfile}
+                aria-label={copy.profile}
+                title={copy.profile}
                 aria-current={profileActive ? "page" : undefined}
                 data-testid="profile-entry"
                 className={`press grid size-11 place-items-center rounded-full ${focusRing}`}
               >
-                <span
-                  className={`grid size-9 place-items-center rounded-full ring-2 transition-colors ${
-                    profileActive ? "bg-event-accent text-white ring-event-accent/30" : "bg-event-accent-soft text-event-accent ring-transparent hover:ring-event-accent/30"
-                  }`}
-                >
-                  <Icon name="user" size={18} />
-                </span>
+                {holder ? (
+                  <Avatar name={holder} seed={eventSlug} size="sm" ring={profileActive} />
+                ) : (
+                  <span className={`grid size-9 place-items-center rounded-full ${profileActive ? "bg-event-accent text-white" : "bg-event-accent-soft text-event-accent"}`}>
+                    <Icon name="user" size={18} />
+                  </span>
+                )}
               </Link>
             )}
-            <span aria-hidden="true" className="mx-0.5 h-5 w-px bg-border-default max-sm:hidden" />
             {signedIn ? (
-              <button type="button" onClick={() => setConfirmingLogout(true)} className={headerAction}>
-                <Icon name="logout" size={18} />
-                <span className="sr-only sm:not-sr-only">{t.logout}</span>
-              </button>
+              <Button type="button" variant="ghost" size="sm" icon="logout" className={inCongress ? "max-md:hidden" : ""} onClick={() => setConfirmingLogout(true)}>
+                <span className="max-sm:sr-only">{copy.logout}</span>
+              </Button>
             ) : (
-              <Link to={signInPath(eventSlug, location.pathname)} className={headerAction}>
-                <Icon name="user" size={18} />
-                <span className="sr-only sm:not-sr-only">{t.login}</span>
-              </Link>
+              <LinkButton to={signInPath(eventSlug, location.pathname)} variant="secondary" size="sm" icon="user">
+                {copy.login}
+              </LinkButton>
             )}
           </div>
         </div>
       </header>
 
-      <main id="attendee-main-content" tabIndex={-1} className="flex-1 focus:outline-none">
+      <main id="attendee-main-content" tabIndex={-1} className={`flex-1 focus:outline-none ${inCongress ? "pb-32 md:pb-12" : ""}`}>
         {children}
       </main>
 
-      <footer className={`at-print-collapse mt-16 border-t border-border-default bg-surface-panel ${eventSlug ? "pb-32 md:pb-0" : ""}`}>
-        <div className="mx-auto flex max-w-6xl flex-col gap-4 px-4 py-6 sm:px-6 md:flex-row md:items-center md:justify-between">
-          <p className="flex items-start gap-2 text-xs leading-relaxed text-text-secondary">
-            <Icon name="shield" size={16} className="mt-0.5 shrink-0 text-aiteb-slate" />
-            <span>{copy.footer}</span>
-          </p>
-          <AitebAttribution locale={locale} />
-        </div>
-      </footer>
-      {eventSlug && <Dock slug={eventSlug} active={destination} labels={copy.tabs} navLabel={t.attendeePortal} />}
+      {!inCongress && (
+        <footer className="at-print-collapse mt-16 border-t border-border-default bg-surface-panel">
+          <div className="mx-auto flex max-w-6xl justify-end px-4 py-6 sm:px-6">
+            <AitebAttribution locale={locale} />
+          </div>
+        </footer>
+      )}
+      {eventSlug && <Dock slug={eventSlug} active={destination} labels={copy.tabs} navLabel={copy.nav} />}
       <ConfirmDialog
         isOpen={confirmingLogout}
         title={copy.logoutTitle}
         description={copy.logoutBody}
         confirmLabel={copy.logoutConfirm}
-        cancelLabel={copy.cancel}
         tone="danger"
         onConfirm={handleLogout}
         onCancel={() => setConfirmingLogout(false)}

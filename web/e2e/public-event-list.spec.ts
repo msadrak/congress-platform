@@ -90,7 +90,7 @@ test('a failed list load says so and can be retried', async ({ page }) => {
 test('signed out, /me offers the upcoming congresses as well as signing in', async ({ page }) => {
   await fixture(page);
   await page.goto('/me');
-  await expect(page.getByRole('link', { name: 'Sign in to see your pass' })).toBeVisible();
+  await expect(page.getByTestId('otp-mobile-step')).toBeVisible();
   const list = page.getByTestId('public-event-list');
   await expect(list.getByRole('heading', { name: 'Upcoming congresses' })).toBeVisible();
   await list.getByRole('link', { name: 'Open Listed Congress 2' }).click();

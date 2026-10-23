@@ -5,7 +5,8 @@ import type { AttendeeLocale } from "../../lib/i18n";
 import { nowAndNext } from "../../lib/programExplorer";
 import { Badge } from "../ui/Badge";
 import { Icon } from "../ui/Icon";
-import { homeCopy, n, programCopy } from "./attendeeCopy";
+import { attendeeCopy } from "../../copy/attendee";
+import { n } from "./attendeeCopy";
 import { useNow } from "./useNow";
 import { formatClock, formatDayLabel } from "./zonedFormat";
 
@@ -28,7 +29,7 @@ interface SessionRowProps {
 }
 
 export function SessionRow({ session, locale, now, timeZone, detailed, starred = false, onToggleStar, onCalendar }: SessionRowProps) {
-  const c = programCopy[locale];
+  const c = attendeeCopy[locale].program;
   const start = Date.parse(session.starts_at);
   const end = Date.parse(session.ends_at);
   const live = start <= now && now < end;
@@ -121,7 +122,7 @@ export function ScheduleEmpty({ locale }: { locale: AttendeeLocale }) {
   return (
     <p className="flex items-center gap-2.5 rounded-2xl border border-dashed border-border-strong p-5 text-sm text-text-secondary">
       <Icon name="calendar" size={18} className="shrink-0 text-ink-400" />
-      {programCopy[locale].empty}
+      {attendeeCopy[locale].program.empty}
     </p>
   );
 }
@@ -130,9 +131,9 @@ function FullProgramLink({ to, count, locale }: { to: string; count: number; loc
   return (
     <Link
       to={to}
-      className="group inline-flex min-h-11 items-center gap-1.5 self-start rounded text-sm font-semibold text-action-primary underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
+      className="group inline-flex min-h-12 items-center gap-1.5 self-start rounded text-sm font-semibold text-action-primary underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
     >
-      {homeCopy[locale].fullProgram} ({programCopy[locale].sessionCount(n(count, locale))})
+      {attendeeCopy[locale].home.fullProgram} ({attendeeCopy[locale].program.sessionCount(n(count, locale))})
       <Icon name="arrow-right" size={16} className="transition-transform group-hover:translate-x-0.5 rtl:group-hover:-translate-x-0.5" />
     </Link>
   );
@@ -149,7 +150,7 @@ interface UpcomingSessionsProps {
 /** Home module: today's sessions, or the next day that has any (venue calendar), with a link to the full program. */
 export function UpcomingSessions({ sessions, locale, timeZone, fullScheduleTo }: UpcomingSessionsProps) {
   const now = useNow(60_000);
-  const fa = locale === "fa";
+  const c = attendeeCopy[locale].program;
   if (sessions.length === 0) return <ScheduleEmpty locale={locale} />;
 
   const fullLink = <FullProgramLink to={fullScheduleTo} count={sessions.length} locale={locale} />;
@@ -159,7 +160,7 @@ export function UpcomingSessions({ sessions, locale, timeZone, fullScheduleTo }:
       <div className="flex flex-col gap-3">
         <p className="flex items-center gap-2.5 rounded-2xl border border-border-default bg-surface-panel-subtle p-4 text-sm text-text-secondary">
           <Icon name="check-circle" size={18} className="shrink-0 text-ink-400" />
-          {fa ? "همهٔ جلسات این همایش برگزار شده‌اند." : "All sessions of this congress have taken place."}
+          {c.allDone}
         </p>
         {fullLink}
       </div>
@@ -171,7 +172,7 @@ export function UpcomingSessions({ sessions, locale, timeZone, fullScheduleTo }:
   const shown = day.slice(0, UPCOMING_LIMIT);
   const more = day.length - shown.length;
   const offset = daysBetween(zonedDayKey(now, timeZone), key);
-  const label = offset === 0 ? (fa ? "امروز" : "Today") : offset === 1 ? (fa ? "فردا" : "Tomorrow") : fa ? "روز بعدی برنامه" : "Next program day";
+  const label = offset === 0 ? c.today : offset === 1 ? c.tomorrow : c.nextDay;
 
   return (
     <div className="flex flex-col gap-2">
@@ -188,7 +189,7 @@ export function UpcomingSessions({ sessions, locale, timeZone, fullScheduleTo }:
       </ol>
       {more > 0 && (
         <p className="text-xs text-text-muted">
-          {fa ? `و ${n(more, locale)} جلسهٔ دیگر در همین روز` : `and ${more} more session${more === 1 ? "" : "s"} that day`}
+          {c.moreThatDay(n(more, locale))}
         </p>
       )}
       {fullLink}
@@ -199,7 +200,7 @@ export function UpcomingSessions({ sessions, locale, timeZone, fullScheduleTo }:
 /** Home module during the congress: what runs now and what starts next. */
 export function NowNextSessions({ sessions, locale, timeZone, fullScheduleTo }: UpcomingSessionsProps) {
   const now = useNow(30_000);
-  const c = homeCopy[locale];
+  const c = attendeeCopy[locale].home;
   if (sessions.length === 0) return <ScheduleEmpty locale={locale} />;
   const { live, next } = nowAndNext(sessions, now);
   const nextOtherDay = next && zonedDayKey(next.starts_at, timeZone) !== zonedDayKey(now, timeZone);
