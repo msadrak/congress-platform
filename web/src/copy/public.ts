@@ -132,7 +132,7 @@ const fa = {
   venueEntrances: "ورودی‌ها",
   venueHalls: "سالن‌ها",
   hallSessions: (n: string, _count: number) => `${n} جلسه`,
-  programPdf: "مشاهدهٔ برنامه (PDF)",
+  programPdf: "فایل برنامهٔ همایش",
   pageCount: (n: string, _count: number) => `${n} صفحه`,
   openFullSize: (label: string) => `${label}، نمایش در اندازهٔ کامل`,
 

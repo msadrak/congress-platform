@@ -355,7 +355,7 @@ export default function PublicBooth() {
               <span className="min-w-0 flex-1">
                 <span className="block text-body font-semibold text-text-primary">{c.brochure}</span>
                 <span className="block truncate text-caption text-text-muted">
-                  <span className="ltr-isolate">{hostOf(brochureUrl)}</span>
+                  <bdi dir="ltr">{hostOf(brochureUrl)}</bdi>
                 </span>
               </span>
               <span className="sr-only">{c.opensNewTab}</span>
@@ -368,7 +368,7 @@ export default function PublicBooth() {
               <span className="min-w-0 flex-1">
                 <span className="block text-body font-semibold text-text-primary">{c.website}</span>
                 <span className="block truncate text-caption text-text-muted">
-                  <span className="ltr-isolate">{hostOf(websiteUrl)}</span>
+                  <bdi dir="ltr">{hostOf(websiteUrl)}</bdi>
                 </span>
               </span>
               <span className="sr-only">{c.opensNewTab}</span>
