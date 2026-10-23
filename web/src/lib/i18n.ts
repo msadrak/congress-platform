@@ -216,7 +216,7 @@ export const translations = {
     assignStaffAction: "تخصیص دسترسی نماینده",
     standeeQrButton: "پوستر QR غرفه",
     standeeQrModalTitle: "کیوآرکد اختصاصی استند غرفه",
-    standeeQrModalDesc: "این کیوآرکد شامل شناسه مستقیم غرفه برای اسکن در محل نمایشگاه است.",
+    standeeQrModalDesc: "نشانی صفحهٔ عمومی غرفه؛ هر دوربین گوشی آن را باز می‌کند و شرکت‌کنندهٔ واردشده با یک لمس غرفه را نشان می‌کند.",
     noBoothsTitle: "هیچ غرفه نمایشگاهی ثبت نشده است",
     boothStaffCount: "نماینده فعال",
     // Exhibitor Lead Portal
@@ -606,7 +606,7 @@ export const translations = {
     assignStaffAction: "Authorize Representative",
     standeeQrButton: "Standee QR",
     standeeQrModalTitle: "Booth Standee QR Code",
-    standeeQrModalDesc: "This QR code encodes the direct entity secret for on-site exhibitor badge scanning.",
+    standeeQrModalDesc: "The booth's public page address: any phone camera opens it, and a signed-in attendee bookmarks the booth in one tap.",
     noBoothsTitle: "No exhibition booths registered yet",
     boothStaffCount: "reps",
     // Exhibitor Lead Portal

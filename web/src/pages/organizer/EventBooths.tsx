@@ -1,7 +1,7 @@
 import { useState } from "react";
 import QRCode from "react-qr-code";
 import { Link } from "react-router-dom";
-import { formatApiError, type BoothOut } from "../../api/client";
+import { localizedApiError, type BoothOut } from "../../api/client";
 import { eventSectionNumber } from "../../lib/organizerWorkspace";
 import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
@@ -17,7 +17,10 @@ import { loadBooths, sectionLoad, useEventList } from "./eventLists";
 
 /** `/organizer/events/:eventId/booths`: exhibition booths, their representatives and standee QR codes. */
 export default function EventBooths() {
-  const { event, error, eventId, apiKey, client, onKeyRejected, t, isRtl } = useEventWorkspace();
+  const { event, error, eventId, client, locale, t, isRtl, can } = useEventWorkspace();
+  const canManage = can("manager");
+  // Listing a booth's representatives needs the staff role (backend/app/roles.py).
+  const canSeeStaff = can("staff");
   const booths = useEventList(loadBooths);
   const lists = sectionLoad([booths]);
   const [notice, setNotice] = useState<SectionNoticeState>(null);
@@ -31,23 +34,26 @@ export default function EventBooths() {
   if (!event || error || !lists.loaded) return <EventSectionGate listsLoaded={lists.loaded} />;
 
   const handleDeleteBooth = async (booth: BoothOut) => {
-    if (!eventId || !apiKey || !client) return;
+    if (!eventId || !client) return;
     setDeletingBoothId(booth.id);
+    // A 401 reaches the layout's key gate through the API client (registerUnauthorizedHandler).
     const { error: err, response } = await client.DELETE("/api/events/{event_id}/booths/{booth_id}", {
       params: { path: { event_id: eventId, booth_id: booth.id } },
     });
-    if (response.status === 401) onKeyRejected(apiKey);
     setDeletingBoothId(null);
     if (response.ok) {
       booths.setItems((prev) => prev.filter((b) => b.id !== booth.id));
       setNotice({ tone: "ok", text: isRtl ? `غرفه «${booth.name}» حذف شد.` : `Booth “${booth.name}” deleted.` });
     } else {
-      setNotice({ tone: "error", text: isRtl ? `غرفه حذف نشد: ${formatApiError(err)}` : `The booth was not deleted: ${formatApiError(err)}` });
+      setNotice({ tone: "error", text: isRtl ? `غرفه حذف نشد: ${localizedApiError(err, locale)}` : `The booth was not deleted: ${localizedApiError(err, locale)}` });
     }
   };
 
   const cancelLabel = isRtl ? "انصراف" : "Cancel";
-  const addBooth = <AddButton label={t.createBoothButton} onClick={() => setIsCreateOpen(true)} />;
+  const addBooth = canManage ? <AddButton label={t.createBoothButton} onClick={() => setIsCreateOpen(true)} /> : undefined;
+  // The card's thumbnail encodes the public booth page; the printable standee (with its bookmark secret) is
+  // fetched from the API by BoothQrDialog.
+  const boothPageUrl = (booth: BoothOut) => `${window.location.origin}/e/${encodeURIComponent(event.slug)}/booths/${booth.id}`;
 
   return (
     <div className="space-y-8 sm:space-y-10">
@@ -66,7 +72,7 @@ export default function EventBooths() {
             <div key={b.id} className="flex flex-col overflow-hidden rounded-2xl border border-border-default bg-surface-panel shadow-soft">
               <div className="flex flex-1 gap-4 p-5 sm:p-6">
                 <div aria-hidden="true" className="org-plate size-[4.5rem] shrink-0 rounded-lg p-1.5 ring-1 ring-border-default">
-                  <QRCode value={b.id} size={64} level="M" viewBox="0 0 256 256" fgColor="#0F172A" bgColor="#FFFFFF" className="h-full w-full" />
+                  <QRCode value={boothPageUrl(b)} size={64} level="M" viewBox="0 0 256 256" fgColor="#0F172A" bgColor="#FFFFFF" className="h-full w-full" />
                 </div>
                 <div className="min-w-0 flex-1 space-y-1.5">
                   {b.location && (
@@ -91,30 +97,36 @@ export default function EventBooths() {
               </div>
               <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border-subtle bg-surface-panel-subtle/60 px-5 py-3.5 sm:px-6">
                 <div className="flex flex-wrap items-center gap-2">
-                  <Button type="button" variant="secondary" size="sm" onClick={() => setAssigningBooth(b)}>
-                    <Icon name="user-plus" size={16} />
-                    <span>{t.assignStaffButton}</span>
-                  </Button>
+                  {canSeeStaff && (
+                    <Button type="button" variant="secondary" size="sm" onClick={() => setAssigningBooth(b)}>
+                      <Icon name={canManage ? "user-plus" : "users"} size={16} />
+                      <span>{canManage ? t.assignStaffButton : isRtl ? "نمایندگان" : "Representatives"}</span>
+                    </Button>
+                  )}
                   <Button type="button" variant="ghost" size="sm" onClick={() => setSelectedBoothQr(b)}>
                     <Icon name="qr" size={16} />
                     <span>{t.standeeQrButton}</span>
                   </Button>
-                  <Button type="button" variant="ghost" size="sm" onClick={() => setEditingBooth(b)} aria-label={isRtl ? `ویرایش غرفه ${b.name}` : `Edit booth ${b.name}`}>
-                    <Icon name="note" size={16} />
-                    <span>{isRtl ? "ویرایش" : "Edit"}</span>
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    disabled={deletingBoothId === b.id}
-                    onClick={() => setDeleteBoothTarget(b)}
-                    aria-label={isRtl ? `حذف غرفه ${b.name}` : `Delete booth ${b.name}`}
-                    className="!text-status-danger-text hover:!border-status-danger-border hover:!bg-status-danger-bg"
-                  >
-                    <Icon name="trash" size={16} />
-                    <span>{isRtl ? "حذف" : "Delete"}</span>
-                  </Button>
+                  {canManage && (
+                    <>
+                      <Button type="button" variant="ghost" size="sm" onClick={() => setEditingBooth(b)} aria-label={isRtl ? `ویرایش غرفه ${b.name}` : `Edit booth ${b.name}`}>
+                        <Icon name="note" size={16} />
+                        <span>{isRtl ? "ویرایش" : "Edit"}</span>
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        disabled={deletingBoothId === b.id}
+                        onClick={() => setDeleteBoothTarget(b)}
+                        aria-label={isRtl ? `حذف غرفه ${b.name}` : `Delete booth ${b.name}`}
+                        className="!text-status-danger-text hover:!border-status-danger-border hover:!bg-status-danger-bg"
+                      >
+                        <Icon name="trash" size={16} />
+                        <span>{isRtl ? "حذف" : "Delete"}</span>
+                      </Button>
+                    </>
+                  )}
                 </div>
                 <Link
                   to={`/e/${event.slug}/booths/${b.id}`}
@@ -142,22 +154,9 @@ export default function EventBooths() {
         }}
       />
 
-      <BoothStaffDialog
-        booth={assigningBooth}
-        onClose={() => setAssigningBooth(null)}
-        onAssigned={() => {
-          // The confirmation outlives the dialog, so it can be read at any pace.
-          setAssigningBooth(null);
-          setNotice({
-            tone: "ok",
-            text: isRtl
-              ? "نماینده تخصیص یافت. او با کد پیامکی به این شماره وارد پورتال غرفه می‌شود."
-              : "Representative assigned. They sign in to the booth portal with an SMS code sent to this number.",
-          });
-        }}
-      />
+      <BoothStaffDialog booth={assigningBooth} onClose={() => setAssigningBooth(null)} />
 
-      <BoothQrDialog booth={selectedBoothQr} eventName={event.name} t={t} isRtl={isRtl} onClose={() => setSelectedBoothQr(null)} />
+      <BoothQrDialog booth={selectedBoothQr} eventName={event.name} onClose={() => setSelectedBoothQr(null)} />
 
       <BoothFormDialog
         mode="edit"
