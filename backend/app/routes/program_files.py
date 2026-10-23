@@ -46,6 +46,8 @@ MAX_PROGRAM_FILE_BYTES = 8_000_000
 MAX_PROGRAM_FILES_PER_EVENT = 20
 PUBLIC_CACHE = "public, max-age=3600"
 _IMAGE_HEADERS = {"X-Content-Type-Options": "nosniff", "Content-Security-Policy": "default-src 'none'; sandbox"}
+# PDFs stay inline (shown in the browser's viewer); `sandbox` without `default-src` lets the viewer render while
+# the document runs in an opaque origin without scripts. See app.media.check_pdf for why this, not a download.
 _PDF_HEADERS = {"X-Content-Type-Options": "nosniff", "Content-Security-Policy": "sandbox"}
 _UNSAFE_FILENAME = re.compile(r'[\x00-\x1f\x7f"\\/:*?<>|]+')
 

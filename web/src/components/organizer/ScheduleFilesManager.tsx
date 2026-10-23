@@ -36,8 +36,8 @@ const ERROR_COPY: Record<ProgramFileErrorCode, { fa: string; en: string }> = {
   too_large: { fa: "حجم فایل برنامه حداکثر ۸ مگابایت است.", en: "Schedule files are limited to 8 MB." },
   empty: { fa: "فایل خالی است.", en: "The file is empty." },
   rejected_pdf: {
-    fa: "این PDF پذیرفته نشد: یا PDF معتبر نیست یا اسکریپت، فایل پیوست یا فرم فعال دارد. آن را دوباره «چاپ به PDF» کنید.",
-    en: "This PDF was refused: it is not a valid PDF, or it has scripts, attachments or active forms. Print it to PDF again.",
+    fa: "این PDF پذیرفته نشد: یا PDF معتبر نیست، یا اسکریپت، کنش خودکار، پیوند وب، فرم یا فایل پیوست دارد، یا محتوایش قابل بررسی نیست. آن را دوباره «چاپ به PDF» کنید.",
+    en: "This PDF was refused: it is not a valid PDF, it has scripts, automatic actions, web links, forms or attachments, or its content cannot be checked. Print it to PDF again.",
   },
   rejected_image: { fa: "این تصویر خوانده نشد یا ابعادش بیش از حد مجاز است.", en: "This image could not be read or is too large in pixels." },
   label_required: { fa: "برای فایل یک عنوان بنویسید.", en: "Give the file a label." },
