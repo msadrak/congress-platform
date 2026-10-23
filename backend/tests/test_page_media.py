@@ -354,7 +354,7 @@ async def test_a_page_cannot_use_another_events_image_on_phones(client: AsyncCli
     organizer = await provision_organizer(client, "Acme Congress Co")
     event_id = await create_event(client, organizer)
     other = await client.post(
-        "/api/events", json={**EVENT, "slug": "spring-congress-2027"}, headers=bearer(organizer)
+        "/api/events", json={**EVENT, "slug": "winter-congress-2027"}, headers=bearer(organizer)
     )
     foreign_asset = (await upload(client, organizer, other.json()["id"], image_bytes())).json()["id"]
     state = (await client.get(f"/api/events/{event_id}/page", headers=bearer(organizer))).json()
