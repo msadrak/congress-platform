@@ -99,6 +99,9 @@ export function ReceptionStation({ eventId, organizer, locale, t, isRtl }: Recep
   const [selectedTierId, setSelectedTierId] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const submittingRef = useRef(false);
+  // Idempotency-Key of the walk-in being submitted: resent while the same entry is retried (a dropped connection
+  // then returns the pass already issued instead of a second one), replaced when the entry changes or succeeds.
+  const walkInAttemptRef = useRef<{ key: string; entry: string } | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [draftRecovered, setDraftRecovered] = useState(false);
   const [duplicate, setDuplicate] = useState<DuplicateState>({ status: "none" });
@@ -275,6 +278,7 @@ export function ReceptionStation({ eventId, organizer, locale, t, isRtl }: Recep
     setSearchResults([]);
     setReview({ status: "idle" });
     setMintedPass(null);
+    walkInAttemptRef.current = null;
   };
 
   const handleDeskLogout = () => {
@@ -302,17 +306,21 @@ export function ReceptionStation({ eventId, organizer, locale, t, isRtl }: Recep
     submittingRef.current = true;
     setSubmitting(true);
     const sent = authority;
+    const body = {
+      full_name: fullName.trim(),
+      mobile: sentMobile,
+      organization: organization.trim(),
+      title: title.trim(),
+      ticket_tier_id: selectedTierId,
+    };
+    const entry = JSON.stringify([sent.kind, body]);
+    if (walkInAttemptRef.current?.entry !== entry) walkInAttemptRef.current = { key: crypto.randomUUID(), entry };
+    const idempotencyKey = walkInAttemptRef.current.key;
     try {
       const client = createDeskApiClient(sent, eventId);
       const { data, error: err, response } = await client.POST("/api/events/{event_id}/desk-registrations", {
-        params: { path: { event_id: eventId } },
-        body: {
-          full_name: fullName.trim(),
-          mobile: sentMobile,
-          organization: organization.trim(),
-          title: title.trim(),
-          ticket_tier_id: selectedTierId,
-        },
+        params: { path: { event_id: eventId }, header: { "Idempotency-Key": idempotencyKey } },
+        body,
       });
       if (response.status === 401) rejectAuthority(sent);
       if (signatureRef.current !== `${sent.kind}:${sent.token}` && response.status !== 401) return;
@@ -322,6 +330,7 @@ export function ReceptionStation({ eventId, organizer, locale, t, isRtl }: Recep
         if (response.status === 409 && sentMobile) void lookupDuplicate(sent, sentMobile);
       } else if (data) {
         // Only a backend-confirmed issuance is presented as success.
+        walkInAttemptRef.current = null;
         setMintedPass(data);
         setFullName("");
         setMobile("");
@@ -334,8 +343,8 @@ export function ReceptionStation({ eventId, organizer, locale, t, isRtl }: Recep
     } catch {
       setFormError(
         isRtl
-          ? "اتصال قطع شد؛ مشخص نیست کارت صادر شده یا نه. پیش از تلاش دوباره، نام را در جستجو بررسی کنید. اطلاعات واردشده حفظ شده است."
-          : "The connection dropped, so it is not known whether the pass was issued. Search for this attendee before trying again. Your entry is kept."
+          ? "اتصال قطع شد؛ مشخص نیست کارت صادر شده یا نه. اطلاعات واردشده حفظ شده است؛ ثبت دوباره همین اطلاعات کارت تکراری صادر نمی‌کند."
+          : "The connection dropped, so it is not known whether the pass was issued. Your entry is kept: submitting it again unchanged will not issue a second pass."
       );
     } finally {
       submittingRef.current = false;

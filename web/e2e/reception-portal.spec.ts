@@ -18,9 +18,11 @@ const attendee = (event: string, n: number, name: string, mobile: string | null,
 });
 const EVENT_NAMES: Record<string, string> = { [EVENT_A]: 'Alpha Congress', [EVENT_B]: 'Beta Summit' };
 
-type Recorded = { method: string; path: string; auth: string | undefined; body: unknown };
+type Recorded = { method: string; path: string; auth: string | undefined; body: unknown; idempotencyKey?: string };
 interface Options {
   registerFails?: boolean;
+  /** The first walk-in request is processed, then its response is lost (the connection drops). */
+  registerResponseLostOnce?: boolean;
   registerDelayMs?: number;
   loginStatus?: number;
 }
@@ -44,13 +46,15 @@ async function fixture(page: Page, options: Options = {}): Promise<Fixture> {
   let validToken = '';
   let revokedGeneration = 0;
   let loginCount = 0;
+  const issuedByKey: Record<string, unknown> = {};
+  let responseLost = false;
   await page.route(/^https?:\/\/[^/]+\/api\//, async route => {
     const request = route.request();
     const path = new URL(request.url()).pathname;
     const method = request.method();
     const auth = request.headers().authorization;
     const raw = request.postData();
-    requests.push({ method, path, auth, body: raw ? JSON.parse(raw) : undefined });
+    requests.push({ method, path, auth, body: raw ? JSON.parse(raw) : undefined, idempotencyKey: request.headers()['idempotency-key'] });
     const json = (status: number, body: unknown) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
 
     if (path === '/api/auth/otp/request') return json(202, { mobile: JSON.parse(raw ?? '{}').mobile, code_length: 6, expires_in: 120, resend_after: 60 });
@@ -92,12 +96,21 @@ async function fixture(page: Page, options: Options = {}): Promise<Fixture> {
         await promise;
       }
       if (options.registerFails) return route.abort('failed');
+      const key = request.headers()['idempotency-key'];
+      const replay = key ? issuedByKey[key] : undefined;
+      if (replay) return json(201, replay);
       const body = JSON.parse(raw ?? '{}') as { full_name: string; mobile?: string | null };
       const mobile = body.mobile ?? null;
       if (mobile && attendees[event].some(a => a.attendee_mobile === mobile)) return json(409, { detail: 'Attendee already has an active ticket for this congress' });
       const created = attendee(event, attendees[event].length + 1, body.full_name, mobile);
       attendees[event].push(created);
-      return json(201, { ticket_id: created.ticket_id, attendee_name: created.attendee_name, attendee_mobile: mobile, organization: '', title: '', ticket_tier_name: 'General', qr_secret: created.qr_secret, issued_by: 'Operator One', created_at: created.created_at });
+      const issued = { ticket_id: created.ticket_id, attendee_name: created.attendee_name, attendee_mobile: mobile, organization: '', title: '', ticket_tier_name: 'General', qr_secret: created.qr_secret, issued_by: 'Operator One', created_at: created.created_at };
+      if (key) issuedByKey[key] = issued;
+      if (options.registerResponseLostOnce && !responseLost) {
+        responseLost = true;
+        return route.abort('failed');
+      }
+      return json(201, issued);
     }
     return json(404, { detail: 'Not found' });
   });
@@ -348,7 +361,7 @@ test.describe('walk-in issuance', () => {
     await expect(page.getByLabel('Full Name')).toHaveValue('Someone Else');
   });
 
-  test('a dropped connection keeps the entry, claims no success, and warns to check before retrying', async ({ page }) => {
+  test('a dropped connection keeps the entry, claims no success, and says a retry is safe', async ({ page }) => {
     await fixture(page, { registerFails: true });
     await seed(page);
     await openSignedIn(page);
@@ -358,6 +371,48 @@ test.describe('walk-in issuance', () => {
     await expect(page.getByRole('dialog')).toHaveCount(0);
     await expect(page.getByLabel('Full Name')).toHaveValue('Lost Connection');
     expect((await stored(page)).desk).not.toBeNull();
+  });
+
+  test('retrying after a dropped connection resends the same Idempotency-Key and shows the one pass issued', async ({ page }) => {
+    const fx = await fixture(page, { registerResponseLostOnce: true });
+    await seed(page);
+    await openSignedIn(page);
+    await page.getByLabel('Full Name').fill('Retry Person');
+    const submit = page.getByRole('button', { name: /Mint & Present Pass/ });
+    await submit.click();
+    await expect(page.getByRole('alert')).toContainText('will not issue a second pass');
+    await submit.click();
+    await expect(page.getByRole('dialog')).toContainText('Retry Person');
+    const posts = fx.requests.filter(r => r.path.endsWith('desk-registrations'));
+    expect(posts).toHaveLength(2);
+    expect(posts[0].idempotencyKey).toMatch(/^[0-9a-f-]{36}$/);
+    expect(posts[1].idempotencyKey).toBe(posts[0].idempotencyKey);
+
+    // The next attendee is a new submission with a new key.
+    await page.getByRole('dialog').getByRole('button', { name: /Next Attendee/ }).click();
+    await page.getByLabel('Full Name').fill('Second Person');
+    await submit.click();
+    await expect(page.getByRole('dialog')).toContainText('Second Person');
+    const third = fx.requests.filter(r => r.path.endsWith('desk-registrations'))[2];
+    expect(third.idempotencyKey).not.toBe(posts[0].idempotencyKey);
+  });
+
+  test('changing the entry after a dropped connection sends a new Idempotency-Key', async ({ page }) => {
+    const fx = await fixture(page, { registerFails: true });
+    await seed(page);
+    await openSignedIn(page);
+    await page.getByLabel('Full Name').fill('First Spelling');
+    const submit = page.getByRole('button', { name: /Mint & Present Pass/ });
+    await submit.click();
+    await expect(page.getByRole('alert')).toContainText('not known whether the pass was issued');
+    await submit.click();
+    await expect.poll(() => fx.requests.filter(r => r.path.endsWith('desk-registrations')).length).toBe(2);
+    await page.getByLabel('Full Name').fill('Corrected Spelling');
+    await submit.click();
+    await expect.poll(() => fx.requests.filter(r => r.path.endsWith('desk-registrations')).length).toBe(3);
+    const keys = fx.requests.filter(r => r.path.endsWith('desk-registrations')).map(r => r.idempotencyKey);
+    expect(keys[1]).toBe(keys[0]);
+    expect(keys[2]).not.toBe(keys[0]);
   });
 });
 

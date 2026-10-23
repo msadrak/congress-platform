@@ -6717,6 +6717,15 @@ export interface operations {
                     "application/json": components["schemas"]["DeskOperatorOut"];
                 };
             };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description Validation Error */
             422: {
                 headers: {
@@ -6795,7 +6804,10 @@ export interface operations {
     create_desk_registration_api_events__event_id__desk_registrations_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Client-generated id of this walk-in submission (e.g. a UUID), sent again on every retry. */
+                "Idempotency-Key"?: string | null;
+            };
             path: {
                 event_id: string;
             };
@@ -6814,6 +6826,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DeskRegistrationOut"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
             /** @description Validation Error */

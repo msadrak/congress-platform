@@ -8,7 +8,7 @@ from pydantic import AfterValidator, BaseModel, ConfigDict, Field, StringConstra
 from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 
-from app.db import SessionDep
+from app.db import SessionDep, add_or_existing
 from app.models import Booth, BoothBookmark, BoothStaff, EntityQR, Event, Lead, User
 from app.routes.auth import CurrentUserDep
 from app.routes.events import OwnedEventDep
@@ -293,32 +293,23 @@ async def assign_booth_staff(
     shown_name = body.full_name
 
     if user is None:
-        # The representative signs in later with an SMS code to this number.
-        user = User(
-            mobile=body.mobile,
-            full_name=body.full_name or f"{booth.name} representative",
-            organization=booth.name,
+        # The representative signs in later with an SMS code to this number. A concurrent request may create
+        # the account first; then that account is used (and keeps its own name).
+        account, created = await add_or_existing(
+            session,
+            User(mobile=body.mobile, full_name=body.full_name or f"{booth.name} representative", organization=booth.name),
+            select(User).where(User.mobile == body.mobile),
         )
-        session.add(user)
-        await session.flush()
-        shown_name = user.full_name
+        if created:
+            shown_name = account.full_name
+        user = account
 
-    existing_staff = await session.scalar(
-        select(BoothStaff).where(
-            BoothStaff.booth_id == booth.id, BoothStaff.user_id == user.id
-        )
+    # Assigning twice (or two requests at once) answers with the one assignment.
+    staff, _ = await add_or_existing(
+        session,
+        BoothStaff(booth_id=booth.id, user_id=user.id),
+        select(BoothStaff).where(BoothStaff.booth_id == booth.id, BoothStaff.user_id == user.id),
     )
-    if existing_staff is not None:
-        return BoothStaffOut(
-            id=existing_staff.id,
-            booth_id=booth.id,
-            user_id=user.id,
-            mobile=body.mobile,
-            full_name=shown_name,
-        )
-
-    staff = BoothStaff(booth_id=booth.id, user_id=user.id)
-    session.add(staff)
     await session.commit()
 
     return BoothStaffOut(
@@ -461,19 +452,15 @@ async def bookmark_booth(
     if booth is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Booth not found")
 
-    existing = await session.scalar(
-        select(BoothBookmark).where(
-            BoothBookmark.user_id == user.id,
-            BoothBookmark.booth_id == booth.id,
-        )
+    # Bookmarking twice, or from two tabs at once, keeps the one bookmark (200 instead of 201).
+    _, created = await add_or_existing(
+        session,
+        BoothBookmark(user_id=user.id, booth_id=booth.id),
+        select(BoothBookmark).where(BoothBookmark.user_id == user.id, BoothBookmark.booth_id == booth.id),
     )
-    if existing is not None:
-        response.status_code = status.HTTP_200_OK
-        return BookmarkToggleOut(bookmarked=True, booth_id=booth.id)
-
-    bookmark = BoothBookmark(user_id=user.id, booth_id=booth.id)
-    session.add(bookmark)
     await session.commit()
+    if not created:
+        response.status_code = status.HTTP_200_OK
     return BookmarkToggleOut(bookmarked=True, booth_id=booth.id)
 
 

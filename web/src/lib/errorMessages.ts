@@ -40,6 +40,9 @@ export const errorMessages: Record<AttendeeLocale, Record<string, string>> = {
     PROGRAM_FILE_LIMIT_REACHED: "هر همایش حداکثر ۲۰ فایل برنامه دارد؛ ابتدا یکی را حذف کنید.",
     PROGRAM_FILE_PDF_REJECTED: "این PDF پذیرفته نشد: یا PDF معتبر نیست یا اسکریپت، فایل پیوست یا فرم فعال دارد.",
     PROGRAM_FILE_IMAGE_REJECTED: "این تصویر خوانده نشد یا ابعادش بیش از حد مجاز است.",
+    OPERATOR_ALREADY_ASSIGNED: "این شماره پیش‌تر اپراتور پذیرش این همایش است.",
+    IDEMPOTENCY_KEY_REUSED: "این ثبت با اطلاعات دیگری فرستاده شده بود. اطلاعات را بررسی و دوباره ثبت کنید.",
+    IDEMPOTENCY_KEY_IN_PROGRESS: "ثبت قبلی هنوز در حال انجام است. چند لحظه بعد دوباره تلاش کنید.",
   },
   en: {
     EVENT_NOT_FOUND: "This congress could not be found.",
@@ -75,6 +78,9 @@ export const errorMessages: Record<AttendeeLocale, Record<string, string>> = {
     PROGRAM_FILE_LIMIT_REACHED: "A congress can have at most 20 schedule files; delete one first.",
     PROGRAM_FILE_PDF_REJECTED: "This PDF was refused: it is not a valid PDF, or it has scripts, attachments or active forms.",
     PROGRAM_FILE_IMAGE_REJECTED: "This image could not be read or is too large in pixels.",
+    OPERATOR_ALREADY_ASSIGNED: "This number is already a reception operator for this congress.",
+    IDEMPOTENCY_KEY_REUSED: "This submission was already sent with different details. Check the entry and submit again.",
+    IDEMPOTENCY_KEY_IN_PROGRESS: "The previous submission is still being processed. Try again in a moment.",
   },
 };
 

@@ -7,9 +7,10 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import ValidationError
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.config import STRICT_ENVIRONMENTS, Settings, describe_settings_error
+from app.db import build_engine
 from app.errors import ApiError, api_error_handler
 from app.logging_setup import configure_logging
 from app.observability import install_observability
@@ -48,7 +49,7 @@ from app.routes import (
 def create_app(settings: Settings) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        engine = create_async_engine(settings.database_url, pool_pre_ping=True)
+        engine = build_engine(settings)
         if settings.environment in STRICT_ENVIRONMENTS:
             await assert_schema_current(engine)
         app.state.sessionmaker = async_sessionmaker(engine, expire_on_commit=False)
