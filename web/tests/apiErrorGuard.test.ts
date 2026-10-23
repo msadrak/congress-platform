@@ -14,7 +14,6 @@ const UI_ROOTS = ["pages", "components", "layouts"].map((dir) => join(SRC, dir))
 const NOT_YET_CONVERTED: readonly string[] = [
   // Scanner (C1)
   "pages/GateScanner.tsx",
-  "components/organizer/ScannerPairingDialog.tsx",
 ];
 
 function* sourceFiles(path: string): Generator<string> {

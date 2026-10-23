@@ -50,11 +50,8 @@ const ALLOWED: Readonly<Record<string, readonly string[]>> = {
   "web/src/components/attendee/attendeeCopy.ts": ["بلیت", "نشست", "گردید"],
   "web/src/components/booth/LeadList.tsx": ["نمایید"],
   "web/src/components/booth/boothText.ts": ["تلاش مجدد", "پیشخوان"],
-  "web/src/components/organizer/BoothStaffDialog.tsx": ["پورتال"],
   "web/src/components/organizer/EventEditDialog.tsx": ["اسلاگ"],
-  "web/src/components/organizer/OperatorFormDialog.tsx": ["گیت"],
   "web/src/components/organizer/OrganizerKeyGate.tsx": ["فضای کاری", "نشست"],
-  "web/src/components/organizer/ScannerPairingDialog.tsx": ["کنسول", "لینک"],
   "web/src/components/organizer/studio/studioCopy.ts": ["جست‌وجو", "فضای کاری"],
   "web/src/components/public/copy.ts": ["بلیت", "گیت", "سرنخ", "نشست"],
   "web/src/components/public/homeCopy.ts": ["گیت", "سرنخ", "فضای کاری", "جست‌وجو", "پرتال"],
@@ -83,7 +80,6 @@ const ALLOWED: Readonly<Record<string, readonly string[]>> = {
   "web/src/pages/PlatformOrganizers.tsx": ["کنسول"],
   "web/src/pages/PlatformSms.tsx": ["بلیت", "کنسول"],
   "web/src/pages/ReceptionPortal.tsx": ["ایستگاه", "نمایید"],
-  "web/src/pages/organizer/EventOperators.tsx": ["نشست"],
 };
 
 function* files(path: string): Generator<string> {
