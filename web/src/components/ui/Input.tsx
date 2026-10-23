@@ -1,4 +1,5 @@
 import React from "react";
+import { latinDigits, localeDigits } from "../../lib/format";
 import { IconButton } from "./Button";
 import { Icon } from "./Icon";
 import { useUiCopy } from "./uiCopy";
@@ -27,6 +28,38 @@ export const TextInput = React.forwardRef<HTMLInputElement, TextInputProps>(func
   ref
 ) {
   return <input ref={ref} type={type} className={`ui-input ${lookClass({ size, tone })} ${className}`.trim()} {...props} />;
+});
+
+export interface NumberInputProps extends Omit<TextInputProps, "type" | "value" | "onChange" | "inputMode"> {
+  value: number | undefined;
+  /** The whole number typed, or undefined when the field is empty. */
+  onValueChange: (value: number | undefined) => void;
+  locale: "fa" | "en";
+}
+
+/**
+ * A whole-number field (capacity, quota): shows Persian digits in the Persian interface and accepts Persian,
+ * Arabic-Indic and Latin digits alike. A text input with the numeric keypad, since `type="number"` shows
+ * Latin digits and rejects Persian ones.
+ */
+export const NumberInput = React.forwardRef<HTMLInputElement, NumberInputProps>(function NumberInput(
+  { value, onValueChange, locale, className = "", ...props },
+  ref
+) {
+  return (
+    <TextInput
+      ref={ref}
+      inputMode="numeric"
+      autoComplete="off"
+      className={`tabular ${className}`.trim()}
+      value={value === undefined ? "" : localeDigits(String(value), locale)}
+      onChange={(event) => {
+        const digits = latinDigits(event.target.value).replace(/\D/g, "");
+        onValueChange(digits ? Number.parseInt(digits, 10) : undefined);
+      }}
+      {...props}
+    />
+  );
 });
 
 /**

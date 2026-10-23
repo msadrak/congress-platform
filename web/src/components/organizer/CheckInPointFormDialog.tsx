@@ -5,7 +5,7 @@ import { organizerSetupCopy } from "../../copy/organizerSetup";
 import { Button } from "../ui/Button";
 import { Dialog } from "../ui/Dialog";
 import { Icon } from "../ui/Icon";
-import { Select, TextInput } from "../ui/Input";
+import { NumberInput, Select, TextInput } from "../ui/Input";
 import { DialogActions, Field, FormAlert } from "./WorkspaceUi";
 import { checkInPolicyMeta, type PolicyType } from "./checkInPolicy";
 import { useEventWorkspace } from "./eventWorkspaceContext";
@@ -219,16 +219,10 @@ export function CheckInPointFormDialog(props: CheckInPointFormDialogProps) {
 
           {draft.policy === "CAPACITY_CAPPED" && (
             <Field label={copy.capacity} optional hint={tracksOccupancy ? copy.capacityInside : copy.capacityTotal}>
-              <TextInput
-                type="number"
-                inputMode="numeric"
-                min={1}
-                className="tabular"
-                value={draft.maxCapacity ?? ""}
-                onChange={(e) => {
-                  const value = parseInt(e.target.value, 10);
-                  setDraft((d) => ({ ...d, maxCapacity: Number.isFinite(value) ? value : undefined }));
-                }}
+              <NumberInput
+                locale={locale}
+                value={draft.maxCapacity}
+                onValueChange={(maxCapacity) => setDraft((d) => ({ ...d, maxCapacity }))}
                 placeholder={copy.capacityPlaceholder}
               />
             </Field>

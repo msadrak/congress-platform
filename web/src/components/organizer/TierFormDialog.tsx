@@ -6,7 +6,7 @@ import { Button } from "../ui/Button";
 import { ConfirmDialog } from "../ui/ConfirmDialog";
 import { DateTimeField } from "../ui/DateTimeField";
 import { Dialog } from "../ui/Dialog";
-import { Select, Textarea, TextInput } from "../ui/Input";
+import { NumberInput, Select, Textarea, TextInput } from "../ui/Input";
 import { DialogActions, Field, FormAlert } from "./WorkspaceUi";
 import { useEventWorkspace } from "./eventWorkspaceContext";
 import { eventTimeZone, fromZonedDateTimeLocal, toZonedDateTimeLocal } from "./sessionTime";
@@ -136,14 +136,11 @@ export function TierFormDialog(props: TierFormDialogProps) {
 
   const quotaField = (
     <Field label={copy.quota} required hint={isEdit ? copy.quotaHint : undefined} error={fieldError("quota")}>
-      <TextInput
-        type="number"
-        inputMode="numeric"
+      <NumberInput
         required
-        min={1}
-        className="tabular"
-        value={draft.quota}
-        onChange={(e) => setDraft((d) => ({ ...d, quota: parseInt(e.target.value, 10) || 0 }))}
+        locale={locale}
+        value={draft.quota || undefined}
+        onValueChange={(quota) => setDraft((d) => ({ ...d, quota: quota ?? 0 }))}
       />
     </Field>
   );
