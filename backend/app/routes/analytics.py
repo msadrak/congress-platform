@@ -307,7 +307,7 @@ async def get_attendance_analytics(filters: FiltersDep, session: SessionDep) -> 
     gate_breakdown: list[GateMetric] = []
     catering_metrics: list[CateringMetric] = []
     zone = event_zone(event)
-    now: datetime = await session.scalar(select(func.now())) or datetime.now(UTC)
+    now = datetime.now(UTC)  # occupancy is "now": the current admission window, no extra statement
     for point in points:
         hourly = gate_hourly[point.id]
         admitted = sum(h.admitted for h in hourly)
