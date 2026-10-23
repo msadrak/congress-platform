@@ -142,9 +142,12 @@ async def save_body(session: AsyncSession, kind: SmsKind, event_id: uuid.UUID | 
     existing = select(SmsTemplate).where(SmsTemplate.kind == kind, clause).with_for_update()
     row = await session.scalar(existing)
     if row is None:
-        row, created = await add_or_existing(session, SmsTemplate(kind=kind, event_id=event_id, body=body), existing)
+        inserted, created = await add_or_existing(
+            session, SmsTemplate(kind=kind, event_id=event_id, body=body), existing
+        )
         if created:
             return
+        row = inserted
     row.body = body
 
 
