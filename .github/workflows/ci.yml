@@ -178,9 +178,7 @@ jobs:
 
       # Every spec in web/e2e runs against the production build served by `vite preview` (CONGRESS_E2E_PREVIEW)
       # in Playwright's Chromium (CONGRESS_BROWSER_CHANNEL; locally the default is Edge). They intercept /api/
-      # with synthetic responses, so no backend is needed. scanner-real-api.spec.ts needs a live FastAPI +
-      # PostgreSQL and CONGRESS_PLATFORM_ADMIN_TOKEN; without the token it reports itself skipped. It runs in
-      # scripts/integration/congress-e2e.mjs.
+      # with synthetic responses, so no backend is needed. The journeys against a real API are the live-e2e job.
       - name: Playwright specs
         working-directory: web
         env:
@@ -194,6 +192,50 @@ jobs:
         with:
           name: playwright-test-results
           path: web/test-results
+          retention-days: 7
+
+  live-e2e:
+    name: Browser journeys (Playwright, live API & PostgreSQL)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install dependencies
+        working-directory: web
+        run: npm ci
+
+      - name: Install Playwright Chromium
+        working-directory: web
+        run: npx playwright install --with-deps chromium
+
+      - name: Type-check the live specs
+        working-directory: web
+        run: npx tsc -p tsconfig.e2e-live.json
+
+      # A disposable PostgreSQL + API (backend test image, built here on first use) and the production build behind
+      # vite preview; every persona journey in web/e2e-live runs against it, then everything is removed.
+      - name: Live journeys
+        env:
+          CONGRESS_BROWSER_CHANNEL: chromium
+        run: node scripts/integration/live-e2e.mjs
+
+      - name: Upload the Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-live-report
+          path: |
+            web/playwright-live-report
+            web/test-results-live
           retention-days: 7
 
   images:
