@@ -2547,13 +2547,25 @@ export interface components {
              * @default signature
              * @enum {string}
              */
-            layout: "signature" | "cover" | "split";
+            layout: "signature" | "banner" | "cover" | "split";
             eyebrow?: components["schemas"]["LocalizedLabel"];
             title?: components["schemas"]["LocalizedLine"];
             subtitle?: components["schemas"]["LocalizedLine"];
             cta_label?: components["schemas"]["LocalizedLabel"];
             /** Cover Asset Id */
             cover_asset_id?: string | null;
+            /**
+             * Focal X
+             * @default 50
+             */
+            focal_x: number;
+            /**
+             * Focal Y
+             * @default 50
+             */
+            focal_y: number;
+            /** Mobile Cover Asset Id */
+            mobile_cover_asset_id?: string | null;
         };
         /** HighlightItem */
         HighlightItem: {
