@@ -341,6 +341,11 @@ function ReadyCard({ card, headingRef, eventName, printable, onNext, onPrint, ac
           </div>
         </div>
       )}
+      {!actions && (
+        <div className="rx-actionbar print:hidden" data-testid="desk-archived-notice">
+          <Notice icon="lock">{c.archivedViewOnly}</Notice>
+        </div>
+      )}
 
       {actions && dialog === "edit" && (
         <EditDialog

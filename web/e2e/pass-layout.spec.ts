@@ -105,6 +105,10 @@ test.describe('the pass tab on a phone', () => {
         expect(shape.y + shape.height, 'QR ends above the dock').toBeLessThanOrEqual(await dockTop(page));
         expect(shape.x).toBeGreaterThanOrEqual(0);
         expect(shape.x + shape.width).toBeLessThanOrEqual(viewport.width);
+        // The code fills the card: at least 260 px on the smallest phone, at most 320 px.
+        const code = await box(qr.locator('svg').first());
+        expect(code.width, 'QR size').toBeGreaterThanOrEqual(260);
+        expect(code.width, 'QR size').toBeLessThanOrEqual(320);
         // The card is the first thing under the header: no status line, no hint before it.
         expect(await page.locator('article').evaluate(card => card.previousElementSibling)).toBeNull();
         // The online state says nothing.

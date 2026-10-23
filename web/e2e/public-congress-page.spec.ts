@@ -216,7 +216,8 @@ test('the booth index stacks on a 390 px phone without horizontal overflow', asy
 test('an unknown congress offers "find my pass" instead of the platform home', async ({ page }) => {
   await fixture(page);
   await page.goto('/e/no-such-congress');
-  await expect(page.getByRole('heading', { name: 'Congress not found' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Congress not found', level: 1 })).toBeVisible();
+  await expect(page.locator('h1')).toHaveCount(1);
   await expect(page.getByRole('main').getByRole('link', { name: 'Find my pass' })).toHaveAttribute('href', '/sign-in');
   await expect(page.getByRole('link', { name: 'Return to Platform Home' })).toHaveCount(0);
 });

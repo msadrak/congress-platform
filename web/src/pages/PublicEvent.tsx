@@ -271,7 +271,7 @@ export default function PublicEvent() {
           <StateBlock
             kind={notFound ? "empty" : "error"}
             icon={notFound ? "search" : undefined}
-            headingLevel={2}
+            headingLevel={1}
             title={notFound ? c.notFoundTitle : c.eventLoadFailedTitle}
             body={notFound ? c.notFoundBody : c.eventLoadFailed}
             action={

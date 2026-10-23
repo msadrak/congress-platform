@@ -237,7 +237,7 @@ export default function PlatformConsole() {
         {context ? (
           <Outlet context={context} />
         ) : problem ? (
-          <ErrorState title={copy.gate.loadFailed} body={problemText(problem)} offline={problem === "network"} onRetry={() => {
+          <ErrorState headingLevel={1} title={copy.gate.loadFailed} body={problemText(problem)} offline={problem === "network"} onRetry={() => {
               setProblem(null);
               setAttempt((n) => n + 1);
             }}

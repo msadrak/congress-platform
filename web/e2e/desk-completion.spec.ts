@@ -332,6 +332,8 @@ test('an archived congress keeps lookups but has no desk registration, no action
   await openCard(page);
   await expect(page.getByRole('heading', { name: 'Neda Amini', level: 2 })).toBeVisible();
   await expect(actionBar(page)).toHaveCount(0);
+  // Where the bar would be, the card says why: the phone sheet covers the header pill.
+  await expect(page.getByTestId('desk-archived-notice')).toContainText('Archived — view only');
   await expect(page.getByTestId('desk-admit')).toHaveCount(0);
   await expect(page.getByRole('button', { name: /More actions/ })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Desk registration' })).toHaveCount(0);

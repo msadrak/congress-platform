@@ -41,6 +41,7 @@ const fa = {
 
   // Bar and menu
   viewOnly: "فقط مشاهده",
+  archivedViewOnly: "بایگانی‌شده — فقط مشاهده",
   organizerMode: "حالت مدیر",
   operatorMode: "حالت اپراتور",
   congressSettings: "تنظیمات همایش",
@@ -190,6 +191,7 @@ const en: CopyShape<typeof fa> = {
   congresses: "Congresses",
 
   viewOnly: "View only",
+  archivedViewOnly: "Archived — view only",
   organizerMode: "Organizer mode",
   operatorMode: "Operator mode",
   congressSettings: "Congress settings",

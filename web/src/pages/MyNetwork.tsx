@@ -447,7 +447,7 @@ export default function MyNetwork() {
                 action={
                   <Button
                     type="button"
-                    variant="primary"
+                    variant="secondary"
                     size="lg"
                     icon="scan"
                     onClick={() => {

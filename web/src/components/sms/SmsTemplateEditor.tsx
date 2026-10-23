@@ -48,7 +48,11 @@ export interface SmsTemplateEditorProps {
   onTest: (mobile: string, body: string) => Promise<Outcome<SmsTestOut>>;
   /** Called after a test send so the caller can refresh its message log. */
   onTested?: () => void;
+  /** Starts folded on a phone, so a long list of templates keeps only the first one open. */
+  foldOnPhone?: boolean;
 }
+
+const PHONE_WIDTH = "(max-width: 639px)";
 
 /**
  * Edits one SMS template: placeholder chips inserted at the caret, validation as the API does it, a live
@@ -75,6 +79,7 @@ export function SmsTemplateEditor(props: SmsTemplateEditorProps) {
   const [testing, setTesting] = useState(false);
   const [testError, setTestError] = useState<string | null>(null);
   const [testResult, setTestResult] = useState<SmsTestOut | null>(null);
+  const [open, setOpen] = useState(() => !(props.foldOnPhone && typeof window !== "undefined" && window.matchMedia?.(PHONE_WIDTH).matches === true));
 
   const unknown = unknownPlaceholders(draft, saved.placeholders);
   const missing = saved.required.filter((p) => !draft.includes(`{${p}}`));
@@ -156,10 +161,14 @@ export function SmsTemplateEditor(props: SmsTemplateEditorProps) {
 
   return (
     <section aria-labelledby={ids.title} className="overflow-hidden rounded-card border border-border-default bg-surface-panel shadow-soft">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border-subtle px-5 py-4 sm:px-6">
-        <h2 id={ids.title} className="text-title-sm font-bold text-text-primary">{title}</h2>
-        <Badge variant={saved.is_custom ? "brand" : "neutral"} size="sm">{saved.is_custom ? customLabel : defaultLabel}</Badge>
-      </div>
+      <details open={open} onToggle={(e) => setOpen(e.currentTarget.open)} className="group">
+        <summary className="flex cursor-pointer list-none flex-wrap items-center justify-between gap-3 px-5 py-4 group-open:border-b group-open:border-border-subtle sm:px-6 [&::-webkit-details-marker]:hidden">
+          <h2 id={ids.title} className="text-title-sm font-bold text-text-primary">{title}</h2>
+          <span className="flex items-center gap-2">
+            <Badge variant={saved.is_custom ? "brand" : "neutral"} size="sm">{saved.is_custom ? customLabel : defaultLabel}</Badge>
+            <Icon name="chevron-down" size={18} className="text-text-muted transition-transform group-open:rotate-180 motion-reduce:transition-none" />
+          </span>
+        </summary>
 
       <div className="grid gap-6 p-5 sm:p-6 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
         <div className="space-y-4">
@@ -261,6 +270,7 @@ export function SmsTemplateEditor(props: SmsTemplateEditorProps) {
         {testError && <FormAlert>{testError}</FormAlert>}
         {testOutcome && <Notice tone={testSucceeded ? "success" : "danger"}>{testOutcome}</Notice>}
       </form>
+      </details>
 
       <ConfirmDialog
         isOpen={confirmReset}

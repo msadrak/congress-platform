@@ -232,7 +232,7 @@ export function BoothDirectoryView({
       <SectionHeader id="booth-directory-title" title={<bdi>{title}</bdi>} description={<bdi>{lead}</bdi>} action={counts} />
 
       {directory.status === "loading" && (
-        <div role="status" aria-label={title} className="grid gap-3 sm:grid-cols-2">
+        <div role="status" aria-label={title} className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           {[0, 1, 2, 3].map((i) => (
             <div key={i} className="skeleton h-36 rounded-card" />
           ))}
@@ -319,13 +319,13 @@ export function BoothDirectoryView({
               </Button>
             </div>
           ) : (
-            <ul className="grid gap-3 sm:grid-cols-2">
+            <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               {filtered.map((b) => {
                 const saved = savedIds?.has(b.id) ?? false;
                 return (
                   <li
                     key={b.id}
-                    className={`group relative flex flex-col rounded-card border bg-surface-panel p-4 shadow-soft transition-[border-color,box-shadow] duration-300 hover:shadow-lift sm:p-5 ${
+                    className={`group relative flex min-w-0 flex-col rounded-card border bg-surface-panel p-4 shadow-soft transition-[border-color,box-shadow] duration-300 hover:shadow-lift sm:p-5 ${
                       saved ? "border-event-accent/35" : "border-border-default hover:border-border-strong"
                     }`}
                   >

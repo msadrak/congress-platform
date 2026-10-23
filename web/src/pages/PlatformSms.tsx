@@ -3,12 +3,12 @@ import { Navigate, useSearchParams } from "react-router-dom";
 import { localizedApiError, type SmsCheckOut, type SmsSettingsOut, type SmsTemplateOut } from "../api/client";
 import { commonCopy } from "../copy/common";
 import { asciiDigits } from "../lib/mobile";
-import { codeFontClass, formatNumber } from "../lib/format";
+import { codeFontClass, formatNumber, localeDigits } from "../lib/format";
 import { useMutation } from "../hooks/useMutation";
 import { Button } from "../components/ui/Button";
 import { ConfirmDialog } from "../components/ui/ConfirmDialog";
 import { Field } from "../components/ui/Field";
-import { CodeInput, TextInput } from "../components/ui/Input";
+import { CodeInput, NumberInput, TextInput } from "../components/ui/Input";
 import { Notice } from "../components/ui/Notice";
 import { PageHeader, SectionHeader } from "../components/ui/PageHeader";
 import { ErrorState, LoadingState } from "../components/ui/StateBlock";
@@ -41,7 +41,7 @@ export function PlatformSmsSettings() {
   const [mode, setMode] = useState(status.sms.mode);
   const [apiKey, setApiKey] = useState("");
   const [line, setLine] = useState(status.sms.line_number ? String(status.sms.line_number) : "");
-  const [caps, setCaps] = useState<Record<CapField, string>>({ hourly_cap: String(status.sms.hourly_cap), daily_cap: String(status.sms.daily_cap) });
+  const [caps, setCaps] = useState<Record<CapField, number | undefined>>({ hourly_cap: status.sms.hourly_cap, daily_cap: status.sms.daily_cap });
   // Each request ends its own spinner whatever happens (useMutation).
   const saveRequest = useMutation(locale);
   const checkRequest = useMutation(locale);
@@ -53,7 +53,7 @@ export function PlatformSmsSettings() {
 
   const lineNumber = wholeNumber(line);
   const lineInvalid = line.trim() !== "" && lineNumber === null;
-  const capInvalid = (field: CapField) => wholeNumber(caps[field]) === null;
+  const capInvalid = (field: CapField) => caps[field] === undefined;
   const invalid = lineInvalid || CAPS.some(capInvalid);
 
   const apply = (data: SmsSettingsOut, message: string) => {
@@ -61,7 +61,7 @@ export function PlatformSmsSettings() {
     setMode(data.mode);
     setApiKey("");
     setLine(data.line_number ? String(data.line_number) : "");
-    setCaps({ hourly_cap: String(data.hourly_cap), daily_cap: String(data.daily_cap) });
+    setCaps({ hourly_cap: data.hourly_cap, daily_cap: data.daily_cap });
     setSaved(message);
     void refreshStatus();
   };
@@ -84,8 +84,8 @@ export function PlatformSmsSettings() {
     if (apiKey.trim()) body.api_key = apiKey.trim();
     if (lineNumber !== null && lineNumber !== sms.line_number) body.line_number = lineNumber;
     for (const field of CAPS) {
-      const value = wholeNumber(caps[field]);
-      if (value !== null && value !== sms[field]) body[field] = value;
+      const value = caps[field];
+      if (value !== undefined && value !== sms[field]) body[field] = value;
     }
     void send(body, c.saved);
   };
@@ -142,7 +142,17 @@ export function PlatformSmsSettings() {
 
           <div className="grid gap-5 sm:grid-cols-2">
             <div className="space-y-1">
-              <Field label={c.apiKey} hint={sms.api_key_unreadable ? c.keyUnreadable : sms.api_key_set ? c.keySaved(sms.api_key_hint ?? "") : undefined}>
+              <Field
+                label={c.apiKey}
+                hint={
+                  sms.api_key_unreadable ? c.keyUnreadable : sms.api_key_set ? (
+                    <>
+                      {c.keySaved} <bdi dir="ltr">{sms.api_key_hint ?? ""}</bdi>
+                      {c.keySavedKeep}
+                    </>
+                  ) : undefined
+                }
+              >
                 <CodeInput type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder={sms.api_key_set ? "••••••••" : ""} />
               </Field>
               {sms.api_key_source === "console" ? (
@@ -167,13 +177,10 @@ export function PlatformSmsSettings() {
               {CAPS.map((field) => (
                 <div key={field} className="space-y-1">
                   <Field label={field === "hourly_cap" ? c.hourlyCap : c.dailyCap} hint={c.capHint} error={capInvalid(field) ? c.capInvalid : undefined}>
-                    <TextInput
-                      dir="ltr"
-                      inputMode="numeric"
-                      autoComplete="off"
+                    <NumberInput
+                      locale={locale}
                       value={caps[field]}
-                      onChange={(e) => setCaps((current) => ({ ...current, [field]: e.target.value }))}
-                      className={codeFontClass(caps[field])}
+                      onValueChange={(value) => setCaps((current) => ({ ...current, [field]: value }))}
                     />
                   </Field>
                   <PlatformSource source={sms.caps_source[field] as "console" | "environment" | undefined} busy={saveRequest.busy} onReset={() => reset(field)} />
@@ -275,7 +282,10 @@ function PlatformTemplates() {
   const consoleOrigin = (status.public_origin ?? window.location.origin).replace(/\/$/, "");
   const s = c.sample;
   const samples: Record<string, Record<string, string>> = {
-    otp: { code: "1".repeat(status.sign_in.otp_length), minutes: String(Math.max(1, Math.floor(status.sign_in.otp_ttl_seconds / 60))) },
+    otp: {
+      code: localeDigits("1".repeat(status.sign_in.otp_length), locale),
+      minutes: localeDigits(String(Math.max(1, Math.floor(status.sign_in.otp_ttl_seconds / 60))), locale),
+    },
     ticket_confirmation: { name: s.attendee, event: s.event, tier: s.tier, location: s.location, link: `${sampleOrigin}/t/sample2345` },
     // Invitations link to pages on the public origin, not to short links.
     staff_invite: { name: s.staff, booth: s.booth, event: s.event, link: `${consoleOrigin}/booth/sample` },
@@ -303,9 +313,10 @@ function PlatformTemplates() {
       ) : !templates ? (
         <LoadingState />
       ) : (
-        templates.map((template) => (
+        templates.map((template, index) => (
           <SmsTemplateEditor
             key={template.kind}
+            foldOnPhone={index > 0}
             template={template}
             sample={samples[template.kind] ?? samples.ticket_confirmation}
             locale={locale}

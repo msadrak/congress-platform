@@ -47,7 +47,7 @@ export function DigitalPassCard({ ticket, locale, onPrint, onExpand }: DigitalPa
       viewBox="0 0 256 256"
       fgColor="#000000"
       bgColor="#FFFFFF"
-      className="block h-56 w-56 select-none min-[380px]:h-64 min-[380px]:w-64"
+      className="block aspect-square h-auto w-full select-none"
     />
   );
   return (
@@ -73,8 +73,8 @@ export function DigitalPassCard({ ticket, locale, onPrint, onExpand }: DigitalPa
         )}
       </div>
 
-      {/* QR first and large: black modules on a pure white plate with a quiet zone */}
-      <div className="flex flex-col items-center gap-4 px-5 pt-3 pb-6 sm:px-6">
+      {/* QR first and large (the card width, up to 320 px): black modules on a pure white plate with a quiet zone */}
+      <div className="flex flex-col items-center gap-4 px-4 pt-3 pb-6 sm:px-6">
         {cancelled ? (
           <div
             data-testid="pass-qr-cancelled"
@@ -91,19 +91,19 @@ export function DigitalPassCard({ ticket, locale, onPrint, onExpand }: DigitalPa
             onClick={onExpand}
             aria-label={copy.expandQr}
             title={copy.expandQr}
-            className="at-qr-plate press relative cursor-zoom-in p-5 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-aiteb-orchid"
+            className="at-qr-plate press relative w-full max-w-88 cursor-zoom-in p-4 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-aiteb-orchid"
           >
             {qr}
             <span
               aria-hidden="true"
               data-testid="pass-qr-expand"
-              className="at-print-hide absolute end-1.5 top-1.5 grid size-6 place-items-center rounded-full bg-black/5 text-black/55"
+              className="at-print-hide absolute end-1 top-1 grid size-5 place-items-center rounded-full bg-black/5 text-black/55"
             >
-              <Icon name="arrow-up-right" size={14} />
+              <Icon name="arrow-up-right" size={12} />
             </span>
           </button>
         ) : (
-          <div className="at-qr-plate p-5">{qr}</div>
+          <div className="at-qr-plate w-full max-w-88 p-4">{qr}</div>
         )}
 
         {/* Whose pass: holder and tier right under the QR, with the real status */}
