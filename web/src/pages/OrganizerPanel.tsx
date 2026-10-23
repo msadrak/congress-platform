@@ -305,7 +305,7 @@ export function PanelFrame({ eventId, view, locale, device, refreshTick, onViewC
         }}
       >
         <div
-          className={`overflow-hidden bg-surface-page ${device === "mobile" ? "rounded-[44px] shadow-pop ring-[10px] ring-surface-ink" : "rounded-xl shadow-lift ring-1 ring-border-default"}`}
+          className={`overflow-hidden bg-surface-page ${device === "mobile" ? "rounded-3xl shadow-pop ring-[10px] ring-surface-ink" : "rounded-xl shadow-lift ring-1 ring-border-default"}`}
           style={{ width: size.width, height: frameHeight, transform: `scale(${scale})`, transformOrigin: "0 0" }}
         >
           <iframe ref={frame} src={src} title={title} className="size-full border-0 bg-surface-page" data-testid="panel-preview-frame" />

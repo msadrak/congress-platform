@@ -271,7 +271,7 @@ export default function MyTickets() {
   if (loading && nothingYet) {
     return shell(
       <div role="status" aria-label={t.navMyTicket} aria-busy="true" className="space-y-4">
-        <div className="skeleton mx-auto aspect-square w-72 rounded-[20px]" />
+        <div className="skeleton mx-auto aspect-square w-72 rounded-2xl" />
         <div className="skeleton mx-auto h-6 w-48 rounded-full" />
         <div className="skeleton h-28 rounded-2xl" />
       </div>,

@@ -30,7 +30,7 @@ function Inlines({ parts }: { parts: Inline[] }) {
 
 /** Organizer prose (Markdown-lite) rendered as React text: paragraphs, bullet lists, bold, safe links. */
 export function RichText({ text, size = "md", className = "" }: { text: string; size?: "md" | "lg"; className?: string }) {
-  const body = size === "lg" ? "text-lg leading-[1.7] sm:text-xl rtl:leading-[1.95]" : "text-base leading-[1.75] sm:text-[1.0625rem] rtl:leading-[2]";
+  const body = size === "lg" ? "text-title-sm leading-[1.7] rtl:leading-[1.95]" : "text-body leading-[1.75] rtl:leading-[2]";
   return (
     <div {...proseDir(text)} className={`space-y-5 text-text-secondary ${body} ${className}`}>
       {parseMarkdownLite(text).map((block, i) =>

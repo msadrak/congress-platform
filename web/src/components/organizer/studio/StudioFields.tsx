@@ -57,7 +57,7 @@ export function LocalizedField({
             <span
               key={l}
               title={value[l].trim() ? copy.languages[l] : copy.missing(copy.languages[l])}
-              className={`rounded px-1.5 py-0.5 font-mono text-[10px] font-semibold uppercase ${
+              className={`rounded px-1.5 py-0.5 font-mono text-caption font-semibold uppercase ${
                 value[l].trim() ? "bg-aiteb-lavender text-aiteb-indigo" : "bg-surface-panel-subtle text-text-muted line-through decoration-text-muted/60"
               }`}
             >
@@ -165,7 +165,7 @@ export function ImageField({
             </Button>
           )}
           {image && (
-            <span className="font-mono text-[11px] text-text-muted tabular" dir="ltr">
+            <span className="font-mono text-caption text-text-muted tabular" dir="ltr">
               {image.width}×{image.height}
             </span>
           )}
@@ -261,12 +261,12 @@ export function FocalPointField({
         <div className="flex items-end gap-3">
           <figure className="w-44 min-w-0 space-y-1">
             <img src={image.url} alt="" className="aspect-[16/10] w-full rounded-lg object-cover ring-1 ring-border-default" style={{ objectPosition: position }} />
-            <figcaption className="text-[11px] text-text-muted">{b.previewWide}</figcaption>
+            <figcaption className="text-caption text-text-muted">{b.previewWide}</figcaption>
           </figure>
           {phone && (
             <figure className="w-12 shrink-0 space-y-1">
               <img src={image.url} alt="" className="aspect-[9/19] w-full rounded-lg object-cover ring-1 ring-border-default" style={{ objectPosition: position }} />
-              <figcaption className="text-[11px] text-text-muted">{b.previewPhone}</figcaption>
+              <figcaption className="text-caption text-text-muted">{b.previewPhone}</figcaption>
             </figure>
           )}
         </div>
@@ -343,7 +343,7 @@ export function ItemList<T>({
         {items.map((item, i) => (
           <li key={keys[i]} className="rounded-2xl border border-border-default bg-surface-panel p-4 shadow-soft">
             <div className="mb-3 flex items-center gap-2">
-              <span className="font-mono text-[11px] font-semibold text-aiteb-indigo tabular">{String(i + 1).padStart(2, "0")}</span>
+              <span className="font-mono text-caption font-semibold text-aiteb-indigo tabular">{String(i + 1).padStart(2, "0")}</span>
               <span className="min-w-0 flex-1 truncate text-sm font-semibold text-text-primary">{summary(item, i) || copy.untitled}</span>
               <IconButton icon="arrow-up" label={copy.moveUp} disabled={i === 0} onClick={() => move(i, i - 1)} />
               <IconButton icon="arrow-down" label={copy.moveDown} disabled={i === items.length - 1} onClick={() => move(i, i + 1)} />

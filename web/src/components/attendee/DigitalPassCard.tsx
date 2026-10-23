@@ -79,7 +79,7 @@ export function DigitalPassCard({ ticket, locale, onPrint, onExpand }: DigitalPa
         {cancelled ? (
           <div
             data-testid="pass-qr-cancelled"
-            className="grid h-64 w-64 place-items-center rounded-[20px] border-2 border-dashed border-white/25 p-6 text-center text-sm text-ink-300"
+            className="grid h-64 w-64 place-items-center rounded-2xl border-2 border-dashed border-white/25 p-6 text-center text-sm text-ink-300"
           >
             <span className="space-y-2">
               <Icon name="x-circle" size={36} className="mx-auto text-status-danger-solid" />
@@ -148,11 +148,11 @@ export function DigitalPassCard({ ticket, locale, onPrint, onExpand }: DigitalPa
         </div>
         <div className="grid grid-cols-2 gap-x-5 border-t border-white/10 pt-4">
           <div className="min-w-0 space-y-1">
-            <span className="block text-[11px] font-medium text-ink-400">{copy.issued}</span>
+            <span className="block text-caption font-medium text-ink-400">{copy.issued}</span>
             <span className="block text-sm font-semibold text-white">{formatPassIssuedDate(ticket.created_at, locale, ticket.event_timezone)}</span>
           </div>
           <div className="min-w-0 space-y-1">
-            <span className="block text-[11px] font-medium text-ink-400">{copy.passId}</span>
+            <span className="block text-caption font-medium text-ink-400">{copy.passId}</span>
             {/* LTR bidi isolation for the Latin reference code */}
             <span className="block font-mono text-sm font-semibold tracking-[0.08em] text-white">
               <bdi dir="ltr">{ticket.id.slice(0, 13).toUpperCase()}</bdi>

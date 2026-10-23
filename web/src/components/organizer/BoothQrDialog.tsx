@@ -87,7 +87,7 @@ export function BoothQrDialog({ booth, eventName, onClose }: BoothQrDialogProps)
             >
               <div aria-hidden="true" className="h-1.5 bg-[image:var(--grad-aiteb)]" />
               <div className="space-y-4 px-6 pb-6 pt-5">
-                <p className="truncate text-[0.6875rem] font-semibold text-text-muted">
+                <p className="truncate text-caption font-semibold text-text-muted">
                   <bdi>{eventName}</bdi>
                 </p>
                 <div className="org-plate mx-auto inline-block rounded-xl p-4 ring-1 ring-border-default">
@@ -112,10 +112,10 @@ export function BoothQrDialog({ booth, eventName, onClose }: BoothQrDialogProps)
                     </p>
                   )}
                 </div>
-                <p className="border-t border-border-subtle pt-3 text-[0.6875rem] leading-relaxed text-text-secondary">
+                <p className="border-t border-border-subtle pt-3 text-caption leading-relaxed text-text-secondary">
                   {copy.scanHint}
                 </p>
-                <p className="break-all font-mono text-[0.625rem] text-text-muted" dir="ltr" data-testid="standee-url">
+                <p className="break-all font-mono text-caption text-text-muted" dir="ltr" data-testid="standee-url">
                   {shown.url}
                 </p>
               </div>

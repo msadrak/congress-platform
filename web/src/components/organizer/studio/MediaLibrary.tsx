@@ -119,11 +119,11 @@ export function MediaLibrary({ isOpen, copy, assets, images, inUse, onUpload, on
                     </span>
                   </button>
                   <div className="flex items-center justify-between gap-2 px-2.5 py-1.5">
-                    <span className="font-mono text-[11px] text-text-muted tabular" dir="ltr">
+                    <span className="font-mono text-caption text-text-muted tabular" dir="ltr">
                       {asset.width}×{asset.height}
                     </span>
                     {used ? (
-                      <span className="text-[11px] font-semibold text-aiteb-indigo">{m.inUse}</span>
+                      <span className="text-caption font-semibold text-aiteb-indigo">{m.inUse}</span>
                     ) : (
                       <button
                         type="button"

@@ -93,10 +93,10 @@ export function BrandPanel({ doc, onChange, eventName }: { doc: PageDoc; onChang
               <span className="flex flex-wrap items-center gap-1.5 text-xs font-semibold text-text-primary">
                 {l.label}
                 {l.value === "banner" && (
-                  <span className="rounded-full bg-aiteb-lavender px-1.5 py-px text-[10px] font-semibold text-aiteb-indigo">{b.recommended}</span>
+                  <span className="rounded-full bg-aiteb-lavender px-1.5 py-px text-caption font-semibold text-aiteb-indigo">{b.recommended}</span>
                 )}
               </span>
-              <span className="block text-[11px] leading-snug text-text-muted">{l.hint}</span>
+              <span className="block text-caption leading-snug text-text-muted">{l.hint}</span>
             </label>
           ))}
         </div>
