@@ -82,7 +82,7 @@ const en: CopyShape<typeof fa> = {
   loading: "Loading…",
   loadFailed: (thing: string) => `Couldn't load ${thing}.`,
   network: "Could not reach the server. Check your connection and try again.",
-  generic: "Something went wrong. Please try again.",
+  generic: "That didn't work. Try again.",
   search: "Search",
   clearSearch: "Clear search",
   copy: "Copy",

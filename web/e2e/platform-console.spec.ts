@@ -139,6 +139,8 @@ test('the SMS gateway is checked and saved from the console; the key is never sh
   const requests = await fixture(page);
   await openConsole(page);
   await tab(page, 'SMS').click();
+  // A real address of its own; the older ?tab=sms one leads there.
+  await expect(page).toHaveURL(/\/platform\/sms$/);
   await expect(page.getByTestId('gateway-state')).toContainText('Test mode');
 
   await page.getByLabel('Live delivery through sms.ir').check();

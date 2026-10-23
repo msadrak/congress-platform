@@ -34,7 +34,7 @@ const SENTENCES: ReadonlyArray<{ status: number; fa: string; en: string }> = [
   { status: 429, fa: "تعداد درخواست‌ها زیاد است. کمی صبر کنید و دوباره تلاش کنید.", en: "Too many requests. Wait a moment and try again." },
   { status: 500, fa: "در سرور خطایی رخ داد. کمی بعد دوباره تلاش کنید.", en: "Something went wrong on the server. Try again in a little while." },
 ];
-const GENERIC = { fa: "انجام نشد. دوباره تلاش کنید.", en: "Something went wrong. Please try again." };
+const GENERIC = { fa: "انجام نشد. دوباره تلاش کنید.", en: "That didn't work. Try again." };
 
 test("each listed status has its own localized sentence, pinned", () => {
   for (const { status, fa, en } of SENTENCES) {

@@ -221,7 +221,7 @@ export function SmsTemplateEditor(props: SmsTemplateEditorProps) {
           {error && <FormAlert>{error}</FormAlert>}
 
           <div className="flex flex-wrap items-center gap-2">
-            <Button type="button" variant="primary" icon="check" disabled={!dirty || !valid} loading={busy} onClick={() => void apply(() => props.onSave(draft), savedMessage)}>
+            <Button type="button" variant="secondary" icon="check" disabled={!dirty || !valid} loading={busy} onClick={() => void apply(() => props.onSave(draft), savedMessage)}>
               {copy.saveText}
             </Button>
             {dirty && (

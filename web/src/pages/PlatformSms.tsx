@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { useSearchParams } from "react-router-dom";
+import { Navigate, useSearchParams } from "react-router-dom";
 import { localizedApiError, type SmsCheckOut, type SmsSettingsOut, type SmsTemplateOut } from "../api/client";
 import { commonCopy } from "../copy/common";
 import { asciiDigits } from "../lib/mobile";
@@ -15,16 +15,16 @@ import { ErrorState, LoadingState } from "../components/ui/StateBlock";
 import { SmsTemplateEditor } from "../components/sms/SmsTemplateEditor";
 import { PlatformSource } from "./PlatformSource";
 import { PlatformStatus } from "./PlatformStatus";
-import { TEXT_ACTION, usePlatform } from "./platformContext";
+import { SMS_TAB, TEXT_ACTION, usePlatform } from "./platformContext";
 
 type ResetField = "mode" | "api_key" | "line_number" | "hourly_cap" | "daily_cap";
 type CapField = "hourly_cap" | "daily_cap";
 const CAPS: readonly CapField[] = ["hourly_cap", "daily_cap"];
 
-/** The index route: Status first, the SMS settings on `?tab=sms` (both tabs share the route in App.tsx). */
+/** The index route is Status; the older `?tab=sms` address moves to `/platform/sms`. */
 export default function PlatformIndex() {
   const [params] = useSearchParams();
-  return params.get("tab") === "sms" ? <PlatformSmsSettings /> : <PlatformStatus />;
+  return params.get("tab") === "sms" ? <Navigate to={SMS_TAB} replace /> : <PlatformStatus />;
 }
 
 /** "2000" / "۲۰۰۰" → 2000; null when it is not a whole number. */
@@ -34,7 +34,7 @@ function wholeNumber(text: string): number | null {
 }
 
 /** SMS gateway (sms.ir key, service line, live or test mode), the platform-wide caps, and the message wording. */
-function PlatformSmsSettings() {
+export function PlatformSmsSettings() {
   const { client, status, refreshStatus, locale, copy } = usePlatform();
   const c = copy.sms;
   const [sms, setSms] = useState<SmsSettingsOut>(status.sms);

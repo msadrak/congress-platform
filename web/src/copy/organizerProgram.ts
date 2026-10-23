@@ -312,7 +312,7 @@ const en: CopyShape<typeof fa> = {
       not_found: "This file no longer exists; refresh the page.",
       unauthorized: "Your role can't do this.",
       network: "Could not reach the server. Check your connection and try again.",
-      server: "Something went wrong. Please try again.",
+      server: "That didn't work. Try again.",
     },
   },
 

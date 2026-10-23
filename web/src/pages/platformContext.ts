@@ -17,13 +17,14 @@ export interface PlatformOutletContext {
 
 export type PlatformSection = "status" | "sms" | "signIn" | "organizers";
 
-/** The SMS tab shares the index route with Status (the route table lives in App.tsx). */
-export const SMS_TAB = "/platform?tab=sms";
+/** The SMS settings (`/platform?tab=sms` still leads there). */
+export const SMS_TAB = "/platform/sms";
 
 export function platformSection(pathname: string, search: string): PlatformSection {
   const path = pathname.replace(/\/$/, "");
   if (path === "/platform/sign-in") return "signIn";
   if (path === "/platform/organizers") return "organizers";
+  if (path === "/platform/sms") return "sms";
   return new URLSearchParams(search).get("tab") === "sms" ? "sms" : "status";
 }
 

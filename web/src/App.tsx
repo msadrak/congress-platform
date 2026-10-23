@@ -27,6 +27,7 @@ const OrganizerAnalytics = lazy(() => import("./pages/OrganizerAnalytics"));
 const OrganizerSms = lazy(() => import("./pages/OrganizerSms"));
 const PlatformConsole = lazy(() => import("./pages/PlatformConsole"));
 const PlatformSms = lazy(() => import("./pages/PlatformSms"));
+const PlatformSmsSettings = lazy(() => import("./pages/PlatformSms").then((m) => ({ default: m.PlatformSmsSettings })));
 const PlatformSignIn = lazy(() => import("./pages/PlatformSignIn"));
 const PlatformOrganizers = lazy(() => import("./pages/PlatformOrganizers"));
 const OrganizerDesk = lazy(() => import("./pages/OrganizerDesk"));
@@ -94,6 +95,7 @@ export default function App() {
         <Route path="/organizer/events/:eventId/panel/preview" element={<OrganizerPanelFrame />} />
         <Route path="/platform" element={<PlatformConsole />}>
           <Route index element={<PlatformSms />} />
+          <Route path="sms" element={<PlatformSmsSettings />} />
           <Route path="sign-in" element={<PlatformSignIn />} />
           <Route path="organizers" element={<PlatformOrganizers />} />
         </Route>
