@@ -25,8 +25,13 @@ Studio page, tiers, check-in points with scanner tokens, gate tickets, signed-in
 node scripts/load/local-stack.mjs up          # or: up --build (image from this checkout's backend/)
 # prints: host URL http://127.0.0.1:<port>, k6 URL http://congress-load-api-<id>:8000,
 #         K6_NETWORK=congress-load-net-<id>, and the admin token
+node scripts/load/local-stack.mjs workers 4   # re-create the API with 4 uvicorn workers (CONGRESS_API_WORKERS)
 node scripts/load/local-stack.mjs down        # when finished: removes containers, network and data
 ```
+
+`up --workers N` starts with N workers directly. The `console` provider keeps "sent" codes in the memory of the
+worker that sent them, so run `setup.mjs` with **one** worker (otherwise the outbox lookup may reach another
+worker and find no code), then `workers N` for k6: the data, port, secrets and fixture tokens are kept.
 
 It runs the API with `CONGRESS_ENVIRONMENT=development` and the `console` SMS provider, so no SMS is sent
 and the SMS outbox is available. k6 joins the stack's Docker network and talks to uvicorn directly.
@@ -156,3 +161,46 @@ older image (`congress-platform/api:staging`, before the publish/registration-wi
 since) on a quieter host, so they are not directly comparable; with the current code and the old setup.mjs every
 reservation answered 404 `EVENT_NOT_FOUND`. Candidates for the backend owners: take the tier increment last
 (just before commit) to shorten the lock, and/or run more uvicorn workers; then re-run this scenario.
+*Done in PERF-1, re-measured below: on a quieter host the old code met 50/s easily; the miss above was host load.*
+
+## Results PERF-1 (2026-10-23, reservations taken last, `CONGRESS_API_WORKERS`)
+
+Same machine and method (`local-stack.mjs`, PostgreSQL 16, k6 2.3.0 on the stack network), host load average
+4-14 on 12 cores (other agents were running; noticeably quieter than the run above). "Before" is
+`integration/upgrade` @ b980385 (tier increment first, one worker); "after" is `ws/perf1-reservations` (tier
+place taken last, just before commit). Each reservation run uses a fresh event and `RATE × 10 s` attendees signed
+in with one worker (`setup.mjs --gates 1 --tickets 0 --relax-otp-limits`); the API is then switched to N workers.
+p95 / p99 of `POST …/tickets/reserve` in ms; every run answered 201 to all, 0 5xx, unless noted.
+
+| Reservations/s × 10 s | before, 1 worker | after, 1 worker | after, 4 workers |
+| --- | --- | --- | --- |
+| 25 | 14 / 19 | 36 / 74 | 18 / 40 |
+| 50 | 13 / 100 | 11 / 20; 11 / 34 | 14 / 62; 50 / 177 |
+| 100 | 9 / 52 | 11 / 37 | 11 / 116 |
+| 200 | 294 / 427 | 165 / 242; 154 / 205 | 290 / 554; 153 / 273 |
+| 250 | — | 299 / 339 | 1329 / 1629 (p95 > 1 s) |
+| 300 | **3043 / 3760**, 238 dropped | **2473 / 4444**, 128 dropped; 810 / 1465 | 313 / 435; 1428 / 1845; 190 / 294 |
+| 400 | — | — | 7085 / 7907, 583 dropped, **1 × 500** (pool timeout, overload) |
+
+- The target (50/s, p95 < 1 s) is met by every configuration with a wide margin (p95 11-50 ms). Below about
+  200/s latency is noise-dominated (the same configuration varies 2-4× between runs on this shared host).
+- One worker saturates at about 250-300/s, before and after: the process's CPU, not the tier lock, is the
+  limit there. The shorter lock helps around saturation (200/s: p95 ~160 ms instead of 294 ms) and is proven
+  directly by `backend/tests/test_reservation_throughput.py` (a reservation stalled mid-write no longer holds
+  up the tier). Four workers keep 300/s under 1 s in two of three runs; beyond that PostgreSQL in Docker Desktop
+  and the shared host are the limit, and at 400/s a request waited past the 10 s pool timeout (500).
+- Overload behaviour to know: past capacity, requests queue in the pool and the first failures are 500s from the
+  pool timeout (`CONGRESS_DB_POOL_TIMEOUT_SECONDS`), not 503s.
+
+Other scenarios, 1 minute each (fixture `--gates 10 --tickets 300`), p95 in ms, all checks passed, 0 5xx:
+
+| Scenario | 1 worker | 4 workers |
+| --- | --- | --- |
+| gate-scanning, 10 gates × 20 scans/min, full manifests every 30 s | batch 25, manifest 113 | batch 61, manifest 172 |
+| scanner-online, 10 gates × 30 scans/min, deltas every 30 s | scan 18, delta 76 | scan 18, delta 94 |
+| sync-backlog, 2000 scans in 20 chunks | 2.4 s total, chunk 174 | 1.9 s total, chunk 131 |
+| otp-burst, 300 in 1 min (`SPREAD_IPS=1`, relaxed limits) | 20 | 23 |
+
+At these rates more workers change nothing measurable; they add headroom for CPU-bound bursts. Keep
+`workers × (DB_POOL_SIZE + DB_MAX_OVERFLOW)` under PostgreSQL's `max_connections` (the stack above ran 4 × (10 + 10)
+= 80 of 100).
