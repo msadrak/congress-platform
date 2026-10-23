@@ -260,6 +260,7 @@ test.describe('scanner capacity', () => {
     await page.getByRole('button', { name: 'Menu' }).click();
     await expect(page.getByRole('menuitem', { name: 'Refresh list' })).not.toHaveAttribute('aria-disabled', 'true');
     await page.keyboard.press('Escape');
+    await expect(page.getByRole('menu')).toHaveCount(0);
 
     // Hold the server's answers so every record below shows the scanner's own local decision.
     server.holdBatches();
