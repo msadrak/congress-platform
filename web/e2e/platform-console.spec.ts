@@ -10,7 +10,7 @@ const CONFIRMATION_DEFAULT = '{name} عزیز، ثبت‌نام شما در «{e
 
 type Recorded = { method: string; path: string; auth: string | undefined; admin: string | undefined; body: unknown };
 
-async function fixture(page: Page, options: { statusCode?: number } = {}) {
+async function fixture(page: Page, options: { statusCode?: number; environment?: string; members?: Record<string, unknown>[] } = {}) {
   const requests: Recorded[] = [];
   let sms = { mode: 'console', mode_source: 'environment', effective: 'console', api_key_set: false, api_key_hint: null as string | null, api_key_source: null as string | null, api_key_unreadable: false, line_number: null as number | null, line_number_source: null as string | null, console_allowed: true, hourly_cap: 2000, daily_cap: 20000, caps_source: { hourly_cap: 'environment', daily_cap: 'environment' } as Record<string, string> };
   let signIn = { otp_length: 6, otp_ttl_seconds: 120, otp_resend_cooldown_seconds: 60, otp_sends_per_mobile_per_hour: 5, otp_sends_per_ip_per_hour: 100, otp_sends_per_trusted_ip_per_hour: 2000, otp_trusted_networks: [] as string[], sources: { otp_length: 'environment', otp_ttl_seconds: 'environment', otp_resend_cooldown_seconds: 'environment', otp_sends_per_mobile_per_hour: 'environment', otp_sends_per_ip_per_hour: 'environment', otp_sends_per_trusted_ip_per_hour: 'environment', otp_trusted_networks: 'environment' } as Record<string, string> };
@@ -19,6 +19,7 @@ async function fixture(page: Page, options: { statusCode?: number } = {}) {
     ticket_confirmation: { kind: 'ticket_confirmation', body: CONFIRMATION_DEFAULT, is_custom: false, default_body: CONFIRMATION_DEFAULT, placeholders: ['name', 'event', 'tier', 'location', 'link'], required: [] },
   };
   const organizers = [{ id: 'org-1', name: 'Alpha Society', created_at: '2099-01-01T00:00:00Z', revoked_at: null as string | null, key_rotated_at: null as string | null }];
+  const members: Record<string, unknown>[] = [...(options.members ?? [])];
   await page.route(/^https?:\/\/[^/]+\/api\//, async route => {
     const request = route.request();
     const path = new URL(request.url()).pathname;
@@ -30,7 +31,7 @@ async function fixture(page: Page, options: { statusCode?: number } = {}) {
     const json = (status: number, payload: unknown) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(payload) });
     if (options.statusCode) return json(options.statusCode, { detail: 'blocked' });
     if (headers['x-admin-token'] !== TOKEN) return json(401, { detail: 'Invalid admin token' });
-    if (path === '/api/platform/status') return json(200, { environment: 'staging', public_origin: 'https://congress.example.org', sms, sign_in: signIn });
+    if (path === '/api/platform/status') return json(200, { environment: options.environment ?? 'staging', public_origin: 'https://congress.example.org', sms, sign_in: signIn });
     if (path === '/api/platform/sms' && method === 'PUT') {
       if (body.mode) sms = { ...sms, mode: body.mode, mode_source: 'console' };
       if (body.api_key) sms = { ...sms, api_key_set: true, api_key_hint: `…${body.api_key.slice(-4)}`, api_key_source: 'console' };
@@ -65,6 +66,13 @@ async function fixture(page: Page, options: { statusCode?: number } = {}) {
     if (path === '/api/organizers/org-1/rotate-key') {
       organizers[0].key_rotated_at = '2099-01-03T00:00:00Z';
       return json(200, { id: 'org-1', name: 'Alpha Society', api_key: 'rotated-organizer-key-0002' });
+    }
+    if (path === '/api/organizers/org-1/members' && method === 'GET') return json(200, members);
+    if (path === '/api/organizers/org-1/members' && method === 'POST') {
+      if (members.some(m => m.mobile === body.mobile && !m.revoked_at)) return json(409, { detail: 'This number is already a member', code: 'MEMBER_EXISTS' });
+      const added = { id: `m-${members.length + 1}`, display_name: body.display_name, mobile: body.mobile, role: body.role, invited_by: 'Platform admin', created_at: '2099-01-05T00:00:00Z', revoked_at: null };
+      members.push(added);
+      return json(201, added);
     }
     if (path === '/api/organizers/org-1/revoke') {
       organizers[0].revoked_at = '2099-01-04T00:00:00Z';
@@ -162,6 +170,8 @@ test('sign-in rules are saved and can go back to the .env value', async ({ page 
   await page.getByRole('button', { name: 'Save rules' }).click();
   await expect(page.getByRole('status').filter({ hasText: 'Saved and applied.' })).toBeVisible();
   expect(requests.find(r => r.method === 'PUT' && r.path === '/api/platform/sign-in')?.body).toEqual({ otp_length: 4, reset: [] });
+  // An inline text action, but a full 44 px tap target.
+  expect((await page.getByRole('button', { name: 'Use .env' }).boundingBox())?.height).toBeGreaterThanOrEqual(44);
   await page.getByRole('button', { name: 'Use .env' }).click();
   await expect(page.getByLabel('Code digits')).toHaveValue('6');
   await expect(page.getByRole('status').filter({ hasText: '“Code digits” now follows the .env value.' })).toBeVisible();
@@ -262,4 +272,61 @@ test('Persian RTL at 320px: the console is right-to-left and fits', async ({ pag
     await expect(page.locator('[dir="rtl"]').first()).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth), path).toBe(0);
   }
+});
+
+test('the platform admin lists an organizer\'s members and adds its first owner', async ({ page }) => {
+  const requests = await fixture(page);
+  await openConsole(page);
+  await page.getByRole('link', { name: 'Organizers' }).click();
+  await expect(page.getByText('members sign in to the console with their mobile number and an SMS code')).toBeVisible();
+  await expect(page.getByText('The API key is an integration key')).toBeVisible();
+
+  await page.getByRole('button', { name: 'Members of “Alpha Society”' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Members of “Alpha Society”' });
+  await expect(dialog.getByText('No members yet. Add the first owner.')).toBeVisible();
+  await expect(dialog.getByLabel('Role')).toHaveValue('owner');
+  await dialog.getByLabel('Full name').fill('Neda Karimi');
+  await dialog.getByLabel('Mobile number').fill('0912 345 6789');
+  await dialog.getByRole('button', { name: 'Add and send SMS' }).click();
+  await expect(dialog.getByRole('status')).toContainText('Neda Karimi was added');
+  const list = dialog.getByTestId('platform-members');
+  await expect(list).toContainText('Neda Karimi');
+  await expect(list).toContainText('0912 345 6789');
+  await expect(list).toContainText('Owner');
+  await expect(list).toContainText('Added by Platform admin');
+  expect(requests.find(r => r.method === 'POST' && r.path === '/api/organizers/org-1/members')?.body).toEqual({ display_name: 'Neda Karimi', mobile: '09123456789', role: 'owner' });
+
+  await dialog.getByLabel('Full name').fill('Someone Else');
+  await dialog.getByLabel('Mobile number').fill('12');
+  await dialog.getByRole('button', { name: 'Add and send SMS' }).click();
+  await expect(dialog.getByRole('alert')).toContainText('Enter a valid mobile number');
+});
+
+test('Persian console: localized environment, members and coded errors, no raw English', async ({ page }) => {
+  await fixture(page, {
+    environment: 'production',
+    members: [{ id: 'm-1', display_name: 'مهدی کلانی', mobile: '09121112233', role: 'owner', invited_by: 'api-key', created_at: '2099-01-02T00:00:00Z', revoked_at: null }],
+  });
+  await page.goto('/');
+  await page.evaluate(() => localStorage.setItem('congress_attendee_locale', 'fa'));
+  await page.goto('/platform');
+  await page.getByLabel('توکن مدیر سامانه').fill(TOKEN);
+  await page.getByRole('button', { name: 'ورود به پنل' }).click();
+  await expect(page.getByTestId('platform-environment')).toHaveText('محیط اصلی');
+
+  await page.getByRole('link', { name: 'برگزارکنندگان' }).click();
+  await page.getByRole('button', { name: 'اعضای «Alpha Society»' }).click();
+  const dialog = page.getByRole('dialog', { name: 'اعضای «Alpha Society»' });
+  const list = dialog.getByTestId('platform-members');
+  await expect(list).toContainText('افزوده‌شده به دست کلید API');
+  await expect(list).toContainText('۰۹۱۲ ۱۱۱ ۲۲۳۳');
+  await expect(list).toContainText('مالک');
+  await expect(list).not.toContainText('api-key');
+  // Persian digits keep the sans font (IBM Plex Mono covers only Latin).
+  expect(await list.getByText('۰۹۱۲ ۱۱۱ ۲۲۳۳').evaluate(el => getComputedStyle(el).fontFamily)).not.toMatch(/Plex Mono/);
+
+  await dialog.getByLabel('نام و نام خانوادگی').fill('نفر دوم');
+  await dialog.getByLabel('شماره موبایل').fill('09121112233');
+  await dialog.getByRole('button', { name: 'افزودن و ارسال پیامک' }).click();
+  await expect(dialog.getByRole('alert')).toHaveText('این شماره هم‌اکنون عضو این سازمان است.');
 });

@@ -1,11 +1,12 @@
 import { useState, type FormEvent } from "react";
-import { formatApiError, localizedApiError, type SignInOut } from "../api/client";
+import { localizedApiError, type SignInOut } from "../api/client";
+import { codeFontClass } from "../lib/i18n";
 import { asciiDigits } from "../lib/mobile";
 import { Button } from "../components/ui/Button";
 import { Icon } from "../components/ui/Icon";
 import { Field, FormAlert, SectionHeader } from "../components/organizer/WorkspaceUi";
 import { useMutation } from "../hooks/useMutation";
-import { usePlatform } from "./platformContext";
+import { ENV_BUTTON, usePlatform } from "./platformContext";
 
 type RuleField =
   | "otp_length"
@@ -104,7 +105,7 @@ export default function PlatformSignIn() {
       const name = key === "otp_trusted_networks" ? (isRtl ? "شبکه‌های محل همایش" : "Venue networks") : isRtl ? field?.fa : field?.en;
       setSaved(isRtl ? `«${name ?? key}» اکنون از مقدار .env پیروی می‌کند.` : `“${name ?? key}” now follows the .env value.`);
     } else {
-      setError(err ? formatApiError(err) : isRtl ? "تغییری اعمال نشد." : "Nothing was changed.");
+      setError(err ? localizedApiError(err, locale) : isRtl ? "تغییری اعمال نشد." : "Nothing was changed.");
     }
   };
 
@@ -126,7 +127,7 @@ export default function PlatformSignIn() {
                   <span>{isRtl ? f.hintFa : f.hintEn}</span>
                   <span>· {rules.sources[f.key] === "console" ? (isRtl ? "از این پنل" : "set here") : isRtl ? "از فایل .env" : "from .env"}</span>
                   {rules.sources[f.key] === "console" && (
-                    <button type="button" disabled={resetting} aria-busy={resetting} onClick={() => void reset(f.key)} className="font-semibold text-action-primary hover:underline cursor-pointer disabled:cursor-wait disabled:opacity-60">
+                    <button type="button" disabled={resetting} aria-busy={resetting} onClick={() => void reset(f.key)} className={ENV_BUTTON}>
                       {isRtl ? "مقدار .env" : "Use .env"}
                     </button>
                   )}
@@ -140,7 +141,7 @@ export default function PlatformSignIn() {
                 value={values[f.key]}
                 onChange={(e) => setValues((v) => ({ ...v, [f.key]: e.target.value }))}
                 aria-invalid={invalid.includes(f.key)}
-                className="ui-input font-mono"
+                className={`ui-input ${codeFontClass(values[f.key])}`}
               />
             </Field>
           ))}
@@ -156,7 +157,7 @@ export default function PlatformSignIn() {
               </span>
               <span>· {rules.sources.otp_trusted_networks === "console" ? (isRtl ? "از این پنل" : "set here") : isRtl ? "از فایل .env" : "from .env"}</span>
               {rules.sources.otp_trusted_networks === "console" && (
-                <button type="button" disabled={resetting} aria-busy={resetting} onClick={() => void reset("otp_trusted_networks")} className="font-semibold text-action-primary hover:underline cursor-pointer disabled:cursor-wait disabled:opacity-60">
+                <button type="button" disabled={resetting} aria-busy={resetting} onClick={() => void reset("otp_trusted_networks")} className={ENV_BUTTON}>
                   {isRtl ? "مقدار .env" : "Use .env"}
                 </button>
               )}

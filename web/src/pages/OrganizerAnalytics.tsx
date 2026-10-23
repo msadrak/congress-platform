@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useOutletContext, useParams } from "react-router-dom";
 import {
   createApiClient,
@@ -13,6 +13,9 @@ import { bucketSeries, formatClock, formatDay, formatHour, todayIn, type SeriesP
 import { networkErrorMessage } from "../lib/errorMessages";
 import { formatLocalizedNumber, type AttendeeLocale } from "../lib/i18n";
 import { eventOperationNumber } from "../lib/organizerWorkspace";
+import { sessionAllows } from "../lib/organizerConsole";
+import { createRequestGate } from "../lib/requestGate";
+import { timeZoneLabel } from "../lib/timeZoneLabel";
 import type { OrganizerOutletContext } from "./OrganizerLayout";
 import { Badge } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
@@ -26,6 +29,11 @@ const FALLBACK_TIMEZONE = "Asia/Tehran";
 const NETWORK_ERROR = Symbol("network");
 
 type CsvKind = "attendance" | "registrations";
+
+/** Locale-formatted figures: IBM Plex Mono only covers Latin, so Persian digits keep the sans font (tabular). */
+function numberFontClass(locale: AttendeeLocale): string {
+  return locale === "fa" ? "tabular" : "font-mono tabular";
+}
 type Translations = OrganizerOutletContext["t"];
 
 // Remount per event so a late response for event A can never write into event B's state.
@@ -36,7 +44,7 @@ export default function OrganizerAnalytics() {
 
 function OrganizerAnalyticsContent() {
   const { eventId } = useParams<{ eventId: string }>();
-  const { apiKey, onKeyRejected, reportEvent, locale, t } = useOutletContext<OrganizerOutletContext>();
+  const { apiKey, reportEvent, session, locale, t } = useOutletContext<OrganizerOutletContext>();
 
   const [event, setEvent] = useState<EventOut | null>(null);
   const [points, setPoints] = useState<CheckInPointOut[]>([]);
@@ -77,8 +85,6 @@ function OrganizerAnalyticsContent() {
       client.GET("/api/events/{event_id}/ticket-tiers", { params: path }),
     ])
       .then(([evRes, pointsRes, tiersRes]) => {
-        // 401 invalidates only the key that was sent, even if this page has since unmounted.
-        if ([evRes, pointsRes, tiersRes].some((res) => res.response.status === 401)) onKeyRejected(apiKey);
         if (!active) return;
         if (evRes.data) setEvent(evRes.data);
         if (pointsRes.data) setPoints(pointsRes.data);
@@ -90,14 +96,14 @@ function OrganizerAnalyticsContent() {
     return () => {
       active = false;
     };
-  }, [eventId, apiKey, onKeyRejected]);
+  }, [eventId, apiKey]);
 
   // The figures for the current filters. Only the newest request may write, so a slow answer for earlier
   // filters (or an older poll) never replaces a newer one.
-  const latestRequest = useRef(0);
+  const [requests] = useState(createRequestGate);
   const loadAnalytics = useCallback(async () => {
     if (!eventId || !apiKey) return;
-    const request = ++latestRequest.current;
+    const request = requests.begin();
     const key = JSON.stringify([pointId, tierId, day]);
     const client = createApiClient({ kind: "organizer", token: apiKey });
     try {
@@ -107,9 +113,7 @@ function OrganizerAnalyticsContent() {
           query: { point_id: pointId || undefined, ticket_tier_id: tierId || undefined, day: day || undefined },
         },
       });
-      // 401 invalidates only the key that was sent, even if the answer is no longer wanted.
-      if (res.response.status === 401) onKeyRejected(apiKey);
-      if (request !== latestRequest.current) return;
+      if (!requests.isLatest(request)) return;
       if (res.data) {
         setAnalytics({ key, data: res.data });
         setError(null);
@@ -118,9 +122,9 @@ function OrganizerAnalyticsContent() {
         setError(res.error ?? { detail: `HTTP ${res.response.status}` });
       }
     } catch {
-      if (request === latestRequest.current) setError(NETWORK_ERROR);
+      if (requests.isLatest(request)) setError(NETWORK_ERROR);
     }
-  }, [eventId, apiKey, onKeyRejected, pointId, tierId, day]);
+  }, [eventId, apiKey, pointId, tierId, day, requests]);
 
   // Fetched when the filters change, on retry, and on coming back to a hidden tab; never while hidden.
   useEffect(() => {
@@ -136,13 +140,9 @@ function OrganizerAnalyticsContent() {
     return () => window.clearInterval(interval);
   }, [loadAnalytics, visible, autoRefresh]);
 
-  // A late answer after leaving the page writes nothing.
-  useEffect(
-    () => () => {
-      latestRequest.current = Number.NaN;
-    },
-    [],
-  );
+  // A late answer after leaving the page writes nothing. The gate reopens for the next request, so StrictMode's
+  // development remount (cleanup, then the effects again) still shows its figures.
+  useEffect(() => () => requests.invalidate(), [requests]);
 
   useEffect(() => {
     if (event) reportEvent(event);
@@ -179,7 +179,6 @@ function OrganizerAnalyticsContent() {
         kind === "attendance"
           ? await client.GET("/api/events/{event_id}/analytics/export-csv", options)
           : await client.GET("/api/events/{event_id}/analytics/registrations-csv", options);
-      if (response.status === 401) onKeyRejected(apiKey);
       if (!response.ok || !blob) {
         setExportError(t.csvExportFailed);
         return;
@@ -199,6 +198,8 @@ function OrganizerAnalyticsContent() {
   };
 
   const fmt = (n: number) => formatLocalizedNumber(n, locale);
+  const digitFont = numberFontClass(locale);
+  const canExport = sessionAllows(session, "manager");
   const numberLocale = locale === "fa" ? "fa-IR" : "en-US";
   const pct = (rate: number) =>
     new Intl.NumberFormat(numberLocale, { style: "percent", minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(rate / 100);
@@ -228,14 +229,19 @@ function OrganizerAnalyticsContent() {
               <Icon name={autoRefresh ? "pause" : "play"} size={16} />
               <span>{autoRefresh ? t.analyticsPauseAction : t.analyticsResumeAction}</span>
             </Button>
-            <Button type="button" variant="outline" size="md" disabled={exporting !== null} onClick={() => void downloadCsv("registrations")}>
-              <Icon name="users" size={18} />
-              <span>{exporting === "registrations" ? t.exportingCsv : t.exportRegistrationsCsvAction}</span>
-            </Button>
-            <Button type="button" variant="primary" size="md" disabled={exporting !== null} onClick={() => void downloadCsv("attendance")}>
-              <Icon name="download" size={18} />
-              <span>{exporting === "attendance" ? t.exportingCsv : t.exportAttendanceCsvAction}</span>
-            </Button>
+            {/* Row-level exports need the manager role (backend/app/roles.py); viewers and staff would get 403. */}
+            {canExport && (
+              <>
+                <Button type="button" variant="outline" size="md" disabled={exporting !== null} onClick={() => void downloadCsv("registrations")}>
+                  <Icon name="users" size={18} />
+                  <span>{exporting === "registrations" ? t.exportingCsv : t.exportRegistrationsCsvAction}</span>
+                </Button>
+                <Button type="button" variant="primary" size="md" disabled={exporting !== null} onClick={() => void downloadCsv("attendance")}>
+                  <Icon name="download" size={18} />
+                  <span>{exporting === "attendance" ? t.exportingCsv : t.exportAttendanceCsvAction}</span>
+                </Button>
+              </>
+            )}
           </>
         }
       />
@@ -258,14 +264,17 @@ function OrganizerAnalyticsContent() {
             <span className="inline-flex items-center gap-1.5 text-xs text-text-muted">
               <Icon name="clock" size={14} />
               {t.lastRefreshedLabel}:{" "}
-              <bdi dir="ltr" className="font-mono tabular" data-testid="analytics-refreshed-at">
+              <bdi dir="ltr" className={digitFont} data-testid="analytics-refreshed-at">
                 {formatClock(refreshedAt, timezone, locale)}
               </bdi>
             </span>
           )}
           <span className="inline-flex items-center gap-1.5 text-xs text-text-muted">
             <Icon name="globe" size={14} />
-            {t.analyticsTimezoneNote}: <bdi dir="ltr">{timezone}</bdi>
+            {t.analyticsTimezoneNote}:{" "}
+            <bdi title={timezone} data-testid="analytics-timezone">
+              {timeZoneLabel(timezone, locale)}
+            </bdi>
           </span>
         </div>
 
@@ -336,7 +345,7 @@ function OrganizerAnalyticsContent() {
           <Icon name="info" size={16} className="mt-0.5 shrink-0 text-aiteb-slate" />
           <div className="space-y-1">
             <p>{t.offlineSyncDisclaimer}</p>
-            <p>{t.analyticsFiltersApply}</p>
+            {canExport && <p>{t.analyticsFiltersApply}</p>}
           </div>
         </div>
       </div>
@@ -738,9 +747,9 @@ function HourlyActivity({
                     <td className="!py-2.5">
                       <bdi>{when(p)}</bdi>
                     </td>
-                    <td className="!py-2.5 text-end font-mono tabular">{fmt(p.admitted)}</td>
-                    <td className="!py-2.5 text-end font-mono tabular">{fmt(p.rejected)}</td>
-                    <td className="!py-2.5 text-end font-mono font-semibold tabular">{fmt(p.count)}</td>
+                    <td className={`!py-2.5 text-end ${numberFontClass(locale)}`}>{fmt(p.admitted)}</td>
+                    <td className={`!py-2.5 text-end ${numberFontClass(locale)}`}>{fmt(p.rejected)}</td>
+                    <td className={`!py-2.5 text-end font-semibold ${numberFontClass(locale)}`}>{fmt(p.count)}</td>
                   </tr>
                 ))}
             </tbody>
@@ -751,7 +760,7 @@ function HourlyActivity({
           <div className="org-columns" dir="ltr" aria-hidden="true">
             {series.map((p) => (
               <div key={p.starts_at} className="flex h-full min-w-0 flex-1 flex-col items-center justify-end gap-1" title={`${when(p)} · ${fmt(p.count)}`}>
-                {series.length <= 12 && p.count > 0 && <span className="font-mono text-[11px] font-semibold text-text-secondary">{fmt(p.count)}</span>}
+                {series.length <= 12 && p.count > 0 && <span className={`text-[11px] font-semibold text-text-secondary ${numberFontClass(locale)}`}>{fmt(p.count)}</span>}
                 <div
                   className="org-column w-full max-w-7"
                   data-empty={p.count === 0 ? "true" : undefined}
@@ -762,7 +771,7 @@ function HourlyActivity({
           </div>
           <div dir="ltr" className="flex gap-1" aria-hidden="true">
             {series.map((p, i) => (
-              <span key={p.starts_at} className="min-w-0 flex-1 text-center font-mono text-[11px] text-text-muted">
+              <span key={p.starts_at} className={`min-w-0 flex-1 text-center text-[11px] text-text-muted ${numberFontClass(locale)}`}>
                 {i % labelStep === 0 ? hour(p).slice(0, -3) : ""}
               </span>
             ))}

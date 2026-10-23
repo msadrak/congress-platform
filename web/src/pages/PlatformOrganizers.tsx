@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { formatApiError, type OrganizerOut, type OrganizerProvisioned } from "../api/client";
+import { localizedApiError, type OrganizerOut, type OrganizerProvisioned } from "../api/client";
 import { Badge } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
 import { ConfirmDialog } from "../components/ui/ConfirmDialog";
@@ -8,6 +8,7 @@ import { EmptyState, Field, FormAlert, SectionHeader } from "../components/organ
 import { networkErrorMessage } from "../lib/errorMessages";
 import { useMutation } from "../hooks/useMutation";
 import { usePlatform } from "./platformContext";
+import { PlatformOrganizerMembers } from "./PlatformOrganizerMembers";
 
 type Pending = { action: "rotate" | "revoke"; organizer: OrganizerOut } | null;
 
@@ -28,13 +29,15 @@ export default function PlatformOrganizers() {
   const [issued, setIssued] = useState<OrganizerProvisioned | null>(null);
   const [copied, setCopied] = useState(false);
   const [pending, setPending] = useState<Pending>(null);
+  // Kept after closing, so the dialog's exit animation still shows whose members it listed.
+  const [membersFor, setMembersFor] = useState<{ organizer: OrganizerOut; open: boolean } | null>(null);
 
   const load = useCallback(async () => {
     try {
       const { data, error: err, response } = await client.GET("/api/organizers");
       checkResponse(response.status);
       if (data) setOrganizers(data);
-      else setError(err ? formatApiError(err) : isRtl ? "فهرست بارگذاری نشد." : "The list could not be loaded.");
+      else setError(err ? localizedApiError(err, locale) : isRtl ? "فهرست بارگذاری نشد." : "The list could not be loaded.");
     } catch {
       // A failed refresh keeps the list on screen and says why it may be stale.
       setError(networkErrorMessage[locale]);
@@ -49,7 +52,7 @@ export default function PlatformOrganizers() {
         checkResponse(response.status);
         if (!active) return;
         if (data) setOrganizers(data);
-        else setError(err ? formatApiError(err) : "—");
+        else setError(err ? localizedApiError(err, locale) : isRtl ? "فهرست بارگذاری نشد." : "The list could not be loaded.");
       })
       .catch(() => {
         if (active) setOffline(true);
@@ -57,7 +60,7 @@ export default function PlatformOrganizers() {
     return () => {
       active = false;
     };
-  }, [client, checkResponse]);
+  }, [client, checkResponse, locale, isRtl]);
 
   const create = async (e: FormEvent) => {
     e.preventDefault();
@@ -74,7 +77,7 @@ export default function PlatformOrganizers() {
       setName("");
       void load();
     } else {
-      setError(err ? formatApiError(err) : isRtl ? "ساخته نشد." : "Not created.");
+      setError(err ? localizedApiError(err, locale) : isRtl ? "ساخته نشد." : "Not created.");
     }
   };
 
@@ -92,11 +95,11 @@ export default function PlatformOrganizers() {
         if (data) {
           setIssued(data);
           setCopied(false);
-        } else setError(err ? formatApiError(err) : "—");
+        } else setError(err ? localizedApiError(err, locale) : isRtl ? "کلید تازه صادر نشد." : "No new key was issued.");
       } else {
         const { error: err, response } = await client.POST("/api/organizers/{organizer_id}/revoke", { params: { path } });
         checkResponse(response.status);
-        if (err) setError(formatApiError(err));
+        if (err) setError(localizedApiError(err, locale));
       }
     });
     // Refused because another action is in flight: that one reloads the list.
@@ -122,8 +125,8 @@ export default function PlatformOrganizers() {
         title={isRtl ? "برگزارکنندگان" : "Organizers"}
         description={
           isRtl
-            ? "هر برگزارکننده با کلید API خود وارد کنسول برگزارکننده می‌شود. کلید فقط یک‌بار نمایش داده می‌شود."
-            : "Each organizer signs in to the organizer console with their own API key. A key is shown only once."
+            ? "اعضای هر برگزارکننده با شماره موبایل و کد پیامکی وارد کنسول می‌شوند؛ نخستین مالک را از «اعضا» اضافه کنید. کلید API برای یکپارچه‌سازی با سامانه‌های دیگر است، نقش مالک دارد و فقط یک‌بار نمایش داده می‌شود."
+            : "Each organizer's members sign in to the console with their mobile number and an SMS code; add the first owner from Members. The API key is an integration key for other systems: it acts as an owner and is shown only once."
         }
       />
 
@@ -177,6 +180,10 @@ export default function PlatformOrganizers() {
                 <Badge variant={o.revoked_at ? "danger" : "success"} size="sm" dot={!o.revoked_at}>
                   {o.revoked_at ? (isRtl ? "لغو شده" : "Revoked") : isRtl ? "فعال" : "Active"}
                 </Badge>
+                <Button type="button" variant="secondary" size="sm" aria-label={isRtl ? `اعضای «${o.name}»` : `Members of “${o.name}”`} onClick={() => setMembersFor({ organizer: o, open: true })}>
+                  <Icon name="users" size={15} />
+                  {isRtl ? "اعضا" : "Members"}
+                </Button>
                 <Button type="button" variant="secondary" size="sm" disabled={actionRequest.busy} onClick={() => setPending({ action: "rotate", organizer: o })}>
                   <Icon name="key" size={15} />
                   {o.revoked_at ? (isRtl ? "فعال‌سازی با کلید جدید" : "Reinstate with a new key") : isRtl ? "تعویض کلید" : "Rotate key"}
@@ -190,6 +197,15 @@ export default function PlatformOrganizers() {
             </li>
           ))}
         </ul>
+      )}
+
+      {membersFor && (
+        <PlatformOrganizerMembers
+          key={membersFor.organizer.id}
+          organizer={membersFor.organizer}
+          isOpen={membersFor.open}
+          onClose={() => setMembersFor({ ...membersFor, open: false })}
+        />
       )}
 
       <ConfirmDialog

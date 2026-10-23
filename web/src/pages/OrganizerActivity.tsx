@@ -3,12 +3,11 @@ import { useOutletContext } from "react-router-dom";
 import { createApiClient, localizedApiError, type AuditEventOut, type EventOut } from "../api/client";
 import {
   CONSOLE_COPY,
-  PERSON_ACTORS,
-  activityAction,
   activityActor,
   activityActorKind,
-  activityTarget,
+  describeActivity,
   formatActivityTime,
+  isPersonActor,
 } from "../lib/organizerConsole";
 import type { OrganizerOutletContext } from "./OrganizerLayout";
 import { Badge } from "../components/ui/Badge";
@@ -108,9 +107,9 @@ export default function OrganizerActivity() {
       ) : (
         <ol className="divide-y divide-border-subtle overflow-clip rounded-2xl border border-border-default bg-surface-panel shadow-soft" data-testid="activity-list">
           {items.map((item) => {
-            const target = activityTarget(item, locale);
+            const { action, target } = describeActivity(item, locale);
             const name = eventName(item.event_id);
-            const person = PERSON_ACTORS.has(item.actor_type);
+            const person = isPersonActor(item.actor_type);
             return (
               <li key={item.id} className="flex flex-col gap-1.5 px-4 py-3.5 sm:flex-row sm:items-start sm:gap-4 sm:px-5">
                 <time dateTime={item.at} className="shrink-0 text-xs tabular text-text-muted sm:w-44 sm:pt-0.5">
@@ -126,7 +125,7 @@ export default function OrganizerActivity() {
                         {activityActorKind(item.actor_type, locale)}
                       </Badge>
                     )}
-                    <span>{activityAction(item.action, locale)}</span>
+                    <span>{action}</span>
                     {target && (
                       <>
                         {" "}
