@@ -285,7 +285,7 @@ export function BoothDirectoryView({
                   <Icon name="bookmark" size={16} className="text-ink-400" />
                   <span>
                     {isRtl ? "برای ذخیره غرفه‌ها " : "To save booths, "}
-                    <Link to={signInPath(slug, congressPath(slug, "my-congress"))} className="font-semibold text-action-primary underline-offset-4 hover:underline">
+                    <Link to={signInPath(slug, congressPath(slug, "my-congress"))} className="inline-flex min-h-11 items-center rounded font-semibold text-action-primary underline-offset-4 hover:underline">
                       {isRtl ? "وارد شوید" : "sign in"}
                     </Link>
                     .
