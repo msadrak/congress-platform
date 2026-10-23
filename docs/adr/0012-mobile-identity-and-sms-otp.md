@@ -46,7 +46,8 @@ booth representatives created by an assignment had an unusable password. Walk-in
   the defaults are transactional on purpose.
 - Peer networking and lead cards share the mobile number (consent-gated for peers) as `tel:`/`sms:` links and a
   vCard `TEL` line, where they used to share an e-mail address.
-- Throttling and the outbox worker are in-process, which matches the one-API-process deployment; a multi-process
-  deployment would need a shared limiter (the outbox is already safe with `FOR UPDATE SKIP LOCKED`).
+- Throttling and the outbox worker were in-process, which matched the one-API-process deployment; a multi-process
+  deployment would need a shared limiter (the outbox is already safe with `FOR UPDATE SKIP LOCKED`). (Superseded by
+  ADR 0019: the limiter is shared in PostgreSQL.)
 - Later: staff invitation SMS, event reminders (`send_after` already exists), organizer bulk messages with opt-out,
   delivery-report polling and a low-credit warning in the operator health check.

@@ -12,7 +12,15 @@ One Docker Compose project (`congress-staging`, file `deploy/staging/compose.yam
 - **Start order:** `db` healthy (checked over TCP, so the image's temporary init-only server never counts) → `migrate` exits 0 → `api` healthy → `web`.
 - **Schema guard:** in `staging`/`production` the API refuses to start unless the database is at the Alembic head of its own build, or ahead of it **only** by migrations marked `backward_compatible = True` (see [Releases and rollback](#releases-and-rollback) and `docs/CODING_STANDARDS.md` §2.D).
 - **Migration lock:** migrations take a PostgreSQL advisory lock, so concurrent runs serialise.
-- **One API process.** Do not add uvicorn `--workers` or a second `api` replica: the failed-login and SMS rate limits (`app/rate_limit.py`) are kept in process memory, so each extra process multiplies every budget and a restart resets them.
+- **One API process.** The image runs one uvicorn process and the stack one `api` replica; that is the only configuration that has been run and load-tested. Rate limits and the platform SMS caps no longer depend on it: they are counted in PostgreSQL (`rate_limit_counters`, `app/rate_limit.py`), shared by every process and kept across restarts. What is still per process, to know before adding `--workers` or replicas:
+  - the HTTP counters of `/api/metrics` (each scrape reaches one process; database-derived metrics are global);
+  - the limit on concurrent sms.ir calls (`CONGRESS_SMS_MAX_CONCURRENT_SENDS`, 8 per process);
+  - the platform settings cache (another process's console change is picked up within `CONGRESS_PLATFORM_SETTINGS_REFRESH_SECONDS`, 3 s);
+  - the rate limiter's two shortcuts: a key found over budget is refused locally until its Retry-After, and when the database cannot be reached the limiter falls back to process memory (looser across several processes);
+  - the database pool: `(CONGRESS_DB_POOL_SIZE + CONGRESS_DB_MAX_OVERFLOW)` (10 + 10) per process must stay below PostgreSQL's `max_connections`;
+  - the media directory on the host disk (a replica on another host needs the same files);
+  - the console SMS provider (development, tests and automated staging checks only) keeps "sent" messages in the memory of the process that sent them, so `stack.mjs sms-code` sees only that process's.
+  The SMS outbox and the retention job run in every process and are safe to overlap (`FOR UPDATE SKIP LOCKED`, claims, idempotent deletes).
 
 ## Prerequisites
 
@@ -387,7 +395,7 @@ The full hosted procedure is in [`HOSTED_STAGING_READINESS.md`](HOSTED_STAGING_R
 ## Known release blockers / limitations
 
 - **Organizer access** is an API key per organizer (rotation and revocation exist: `organizer rotate|revoke`) plus organizer members with roles who sign in by SMS code (ADR 0016); there is no `stack.mjs` command for members yet (use the admin API above).
-- **One API process.** Rate limits are in-process; do not run multiple uvicorn workers or replicas until they are shared (for example in PostgreSQL or Redis).
+- **One API process** is the only tested configuration. Rate limits are shared in PostgreSQL; the remaining per-process parts are listed at the top of this guide. A load test with several processes has not been run.
 - **Untested for real:** ACME issuance on the real domain, a real S3 provider (drills used a stand-in), systemd timers on Linux, a Sentry/GlitchTip endpoint, Telegram delivery (or a relay) from Iran.
 - **Caddy runs as root** inside its container (official image); the API runs as uid 10001.
 - **CSP** allows `'unsafe-inline'` styles (React style attributes); scripts are `'self'` only.

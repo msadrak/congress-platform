@@ -26,19 +26,14 @@ Branch `integration/task-05h`, started at `93e6965ae8a64ddf54265052f36bb27f833bb
 - Operators use `node scripts/staging/stack.mjs organizer list|create|rotate|revoke`. It runs inside the API container, so the admin token never leaves the server and never crosses the public proxy.
 - Revoking a key does not end scanner-device or reception-operator sessions already issued for that tenant's events. Revoke those separately in the workspace (API exists for both).
 
-**Authentication throttling.**
-- Failed attempts are counted in-process and only failures count:
-  - user login and desk-operator login: 10 per account and 100 per client IP per 15 min;
-  - admin token: 10 per IP;
-  - organizer API key: 50 per IP.
-- Over budget returns 429 with Retry-After. A successful sign-in clears the account counter.
-- The client IP is the real visitor address: uvicorn trusts only Caddy, and Caddy replaces any client-supplied `X-Forwarded-For`.
-- Limits: counters live per process and reset on restart. Someone who knows a victim's e-mail can lock that account for 15 minutes. Registration is not throttled, because a whole venue can share one NAT.
+**Authentication throttling** (updated for ws/b1-sms-otp; Milestone 10 counted e-mail/password failures in process memory).
+- Counts live in PostgreSQL (`rate_limit_counters`, `backend/app/rate_limit.py`), so every API process sees the same budgets and a restart or deploy does not reset them.
+- Failures only, per 15 min: admin token 10 per IP; organizer API key 50 per IP; wrong SMS codes 10 per number (per purpose and network) and 100 per IP.
+- SMS codes count every send: one per number and purpose per 60 s, 5 per number per hour, 100 per IP per hour, or `otp_sends_per_trusted_ip_per_hour` (2,000) for addresses in the venue networks (`/platform` → Sign-in). Platform-wide SMS caps (2,000 per hour, 20,000 per day by default) apply on top.
+- Over budget returns 429 with Retry-After and a stable `code`. A successful sign-in clears the per-number failure counter.
+- The client IP is the real visitor address: uvicorn trusts only Caddy, and Caddy replaces any client-supplied `X-Forwarded-For`. IPv6 addresses count per /64.
 
-**Password recovery.** There is no self-service reset for attendees or desk operators; it needs an e-mail provider (SMTP/transactional), which is not configured.
-- Today the organizer re-adds an operator to issue a new one-time password.
-- Attendees have no recovery path; an operator must register them again with another e-mail address.
-- Before public launch, decide on a provider. This is a product requirement, not something staging can solve.
+**Account recovery.** Passwords and e-mail no longer exist (ADR 0012): attendees, desk operators and organizer members sign in with an SMS code to their mobile number, so a lost password cannot happen. Someone who lost their number needs the organizer to correct the registration (Participants) or the desk to register them again.
 
 **Hosted edge** (same Compose stack, environment-driven):
 - `CONGRESS_LOCAL_HTTP=off`: no `http://localhost` site; Caddy redirects every HTTP request to HTTPS (308).
@@ -155,7 +150,7 @@ The full list with defaults is in `STAGING_OPERATIONS.md` → *Operations settin
 - This leaves room for image builds on the server, which need Node and npm, and peak during `npm ci`/`vite build`. Building elsewhere and loading images reduces the need.
 - Add disk in proportion to uploads: ≤ 200 images per event, each ≤ 2400 px after re-encoding.
 - **Not measured:** load at real congress scale (hundreds of simultaneous gate scans). Run a load test before relying on 1 vCPU.
-- Scale up the VPS, not the process count: the API must stay **one uvicorn process** while rate limits are in-process.
+- Scale up the VPS, not the process count: **one uvicorn process** is the only tested configuration. Rate limits are now shared in PostgreSQL, but the metrics counters, SMS concurrency limit, settings cache and database pool are per process (`STAGING_OPERATIONS.md`, top), and several processes have not been load-tested.
 - Disk: add room for 5 releases' images (rollback) and, with WAL, the local archive queue (up to `BACKUP_WAL_QUEUE_MAX`, 1 GiB).
 
 ## 5. DNS and firewall
@@ -211,7 +206,7 @@ The full list with defaults is in `STAGING_OPERATIONS.md` → *Operations settin
 - [ ] Telegram alert delivery from the server, directly or through `ALERT_TELEGRAM_API` (relay) if `api.telegram.org` is blocked.
 - [ ] Sentry/GlitchTip endpoint, if wanted (`CONGRESS_SENTRY_DSN`; scrubbing tested only with a capturing transport).
 - [ ] Load test at expected congress concurrency; final VPS size.
-- [ ] Decision on an e-mail provider for password recovery.
+- [ ] sms.ir account with a service line, API key and credit (every sign-in is an SMS code); a decision on a backup SMS provider (none is integrated).
 
 ## Infrastructure checklist the developer must supply
 
@@ -223,4 +218,4 @@ The full list with defaults is in `STAGING_OPERATIONS.md` → *Operations settin
 6. Telegram bot token and chat id for `check` alerts (and a relay URL if Telegram is not reachable from the server), and who is on call during the congress.
 7. Organizer list (names) to provision, and a secure channel to deliver their keys.
 8. Whether HSTS may be enabled immediately (domain final) and whether IPv6 is used.
-9. An e-mail provider decision (for future password recovery), or explicit acceptance of the operator-assisted process.
+9. The sms.ir API key and service line (entered in the platform console `/platform`), and whether a backup SMS provider is wanted (not integrated yet).
