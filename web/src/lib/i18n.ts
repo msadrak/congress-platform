@@ -18,7 +18,7 @@ export const translations = {
     attendeePortal: "سامانه اختصاصی شرکت‌کنندگان",
     navMyCongress: "همایش من",
     navMyNetwork: "شبکه من",
-    navMyTicket: "بلیت من",
+    navMyTicket: "کارت ورود من",
     navMyProfile: "پروفایل من",
     navCongressDetails: "جزئیات همایش",
     openCongressPortal: "ورود به پورتال همایش",
