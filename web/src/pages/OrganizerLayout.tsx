@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Link, Outlet, useLocation, useNavigate, useParams } from "react-router-dom";
-import { ORGANIZER_KEY_STORAGE, registerUnauthorizedHandler, type EventOut } from "../api/client";
+import { ORGANIZER_KEY_STORAGE, createApiClient, registerUnauthorizedHandler, type EventOut, type OrganizerSessionOut } from "../api/client";
 import { formatLocalizedDate, useAttendeeLocale, type TranslationDictionary } from "../lib/i18n";
 import {
   EVENT_SETUP_SECTIONS,
@@ -19,6 +19,7 @@ import { usePageTitle } from "../hooks/usePageTitle";
 import { EventStatusBadge } from "../components/organizer/WorkspaceUi";
 import { eventAccentStyle } from "../lib/eventAccent";
 import { PARTICIPANTS_COPY } from "../lib/participants";
+import { CONSOLE_COPY, ROLE_COPY, roleAtLeast } from "../lib/organizerConsole";
 import "../styles/organizer.css";
 
 export type ActiveEvent = Pick<EventOut, "id" | "name" | "slug" | "starts_at" | "ends_at">;
@@ -33,6 +34,8 @@ export interface OrganizerOutletContext {
   onKeyRejected: (sentKey: string) => void;
   /** A page reports the event it has successfully loaded so the workspace can name it. */
   reportEvent: (event: ActiveEvent) => void;
+  /** Who is signed in (API key as owner, or a member with a role); null until /api/organizer/me answers. */
+  session: OrganizerSessionOut | null;
   locale: "fa" | "en";
   t: TranslationDictionary;
   isRtl: boolean;
@@ -67,8 +70,37 @@ export default function OrganizerLayout() {
   const [inputKey, setInputKey] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [keyRejected, setKeyRejected] = useState(false);
+  // The gate reopens on the method that was refused: an API key, or (a JWT) a member session.
+  const [rejectedWasKey, setRejectedWasKey] = useState(false);
   const [activeEvent, setActiveEvent] = useState<ActiveEvent | null>(null);
   const [now] = useState(() => Date.now());
+  // The session belongs to the credential it was loaded with; a stale answer for another one is never shown.
+  const [loadedSession, setLoadedSession] = useState<{ token: string; session: OrganizerSessionOut } | null>(null);
+  const session = loadedSession && loadedSession.token === apiKey ? loadedSession.session : null;
+  const section = eventSectionFromPath(location.pathname);
+  const isDesk = section === "desk";
+
+  useEffect(() => {
+    // The desk runs on its own operator access: the organizer credential is not sent from there.
+    if (!apiKey || isDesk) return;
+    let alive = true;
+    // A 401 reaches handleKeyRejected through the API client (registerUnauthorizedHandler).
+    void createApiClient({ kind: "organizer", token: apiKey })
+      .GET("/api/organizer/me")
+      .then(({ data }) => {
+        if (alive && data) setLoadedSession({ token: apiKey, session: data });
+      });
+    return () => {
+      alive = false;
+    };
+  }, [apiKey, isDesk]);
+
+  const handleSession = (token: string) => {
+    sessionStorage.setItem(ORGANIZER_KEY_STORAGE, token);
+    setApiKey(token);
+    setError(null);
+    setKeyRejected(false);
+  };
 
   const handleSaveKey = (e: React.FormEvent) => {
     e.preventDefault();
@@ -87,6 +119,10 @@ export default function OrganizerLayout() {
   };
 
   const handleLogout = () => {
+    // A member's sign-out also ends the session on the server (every copy of the token stops working).
+    if (apiKey && session?.kind === "member") {
+      void createApiClient({ kind: "organizer", token: apiKey }).POST("/api/organizer/logout").catch(() => undefined);
+    }
     if (typeof window !== "undefined") {
       sessionStorage.removeItem(ORGANIZER_KEY_STORAGE);
     }
@@ -101,6 +137,7 @@ export default function OrganizerLayout() {
     sessionStorage.removeItem(ORGANIZER_KEY_STORAGE);
     setApiKey((current) => (current === sentKey ? null : current));
     setKeyRejected(true);
+    setRejectedWasKey(sentKey.split(".").length !== 3);
   }, []);
 
   // Every organizer-key request answered 401 lands here, whichever page sent it.
@@ -120,8 +157,6 @@ export default function OrganizerLayout() {
     setLocale(locale === "fa" ? "en" : "fa");
   };
 
-  const section = eventSectionFromPath(location.pathname);
-  const isDesk = section === "desk";
   const sectionNavRef = useRef<HTMLElement>(null);
   // Below 1024 px the section strip scrolls sideways: keep the current section centred in view.
   useEffect(() => {
@@ -153,8 +188,23 @@ export default function OrganizerLayout() {
   const showGate = !apiKey && !isDesk;
   // The layout names the tab for every section (a section's own effect would run first and be overwritten):
   // "<section> · <event>", the console name until the event is known, and the console alone at the key gate.
+  const consoleCopy = CONSOLE_COPY[locale];
+  const consolePage = location.pathname.replace(/\/$/, "");
   const sectionLabel =
-    section === "analytics" ? t.breadcrumbAnalytics : section === "desk" ? t.breadcrumbDesk : section ? setupLabels[section] : t.breadcrumbEvents;
+    section === "analytics"
+      ? t.breadcrumbAnalytics
+      : section === "desk"
+        ? t.breadcrumbDesk
+        : section === "participants"
+          ? PARTICIPANTS_COPY[locale].navLabel
+          : section
+            ? setupLabels[section]
+            : consolePage === "/organizer/members"
+              ? consoleCopy.membersNav
+              : consolePage === "/organizer/activity"
+                ? consoleCopy.activityNav
+                : t.breadcrumbEvents;
+  const canManage = roleAtLeast(session?.role, "manager");
   usePageTitle(showGate ? t.organizerConsole : sectionLabel, showGate ? null : (contextEvent?.name ?? t.organizerConsole));
   const languageLabel = isRtl ? "Switch language to English" : "تغییر زبان به فارسی";
 
@@ -173,7 +223,9 @@ export default function OrganizerLayout() {
             onInputKeyChange={setInputKey}
             error={error}
             keyRejected={keyRejected}
+            initialMode={keyRejected && rejectedWasKey ? "key" : "mobile"}
             onSubmit={handleSaveKey}
+            onSession={handleSession}
             onToggleLocale={toggleLocale}
           />
         </main>
@@ -293,8 +345,14 @@ export default function OrganizerLayout() {
               )}
             </nav>
           ) : (
-            <nav aria-label={isRtl ? "کنسول مدیریت" : "Organizer console"} className="org-nav hidden lg:flex lg:border-t lg:border-white/10 lg:pt-4">
-              {navItem("events", "/organizer", t.breadcrumbEvents, "congress", 1, location.pathname.replace(/\/$/, "") === "/organizer")}
+            <nav
+              ref={sectionNavRef}
+              aria-label={isRtl ? "کنسول مدیریت" : "Organizer console"}
+              className={`org-nav lg:flex lg:border-t lg:border-white/10 lg:pt-4 ${canManage ? "" : "hidden"}`}
+            >
+              {navItem("events", "/organizer", t.breadcrumbEvents, "congress", 1, consolePage === "/organizer")}
+              {canManage && navItem("members", "/organizer/members", consoleCopy.membersNav, "users", 2, consolePage === "/organizer/members")}
+              {canManage && navItem("activity", "/organizer/activity", consoleCopy.activityNav, "activity", 3, consolePage === "/organizer/activity")}
             </nav>
           )}
         </div>
@@ -302,16 +360,27 @@ export default function OrganizerLayout() {
         {/* Session controls */}
         <div className="org-rail__controls flex items-center gap-1 pe-2 sm:pe-4 lg:flex-col lg:items-stretch lg:gap-2 lg:border-t lg:border-white/10 lg:p-4">
           {apiKey && (
-            <div className="hidden items-center gap-2.5 rounded-lg bg-white/[0.05] px-3 py-2 ring-1 ring-white/10 lg:flex">
+            <div className="hidden items-center gap-2.5 rounded-lg bg-white/[0.05] px-3 py-2 ring-1 ring-white/10 lg:flex" data-testid="console-identity">
               <span className="relative grid size-7 place-items-center rounded-md bg-white/[0.07] text-aiteb-orchid">
-                <Icon name="key" size={15} />
+                <Icon name={session?.kind === "member" ? "user" : "key"} size={15} />
               </span>
-              <span className="min-w-0 leading-tight">
-                <span className="block text-[0.6875rem] text-ink-400">{isRtl ? "حالت مدیر" : "Organizer key"}</span>
-                <bdi dir="ltr" className="block font-mono text-xs text-ink-100">
-                  ••••{apiKey.slice(-4)}
-                </bdi>
-              </span>
+              {session?.kind === "member" && session.member ? (
+                <span className="min-w-0 leading-tight">
+                  <span className="block truncate text-xs font-semibold text-ink-100">
+                    <bdi>{session.member.display_name}</bdi>
+                  </span>
+                  <span className="block truncate text-[0.6875rem] text-ink-400">
+                    {ROLE_COPY[locale][session.role].label} · <bdi>{session.organizer.name}</bdi>
+                  </span>
+                </span>
+              ) : (
+                <span className="min-w-0 leading-tight">
+                  <span className="block text-[0.6875rem] text-ink-400">{isRtl ? "حالت مدیر" : "Organizer key"}</span>
+                  <bdi dir="ltr" className="block font-mono text-xs text-ink-100">
+                    ••••{apiKey.slice(-4)}
+                  </bdi>
+                </span>
+              )}
               <span aria-hidden="true" className="ms-auto size-1.5 rounded-full bg-status-success-solid" />
             </div>
           )}
@@ -348,7 +417,7 @@ export default function OrganizerLayout() {
             section === "page" ? "max-w-[112rem] pb-6 sm:pb-8 lg:pb-10" : "max-w-[78rem] py-6 sm:py-8 lg:py-10"
           }`}
         >
-          <Outlet context={{ apiKey, onKeyRejected: handleKeyRejected, reportEvent, locale, t, isRtl, dir } satisfies OrganizerOutletContext} />
+          <Outlet context={{ apiKey, onKeyRejected: handleKeyRejected, reportEvent, session, locale, t, isRtl, dir } satisfies OrganizerOutletContext} />
         </main>
 
         <footer className="border-t border-border-default">

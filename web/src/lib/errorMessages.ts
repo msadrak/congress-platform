@@ -21,6 +21,13 @@ export const errorMessages: Record<AttendeeLocale, Record<string, string>> = {
     EVENT_STARTED: "همایش آغاز شده است؛ برای لغو ثبت‌نام با برگزارکننده تماس بگیرید.",
     TICKET_ALREADY_CANCELLED: "این بلیت پیش‌تر لغو شده است.",
     TICKET_NOT_FOUND: "این بلیت یافت نشد.",
+    ROLE_FORBIDDEN: "نقش شما در این سازمان اجازهٔ این کار را نمی‌دهد. از مالک یا مدیر سازمان بخواهید.",
+    NOT_A_MEMBER: "این شماره عضو هیچ سازمان برگزارکننده‌ای نیست. از مالک سازمان بخواهید شما را اضافه کند.",
+    SIGN_IN_EXPIRED: "زمان ورود به پایان رسید. کد تازه بگیرید.",
+    MEMBER_EXISTS: "این شماره هم‌اکنون عضو این سازمان است.",
+    MEMBER_REVOKED: "این عضو حذف شده است؛ برای بازگرداندن، دوباره او را دعوت کنید.",
+    LAST_OWNER: "پیش از حذف یا تغییر نقش آخرین مالک، مالک دیگری اضافه کنید.",
+    BAD_CURSOR: "ادامهٔ فهرست بارگیری نشد. صفحه را دوباره باز کنید.",
   },
   en: {
     EVENT_NOT_FOUND: "This congress could not be found.",
@@ -37,6 +44,13 @@ export const errorMessages: Record<AttendeeLocale, Record<string, string>> = {
     EVENT_STARTED: "The congress has started; ask the organizer to cancel your registration.",
     TICKET_ALREADY_CANCELLED: "This ticket has already been cancelled.",
     TICKET_NOT_FOUND: "This ticket could not be found.",
+    ROLE_FORBIDDEN: "Your role in this organization does not allow this. Ask an owner or manager.",
+    NOT_A_MEMBER: "This number is not a member of any organizer. Ask the organization's owner to add you.",
+    SIGN_IN_EXPIRED: "The sign-in expired. Request a new code.",
+    MEMBER_EXISTS: "This number is already a member of this organization.",
+    MEMBER_REVOKED: "This member was removed; invite them again to restore access.",
+    LAST_OWNER: "Add another owner before removing or demoting the last one.",
+    BAD_CURSOR: "The rest of the list could not be loaded. Reopen the page.",
   },
 };
 

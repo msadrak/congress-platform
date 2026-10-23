@@ -37,6 +37,8 @@ const EventCheckIn = lazy(() => import("./pages/organizer").then((m) => ({ defau
 const EventBooths = lazy(() => import("./pages/organizer").then((m) => ({ default: m.EventBooths })));
 const EventOperators = lazy(() => import("./pages/organizer").then((m) => ({ default: m.EventOperators })));
 const OrganizerEvents = lazy(() => import("./pages/OrganizerEvents"));
+const OrganizerMembers = lazy(() => import("./pages/OrganizerMembers"));
+const OrganizerActivity = lazy(() => import("./pages/OrganizerActivity"));
 const OrganizerLayout = lazy(() => import("./pages/OrganizerLayout"));
 const OrganizerPagePreview = lazy(() => import("./pages/OrganizerPagePreview"));
 const OrganizerPageStudio = lazy(() => import("./pages/OrganizerPageStudio"));
@@ -66,6 +68,9 @@ export default function App() {
         <Route path="/" element={<Home />} />
         <Route path="/organizer" element={<OrganizerLayout />}>
           <Route index element={section(<OrganizerEvents />)} />
+          {/* Organization-wide pages (ADR 0016): who signs in with which role, and the audit log. */}
+          <Route path="members" element={section(<OrganizerMembers />)} />
+          <Route path="activity" element={section(<OrganizerActivity />)} />
           {/* One workspace per event: `useEventWorkspace()` shares the event loaded once by the layout route. */}
           <Route path="events/:eventId" element={section(<EventWorkspaceLayout />)}>
             <Route index element={section(<EventOverview />)} />
