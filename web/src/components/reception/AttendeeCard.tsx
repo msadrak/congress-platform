@@ -1,15 +1,21 @@
-import { useState, type RefObject } from "react";
+import { useEffect, useState, type RefObject } from "react";
 import type { AttendeeDetailCard } from "../../api/client";
-import { badgePrintState } from "../../lib/deskBadge";
-import { formatMobile } from "../../lib/mobile";
-import { codeFontClass, formatLocalizedDate, formatLocalizedNumber, type AttendeeLocale, type TranslationDictionary } from "../../lib/i18n";
+import { commonCopy } from "../../copy/common";
+import { deskCopy } from "../../copy/desk";
+import type { VerdictTone } from "../../copy/operator";
+import { admitReasonText, badgeAffiliation, badgePrintState, DESK_TIME_ZONE } from "../../lib/deskBadge";
+import { codeFontClass, formatDate, formatMobile, formatNumber } from "../../lib/format";
+import type { AttendeeLocale } from "../../lib/i18n";
+import { VerdictBanner } from "../operator/VerdictBanner";
 import { Badge } from "../ui/Badge";
-import { Button } from "../ui/Button";
+import { Button, IconButton } from "../ui/Button";
 import { Icon } from "../ui/Icon";
-import { AdmitPanel, ManageRegistration, type DeskCardActions } from "./DeskActions";
+import { MetaList, type MetaListItem } from "../ui/MetaList";
+import { Notice } from "../ui/Notice";
+import { RowActions, type RowAction } from "../ui/RowActions";
+import { StatusChip } from "../ui/StatusChip";
+import { AdmitControls, EditDialog, TransferDialog, type DeskCardActions, type ResendOutcome } from "./DeskActions";
 import { PrintableBadge } from "./PrintableBadge";
-import { ReceptionPass, TicketStatusChip } from "./ReceptionPass";
-import { ResendPassSms, type ResendOutcome } from "./ResendPassSms";
 import type { CardState } from "./deskTypes";
 
 interface AttendeeCardProps {
@@ -19,197 +25,242 @@ interface AttendeeCardProps {
   /** The issuance dialog's pass is the printable one while it is open. */
   printable: boolean;
   onRetry: (ticketId: string) => void;
-  onClose: () => void;
+  /** «بعدی»: closes the card and returns to the search. */
+  onNext: () => void;
   /** Records the print, then opens the browser's print dialog; resolves to a message to show, or null. */
   onPrint: (card: AttendeeDetailCard) => Promise<string | null>;
-  onNext: () => void;
-  onResend: (ticketId: string) => Promise<ResendOutcome>;
-  /** Admission, registration changes and printing; null (an archived congress) hides or disables them. */
+  /** Admission, registration changes and printing; null (an archived congress) hides the action bar. */
   actions: DeskCardActions | null;
-  statusLabels: Record<string, string>;
+  /** No connection: the action bar stays, disabled, with one line saying so. */
+  offline: boolean;
+  /** localStorage key of the last check-in point used at this desk. */
+  pointStorageKey: string;
+  /** A one-line success notice (toast). */
+  onNotice: (text: string) => void;
   locale: AttendeeLocale;
-  t: TranslationDictionary;
-  isRtl: boolean;
 }
 
-/** The selected attendee: pass, details, gate history and the desk's actions. */
-export function AttendeeCard({ review, headingRef, eventName, printable, onRetry, onClose, onPrint, onNext, onResend, actions, statusLabels, locale, t, isRtl }: AttendeeCardProps) {
+/** The selected attendee: name, status, print state, details, and the desk's actions in a bar pinned to the bottom. */
+export function AttendeeCard({ review, headingRef, eventName, printable, onRetry, onNext, onPrint, actions, offline, pointStorageKey, onNotice, locale }: AttendeeCardProps) {
+  const c = deskCopy[locale];
+  const common = commonCopy[locale];
   if (review.status === "idle") {
+    return <p className="rx-idle text-body-sm text-text-muted">{c.nobodySelected}</p>;
+  }
+  if (review.status === "loading") {
     return (
-      <div className="rx-detail-idle flex-col items-center justify-center gap-4 shape-arc-lg border border-dashed border-border-strong bg-surface-panel/50 p-8 text-center">
-        <span aria-hidden="true" className="grid size-16 place-items-center rounded-2xl bg-surface-panel text-event-accent shadow-soft ring-1 ring-border-default">
-          <Icon name="id-card" size={30} strokeWidth={1.5} />
-        </span>
-        <p className="text-base font-semibold text-text-primary">{isRtl ? "شرکت‌کننده‌ای انتخاب نشده است" : "No attendee selected"}</p>
-        <p className="max-w-xs text-sm leading-relaxed text-text-secondary">
-          {isRtl ? "یک نفر را از فهرست انتخاب کنید تا کارت ورود و سوابق تردد او اینجا نمایش داده شود." : "Choose someone from the list to see their pass and gate history here."}
-        </p>
+      <div role="status" className="rx-card space-y-4 p-4 sm:p-6">
+        <p className="sr-only">{c.loadingCard}</p>
+        <div className="skeleton h-8 w-2/3" />
+        <div className="skeleton h-5 w-1/3" />
+        <div className="skeleton h-24" />
+      </div>
+    );
+  }
+  if (review.status === "error") {
+    return (
+      <div className="rx-card space-y-4 p-4 sm:p-6">
+        <Notice tone="danger">{review.message}</Notice>
+        <div className="flex flex-wrap gap-2">
+          <Button type="button" variant="primary" size="lg" icon="sync" onClick={() => onRetry(review.ticketId)}>
+            {common.retry}
+          </Button>
+          <Button type="button" variant="secondary" size="lg" onClick={onNext}>
+            {common.close}
+          </Button>
+        </div>
       </div>
     );
   }
   return (
-    <section aria-labelledby="review-heading" className="@container overflow-hidden shape-arc-lg border border-border-default bg-surface-panel shadow-lift">
-      <div aria-hidden="true" className="h-[3px] bg-[image:var(--grad-aiteb)]" />
-      {review.status === "loading" && (
-        <div role="status" className="space-y-5 p-5 sm:p-6">
-          <p className="text-sm text-text-muted">{isRtl ? "در حال بارگذاری کارت..." : "Loading pass..."}</p>
-          <div className="skeleton h-8 w-2/3" />
-          <div className="grid gap-5 @xl:grid-cols-2">
-            <div className="skeleton h-72 shape-arc" />
-            <div className="space-y-3">
-              <div className="skeleton h-5" />
-              <div className="skeleton h-5 w-4/5" />
-              <div className="skeleton h-5 w-3/5" />
-            </div>
-          </div>
-        </div>
-      )}
-      {review.status === "error" && (
-        <div role="alert" className="space-y-5 p-6 sm:p-8">
-          <span aria-hidden="true" className="grid size-12 place-items-center rounded-2xl bg-status-danger-bg text-status-danger-text">
-            <Icon name="alert" size={24} />
-          </span>
-          <h2 id="review-heading" className="text-lg font-semibold text-status-danger-text">{review.message}</h2>
-          <div className="flex flex-wrap gap-2.5">
-            <Button type="button" variant="primary" size="lg" onClick={() => onRetry(review.ticketId)}>
-              <Icon name="sync" size={18} />
-              <span>{isRtl ? "تلاش مجدد" : "Retry"}</span>
-            </Button>
-            <Button type="button" variant="secondary" size="lg" onClick={onClose}>{isRtl ? "بستن" : "Close"}</Button>
-          </div>
-        </div>
-      )}
-      {review.status === "ready" && (
-        <ReadyCard
-          card={review.card}
-          headingRef={headingRef}
-          eventName={eventName}
-          printable={printable}
-          onPrint={onPrint}
-          onNext={onNext}
-          onResend={onResend}
-          actions={actions}
-          statusLabels={statusLabels}
-          locale={locale}
-          t={t}
-          isRtl={isRtl}
-        />
-      )}
-    </section>
+    <ReadyCard
+      key={review.card.ticket_id}
+      card={review.card}
+      headingRef={headingRef}
+      eventName={eventName}
+      printable={printable}
+      onNext={onNext}
+      onPrint={onPrint}
+      actions={actions}
+      offline={offline}
+      pointStorageKey={pointStorageKey}
+      onNotice={onNotice}
+      locale={locale}
+    />
   );
 }
 
-interface ReadyCardProps {
-  card: AttendeeDetailCard;
-  headingRef: RefObject<HTMLHeadingElement | null>;
-  eventName: string | undefined;
-  printable: boolean;
-  onPrint: (card: AttendeeDetailCard) => Promise<string | null>;
-  onNext: () => void;
-  onResend: (ticketId: string) => Promise<ResendOutcome>;
-  actions: DeskCardActions | null;
-  statusLabels: Record<string, string>;
-  locale: AttendeeLocale;
-  t: TranslationDictionary;
-  isRtl: boolean;
+type ReadyCardProps = Omit<AttendeeCardProps, "review" | "onRetry"> & { card: AttendeeDetailCard };
+
+interface Verdict {
+  tone: VerdictTone;
+  reason: string;
 }
 
-function ReadyCard({ card, headingRef, eventName, printable, onPrint, onNext, onResend, actions, statusLabels, locale, t, isRtl }: ReadyCardProps) {
-  const issuedByLabel = t.issuedByLabel.replace(/[:：]\s*$/, "");
+/** A clock time today, else day and time; always on the congress's clock. */
+function scanTime(iso: string, locale: AttendeeLocale): string {
+  const today = formatDate(Date.now(), "long", locale, DESK_TIME_ZONE) === formatDate(iso, "long", locale, DESK_TIME_ZONE);
+  return formatDate(iso, today ? "time" : "dayTime", locale, DESK_TIME_ZONE);
+}
+
+function ReadyCard({ card, headingRef, eventName, printable, onNext, onPrint, actions, offline, pointStorageKey, onNotice, locale }: ReadyCardProps) {
+  const c = deskCopy[locale];
   const active = card.status === "active";
   // Defensive defaults: a card from an older API has no print record.
-  const printCount = card.print_count ?? 0;
-  const printState = badgePrintState({ print_count: printCount, needs_reprint: Boolean(card.needs_reprint) });
+  const printState = badgePrintState({ print_count: card.print_count ?? 0, needs_reprint: Boolean(card.needs_reprint) });
   const [printing, setPrinting] = useState(false);
-  const [printMessage, setPrintMessage] = useState<{ ticketId: string; text: string } | null>(null);
+  const [admitting, setAdmitting] = useState(false);
+  const [verdict, setVerdict] = useState<Verdict | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [dialog, setDialog] = useState<"edit" | "transfer" | null>(null);
+  // Details start open where there is room for them (kiosk and desktop), folded on phones and tablets.
+  const [detailsOpen, setDetailsOpen] = useState(() => typeof window !== "undefined" && window.matchMedia?.("(min-width: 1024px)").matches === true);
+
+  // The admit verdict stays for 3 s, like the gate's.
+  useEffect(() => {
+    if (!verdict) return;
+    const timer = setTimeout(() => setVerdict(null), 3000);
+    return () => clearTimeout(timer);
+  }, [verdict]);
+
   const print = async () => {
     setPrinting(true);
+    setError(null);
     const message = await onPrint(card);
     setPrinting(false);
-    setPrintMessage(message ? { ticketId: card.ticket_id, text: message } : null);
+    if (message) setError(message);
   };
-  const printedSummary = isRtl
-    ? `${formatLocalizedNumber(printCount, locale)} بار چاپ شده${card.last_printed_at ? ` · آخرین بار ${formatLocalizedDate(card.last_printed_at, locale)}` : ""}`
-    : `Printed ${printCount} ${printCount === 1 ? "time" : "times"}${card.last_printed_at ? ` · last ${formatLocalizedDate(card.last_printed_at, locale)}` : ""}`;
+  const admit = async (pointId: string) => {
+    if (!actions) return;
+    setAdmitting(true);
+    setError(null);
+    setVerdict(null);
+    const result = await actions.admit(card.ticket_id, pointId);
+    setAdmitting(false);
+    if ("verdict" in result) {
+      const { status, rejection_reason, checkin_point_name } = result.verdict;
+      if (status === "ADMITTED") setVerdict({ tone: "admitted", reason: checkin_point_name });
+      else setVerdict({ tone: rejection_reason === "ALREADY_ADMITTED" ? "duplicate" : "rejected", reason: admitReasonText(rejection_reason, locale) });
+    } else if (result.error) {
+      setError(result.error);
+    }
+  };
+  const run = async (action: () => Promise<string | null>, done: string) => {
+    setError(null);
+    const message = await action();
+    if (message) setError(message);
+    else onNotice(done);
+  };
+  const resend = async () => {
+    if (!actions || !card.attendee_mobile) return;
+    setError(null);
+    const mobile = formatMobile(card.attendee_mobile, locale);
+    let outcome: ResendOutcome;
+    try {
+      outcome = await actions.resend(card.ticket_id);
+    } catch {
+      outcome = { kind: "error", message: commonCopy[locale].network };
+    }
+    if (outcome.kind === "result") {
+      const { status, test_mode } = outcome.data;
+      if (status === "sent") onNotice(test_mode ? c.resentTestMode(mobile) : c.resent(mobile));
+      else if (status === "unknown") onNotice(c.resendUnknown);
+      else setError(c.resendRefused);
+    } else if (outcome.kind === "throttled") {
+      onNotice(c.resendThrottled(formatNumber(outcome.retryAfter, locale)));
+    } else if (outcome.kind === "error") {
+      setError(outcome.message);
+    }
+  };
+
+  const canAct = Boolean(actions) && active;
+  const points = actions?.checkinPoints ?? [];
+  const printFirst = printState !== "printed";
+  const nextIsPrimary = !canAct || (!printFirst && points.length === 0);
+  const menu: RowAction[] = [];
+  if (actions && canAct) {
+    if (card.attendee_mobile) menu.push({ label: c.resend, icon: "mail", disabled: offline, onSelect: () => void resend() });
+    menu.push({ label: c.edit, icon: "note", disabled: offline, onSelect: () => setDialog("edit") });
+    menu.push({ label: c.transfer, icon: "share", disabled: offline, onSelect: () => setDialog("transfer") });
+    menu.push({
+      label: c.reissue,
+      icon: "sync",
+      disabled: offline,
+      destructive: { title: c.reissueTitle, description: c.reissueBody, confirmLabel: c.reissue },
+      onSelect: () => void run(() => actions.reissue(card.ticket_id), c.reissued),
+    });
+    menu.push({
+      label: c.cancelPass,
+      icon: "x-circle",
+      disabled: offline,
+      destructive: { title: c.cancelTitle, description: c.cancelBody, confirmLabel: c.cancelPass },
+      onSelect: () => void run(() => actions.cancel(card.ticket_id, ""), c.cancelled),
+    });
+  }
+
+  const mobile = card.attendee_mobile ? formatMobile(card.attendee_mobile, locale) : "";
+  const facts: MetaListItem[] = [];
+  if (mobile) facts.push({ label: c.mobile, value: <bdi dir="ltr" className={codeFontClass(mobile)}>{mobile}</bdi> });
+  if (card.organization) facts.push({ label: c.organization, value: card.organization });
+  if (card.title) facts.push({ label: c.jobTitle, value: card.title });
+  if (card.issued_by) facts.push({ label: c.issuedBy, value: card.issued_by });
+  facts.push({ label: c.registered, value: formatDate(card.created_at, "long", locale, DESK_TIME_ZONE) });
+
+  const affiliation = badgeAffiliation(card.title, card.organization);
   return (
-    <>
-      <div className="space-y-5 p-4 sm:p-6">
-        <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
-          <div className="min-w-0 space-y-1.5">
-            <p className="eyebrow">{isRtl ? "شرکت‌کننده انتخاب‌شده" : "Selected attendee"}</p>
-            <h2 id="review-heading" ref={headingRef} tabIndex={-1} className="text-2xl font-semibold leading-tight tracking-[-0.03em] text-text-primary break-words focus:outline-none sm:text-[1.75rem]">
+    <section aria-labelledby="review-heading" className="rx-card">
+      <div className="rx-card-body space-y-4 p-4 sm:p-6">
+        <div className="flex items-start gap-3">
+          <div className="min-w-0 flex-1 space-y-2">
+            <h2 id="review-heading" ref={headingRef} tabIndex={-1} className="text-title leading-tight font-bold break-words text-text-primary focus:outline-none">
               {card.attendee_name}
             </h2>
-            <p className="text-sm text-text-secondary">
-              <span className="font-semibold text-event-accent">{card.ticket_tier_name}</span>
-              {card.title && <span> · {card.title}</span>}
-            </p>
+            {affiliation && <p className="text-body-sm text-text-secondary">{affiliation}</p>}
+            <div className="flex flex-wrap items-center gap-2">
+              <StatusChip status={active ? "active" : "cancelled"} />
+              <Badge variant="accent">{card.ticket_tier_name}</Badge>
+            </div>
           </div>
-          <TicketStatusChip status={card.status} label={statusLabels[card.status] ?? card.status} size="md" />
+          <IconButton icon="x" label={commonCopy[locale].close} onClick={onNext} className="md:hidden" />
         </div>
 
-        <div className="grid grid-cols-1 items-start gap-5 @xl:grid-cols-2">
-          <div className="rounded-2xl bg-surface-panel-subtle p-2 @sm:p-4">
-            <ReceptionPass
-              pass={{ qr: card.qr_secret, name: card.attendee_name, tier: card.ticket_tier_name, org: card.organization, ticketId: card.ticket_id }}
-              isRtl={isRtl}
-              eventName={eventName}
-              printable={false}
-            />
-            <PrintableBadge
-              badge={{ qr: card.qr_secret, name: card.attendee_name, title: card.title, organization: card.organization, tier: card.ticket_tier_name }}
-              eventName={eventName}
-              printable={printable && active}
-              isRtl={isRtl}
-            />
-          </div>
-          <div className="min-w-0 space-y-5">
-            <dl className="divide-y divide-border-subtle border-y border-border-subtle text-sm">
-              {card.attendee_mobile && (
-                <div className="grid gap-0.5 py-2.5">
-                  <dt className="text-xs text-text-muted">{isRtl ? "موبایل" : "Mobile"}</dt>
-                  <dd className={`truncate ${codeFontClass(formatMobile(card.attendee_mobile, locale))} text-[13px] text-text-primary`}><bdi dir="ltr">{formatMobile(card.attendee_mobile, locale)}</bdi></dd>
-                </div>
-              )}
-              {card.organization && (
-                <div className="grid gap-0.5 py-2.5">
-                  <dt className="text-xs text-text-muted">{isRtl ? "سازمان" : "Organization"}</dt>
-                  <dd className="text-text-primary break-words">{card.organization}</dd>
-                </div>
-              )}
-              {card.issued_by && (
-                <div className="grid gap-0.5 py-2.5">
-                  <dt className="text-xs text-text-muted">{issuedByLabel}</dt>
-                  <dd className="font-semibold text-text-primary">{card.issued_by}</dd>
-                </div>
-              )}
-              <div className="grid gap-0.5 py-2.5">
-                <dt className="text-xs text-text-muted">{isRtl ? "تاریخ ثبت" : "Registered"}</dt>
-                <dd className="text-text-primary tabular">{formatLocalizedDate(card.created_at, locale)}</dd>
-              </div>
-            </dl>
+        {active && printFirst && (
+          <p data-testid="badge-print-state" className={`flex items-center gap-2 text-body-sm font-semibold ${printState === "stale" ? "text-status-warning-text" : "text-text-secondary"}`}>
+            <Icon name={printState === "stale" ? "alert" : "print"} size={17} />
+            <span>{printState === "never" ? c.notPrinted : c.needsReprint}</span>
+          </p>
+        )}
+        {card.status !== "active" && card.cancelled_reason && <p className="text-body-sm text-text-secondary">{c.cancelledReason(card.cancelled_reason)}</p>}
 
-            <div className="space-y-2.5">
-              <h3 className="flex items-center justify-between gap-2 text-xs font-semibold text-text-muted">
-                <span className="flex items-center gap-2"><Icon name="gate" size={15} />{isRtl ? "سوابق تردد در نقطه‌های ورود" : "Check-In Scan History"}</span>
-                <span className={`${codeFontClass(formatLocalizedNumber(card.scan_history.length, locale))} tabular`}>{formatLocalizedNumber(card.scan_history.length, locale)}</span>
-              </h3>
+        {verdict && (
+          <div data-testid="desk-admit-verdict">
+            <VerdictBanner locale={locale} tone={verdict.tone} reason={verdict.reason} layout="inline" />
+          </div>
+        )}
+        {error && <Notice tone="danger">{error}</Notice>}
+
+        <details open={detailsOpen} onToggle={(e) => setDetailsOpen(e.currentTarget.open)} className="group rounded-control border border-border-default">
+          <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-2 px-4 text-body-sm font-semibold [&::-webkit-details-marker]:hidden">
+            <span>{c.details}</span>
+            <Icon name="chevron-down" size={18} className="text-text-muted transition-transform group-open:rotate-180 motion-reduce:transition-none" />
+          </summary>
+          <div className="space-y-5 border-t border-border-subtle p-4">
+            <MetaList items={facts} />
+            <div className="space-y-2">
+              <h3 className="text-caption font-semibold text-text-muted">{c.history}</h3>
               {card.scan_history.length === 0 ? (
-                <p className="rounded-xl border border-dashed border-border-default px-3 py-4 text-center text-xs text-text-muted">{isRtl ? "هنوز هیچ ترددی برای این کارت ثبت نشده است." : "No gate scans recorded yet."}</p>
+                <p className="text-body-sm text-text-muted">{c.noHistory}</p>
               ) : (
-                <ol className="max-h-48 overflow-y-auto">
+                <ol className="divide-y divide-border-subtle" data-testid="scan-history">
                   {card.scan_history.map((scan, i) => (
-                    <li key={`${scan.checkin_point_name}-${scan.scanned_at}-${i}`} className="relative ms-1 flex items-center justify-between gap-3 border-s border-border-default py-2 ps-4 text-xs">
-                      <span aria-hidden="true" className={`absolute -start-[4.5px] top-1/2 size-2 -translate-y-1/2 rounded-full ring-2 ring-surface-panel ${scan.status === "ADMITTED" ? "bg-status-success-solid" : "bg-status-danger-solid"}`} />
-                      <span className="min-w-0">
-                        <span className="block font-semibold text-text-primary break-words">{scan.checkin_point_name}</span>
-                        <span className="text-[11px] text-text-muted tabular">{formatLocalizedDate(scan.scanned_at, locale)}</span>
-                        {scan.recorded_by && (
-                          <span className="block text-[11px] text-text-muted">{isRtl ? `ثبت در میز پذیرش: ${scan.recorded_by}` : `At the desk: ${scan.recorded_by}`}</span>
-                        )}
+                    <li key={`${scan.checkin_point_name}-${scan.scanned_at}-${i}`} className="flex items-center gap-3 py-2 text-body-sm">
+                      <span className="shrink-0 font-semibold tabular text-text-primary">{scanTime(scan.scanned_at, locale)}</span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block break-words text-text-primary">{scan.checkin_point_name}</span>
+                        {scan.recorded_by && <span className="block text-caption text-text-muted">{c.atDesk(scan.recorded_by)}</span>}
                       </span>
                       <Badge variant={scan.status === "ADMITTED" ? "success" : "danger"} size="sm">
-                        {scan.status === "ADMITTED" ? (isRtl ? "ورود" : "Admitted") : isRtl ? "رد شد" : "Refused"}
+                        {scan.status === "ADMITTED" ? c.historyAdmitted : c.historyRefused}
                       </Badge>
                     </li>
                   ))}
@@ -217,52 +268,91 @@ function ReadyCard({ card, headingRef, eventName, printable, onPrint, onNext, on
               )}
             </div>
           </div>
-        </div>
+        </details>
+
+        <PrintableBadge
+          badge={{ qr: card.qr_secret, name: card.attendee_name, title: card.title, organization: card.organization, tier: card.ticket_tier_name }}
+          eventName={eventName}
+          printable={printable && active}
+          locale={locale}
+        />
       </div>
 
-      <div className="space-y-3 border-t border-border-subtle bg-surface-panel-subtle/70 p-4 sm:p-5 print:hidden">
-        {active && (
-          <p data-testid="badge-print-state" className={`flex items-start gap-2 text-xs ${printState === "stale" ? "font-semibold text-status-warning-text" : "text-text-secondary"}`}>
-            <Icon name={printState === "stale" ? "alert" : "print"} size={15} className="mt-px shrink-0" />
-            <span>
-              {printState === "never"
-                ? isRtl ? "کارت ورود هنوز چاپ نشده است." : "The badge has not been printed yet."
-                : printState === "stale"
-                  ? isRtl ? "مشخصات یا کد QR پس از آخرین چاپ تغییر کرده است: کارت ورود را دوباره چاپ کنید." : "Needs reprint: details or QR code changed after the last print."
-                  : printedSummary}
-            </span>
-          </p>
-        )}
-        {printMessage?.ticketId === card.ticket_id && <p role="alert" className="text-xs text-status-danger-text">{printMessage.text}</p>}
-        <div className="flex flex-col-reverse gap-2.5 @md:flex-row">
-          <Button type="button" variant="secondary" size="lg" className="whitespace-normal @md:flex-1" onClick={() => void print()} disabled={!active || printing || !actions} aria-busy={printing}>
-            <Icon name="print" size={19} />
-            <span>{printState === "never" ? t.printPassAction : isRtl ? "چاپ دوبارهٔ کارت ورود" : "Reprint Badge"}</span>
-          </Button>
-          <Button type="button" variant="primary" size="lg" className="whitespace-normal @md:flex-[1.35]" onClick={onNext}>
-            <span>{t.nextAttendeeAction}</span>
-            <Icon name="arrow-right" size={19} />
-          </Button>
+      {actions && (
+        <div className="rx-actionbar print:hidden" data-testid="desk-action-bar">
+          {offline && canAct && (
+            <p className="mb-2 flex items-center gap-2 text-body-sm font-semibold text-status-warning-text">
+              <Icon name="wifi-off" size={17} />
+              <span>{c.offline}</span>
+            </p>
+          )}
+          {canAct && (
+            <div className="rx-actionbar-main">
+              <Button
+                type="button"
+                variant={printFirst ? "primary" : "secondary"}
+                size="lg"
+                icon="print"
+                disabled={offline}
+                loading={printing}
+                onClick={() => void print()}
+                className={printFirst ? "rx-primary" : ""}
+              >
+                {printState === "never" ? c.print : c.reprint}
+              </Button>
+              {actions && (
+                <AdmitControls
+                  points={points}
+                  storageKey={pointStorageKey}
+                  primary={!printFirst}
+                  disabled={offline}
+                  busy={admitting}
+                  onAdmit={(pointId) => void admit(pointId)}
+                  locale={locale}
+                />
+              )}
+            </div>
+          )}
+          <div className="rx-actionbar-end">
+            <Button type="button" variant={nextIsPrimary ? "primary" : "ghost"} size="lg" iconEnd="arrow-right" onClick={onNext} className={nextIsPrimary ? "min-w-40" : ""}>
+              {c.next}
+            </Button>
+            {menu.length > 0 && <RowActions actions={menu} visible={0} menuLabel={c.moreActions(card.attendee_name)} />}
+          </div>
         </div>
-        {actions && active && <AdmitPanel key={`admit-${card.ticket_id}`} card={card} actions={actions} locale={locale} isRtl={isRtl} />}
-        {card.attendee_mobile && card.status === "active" && (
-          <ResendPassSms
-            key={card.ticket_id}
-            mobile={card.attendee_mobile}
-            locale={locale}
-            isRtl={isRtl}
-            onResend={() => onResend(card.ticket_id)}
-          />
-        )}
-        {actions && active && <ManageRegistration key={`manage-${card.ticket_id}`} card={card} actions={actions} isRtl={isRtl} />}
-        {card.status === "cancelled" && card.cancelled_reason && (
-          <p className="text-xs text-text-secondary">{isRtl ? `دلیل لغو: ${card.cancelled_reason}` : `Cancellation reason: ${card.cancelled_reason}`}</p>
-        )}
-        <p className="flex items-start gap-2 text-[11px] leading-relaxed text-text-muted">
-          <Icon name="info" size={14} className="mt-px" />
-          <span>{isRtl ? "چاپ از مرورگر انجام می‌شود و فقط برای پیگیری چاپ دوباره ثبت می‌شود؛ کارت جدیدی صادر نمی‌کند." : "Printing uses the browser and is recorded only to track reprints; it issues nothing new."}</span>
-        </p>
-      </div>
-    </>
+      )}
+
+      {actions && dialog === "edit" && (
+        <EditDialog
+          card={card}
+          isOpen
+          onClose={() => setDialog(null)}
+          onSave={async (body) => {
+            const message = await actions.edit(card.ticket_id, body);
+            if (!message) {
+              setDialog(null);
+              onNotice(c.edited);
+            }
+            return message;
+          }}
+          locale={locale}
+        />
+      )}
+      {actions && dialog === "transfer" && (
+        <TransferDialog
+          isOpen
+          onClose={() => setDialog(null)}
+          onTransfer={async (body) => {
+            const message = await actions.transfer(card.ticket_id, body);
+            if (!message) {
+              setDialog(null);
+              onNotice(c.transferred);
+            }
+            return message;
+          }}
+          locale={locale}
+        />
+      )}
+    </section>
   );
 }
