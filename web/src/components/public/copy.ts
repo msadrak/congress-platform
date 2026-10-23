@@ -1,5 +1,4 @@
-import { useState } from "react";
-import { ATTENDEE_LOCALE_STORAGE, formatLocalizedNumber, type AttendeeLocale } from "../../lib/i18n";
+import { formatLocalizedNumber, type AttendeeLocale } from "../../lib/i18n";
 
 export type PublicLocale = AttendeeLocale;
 
@@ -25,25 +24,11 @@ export function isolateFor(text: string, locale: "fa" | "en"): string {
   return hasPersian(text) === (locale === "fa") ? text : `\u2068${text}\u2069`;
 }
 
-function storedLocale(): PublicLocale | null {
-  if (typeof window === "undefined") return null;
-  const stored = localStorage.getItem(ATTENDEE_LOCALE_STORAGE);
-  return stored === "fa" || stored === "en" ? stored : null;
-}
-
 /**
- * Public page language. A visitor's explicit choice wins and is shared with the portals (same storage
- * key); without one, a congress page speaks the language of its congress and the platform pages Persian.
+ * Public page language: the app's one locale (`useLocale`). A visitor's explicit choice wins and is shared with the
+ * portals; without one, a congress page speaks the language of its congress and the platform pages Persian.
  */
-export function usePublicLocale(contentDefault?: PublicLocale) {
-  const [chosen, setChosen] = useState<PublicLocale | null>(storedLocale);
-  const locale: PublicLocale = chosen ?? contentDefault ?? "fa";
-  const setLocale = (next: PublicLocale) => {
-    setChosen(next);
-    localStorage.setItem(ATTENDEE_LOCALE_STORAGE, next);
-  };
-  return { locale, setLocale };
-}
+export { useLocale as usePublicLocale } from "../../lib/i18n";
 
 export const num = (n: number, locale: PublicLocale) => formatLocalizedNumber(n, locale);
 

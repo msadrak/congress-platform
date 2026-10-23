@@ -3,7 +3,7 @@
  * Prioritizes Persian (fa) with full RTL and Solar Hijri (Jalali) calendar,
  * while maintaining seamless English (en) LTR support.
  */
-import { useState } from "react";
+import { useEffect, useSyncExternalStore } from "react";
 export type AttendeeLocale = "fa" | "en";
 export type TranslationDictionary = (typeof translations)["fa"];
 export const ATTENDEE_LOCALE_STORAGE = "congress_attendee_locale";
@@ -17,29 +17,19 @@ export const translations = {
     login: "ورود",
     attendeePortal: "سامانه اختصاصی شرکت‌کنندگان",
     navMyCongress: "همایش من",
-    navMyNetwork: "شبکه من",
     navMyTicket: "کارت ورود من",
     navMyProfile: "پروفایل من",
     navCongressDetails: "جزئیات همایش",
-    openCongressPortal: "ورود به پورتال همایش",
     languageToggle: "English",
     // Ticket Pass Portal
     digitalPassTitle: "کارت ورود دیجیتال به همایش",
-    ticketSubtitle: "نور صفحه را زیاد کنید و این کد QR را در گیت ورود به اسکنر نشان دهید.",
-    activeBadge: "ثبت‌نام‌شده",
     ticketStatusActive: "فعال و معتبر",
-    ticketIdLabel: "شناسه رهگیری بلیت",
-    tierLabel: "سطح دسترسی و جایگاه",
-    eventLabel: "نام رویداد علمی / صنعتی",
+    ticketIdLabel: "شناسه کارت ورود",
+    tierLabel: "نوع کارت ورود",
     venueLabel: "محل برگزاری",
     offlineNotice: "آفلاین: نمایش کارت ورود ذخیره‌شده",
-    offlineNoticeDesc: "اطلاعات کارت ورود شما برای استفاده در هنگام اختلال اینترنت سالن در این مرورگر ذخیره شده است.",
-    syncedNotice: "به‌روز",
-    noTicketsTitle: "هنوز بلیتی برای شما ثبت نشده است",
-    noTicketsDesc: "برای ثبت‌نام در همایش، از پیوند اختصاصی ارسالی توسط برگزارکننده رویداد استفاده نمایید.",
-    browseEventsLink: "بازگشت به صفحه اصلی رویدادها",
-    unauthenticatedTitle: "ورود به سامانه شرکت‌کنندگان",
-    unauthenticatedDesc: "برای دسترسی به کارت ورود و ارتباطات خود، لطفاً وارد حساب کاربری شوید.",
+    unauthenticatedTitle: "ورود",
+    unauthenticatedDesc: "برای دیدن کارت ورود وارد شوید.",
     loginAction: "ورود به حساب کاربری",
     // Unknown address
     notFoundTitle: "صفحه پیدا نشد",
@@ -47,58 +37,34 @@ export const translations = {
     notFoundBack: "بازگشت",
     notFoundSignIn: "ورود شرکت‌کنندگان",
     // Bookmarked Booths
-    savedBoothsHeading: "غرفه‌ها و شرکت‌های نشان‌شده",
-    savedBoothsDesc: "غرفه‌های تجاری و حامیان مالی که برای بازدید نشان کرده‌اید.",
-    noSavedBooths: "هنوز غرفه‌ای را نشان نکرده‌اید.",
+    savedBoothsHeading: "غرفه‌های ذخیره‌شده",
+    savedBoothsDesc: "غرفه‌هایی که برای بازدید ذخیره کرده‌اید.",
     viewBoothAction: "مشاهده پروفایل غرفه",
-    removeBookmarkAction: "حذف نشان",
-    bookmarkRemovedFeedback: "غرفه از لیست نشان‌ها حذف شد.",
-    // Networking Hub
+    removeBookmarkAction: "حذف از ذخیره‌ها",
+    bookmarkRemovedFeedback: "غرفه از ذخیره‌ها حذف شد.",
     networkHeading: "ارتباطات و همراهان من در همایش",
-    networkDesc: "کارت‌های ویزیت دیجیتال، تبادل اطلاعات تماس با اسکن نشان و یادداشت‌های محرمانه شما.",
-    connectModalTitle: "ثبت نشان همکار جدید",
-    peerCodeLabel: "محتوای کد QR کارت ورود همکار",
-    privateNotesLabel: "یادداشت‌های محرمانه شما درباره این دیدار",
-    privateNotesPlaceholder: "مثلاً: گفت‌وگو درباره همکاری پژوهشی در زمینه پردازش داده...",
-    saveConnectionAction: "ثبت در شبکه ارتباطی من",
-    downloadVCardAction: "دریافت کارت مخاطب (.vcf)",
-    editNotesAction: "ویرایش یادداشت",
-    saveNotesAction: "ذخیره تغییرات",
-    notesSavedFeedback: "یادداشت‌های محرمانه با موفقیت به‌روزرسانی شد.",
-    noConnectionsTitle: "هنوز ارتباطی ثبت نشده است",
-    noConnectionsDesc: "در طول نشست‌ها و زمان‌های پذیرایی، کد QR کارت همکاران را اسکن کنید تا ارتباط در شبکه شما ذخیره شود.",
-    // Privacy & Contact Consent (Issue #19)
-    privacyHeading: "تنظیمات حریم خصوصی و اطلاعات تماس",
-    privacyDesc: "کنترل نحوه نمایش و اشتراک‌گذاری شماره موبایل شما با همکارانی که نشان شما را ثبت می‌کنند.",
-    shareMobileToggleLabel: "اشتراک‌گذاری شماره موبایل با همکاران در شبکه ارتباطی",
-    shareMobileToggleDesc: "در صورت فعال بودن، هنگام ثبت ارتباط، شماره موبایل شما در کارت ویزیت و فایل vCard همکاران نمایش داده می‌شود. به صورت پیش‌فرض غیرفعال است.",
-    privacySavedFeedback: "تنظیمات حریم خصوصی تماس به‌روزرسانی شد.",
-    mobileSharedStatus: "نمایش شماره موبایل فعال است",
-    mobileHiddenStatus: "شماره موبایل مخفی و محرمانه است",
-    mobileNotSharedNotice: "همکار اشتراک‌گذاری شماره موبایل را فعال نکرده است.",
     // Organizer Workspace & Layout
-    organizerConsole: "کنسول مدیریت همایش",
-    organizerConsoleDesc: "پیکربندی همایش‌های چندروزه، رده‌های بلیت، گیت‌های بازرسی و غرفه‌ها",
-    apiKeyGateTitle: "احراز هویت کنسول مدیریت",
-    apiKeyGateDesc: "برای دسترسی به همایش‌ها و تنظیمات، کلید API سازمان خود را وارد نمایید.",
-    apiKeyLabel: "کلید دسترسی (API Key)",
-    apiKeyPlaceholder: "کلید API سازمان خود را اینجا وارد کنید",
-    apiKeySubmit: "ورود به پیشخوان مدیریت",
-    apiKeyRequired: "لطفاً کلید API سازمان را وارد نمایید.",
+    organizerConsole: "پنل برگزارکننده",
+    organizerConsoleDesc: "همایش‌ها، انواع کارت ورود، نقطه‌های ورود و غرفه‌ها",
+    apiKeyGateTitle: "کلید سازمان",
+    apiKeyGateDesc: "کلید سازمان را وارد کنید.",
+    apiKeyLabel: "کلید سازمان",
+    apiKeyPlaceholder: "کلید سازمان",
+    apiKeySubmit: "ورود",
+    apiKeyRequired: "کلید سازمان را وارد کنید.",
     activeOrganizer: "سازمان برگزارکننده فعال",
     clearKeyAction: "خروج از حساب مدیریت",
     breadcrumbEvents: "لیست همایش‌ها",
-    breadcrumbEventConfig: "تنظیمات همایش",
     breadcrumbDesk: "میز پذیرش",
     breadcrumbAnalytics: "آمار و گزارش‌ها",
     // Organizer Events List
     eventsListHeading: "مدیریت همایش‌ها و کنگره‌ها",
-    eventsListSubheading: "ایجاد، سازماندهی و پایش رویدادها، رده‌های پذیرش و ایستگاه‌های ورود",
+    eventsListSubheading: "همایش‌ها، انواع کارت ورود و نقطه‌های ورود",
     createEventButton: "ایجاد همایش جدید",
     createEventModalTitle: "ثبت همایش جدید",
     createEventModalDesc: "مشخصات پایه همایش، تاریخ برگزاری و نشانی اینترنتی اختصاصی را تعیین کنید.",
     eventNameLabel: "عنوان رسمی همایش",
-    eventSlugLabel: "شناسه اینترنتی اختصاصی (Slug)",
+    eventSlugLabel: "نشانی صفحه",
     eventSlugHint: "فقط حروف انگلیسی کوچک، اعداد و خط تیره (مثال: medical-congress-2027)",
     startsAtLabel: "زمان آغاز همایش",
     endsAtLabel: "زمان پایان همایش",
@@ -106,11 +72,11 @@ export const translations = {
     descriptionLabel: "توضیحات و معرفی رویداد",
     saveEventAction: "ثبت و ایجاد همایش",
     noEventsFoundTitle: "هنوز همایشی ثبت نشده است",
-    noEventsFoundDesc: "با کلیک روی دکمه «ایجاد همایش جدید»، نخستین کنگره علمی یا رویداد خود را تعریف نمایید.",
+    noEventsFoundDesc: "با «ایجاد همایش جدید» نخستین همایش را بسازید.",
     manageEventAction: "مدیریت و تنظیمات",
     editEventAction: "ویرایش همایش",
     editEventTitle: "ویرایش مشخصات همایش",
-    editEventDesc: "ویرایش عنوان، محل برگزاری، توضیحات و زمان‌بندی همایش. شناسه اینترنتی (Slug) جهت حفظ پیوندها ثابت می‌ماند.",
+    editEventDesc: "نشانی صفحه پس از ساخت تغییر نمی‌کند.",
     saveChangesAction: "ذخیره تغییرات",
     cancelAction: "انصراف",
     savingAction: "در حال ذخیره…",
@@ -120,82 +86,73 @@ export const translations = {
     sectionsLoadFailed: "بخشی از اطلاعات این همایش بارگذاری نشد و ممکن است ناقص نمایش داده شود.",
     sectionLoadFailed: "فهرست این بخش بارگذاری نشد، بنابراین اینجا نمایش داده نمی‌شود.",
     eventNameRequired: "عنوان همایش را وارد کنید.",
-    eventSlugRequired: "شناسه اینترنتی همایش را وارد کنید.",
+    eventSlugRequired: "نشانی صفحه را وارد کنید.",
     eventStartRequired: "زمان آغاز همایش را وارد کنید.",
     eventEndRequired: "زمان پایان همایش را وارد کنید.",
     eventEndBeforeStart: "زمان پایان همایش باید پس از زمان آغاز باشد.",
     eventLocationRequired: "محل برگزاری را وارد کنید.",
-    editTierAction: "ویرایش رده",
+    editTierAction: "ویرایش",
     editTierTitle: "ویرایش نوع کارت ورود و سهمیه",
-    editTierDesc: "نام، توضیحات، سهمیه و وضعیت ثبت‌نام این رده را ویرایش کنید.",
-    tierStatusLabel: "وضعیت ثبت‌نام رده",
-    tierOpenOption: "باز جهت ثبت‌نام و صدور بلیت",
-    tierClosedOption: "بسته شده (عدم پذیرش ثبت‌نام جدید)",
-    editPointAction: "ویرایش گیت",
-    editPointTitle: "ویرایش ایستگاه کنترل تردد",
-    editPointDesc: "ویرایش نام، محل استقرار و ظرفیت گیت. سیاست پذیرش پس از ثبت اسکن جهت حفظ یکپارچگی قفل است.",
-    policyLockedNotice: "سیاست پذیرش این گیت به دلیل وجود سابقه اسکن قفل شده است.",
+    editTierDesc: "نام، ظرفیت و وضعیت ثبت‌نام این نوع کارت ورود.",
+    tierStatusLabel: "وضعیت ثبت‌نام",
+    tierOpenOption: "باز",
+    tierClosedOption: "بسته",
+    editPointAction: "ویرایش",
+    editPointTitle: "ویرایش نقطهٔ ورود",
+    editPointDesc: "پس از نخستین اسکن، قانون ورود قفل می‌شود.",
+    policyLockedNotice: "پس از نخستین اسکن، قانون ورود قفل می‌شود.",
     openDeskAction: "میز پذیرش",
     openAnalyticsAction: "آمار زنده",
     openPublicPageAction: "صفحه عمومی",
     tabOverview: "نمای کلی",
-    tabTiers: "رده‌های بلیت",
-    tabPoints: "گیت‌های بازرسی",
+    tabTiers: "انواع کارت ورود",
+    tabPoints: "نقطه‌های ورود",
     tabBooths: "غرفه‌های نمایشگاهی",
     tabOperators: "پرسنل پذیرش",
     tabProgram: "برنامهٔ همایش",
     tabVenue: "سالن‌ها و ورودی‌ها",
     tabPanel: "پنل شرکت‌کننده",
-    fastActionsHeading: "ایستگاه‌های عملیاتی سریع",
-    deskStationDesc: "پذیرش حضوری، صدور آنی بلیت و جستجوی لحظه‌ای شرکت‌کنندگان",
-    analyticsStationDesc: "پایش لحظه‌ای تردد گیت‌ها، آمار پذیرایی و خروجی اکسل",
+    analyticsStationDesc: "ورود به تفکیک نقطه، پذیرایی و خروجی اکسل",
     // Ticket Tiers
-    tiersHeading: "رده‌های بلیت و سهمیه‌های پذیرش",
-    tiersDesc: "تعریف انواع بلیت رایگان و تعیین سقف سهمیه پذیرش برای هر دسته.",
-    createTierButton: "افزودن رده بلیت جدید",
-    createTierModalTitle: "تعریف رده بلیت جدید",
-    createTierModalDesc: "عنوان رده و حداکثر ظرفیت پذیرش برای این دسته را وارد کنید.",
-    tierNameLabel: "عنوان رده بلیت",
-    tierQuotaLabel: "سقف سهمیه پذیرش (تعداد)",
-    tierDescriptionLabel: "توضیحات رده بلیت (اختیاری)",
-    tierIsOpenLabel: "پذیرش برای این رده باز است",
-    saveTierAction: "ثبت رده بلیت",
+    tiersHeading: "انواع کارت ورود",
+    tiersDesc: "ظرفیت هر نوع کارت ورود را تعیین کنید.",
+    createTierButton: "نوع کارت ورود جدید",
+    createTierModalTitle: "نوع کارت ورود جدید",
+    createTierModalDesc: "نام و ظرفیت را وارد کنید.",
+    tierNameLabel: "نام",
+    tierQuotaLabel: "ظرفیت",
+    tierDescriptionLabel: "توضیحات (اختیاری)",
+    tierIsOpenLabel: "ثبت‌نام باز است",
+    saveTierAction: "افزودن",
     tierQuotaTotal: "ظرفیت کل",
     tierStatusOpen: "پذیرش فعال",
     tierStatusClosed: "پذیرش بسته",
-    tierStatusAvailable: "قابل ثبت‌نام",
     tierStatusSoldOut: "تکمیل ظرفیت",
-    tierStatusRegistrationClosed: "ثبت‌نام بسته است",
-    reserveButtonSoldOut: "تکمیل ظرفیت",
-    reserveButtonClosed: "ثبت‌نام این رده بسته است",
-    reserveButtonAvailable: "رزرو رایگان بلیت →",
-    tierCapacityRemaining: "ظرفیت باقی‌مانده:",
-    tierCapacitySoldOutNotice: "ظرفیت این رده تکمیل شده است.",
-    tierClosedNotice: "ثبت‌نام این رده توسط برگزارکننده بسته شده است.",
-    noTiersTitle: "هیچ رده بلیتی تعریف نشده است",
+    tierClosedNotice: "ثبت‌نام این نوع کارت ورود بسته است.",
+    noTiersTitle: "هنوز نوع کارت ورودی ندارید",
     // Check-In Points & Admission Policies
-    pointsHeading: "گیت‌های بازرسی و سیاست‌های پذیرش",
-    pointsDesc: "مدیریت ایستگاه‌های اسکن بارکد در درب‌های ورودی و سالن‌های همایش.",
-    createPointButton: "افزودن گیت بازرسی جدید",
-    createPointModalTitle: "تعریف گیت ورودی جدید",
-    createPointModalDesc: "نام ایستگاه، موقعیت مکانی و سیاست اعتبارسنجی را مشخص نمایید.",
-    pointNameLabel: "عنوان گیت ورودی",
-    pointLocationLabel: "موقعیت فیزیکی گیت",
-    policyTypeLabel: "سیاست اعتبارسنجی پذیرش",
-    maxCapacityLabel: "حداکثر سقف ظرفیت همزمان (اختیاری)",
-    allowedTiersLabel: "رده‌های مجاز به ورود از این گیت",
-    savePointAction: "ثبت گیت بازرسی",
-    openScannerAction: "ورود به اسکنر گیت",
-    noPointsTitle: "هیچ گیت بازرسی تعریف نشده است",
+    pointsHeading: "نقطه‌های ورود",
+    pointsDesc: "برای هر نقطهٔ ورود قانون ورود را تعیین کنید.",
+    createPointButton: "نقطهٔ ورود جدید",
+    createPointModalTitle: "نقطهٔ ورود جدید",
+    createPointModalDesc: "نام، مکان و قانون ورود را تعیین کنید.",
+    pointNameLabel: "نام",
+    pointLocationLabel: "مکان",
+    policyTypeLabel: "قانون ورود",
+    maxCapacityLabel: "ظرفیت (اختیاری)",
+    allowedTiersLabel: "انواع کارت ورود مجاز",
+    savePointAction: "افزودن",
+    openScannerAction: "باز کردن اسکنر",
+    noPointsTitle: "هنوز نقطهٔ ورودی ندارید",
     // Policy descriptions
-    policySingleUse: "یک‌بار ورود (ورود یکتا)",
-    policySingleUseDesc: "هر بلیت تنها یک بار در این گیت پذیرفته می‌شود (مناسب ژتون ناهار یا بسته هدایا).",
-    policyMultiEntry: "چندبار ورود (نامحدود)",
-    policyMultiEntryDesc: "شرکت‌کننده می‌تواند در طول همایش چندین بار وارد و خارج شود (مناسب درب اصلی).",
-    policyTierRestricted: "محدود به رده‌های خاص",
-    policyTierRestrictedDesc: "تنها رده‌های انتخاب‌شده مجوز ورود از این گیت را دارند (مناسب سالن VIP).",
-    policyCapacityCapped: "سقف ظرفیت همزمان",
-    policyCapacityCappedDesc: "پذیرش تا سقف ظرفیت سالن مجاز است (پس از تکمیل ظرفیت رد می‌شود).",
+    policySingleUse: "یک‌بار",
+    policySingleUseDesc: "مثلاً ناهار یا هدیه",
+    policyMultiEntry: "ورود مکرر",
+    policyMultiEntryDesc: "مثلاً در اصلی",
+    policyTierRestricted: "فقط انواع انتخاب‌شده",
+    policyTierRestrictedDesc: "مثلاً سالن ویژه",
+    policyCapacityCapped: "سقف ظرفیت",
+    policyCapacityCappedDesc: "پس از تکمیل، ورود رد می‌شود.",
     // Exhibition Booths
     boothsHeading: "غرفه‌های نمایشگاهی و نمایندگان",
     boothsDesc: "مدیریت غرفه‌های شرکت‌ها، تخصیص کارشناسان غرفه و پوستر اختصاصی QR.",
@@ -203,7 +160,7 @@ export const translations = {
     createBoothModalTitle: "ثبت غرفه نمایشگاهی جدید",
     createBoothModalDesc: "اطلاعات شرکت، شناسه غرفه و پیوند کاتالوگ دیجیتال را وارد کنید.",
     boothNameLabel: "نام شرکت یا غرفه",
-    boothSlugLabel: "شناسه اینترنتی غرفه (Slug)",
+    boothSlugLabel: "نشانی صفحهٔ غرفه",
     boothLocationLabel: "موقعیت غرفه در سالن (شماره استند)",
     boothDescriptionLabel: "توضیحات و معرفی محصولات شرکت",
     websiteUrlLabel: "نشانی وب‌سایت رسمی شرکت",
@@ -211,16 +168,13 @@ export const translations = {
     saveBoothAction: "ثبت غرفه نمایشگاهی",
     assignStaffButton: "تخصیص نماینده غرفه",
     assignStaffModalTitle: "تخصیص کارشناس به غرفه",
-    assignStaffModalDesc: "شماره موبایل کارشناس غرفه را برای فعال‌سازی دسترسی به پرتال لید وارد کنید.",
     staffMobileLabel: "شماره موبایل کارشناس",
     assignStaffAction: "تخصیص دسترسی نماینده",
     standeeQrButton: "پوستر QR غرفه",
     standeeQrModalTitle: "کد QR استند غرفه",
-    standeeQrModalDesc: "نشانی صفحهٔ عمومی غرفه؛ هر دوربین گوشی آن را باز می‌کند و شرکت‌کنندهٔ واردشده با یک لمس غرفه را نشان می‌کند.",
+    standeeQrModalDesc: "برای چاپ روی استند؛ شرکت‌کنندگان با اسکن آن غرفه را ذخیره می‌کنند.",
     noBoothsTitle: "هیچ غرفه نمایشگاهی ثبت نشده است",
-    boothStaffCount: "نماینده فعال",
     // Exhibitor Lead Portal
-    exhibitorPortal: "پرتال تجاری غرفه و لیدها",
     exhibitorPortalDesc: "جمع‌آوری لیدهای تجاری، تعیین سطح تمایل و دریافت فهرست لیدها در قالب CSV",
     boothAuthorizedBadge: "نماینده رسمی غرفه",
     captureLeadAction: "ثبت لید",
@@ -230,9 +184,6 @@ export const translations = {
     badgeCodePlaceholder: "مثال: ABC123XYZ...",
     badgeCodeHint: "کد یکتای چاپ‌شده زیر کد QR کارت ورود، یا خوانده‌شده با بارکدخوان",
     interestRatingLabel: "سطح تمایل تجاری (Rating)",
-    ratingHot: "علاقه زیاد (Hot)",
-    ratingWarm: "علاقه متوسط (Warm)",
-    ratingCold: "علاقه کم (Cold)",
     ratingFilterAll: "همه سطوح",
     followUpTagsLabel: "برچسب‌های پیگیری تجاری",
     addCustomTagPlaceholder: "افزودن برچسب دلخواه (کلید Enter)...",
@@ -257,7 +208,7 @@ export const translations = {
     unauthorizedExhibitorTitle: "دسترسی تجاری غیرمجاز",
     unauthorizedExhibitorDesc: "حساب کاربری شما به عنوان نماینده مجاز این غرفه ثبت نشده است. دسترسی به اطلاعات تجاری و لیدهای شرکت‌های دیگر مسدود است.",
     unauthenticatedExhibitorTitle: "ورود نمایندگان غرفه",
-    unauthenticatedExhibitorDesc: "برای دسترسی به پرتال لیدهای تجاری غرفه، لطفاً با حساب کاربری نماینده وارد شوید.",
+    unauthenticatedExhibitorDesc: "با شماره‌ای که برگزارکننده ثبت کرده وارد شوید.",
     capturedAtLabel: "زمان ثبت",
     tierColumnLabel: "نوع کارت ورود",
     tagSendQuote: "ارسال پیش‌فاکتور",
@@ -267,34 +218,32 @@ export const translations = {
     tagGeneralInquiry: "استعلام عمومی",
     tagUrgentFollowUp: "پیگیری فوری",
     // Analytics & Operational Telemetry
-    analyticsTitle: "آمار و گزارش‌های تردد گیت‌ها",
-    analyticsSubtitle: "پایش نرخ پذیرش، توزیع تردد گیت‌ها و آمار پذیرایی در طول زمان",
+    analyticsTitle: "آمار",
+    analyticsSubtitle: "نرخ حضور، ورود به تفکیک نقطه و پذیرایی",
     analyticsPollingActive: "به‌روزرسانی خودکار هر ۳۰ ثانیه",
     analyticsPollingPaused: "استعلام خودکار متوقف",
     lastRefreshedLabel: "آخرین به‌روزرسانی",
     staleDataWarning: "خطا در برقراری ارتباط با سرور؛ اطلاعات نمایش‌داده‌شده ممکن است به‌روز نباشد.",
-    offlineSyncDisclaimer: "توجه: آمارها بر اساس اسکن‌های همگام‌شده با سرور محاسبه شده‌اند. در صورت عملکرد آفلاین برخی گیت‌ها، پس از اتصال به اینترنت آمار به‌روزرسانی خواهد شد.",
+    offlineSyncDisclaimer: "اسکن‌های آفلاین پس از اتصال شمرده می‌شوند.",
     totalRegisteredKPI: "کل ثبت‌نام‌شدگان",
     totalRegisteredDesc: "کارت‌های ورود فعال؛ کارت‌های لغوشده شمرده نمی‌شوند.",
     uniqueAdmittedKPI: "ورود اختصاصی افراد",
     checkinRateKPI: "نرخ مشارکت و حضور",
     totalScansKPI: "کل تراکنش‌های اسکن",
-    totalScansDesc: "مجموع اسکن‌های معتبر و رد شده در تمامی گیت‌ها",
     admittedLabel: "پذیرفته‌شده",
     rejectedLabel: "ردشده",
-    cumulativeAdmittedLabel: "تجمعی پذیرفته‌شده",
     gateScansLabel: "کل اسکن‌ها",
-    filterByPoint: "فیلتر بر اساس گیت بازرسی",
-    filterByTier: "فیلتر بر اساس رده بلیت",
-    allPointsFilter: "همه گیت‌های بازرسی",
-    allTiersFilter: "همه رده‌های بلیت",
+    filterByPoint: "نقطهٔ ورود",
+    filterByTier: "نوع کارت ورود",
+    allPointsFilter: "همهٔ نقطه‌ها",
+    allTiersFilter: "همهٔ انواع",
     clearFiltersAction: "پاکسازی فیلترها",
     cateringSectionTitle: "گزارش پذیرایی و توزیع غذا",
-    cateringSectionDesc: "پایش ایستگاه‌های پذیرایی با سیاست یک‌بار ورود (حداکثر ۱ وعده برای هر شرکت‌کننده)",
+    cateringSectionDesc: "نقطه‌های یک‌بار ورود؛ هر نفر یک وعده",
     cateringMealsServed: "وعده تحویل‌شده",
     cateringRedemptionRate: "نرخ تحویل پذیرایی",
-    gateThroughputSectionTitle: "گزارش تردد به تفکیک گیت‌ها و ساعات برگزاری",
-    noGatesMatchFilter: "هیچ گیت بازرسی با فیلترهای انتخابی مطابقت ندارد.",
+    gateThroughputSectionTitle: "ورود به تفکیک نقطه",
+    noGatesMatchFilter: "نقطه‌ای با این فیلترها نیست.",
     hourlyDistributionLabel: "توزیع زمانی اسکن‌ها در ساعات مختلف",
     hourlyTableToggle: "مشاهده جدول داده‌ها",
     noHourlyScansLogged: "هیچ اسکنی در این بازه زمانی ثبت نشده است.",
@@ -313,25 +262,24 @@ export const translations = {
     todayLabel: "امروز",
     analyticsTimezoneNote: "زمان‌ها به وقت محل همایش",
     analyticsFiltersApply: "فیلترها روی همین نما و هر دو فایل CSV (ترددها و ثبت‌نام‌ها) اعمال می‌شوند.",
-    analyticsLoadFailedTitle: "آمار بارگیری نشد",
+    analyticsLoadFailedTitle: "آمار بارگذاری نشد",
     analyticsRetryAction: "تلاش دوباره",
     admissionsLabel: "ورودهای ثبت‌شده",
-    admissionsDesc: "همهٔ اسکن‌های پذیرفته‌شده در همهٔ گیت‌ها. هر بار ورود یک فرد جداگانه شمرده می‌شود و خروج ثبت نمی‌شود؛ پس این عدد تعداد حاضران فعلی نیست.",
+    admissionsDesc: "هر ورود جدا شمرده می‌شود؛ تعداد حاضران فعلی نیست.",
     gateAdmissionsNote: "ورودهای تجمعی؛ خروج ثبت نمی‌شود.",
-    tierRegistrationsTitle: "ثبت‌نام به تفکیک رده",
+    tierRegistrationsTitle: "ثبت‌نام به تفکیک نوع کارت ورود",
     tierActiveOfQuota: "فعال از ظرفیت",
     ticketsActiveLabel: "فعال",
     ticketsCancelledLabel: "لغوشده",
-    eventHourlyTitle: "اسکن‌ها در هر ساعت (همهٔ گیت‌های انتخاب‌شده)",
+    eventHourlyTitle: "اسکن در هر ساعت",
     filtersLabel: "فیلترها:",
     peakLabel: "اوج",
     // Front Desk Workspace
     deskTitle: "میز پذیرش و صدور آنی کارت همایش",
     deskSubtitle: "پذیرش حضوری، صدور آنی کارت ورود دیجیتال و جستجوی لحظه‌ای شرکت‌کنندگان",
-    deskLoginTitle: "ورود به ایستگاه میز پذیرش",
+    deskLoginTitle: "ورود به میز پذیرش",
     deskLoginSubtitle: "با شماره موبایل اپراتور و کد پیامکی برای پذیرش حضوری و صدور کارت همایش وارد شوید.",
     deskLoginButton: "ورود به میز پذیرش",
-    deskOperatorLabel: "اپراتور فعال:",
     deskLogoutAction: "خروج اپراتور",
     issuedByLabel: "صادرکننده:",
     operatorsHeading: "مدیریت پرسنل میز پذیرش",
@@ -342,8 +290,8 @@ export const translations = {
     operatorNameLabel: "نام کامل اپراتور",
     operatorMobileLabel: "شماره موبایل",
     operatorStatusActive: "دسترسی فعال",
-    operatorStatusRevoked: "لغو دسترسی",
-    revokeOperatorAction: "ابطال دسترسی",
+    operatorStatusRevoked: "دسترسی لغو شده",
+    revokeOperatorAction: "لغو دسترسی",
     noOperatorsTitle: "هنوز اپراتوری برای میز پذیرش این همایش تعریف نشده است",
     searchAttendeePlaceholder: "جستجوی شرکت‌کننده با نام یا شماره موبایل...",
     searchAttendeeHeading: "جستجوی سریع شرکت‌کنندگان",
@@ -354,41 +302,25 @@ export const translations = {
     printPassAction: "چاپ کارت ورود",
     ticketIssuedSuccess: "✓ کارت ورود با موفقیت صادر شد.",
     noAttendeeFound: "شرکت‌کننده‌ای با این مشخصات یافت نشد.",
-    existingTicketFound: "بلیت صادرشده قبلی برای این شرکت‌کننده موجود است.",
-    historyHeading: "آخرین پذیرش‌های میز کار",
-    scannerTitle: "ایستگاه اسکن و کنترل تردد گیت",
-    scannerSubtitle: "اعتبارسنجی آنی بارکد کارت‌های ورود و همگام‌سازی صف آفلاین",
-    tokenRequiredTitle: "احراز هویت دستگاه اسکنر",
-    tokenRequiredDesc: "توکن اختصاصی گیت یا کلید API سازمان را وارد نمایید.",
-    scannerTokenLabel: "توکن اختصاصی دستگاه اسکنر",
-    tokenSubmitAction: "اتصال به گیت",
-    cameraScanTab: "اسکن با دوربین",
-    manualInputTab: "ورود دستی بارکد",
-    hidScanHint: "اسکنر بارکدخوان USB / بی‌سیم آماده دریافت است...",
     manualCodeSubmit: "بررسی ورود",
-    statusConfirmedAdmitted: "ورود مجاز و تایید شده",
-    statusProvisionalAdmitted: "ورود مجاز (آفلاین)",
-    statusRejected: "ورود غیرمجاز (رد شد)",
-    reasonAlreadyAdmitted: "بلیت قبلاً مصرف شده است (ورود تکراری)",
-    reasonCapacityReached: "ظرفیت سالن تکمیل است",
-    reasonTierNotAllowed: "رده بلیت مجاز به ورود از این گیت نیست",
+    statusConfirmedAdmitted: "مجاز",
+    statusProvisionalAdmitted: "مجاز (آفلاین)",
+    statusRejected: "رد شد",
+    reasonAlreadyAdmitted: "قبلاً وارد شده است",
+    reasonCapacityReached: "ظرفیت تکمیل است",
+    reasonTierNotAllowed: "این نوع کارت ورود اینجا مجاز نیست",
     reasonInvalidTicket: "کد QR نامعتبر است",
-    reasonNotInManifest: "کد در حافظه آفلاین گیت یافت نشد (نیاز به استعلام آنلاین یا میز پذیرش)",
-    reasonCapacityOffline: "کنترل ظرفیت در حالت آفلاین مسدود است (نیاز به استعلام آنلاین یا تایید سرپرست)",
-    reasonScanConflict: "تداخل در شناسه اسکن با گیت دیگر",
+    reasonNotInManifest: "در فهرست این دستگاه نیست؛ به میز پذیرش بفرستید",
+    reasonCapacityOffline: "آفلاین؛ ظرفیت کنترل نمی‌شود. با سرپرست هماهنگ کنید",
+    reasonScanConflict: "تداخل با اسکن نقطهٔ دیگر",
     conflictsHeading: "تداخل‌های نیازمند بررسی",
-    conflictDismissAction: "تایید و رفع هشدار",
-    deviceUnpairAction: "قطع اتصال دستگاه",
-    audioToggleLabel: "بازخورد صوتی اسکن",
-    cameraToggleLabel: "روشن/خاموش دوربین",
 
-    // ── SMS short link / one-tap pass (ADR 0015). Glossary: «کارت ورود» = pass, «کد QR», «بلیت» (never spelled with ط; tests/glossary.test.ts).
+    // ── SMS short link / one-tap pass (ADR 0015). Terms: GLOSSARY.md "Persian UI terms" (tests/glossary.test.ts).
     linkOpeningLabel: "در حال باز کردن کارت ورود…",
-    linkPassNote: "این کارت ورود از پیوند پیامک شما باز شده است",
-    linkPassNoteDesc: "برای نشان دادن کارت ورود و کد QR در ورودی نیازی به ورود ندارید. شبکه‌سازی و نمایه به ورود نیاز دارند.",
-    linkPassSignInAction: "ورود برای شبکه‌سازی و نمایه",
-    linkExpiredTitle: "این پیوند منقضی شده یا دیگر معتبر نیست",
-    linkExpiredDesc: "برای دیدن کارت ورود و کد QR خود وارد شوید. اگر بلیت شما لغو یا دوباره صادر شده است، پیوند تازه‌ترین پیامک را باز کنید.",
+    linkPassNote: "کارت ورود از پیوند پیامک",
+    linkPassSignInAction: "برای شبکه‌سازی وارد شوید",
+    linkExpiredTitle: "این پیوند دیگر معتبر نیست",
+    linkExpiredDesc: "برای دیدن کارت ورود وارد شوید یا تازه‌ترین پیامک را باز کنید.",
     linkInvalidTitle: "این پیوند معتبر نیست",
     linkInvalidDesc: "پیوند را کامل و بدون تغییر از پیامک باز کنید، یا برای دیدن کارت ورود وارد شوید.",
     linkThrottledTitle: "تلاش‌های زیادی انجام شد",
@@ -407,27 +339,17 @@ export const translations = {
     login: "Log In",
     attendeePortal: "Attendee Portal",
     navMyCongress: "My Congress",
-    navMyNetwork: "My Network",
     navMyTicket: "My Ticket",
     navMyProfile: "My Profile",
     navCongressDetails: "Congress Details",
-    openCongressPortal: "Open Congress Portal",
     languageToggle: "فارسی",
     // Ticket Pass Portal
     digitalPassTitle: "Digital Congress Entry Pass",
-    ticketSubtitle: "Turn your brightness up and show this QR at the gate.",
-    activeBadge: "Registered",
     ticketStatusActive: "Active & Valid",
-    ticketIdLabel: "Ticket Reference ID",
-    tierLabel: "Admission Tier",
-    eventLabel: "Congress / Event",
+    ticketIdLabel: "Pass ID",
+    tierLabel: "Pass type",
     venueLabel: "Venue Location",
     offlineNotice: "Offline: showing your saved pass",
-    offlineNoticeDesc: "Your digital pass is securely retained locally for gate presentation during venue network dropouts.",
-    syncedNotice: "Up to date",
-    noTicketsTitle: "No Active Tickets Found",
-    noTicketsDesc: "To reserve an attendee pass, use the direct registration link provided by your congress organizer.",
-    browseEventsLink: "Return to Platform Home",
     unauthenticatedTitle: "Sign In to Attendee Portal",
     unauthenticatedDesc: "You must be signed in to access your digital tickets and peer connections.",
     loginAction: "Sign In",
@@ -439,33 +361,10 @@ export const translations = {
     // Bookmarked Booths
     savedBoothsHeading: "Saved Exhibition Booths",
     savedBoothsDesc: "Commercial exhibitors and sponsors you have bookmarked during the event.",
-    noSavedBooths: "You have not bookmarked any exhibition booths yet.",
     viewBoothAction: "View Booth Profile",
     removeBookmarkAction: "Remove Bookmark",
     bookmarkRemovedFeedback: "Booth removed from your saved list.",
-    // Networking Hub
     networkHeading: "My Professional Connections",
-    networkDesc: "Your in-person contacts, private conversation notes, and vCard downloads.",
-    connectModalTitle: "Save Peer Contact",
-    peerCodeLabel: "Peer Badge Code (QR Secret)",
-    privateNotesLabel: "Private Notes on This Discussion",
-    privateNotesPlaceholder: "e.g., Discussed clinical data collaboration next quarter...",
-    saveConnectionAction: "Save to My Network",
-    downloadVCardAction: "Download Contact Card (.vcf)",
-    editNotesAction: "Edit Notes",
-    saveNotesAction: "Save Changes",
-    notesSavedFeedback: "Private notes updated successfully.",
-    noConnectionsTitle: "No Connections Saved Yet",
-    noConnectionsDesc: "Scan a colleague's QR code during sessions and breaks to save them to your network.",
-    // Privacy & Contact Consent (Issue #19)
-    privacyHeading: "Peer Contact Sharing Privacy",
-    privacyDesc: "Control whether your mobile number is shared with peers who connect with your badge.",
-    shareMobileToggleLabel: "Share mobile number with peer connections",
-    shareMobileToggleDesc: "When enabled, peers who connect with your badge can see your mobile number and export it in their vCard. Disabled by default.",
-    privacySavedFeedback: "Privacy preference updated successfully.",
-    mobileSharedStatus: "Mobile number sharing is enabled",
-    mobileHiddenStatus: "Mobile number is kept private",
-    mobileNotSharedNotice: "Peer has chosen not to share their mobile number.",
     // Organizer Workspace & Layout
     organizerConsole: "Organizer Console",
     organizerConsoleDesc: "Configure multi-day congresses, ticket tiers, check-in gates, and exhibition booths.",
@@ -478,7 +377,6 @@ export const translations = {
     activeOrganizer: "Active Organization Session",
     clearKeyAction: "Sign Out",
     breadcrumbEvents: "Events List",
-    breadcrumbEventConfig: "Event Settings",
     breadcrumbDesk: "Front Desk",
     breadcrumbAnalytics: "Analytics",
     // Organizer Events List
@@ -536,8 +434,6 @@ export const translations = {
     tabProgram: "Program",
     tabVenue: "Venue",
     tabPanel: "Attendee panel",
-    fastActionsHeading: "Operational Stations",
-    deskStationDesc: "On-site walk-in registration, pass minting, and live attendee search",
     analyticsStationDesc: "Real-time gate throughput, catering counts, and audit CSV exports",
     // Ticket Tiers
     tiersHeading: "Ticket Tiers & Quotas",
@@ -553,14 +449,7 @@ export const translations = {
     tierQuotaTotal: "Total Quota",
     tierStatusOpen: "Open",
     tierStatusClosed: "Closed",
-    tierStatusAvailable: "Available",
     tierStatusSoldOut: "Sold Out",
-    tierStatusRegistrationClosed: "Registration Closed",
-    reserveButtonSoldOut: "Sold Out",
-    reserveButtonClosed: "Registration Closed",
-    reserveButtonAvailable: "Reserve Free Pass →",
-    tierCapacityRemaining: "Seats remaining:",
-    tierCapacitySoldOutNotice: "Capacity for this category has been reached.",
     tierClosedNotice: "Registration for this category is currently closed.",
     noTiersTitle: "No ticket tiers defined yet",
     // Check-In Points & Admission Policies
@@ -601,16 +490,13 @@ export const translations = {
     saveBoothAction: "Save Exhibition Booth",
     assignStaffButton: "Assign Booth Staff",
     assignStaffModalTitle: "Assign Booth Representative",
-    assignStaffModalDesc: "Enter the representative's mobile number to authorize access to the exhibitor lead portal.",
     staffMobileLabel: "Representative Mobile Number",
     assignStaffAction: "Authorize Representative",
     standeeQrButton: "Standee QR",
     standeeQrModalTitle: "Booth Standee QR Code",
     standeeQrModalDesc: "The booth's public page address: any phone camera opens it, and a signed-in attendee bookmarks the booth in one tap.",
     noBoothsTitle: "No exhibition booths registered yet",
-    boothStaffCount: "reps",
     // Exhibitor Lead Portal
-    exhibitorPortal: "Exhibitor Lead Portal",
     exhibitorPortalDesc: "Capture attendee leads, qualify commercial interest, and export the lead list as CSV.",
     boothAuthorizedBadge: "Authorized Booth Staff",
     captureLeadAction: "Capture Lead",
@@ -620,9 +506,6 @@ export const translations = {
     badgeCodePlaceholder: "e.g. ABC123XYZ...",
     badgeCodeHint: "Printed reference code beneath the badge QR or scanned via barcode reader",
     interestRatingLabel: "Interest Rating",
-    ratingHot: "Hot (Immediate Opportunity)",
-    ratingWarm: "Warm (Qualified Prospect)",
-    ratingCold: "Cold (General Inquiry)",
     ratingFilterAll: "All Ratings",
     followUpTagsLabel: "Follow-Up Action Tags",
     addCustomTagPlaceholder: "Type custom tag and press Enter...",
@@ -669,10 +552,8 @@ export const translations = {
     uniqueAdmittedKPI: "Unique Attendees Admitted",
     checkinRateKPI: "Attendance Rate",
     totalScansKPI: "Total Scan Operations",
-    totalScansDesc: "Sum of admitted and rejected scans across all points",
     admittedLabel: "Admitted",
     rejectedLabel: "Rejected",
-    cumulativeAdmittedLabel: "Cumulative Admitted",
     gateScansLabel: "Total scans",
     filterByPoint: "Filter by Check-In Point",
     filterByTier: "Filter by Ticket Tier",
@@ -721,7 +602,6 @@ export const translations = {
     deskLoginTitle: "Front Desk Operator Sign-In",
     deskLoginSubtitle: "Sign in with the operator's mobile number and an SMS code to access walk-in registration and pass issuance.",
     deskLoginButton: "Sign In to Desk",
-    deskOperatorLabel: "Active Operator:",
     deskLogoutAction: "Sign Out",
     issuedByLabel: "Issued by:",
     operatorsHeading: "Front Desk Operators",
@@ -744,41 +624,25 @@ export const translations = {
     printPassAction: "Print Badge Pass",
     ticketIssuedSuccess: "✓ Digital pass minted successfully.",
     noAttendeeFound: "No attendee found matching this search.",
-    existingTicketFound: "Existing pass found for this attendee.",
-    historyHeading: "Recent Station Issuances",
-    scannerTitle: "Gate Check-In & Scanner Station",
-    scannerSubtitle: "Real-time credential evaluation and offline queue synchronization.",
-    tokenRequiredTitle: "Scanner Device Authentication",
-    tokenRequiredDesc: "Enter point-scoped scanner token or organizer API key.",
-    scannerTokenLabel: "Scanner Device Token",
-    tokenSubmitAction: "Connect Scanner",
-    cameraScanTab: "Camera Scanner",
-    manualInputTab: "Manual Entry",
-    hidScanHint: "USB / Bluetooth barcode gun listener active...",
     manualCodeSubmit: "Check Ticket",
-    statusConfirmedAdmitted: "Confirmed Admitted",
+    statusConfirmedAdmitted: "Admitted",
     statusProvisionalAdmitted: "Admitted (offline)",
-    statusRejected: "Admission Rejected",
-    reasonAlreadyAdmitted: "Ticket Already Admitted (Duplicate Scan)",
-    reasonCapacityReached: "Venue Capacity Reached",
-    reasonTierNotAllowed: "Ticket Tier Not Allowed at this Gate",
-    reasonInvalidTicket: "Invalid or Unrecognized QR Code",
-    reasonNotInManifest: "Credential not found in offline manifest (verify online or at Front Desk)",
-    reasonCapacityOffline: "Authoritative capacity unavailable while offline (verify online or request supervisor override)",
-    reasonScanConflict: "Scan UUID Collision with Another Gate",
+    statusRejected: "Rejected",
+    reasonAlreadyAdmitted: "Already admitted",
+    reasonCapacityReached: "Full",
+    reasonTierNotAllowed: "Pass type not allowed here",
+    reasonInvalidTicket: "Invalid QR code",
+    reasonNotInManifest: "Not on this device's list; send to the desk",
+    reasonCapacityOffline: "Offline: capacity can't be checked; ask a supervisor",
+    reasonScanConflict: "Conflicts with another point",
     conflictsHeading: "Reconciliation Conflicts",
-    conflictDismissAction: "Acknowledge Conflict",
-    deviceUnpairAction: "Disconnect Device",
-    audioToggleLabel: "Audio Chimes",
-    cameraToggleLabel: "Camera On/Off",
 
     // ── SMS short link / one-tap pass (ADR 0015).
     linkOpeningLabel: "Opening your pass…",
-    linkPassNote: "Opened from your SMS link",
-    linkPassNoteDesc: "You don't need to sign in to show this pass and its QR code at the entrance. Networking and your profile need a sign-in.",
-    linkPassSignInAction: "Sign in for networking and profile",
-    linkExpiredTitle: "This link has expired or is no longer valid",
-    linkExpiredDesc: "Sign in to see your pass and QR code. If your ticket was cancelled or reissued, open the link in the newest SMS.",
+    linkPassNote: "Pass from your SMS link",
+    linkPassSignInAction: "Sign in for networking",
+    linkExpiredTitle: "This link is no longer valid",
+    linkExpiredDesc: "Sign in to see your pass, or open your latest SMS.",
     linkInvalidTitle: "This link is not valid",
     linkInvalidDesc: "Open the link from the SMS exactly as it was sent, or sign in to see your pass.",
     linkThrottledTitle: "Too many attempts",
@@ -867,39 +731,90 @@ export function formatLocalizedNumber(num: number, locale: AttendeeLocale): stri
     return String(num);
   }
 }
-export interface AttendeeLocaleContext {
+export interface LocaleState {
   locale: AttendeeLocale;
   setLocale: (newLocale: AttendeeLocale) => void;
-  t: (typeof translations)["fa"];
   isRtl: boolean;
   dir: "rtl" | "ltr";
 }
-/**
- * React hook for Attendee portal localization with Persian default.
+export interface AttendeeLocaleContext extends LocaleState {
+  t: (typeof translations)["fa"];
+}
+
+/*
+ * One locale for the whole app. The reader's explicit choice is kept under one storage key and shared by every
+ * screen; without one, the page on screen may name a default (a congress page speaks its congress's language),
+ * and otherwise the app speaks Persian. `<html lang dir>` always follows the locale in use.
  */
+const DIRECTION = { fa: "rtl", en: "ltr" } as const;
+const listeners = new Set<() => void>();
+/** A choice the browser refused to store (private mode, blocked site data): it holds until the page reloads. */
+let unsavedChoice: AttendeeLocale | null = null;
+/** The language of the content on screen, while a page that has one is mounted. */
+let pageDefault: AttendeeLocale | undefined;
+
+function chosenLocale(): AttendeeLocale | null {
+  if (unsavedChoice !== null) return unsavedChoice;
+  try {
+    const stored = localStorage.getItem(ATTENDEE_LOCALE_STORAGE);
+    return stored === "fa" || stored === "en" ? stored : null;
+  } catch {
+    return null;
+  }
+}
+
+function changed(): void {
+  if (typeof document !== "undefined") {
+    const locale = chosenLocale() ?? pageDefault ?? "fa";
+    document.documentElement.lang = locale;
+    document.documentElement.dir = DIRECTION[locale];
+  }
+  for (const listener of listeners) listener();
+}
+
+/** The reader's choice, for every screen and every later visit. */
+export function setLocale(newLocale: AttendeeLocale): void {
+  try {
+    localStorage.setItem(ATTENDEE_LOCALE_STORAGE, newLocale);
+    unsavedChoice = null;
+  } catch {
+    unsavedChoice = newLocale;
+  }
+  changed();
+}
+
+function subscribe(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+}
+
+const currentPageDefault = () => pageDefault;
+
+changed();
+
+/**
+ * The app's locale. `contentDefault` is the language of the page's own content (a congress page), used when the
+ * reader has not chosen one; while the page is mounted every other screen element follows it too.
+ */
+export function useLocale(contentDefault?: AttendeeLocale): LocaleState {
+  const chosen = useSyncExternalStore(subscribe, chosenLocale, () => null);
+  const fallback = useSyncExternalStore(subscribe, currentPageDefault, () => undefined);
+  useEffect(() => {
+    if (contentDefault === undefined) return;
+    pageDefault = contentDefault;
+    changed();
+    return () => {
+      if (pageDefault !== contentDefault) return;
+      pageDefault = undefined;
+      changed();
+    };
+  }, [contentDefault]);
+  const locale = chosen ?? contentDefault ?? fallback ?? "fa";
+  return { locale, setLocale, isRtl: locale === "fa", dir: DIRECTION[locale] };
+}
+
+/** The app's locale with the legacy dictionary (`t`). */
 export function useAttendeeLocale(): AttendeeLocaleContext {
-  const [locale, setLocaleState] = useState<AttendeeLocale>(() => {
-    if (typeof window !== "undefined") {
-      const stored = localStorage.getItem(ATTENDEE_LOCALE_STORAGE);
-      if (stored === "en" || stored === "fa") return stored;
-    }
-    // Default to Persian as prioritized by project specification
-    return "fa";
-  });
-  const setLocale = (newLocale: AttendeeLocale) => {
-    setLocaleState(newLocale);
-    if (typeof window !== "undefined") {
-      localStorage.setItem(ATTENDEE_LOCALE_STORAGE, newLocale);
-    }
-  };
-  const t = translations[locale];
-  const isRtl = locale === "fa";
-  const dir = isRtl ? "rtl" : "ltr";
-  return {
-    locale,
-    setLocale,
-    t,
-    isRtl,
-    dir,
-  };
+  const state = useLocale();
+  return { ...state, t: translations[state.locale] };
 }
