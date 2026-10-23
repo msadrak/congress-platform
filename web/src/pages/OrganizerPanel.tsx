@@ -202,7 +202,9 @@ export function OrganizerPanelFrame() {
           t={t}
           personal={{
             status: "ready",
-            overview: { tickets: [{ id: sample.id, ticket_tier_name: sample.ticket_tier_name, attendee_name: sample.attendee_name }], fromCache: false, connectionCount: 0, otherCongresses: [] },
+            overview: {
+              tickets: [{ id: sample.id, ticket_tier_name: sample.ticket_tier_name, attendee_name: sample.attendee_name, status: "active", qr_secret: sample.qr_secret }],
+              fromCache: false, connectionCount: 0, otherCongresses: [] },
           }}
           booths={(index) => (
             <BoothDirectoryView
