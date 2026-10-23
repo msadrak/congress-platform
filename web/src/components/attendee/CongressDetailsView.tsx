@@ -56,7 +56,7 @@ export function CongressDetailsView({ event, page, labels, locale, t, agendaOwne
   const pc = programCopy[locale];
   const { doc, images } = page;
   const cover = doc.hero.layout !== "signature" && doc.hero.cover_asset_id ? (images[doc.hero.cover_asset_id] ?? null) : null;
-  const totalDays = congressDays(event.starts_at, event.ends_at);
+  const totalDays = congressDays(event.starts_at, event.ends_at, event.timezone);
   const entrances = event.venue.filter((p) => p.kind === "entrance");
   const halls = event.venue.filter((p) => p.kind === "hall");
   const n = (value: number) => formatLocalizedNumber(value, locale);
@@ -87,7 +87,7 @@ export function CongressDetailsView({ event, page, labels, locale, t, agendaOwne
         <div className="flex flex-col justify-end gap-5 lg:col-span-7 lg:py-6">
           <div className="flex flex-wrap items-center gap-3">
             <span className="eyebrow">{t.navCongressDetails}</span>
-            <PhaseBadge startsAt={event.starts_at} endsAt={event.ends_at} locale={locale} />
+            <PhaseBadge startsAt={event.starts_at} endsAt={event.ends_at} locale={locale} timeZone={event.timezone} />
           </div>
           <h1 className="text-[2rem] font-semibold leading-[1.08] tracking-[-0.035em] text-text-primary text-balance break-words sm:text-5xl">{event.name}</h1>
         </div>

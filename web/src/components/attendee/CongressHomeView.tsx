@@ -382,14 +382,10 @@ export function CongressHomeView({ event, page, labels, locale, t, personal, boo
     body = (
       <>
         <section aria-labelledby="mc-pass-title" className="space-y-4 reveal">
-          <div className="flex flex-wrap items-baseline justify-between gap-2">
-            <h2 id="mc-pass-title" className="text-xl font-semibold tracking-[-0.02em] text-text-primary sm:text-2xl">
-              {activePasses.length > 1 ? c.passesTitleMany : c.passesTitle}
-            </h2>
-            <Badge variant="success" size="sm" dot>
-              {c.dayOf(n(phase.day, locale), n(phase.totalDays, locale))}
-            </Badge>
-          </div>
+          {/* The hero already says which day it is ("Live now · Day 2 of 3"). */}
+          <h2 id="mc-pass-title" className="text-xl font-semibold tracking-[-0.02em] text-text-primary sm:text-2xl">
+            {activePasses.length > 1 ? c.passesTitleMany : c.passesTitle}
+          </h2>
           {activePasses.length > 0 ? (
             <LivePass passes={activePasses} slug={slug} locale={locale} offline={overview.fromCache} />
           ) : (

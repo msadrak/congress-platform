@@ -9,7 +9,7 @@ import type { PanelPage } from "./panelContent";
 import { PhaseBadge } from "./PhaseBadge";
 
 interface CongressHeroProps {
-  event: Pick<PublicEvent, "name" | "slug" | "starts_at" | "ends_at" | "location">;
+  event: Pick<PublicEvent, "name" | "slug" | "starts_at" | "ends_at" | "location"> & { timezone?: string };
   /** Published page: branding logo, hero cover and accent. */
   page: PanelPage;
   locale: AttendeeLocale;
@@ -59,7 +59,7 @@ export function CongressHero({ event, page, locale, eyebrow, children }: Congres
             )}
             <span className="eyebrow text-ink-300">{eyebrow}</span>
           </div>
-          <PhaseBadge startsAt={event.starts_at} endsAt={event.ends_at} locale={locale} tone="ink" />
+          <PhaseBadge startsAt={event.starts_at} endsAt={event.ends_at} locale={locale} tone="ink" timeZone={event.timezone} />
         </div>
 
         <div className="space-y-5 motion-safe:animate-rise">

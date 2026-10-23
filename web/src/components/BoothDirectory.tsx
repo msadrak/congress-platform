@@ -352,8 +352,8 @@ export function BoothDirectoryView({
                         <Button
                           type="button"
                           variant={saved ? "outline" : "secondary"}
-                          size="sm"
-                          className={`shrink-0 min-h-11 min-w-11 ${saved ? "bg-event-accent-soft text-event-accent border-event-accent/30" : ""}`}
+                          size="md"
+                          className={`shrink-0 min-w-11 ${saved ? "bg-event-accent-soft text-event-accent border-event-accent/30" : ""}`}
                           aria-label={
                             saved
                               ? isRtl ? `حذف ${b.name} از ذخیره‌شده‌ها` : `Remove ${b.name} from saved booths`
