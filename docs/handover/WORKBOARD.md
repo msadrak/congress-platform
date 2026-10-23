@@ -74,7 +74,7 @@ Branch `ws/ux-<id>` (team2: `ws/team2-ux-<id>`). A phase-1 package starts when t
 | UX-SCAN scanner | 1 | F1–F6 | coordinator team | waiting |
 | UX-DESK reception desk | 1 | F1–F6 | coordinator team | waiting |
 | UX-BOOTH booth panel | 1 | F1–F7 | coordinator team | waiting |
-| UX-ATT-PASS pass + link pass | 1 | F1–F5 | team2 | waiting |
+| UX-ATT-PASS pass + link pass (also `lib/ticketCache.ts`) | 1 | F1–F5 | team2 | taken (`ws/team2-ux-att-pass`) |
 | UX-ATT-SHELL attendee shell, Home/Program, /me, Network, Profile | 1 | F1–F5 | team2 | waiting |
 | UX-PUB platform home, public congress, reservation, booth page | 1 | F1–F4 | coordinator team | waiting |
 | UX-ORG-1 organizer shell, congress list, overview, members, activity | 1 | F1–F4, F8 | coordinator team | waiting |
