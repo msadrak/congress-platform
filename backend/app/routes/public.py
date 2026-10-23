@@ -1,11 +1,11 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import SessionDep
@@ -13,7 +13,9 @@ from app.models import Booth, BoothBookmark, Event, EventPage, MediaAsset, Ticke
 from app.page_document import PageDocument
 from app.page_render import PublicPage, public_media_url, render_page
 from app.seo import default_head, page_language, pick, render_head
+from app.routes.events import registration_problem
 from app.routes.program import PublicSession, PublicVenuePlace, live_program
+from app.routes.program_files import PublicProgramFile, visible_program_files
 from app.routes.ticket_tiers import TicketTierOut
 from app.security import decode_access_token
 
@@ -34,6 +36,44 @@ class PublicEvent(BaseModel):
     # Operational data, live as soon as the organizer saves it (no publish step; ADR 0014).
     venue: list[PublicVenuePlace]
     sessions: list[PublicSession]
+    # Lifecycle (B4). `registration_open` sums up the switch, the window and whether the event has ended.
+    timezone: str
+    registration_enabled: bool
+    registration_opens_at: datetime | None
+    registration_closes_at: datetime | None
+    registration_open: bool
+    # The schedule uploaded as PDFs or images: visible ones only, in the organizer's order.
+    program_files: list[PublicProgramFile] = []
+
+
+class PublicEventSummary(BaseModel):
+    """An entry of the platform's public event list."""
+
+    id: uuid.UUID
+    name: str
+    slug: str
+    starts_at: datetime
+    ends_at: datetime
+    location: str
+    timezone: str
+
+
+class PublicEventList(BaseModel):
+    items: list[PublicEventSummary]
+    total: int
+    limit: int
+    offset: int
+
+
+def event_lifecycle(event: Event) -> dict[str, Any]:
+    """The lifecycle fields of the public payload (also used by the organizer's page preview)."""
+    return {
+        "timezone": event.timezone,
+        "registration_enabled": event.registration_enabled,
+        "registration_opens_at": event.registration_opens_at,
+        "registration_closes_at": event.registration_closes_at,
+        "registration_open": registration_problem(event, datetime.now(timezone.utc)) is None,
+    }
 
 
 class PublicBoothOut(BaseModel):
@@ -68,7 +108,7 @@ async def published_event(slug: str, session: SessionDep) -> tuple[Event, dict[s
         await session.execute(
             select(Event, EventPage.published)
             .join(EventPage, EventPage.event_id == Event.id)
-            .where(Event.slug == slug, EventPage.published.is_not(None))
+            .where(Event.slug == slug, EventPage.published.is_not(None), Event.archived_at.is_(None))
         )
     ).first()
     if row is None or row[1] is None:
@@ -122,6 +162,52 @@ async def optional_user_id(
     return None
 
 
+@router.get("")
+async def list_public_events(
+    session: SessionDep,
+    limit: Annotated[int, Query(ge=1, le=50)] = 20,
+    offset: Annotated[int, Query(ge=0, le=10_000)] = 0,
+) -> PublicEventList:
+    """Events the organizer chose to list, once published and while not archived: upcoming and running ones
+    first (soonest first), then past ones (most recent first)."""
+    now = datetime.now(timezone.utc)
+    visible = (
+        select(Event)
+        .join(EventPage, EventPage.event_id == Event.id)
+        .where(Event.listed.is_(True), Event.archived_at.is_(None), EventPage.published.is_not(None))
+    )
+    total = await session.scalar(select(func.count()).select_from(visible.subquery())) or 0
+    is_past = Event.ends_at <= now
+    epoch = func.extract("epoch", Event.starts_at)
+    events = await session.scalars(
+        visible.order_by(
+            case((is_past, 1), else_=0),
+            case((is_past, -epoch), else_=epoch),
+            Event.name,
+            Event.id,
+        )
+        .limit(limit)
+        .offset(offset)
+    )
+    return PublicEventList(
+        items=[
+            PublicEventSummary(
+                id=e.id,
+                name=e.name,
+                slug=e.slug,
+                starts_at=e.starts_at,
+                ends_at=e.ends_at,
+                location=e.location,
+                timezone=e.timezone,
+            )
+            for e in events
+        ],
+        total=total,
+        limit=limit,
+        offset=offset,
+    )
+
+
 @router.get("/{slug}")
 async def get_public_event(published: PublishedEventDep, session: SessionDep) -> PublicEvent:
     event, document = published
@@ -138,6 +224,8 @@ async def get_public_event(published: PublishedEventDep, session: SessionDep) ->
         page=await render_page(session, event.id, document, public_media_url),
         venue=venue,
         sessions=sessions,
+        program_files=await visible_program_files(session, event.id),
+        **event_lifecycle(event),
     )
 
 
@@ -200,7 +288,7 @@ async def _published(session: AsyncSession, slug: str) -> tuple[Event, PageDocum
         await session.execute(
             select(Event, EventPage.published)
             .join(EventPage, EventPage.event_id == Event.id)
-            .where(Event.slug == slug, EventPage.published.is_not(None))
+            .where(Event.slug == slug, EventPage.published.is_not(None), Event.archived_at.is_(None))
         )
     ).first()
     if row is None or row[1] is None:

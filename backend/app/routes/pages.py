@@ -31,9 +31,9 @@ from app.media import (
 from app.models import Event, EventPage, MediaAsset
 from app.page_document import PageDocument
 from app.page_render import organizer_media_url, render_page
-from app.routes.events import OwnedEventDep, new_event_page
+from app.routes.events import OwnedEventDep, WritableEventDep, new_event_page
 from app.routes.program import live_program
-from app.routes.public import PublicBoothSummary, PublicEvent, booth_directory, event_tiers
+from app.routes.public import PublicBoothSummary, PublicEvent, booth_directory, event_lifecycle, event_tiers
 
 router = APIRouter(tags=["page studio"])
 
@@ -146,7 +146,7 @@ async def get_page(event: OwnedEventDep, session: SessionDep) -> PageStateOut:
 
 
 @router.put("/api/events/{event_id}/page")
-async def save_page_draft(body: PageDraftUpdate, event: OwnedEventDep, session: SessionDep) -> PageStateOut:
+async def save_page_draft(body: PageDraftUpdate, event: WritableEventDep, session: SessionDep) -> PageStateOut:
     page = await _page(session, event, for_update=True)
     if body.revision != page.draft_revision:
         raise _stale(page)
@@ -160,7 +160,7 @@ async def save_page_draft(body: PageDraftUpdate, event: OwnedEventDep, session: 
 
 
 @router.post("/api/events/{event_id}/page/publish")
-async def publish_page(body: PageRevision, event: OwnedEventDep, session: SessionDep) -> PageStateOut:
+async def publish_page(body: PageRevision, event: WritableEventDep, session: SessionDep) -> PageStateOut:
     """Replaces the public page with the draft at `revision`, in one transaction."""
     page = await _page(session, event, for_update=True)
     if body.revision != page.draft_revision:
@@ -178,8 +178,8 @@ async def publish_page(body: PageRevision, event: OwnedEventDep, session: Sessio
 
 @router.post("/api/events/{event_id}/page/unpublish")
 async def unpublish_page(event: OwnedEventDep, session: SessionDep) -> PageStateOut:
-    """Takes the public page (and the event's public booth pages) offline. The draft is kept; tickets,
-    reservations, check-in and reception are unaffected."""
+    """Takes the public page (and the event's public booth pages) offline. The draft is kept; issued tickets,
+    check-in and reception are unaffected, but attendees cannot reserve until the page is published again."""
     page = await _page(session, event, for_update=True)
     page.published = None
     page.published_revision = None
@@ -191,7 +191,7 @@ async def unpublish_page(event: OwnedEventDep, session: SessionDep) -> PageState
 
 
 @router.post("/api/events/{event_id}/page/discard")
-async def discard_page_draft(body: PageRevision, event: OwnedEventDep, session: SessionDep) -> PageStateOut:
+async def discard_page_draft(body: PageRevision, event: WritableEventDep, session: SessionDep) -> PageStateOut:
     """Throws away unpublished edits: the draft becomes the published page again."""
     page = await _page(session, event, for_update=True)
     if body.revision != page.draft_revision:
@@ -225,6 +225,7 @@ async def preview_page(event: OwnedEventDep, session: SessionDep) -> PagePreview
         venue=venue,
         sessions=sessions,
         booths=await booth_directory(session, event.id),
+        **event_lifecycle(event),
     )
     await session.commit()
     return preview
@@ -281,7 +282,7 @@ async def list_media(event: OwnedEventDep, session: SessionDep) -> list[MediaAss
 )
 async def upload_media(
     request: Request,
-    event: OwnedEventDep,
+    event: WritableEventDep,
     session: SessionDep,
     content_type: Annotated[str | None, Header()] = None,
     content_length: Annotated[int | None, Header()] = None,
