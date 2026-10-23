@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { Link, useOutletContext } from "react-router-dom";
-import { createApiClient, formatApiError, type EventCreate, type EventOut } from "../api/client";
+import { createApiClient, formatApiError, localizedApiError, type EventCreate, type EventOut } from "../api/client";
 import { parseSessionDateTime } from "../lib/sessionCsv";
 import { formatLocalizedDate, formatLocalizedNumber } from "../lib/i18n";
 import { eventFormProblem, eventTimeStatus, type EventFormField } from "../lib/organizerWorkspace";
@@ -146,7 +146,7 @@ export default function OrganizerEvents() {
 
     setSubmitting(false);
     if (err) {
-      setFormError(formatApiError(err));
+      setFormError(localizedApiError(err, locale));
     } else if (data) {
       setEvents((prev) => [...prev, data]);
       setNotice(isRtl ? `همایش «${data.name}» ایجاد شد.` : `Event “${data.name}” created.`);

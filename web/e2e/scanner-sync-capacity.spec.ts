@@ -6,7 +6,7 @@ import { storedScans, wireManifest } from './scannerFixtures';
  * Scanner synchronization and capacity regressions.
  *
  * Synthetic, intercepted /api/ responses: not FastAPI/PostgreSQL. The real-backend scanner journey is
- * scripts/integration/congress-e2e.mjs and e2e/scanner-real-api.spec.ts.
+ * scripts/integration/congress-e2e.mjs and the live suite (web/e2e-live/scanner.spec.ts).
  *
  * Every assertion reads resulting state: the records in the scanner's IndexedDB and what the fake
  * server received (including how many batch requests were in flight at once). Timer-driven cases pause
