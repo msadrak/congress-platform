@@ -74,7 +74,7 @@ Branch `ws/ux-<id>` (team2: `ws/team2-ux-<id>`). A phase-1 package starts when t
 | UX-SCAN scanner | 1 | F1–F6 | coordinator team | taken (`ws/ux-scan`) |
 | UX-DESK reception desk | 1 | F1–F6 | coordinator team | taken (`ws/ux-desk`) |
 | UX-BOOTH booth panel | 1 | F1–F7 | coordinator team | taken (`ws/ux-booth`) |
-| UX-ATT-PASS pass + link pass (also `lib/ticketCache.ts`) | 1 | F1–F5 | team2 | taken (`ws/team2-ux-att-pass`) |
+| UX-ATT-PASS pass + link pass (also `lib/ticketCache.ts`) | 1 | F1–F5 | team2 | ready to merge (`ws/team2-ux-att-pass` 389dfbc; report below) |
 | UX-ATT-SHELL attendee shell, Home/Program, /me, Network, Profile | 1 | F1–F5 | team2 | waiting |
 | UX-PUB platform home, public congress, reservation, booth page | 1 | F1–F4 | coordinator team | taken (`ws/ux-pub`) |
 | UX-ORG-1 organizer shell, congress list, overview, members, activity | 1 | F1–F4, F8 | coordinator team | waiting |
@@ -112,6 +112,31 @@ Web only: no migration, no env var, no backend, no new dependency, no `schema.d.
 - `QrCameraInput` `autoStart`/`continuous` have unit tests for the repeat filter only; no screen mounts them yet.
 
 **Left over.** `useWakeLock` has no consumer until UX-ATT-PASS wires it into `QrFullscreen`. The pass card still says «شناسه رهگیری بلیت» (ATT-PASS's file; I will fix it there).
+
+### UX-ATT-PASS report (team2, 2026-10-23) — `ws/team2-ux-att-pass` at `389dfbc`, from `3a293f4`
+
+Web only: no migration, no env var, no backend, no new dependency, no `schema.d.ts` change. A trial merge of `6329562` (current tip) into the branch is clean — the only shared file is `web/tests/copy-baseline.json`, which auto-merges; on the merged tree `npm test` 0 (522 pass), `tsc -b` 0, lint 0.
+
+**What changed.** Spec: att WP2 + copy §4.3 (pass). Words are in the new `src/copy/pass.ts` (`passCopy`).
+- **Pass tab** (`MyTickets.tsx`): [switcher if several] → card with QR → one status line only if needed → install row → divider → «لغو ثبت‌نام» text button. The QR is fully in the first screen at 360×740 and 390×844, fa + en, and nothing but the header sits above the card. Online and "refreshing" lines are gone. The one line (under the card, `pass-status-line`) is offline («آفلاین: نمایش کارت ورود ذخیره‌شده»), a session that ended («زمان ورود شما تمام شده؛ کارت ذخیره‌شده نمایش داده می‌شود.» + «ورود» link), or a notice. Cancel: quiet ghost text button, no hint, short confirm «ثبت‌نام لغو شود؟» that says the QR stops working and the place is released; buttons «لغو ثبت‌نام» / «انصراف». The old "Pass from your SMS link" note is gone.
+- **Signed out** on `/c/:slug/my-ticket`: `otp-mobile-step` (the phone form) is on the page, with title «ورود برای دیدن کارت ورود»; no extra navigation. First run with no network and nothing saved: «برای بار اول به اینترنت نیاز دارید» + retry.
+- **Card** (`DigitalPassCard.tsx`): «شناسه کارت ورود» / "Pass ID"; the tap-hint line is replaced by a small expand mark on the QR (`pass-qr-expand`); print button hidden below `md`.
+- **`QrFullscreen.tsx`** uses `useWakeLock` (the inline copy is deleted).
+- **Link pass** (`/t/:code`): switcher → card → one centered «برای شبکه‌سازی وارد شوید» link under it → install row. **Expired link (410)** (`LinkPassEntry.tsx`): title «این پیوند دیگر معتبر نیست», body, the phone form inline (signing in lands on `/c/<slug>/my-ticket`), and the language switch is the shared `LanguageToggle` in the header position, not under the form. Other outcomes keep their button.
+- **`lib/ticketCache.ts`**: a cached pass lives until the latest congress end among the cached passes, never less than 7 days; an explicit `ttlMs` still wins (tests). `Me`, `MyNetwork`, `MyCongress` call `saveOwnerScopedTickets` without a TTL, so they get this too. «شناسه رهگیری بلیت» was already fixed by F3; the card now says «شناسه کارت ورود».
+
+**Gates (real exit codes).** `npm test` 0 (514 pass) · `npm run lint` 0 · `npx tsc -b` 0 · `vite build` 0 · new `e2e/pass-layout.spec.ts` 17 tests (written first; 15 of 16 failed on the old UI for the intended reasons, 1 passed; the 17th, sign in from the expired-link page, was added later and passed alone) · full Playwright on `vite preview` :47531, `CONGRESS_BROWSER_CHANNEL=chrome` **0 (432 passed, 13.1 min)** on the final build (the first full run had 10 failures, all specs encoding the old pass UI, listed below; the 5 affected files re-ran green, 68 pass) · `./scripts/check.sh` **0** (mypy 145 files clean, pytest 764 passed, `schema.d.ts` matches, web unit 514, staging 26, Dart tests + analyze clean). Screenshots (JPEG, fa + en, 390×844 / 360×740 / 1440×900: pass online, offline, offline first run, signed out, link pass, expired link; Android install row + cancel at 390 and 360): `/tmp/team2-attpass-shots/` on the shared Mac. `web/dist` deleted.
+
+**Files outside my list.**
+- `web/tests/copy-baseline.json` and `web/tests/glossary.test.ts` (F3's ratchets; they only fall): DigitalPassCard 7+7 → 0, QrFullscreen 3+2 → 0, LinkPassEntry 1+1 → 0, MyTickets persian 22 → 0; the `MyTickets.tsx: ["نشست"]` allowlist entry is removed (the word is gone).
+- ATT-SHELL's specs, edited minimally for the new pass UI — keep these when ATT-SHELL touches them: `attendee-me-and-pass.spec.ts` (`link-pass-note` → the sign-in link; online `pass-status-line` count 1 → 0; dialog buttons 'Keep my pass' → 'Keep', 'Yes, cancel it' / «بله، لغو شود» → 'Cancel registration' / «لغو ثبت‌نام»), `attendee-authority.spec.ts` (session line is now "Signed out; showing the saved pass."; the signed-out pass tab shows the phone form, not "Sign In to Attendee Portal"), `attendee-portal.spec.ts` (print is hidden at 412 px, so the test checks the QR button; signed-out `my-ticket` shows `otp-mobile-step`).
+
+**For the coordinator at merge.**
+1. `DigitalPassCard` no longer reads `t` (kept as an optional prop so nothing breaks). `OrganizerPanel.tsx:191` (UX-ORG-2's) can drop `t={t}`.
+2. Dictionary keys no longer used anywhere: `linkPassNote`, `digitalPassTitle`, `ticketIdLabel` (UX-Z deletes; `lib/i18n.ts` is not mine). `SignInPrompt.tsx` stays: `MyNetwork` and `MyProfile` (ATT-SHELL) still use it.
+3. Spec choices: att says no hint under cancel (copy §4.3 had a shortened one) → none. `arrow-up-right` is the expand mark because the shared `Icon` set has no expand icon. The cancel text is neutral grey: `Button` has no danger text tone, and the dialog carries the danger.
+
+**Left over.** Nothing for this package. Next: UX-ATT-SHELL (needs a claim).
 
 ## Later (start after the overlapping branches merge)
 
