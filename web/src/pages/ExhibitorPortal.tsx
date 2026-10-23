@@ -5,6 +5,7 @@ import { boothCopy } from "../copy/booth";
 import { commonCopy } from "../copy/common";
 import { operatorCopy } from "../copy/operator";
 import { attendeeResponseState, isStoredAttendeeToken, sessionChangedMessage } from "../lib/attendeeSession";
+import { useAppUpdate } from "../hooks/useAppUpdate";
 import { useAttendeeSession } from "../hooks/useAttendeeSession";
 import { useHidScanner } from "../hooks/useHidScanner";
 import { usePageTitle } from "../hooks/usePageTitle";
@@ -68,6 +69,8 @@ function ExhibitorPortalContent() {
   const [editingLead, setEditingLead] = useState<LeadOut | null>(null);
 
   const { token, signOut } = useAttendeeSession();
+  // A new version waits: offered in the pill and the menu (the general update prompt is hidden on /booth).
+  const update = useAppUpdate();
 
   const sessionRef = useRef<string | null>(token);
   const revoke = useCallback((block: AccessBlock) => setAccessBlock((current) => current ?? block), []);
@@ -341,7 +344,9 @@ function ExhibitorPortalContent() {
         ? "syncing"
         : unsent > 0
           ? "queued"
-          : "online";
+          : update.waiting
+            ? "update"
+            : "online";
 
   const menuItems: OperatorMenuItem[] = [
     { id: "language", label: op.menu.language, lang: op.menu.languageLang, icon: "globe", onSelect: () => setLocale(op.menu.languageLang) },
@@ -363,6 +368,7 @@ function ExhibitorPortalContent() {
       disabled: !canExport || activeTotal + counts.deleted === 0,
       onSelect: () => void exportCsv(true),
     },
+    ...(update.waiting ? [{ id: "update", label: op.menu.update, icon: "download" as const, divider: true, onSelect: update.apply }] : []),
     { id: "sign-out", label: op.menu.signOut, icon: "logout", danger: true, divider: true, onSelect: () => setConfirmSignOut(true) },
   ];
 
@@ -380,7 +386,7 @@ function ExhibitorPortalContent() {
             </Button>
           )
         }
-        status={<StatusPill locale={locale} status={status} count={unsent} />}
+        status={<StatusPill locale={locale} status={status} count={unsent} onClick={status === "update" ? update.apply : undefined} />}
         menu={
           <OperatorMenu
             locale={locale}
