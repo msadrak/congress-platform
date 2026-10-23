@@ -91,6 +91,9 @@ class Settings(BaseSettings):
     db_pool_pre_ping: bool = True
     # PostgreSQL cancels any statement of the API running longer than this (statement_timeout); 0 = no limit.
     db_statement_timeout_ms: int = Field(default=15_000, ge=0, le=600_000)
+    # uvicorn worker processes the API image starts (`python -m app.serve`). Each has its own database pool, SMS
+    # send slots and settings cache (docs/deployment/STAGING_OPERATIONS.md → Scaling).
+    api_workers: int = Field(default=1, ge=1, le=32)
 
     # SMS (sign-in codes and ticket confirmations). Defaults to smsir in staging/production, console elsewhere.
     sms_provider: SmsProviderName = "console"

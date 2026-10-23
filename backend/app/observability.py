@@ -12,7 +12,9 @@
   Process-local counters (no database): sign-in code requests and checks by purpose and outcome (the purpose is read
   from the small JSON body of `/api/auth/otp/request` only), scanner traffic by route kind, rate-limiter fallbacks
   and retention passes (both seen through their loggers / sessions, so those modules stay unchanged). Read at scrape
-  time: SMS platform cap usage and the database pool.
+  time: SMS platform cap usage and the database pool (of the worker that answers).
+  With several uvicorn workers (`CONGRESS_API_WORKERS`, app/serve.py) the in-memory counters are kept in files the
+  workers share and summed at scrape time (`scrape_registry`), so totals do not depend on which worker answers.
 - **Error reporting** to Sentry or GlitchTip when CONGRESS_SENTRY_DSN is set. Nothing personal leaves the server:
   no request bodies, headers, cookies, query strings, user or local variables, and mobile numbers, bearer tokens,
   JWTs and `token=`/`code=`-style values are masked in every string of the event.
@@ -21,6 +23,7 @@
 import hmac
 import json
 import logging
+import os
 import re
 import time
 import uuid
@@ -32,7 +35,9 @@ from typing import Any
 import sentry_sdk
 from fastapi import APIRouter, FastAPI, Request
 from fastapi.responses import PlainTextResponse, Response
-from prometheus_client import CONTENT_TYPE_LATEST, CollectorRegistry, Counter, Gauge, Histogram, generate_latest
+from prometheus_client import (
+    CONTENT_TYPE_LATEST, CollectorRegistry, Counter, Gauge, Histogram, generate_latest, multiprocess,
+)
 from prometheus_client.core import CounterMetricFamily, GaugeMetricFamily, Metric
 from prometheus_client.registry import Collector
 from sqlalchemy import event, text
@@ -113,6 +118,8 @@ class Metrics:
             "congress_retention_last_success_timestamp_seconds",
             "Unix time the retention job last completed a pass (0 = not since this process started).",
             registry=self.registry,
+            # With several workers (shared files) the newest pass of any worker; ignored with one process.
+            multiprocess_mode="max",
         )
         self.database = DatabaseSnapshot()
         self.registry.register(self.database)
@@ -329,7 +336,19 @@ async def metrics(request: Request) -> Response:
         return PlainTextResponse("Unauthorized", status_code=401, headers={"WWW-Authenticate": "Bearer"})
     app_metrics: Metrics = request.app.state.metrics
     await app_metrics.database.refresh(request)
-    return Response(generate_latest(app_metrics.registry), media_type=CONTENT_TYPE_LATEST)
+    return Response(generate_latest(scrape_registry(app_metrics)), media_type=CONTENT_TYPE_LATEST)
+
+
+def scrape_registry(app_metrics: Metrics) -> CollectorRegistry:
+    """What a scrape reports. With several uvicorn workers (app/serve.py sets PROMETHEUS_MULTIPROC_DIR) every worker
+    writes its counters to shared files and the scrape sums them, so the totals are the API's, whichever worker
+    answers; the database-derived values are read by the answering worker as usual."""
+    if not os.environ.get("PROMETHEUS_MULTIPROC_DIR"):
+        return app_metrics.registry
+    registry = CollectorRegistry()
+    multiprocess.MultiProcessCollector(registry)  # type: ignore[no-untyped-call]
+    registry.register(app_metrics.database)
+    return registry
 
 
 # ── Error reporting ─────────────────────────────────────────────────────────────────────────────────

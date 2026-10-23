@@ -15,8 +15,9 @@ Every pass (one asyncio task per API process, every `retention_interval_seconds`
 * Walk-in `Idempotency-Key`s (`desk_idempotency_keys`) are deleted once expired, and so are expired rate-limit
   counters (`rate_limit_counters`; the limiter also clears them as it goes, this catches quiet periods).
 
-Messages still to be sent (`pending`, `sending`) are never touched. Every statement is idempotent, so
-overlapping passes are harmless.
+Messages still to be sent (`pending`, `sending`) are never touched. Every statement is idempotent. A pass first
+takes a transaction-scoped PostgreSQL advisory lock without waiting: with several API workers or replicas only one
+of them runs at a time, and the others skip that pass instead of queueing on the same rows.
 
 The audit log (`audit_events`) is not part of the scheduled pass. It is append-only (a trigger refuses UPDATE and
 DELETE, migration 0028), and how long to keep it is a product decision not yet taken, so it is kept forever by
@@ -35,13 +36,15 @@ import sys
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import delete, func, or_, text, update
+from sqlalchemy import delete, func, or_, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.config import Settings
 from app.models import AuditEvent, DeskIdempotencyKey, OtpChallenge, RateLimitCounter, ShortLink, SmsMessage
 
 logger = logging.getLogger("congress.retention")
+# pg_try_advisory_xact_lock key of the scheduled pass (an arbitrary constant, unique in this application).
+RETENTION_LOCK_KEY = 0x434F_5245
 
 NOT_YET_SENT = ("pending", "sending")
 MASKED = "%***%"
@@ -118,14 +121,22 @@ async def purge_expired(session: AsyncSession, settings: Settings, *, now: datet
     )
 
 
+async def retention_pass(sessionmaker: async_sessionmaker[AsyncSession], settings: Settings) -> PurgeResult | None:
+    """One pass, committed; None when another process is running one right now (it holds the advisory lock)."""
+    async with sessionmaker() as session:
+        if not await session.scalar(select(func.pg_try_advisory_xact_lock(RETENTION_LOCK_KEY))):
+            return None
+        result = await purge_expired(session, settings)
+        await session.commit()
+    return result
+
+
 async def run_retention(sessionmaker: async_sessionmaker[AsyncSession], settings: Settings) -> None:
     while True:
         await asyncio.sleep(settings.retention_interval_seconds)
         try:
-            async with sessionmaker() as session:
-                result = await purge_expired(session, settings)
-                await session.commit()
-            if result.any():
+            result = await retention_pass(sessionmaker, settings)
+            if result is not None and result.any():
                 logger.info(
                     "Retention: deleted %d sign-in codes and %d sign-in SMS log rows, cleared %d SMS texts, masked "
                     "%d SMS numbers, deleted %d short links, %d idempotency keys, %d rate-limit counters",
