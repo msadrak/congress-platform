@@ -9,13 +9,14 @@ type DeskTicket = { ticket_id: string; qr_secret: string };
 const qrHash = (eventId: string, secret: string) => createHash('sha256').update(`${eventId}:${secret.trim().toLowerCase().slice(0, 64)}`).digest('hex');
 
 /** Creates a check-in point and issues a pairing link through the organizer console; returns the link. */
-async function pairingLink(page: Page, eventId: string, gate: string, policyLabel: string): Promise<URL> {
+async function pairingLink(page: Page, eventId: string, gate: string, policy: 'SINGLE_USE' | 'MULTI_ENTRY'): Promise<URL> {
   await page.goto(`/organizer/events/${eventId}/check-in`);
-  await page.getByRole('button', { name: 'افزودن گیت بازرسی جدید' }).first().click();
-  const pointDialog = page.getByRole('dialog', { name: 'تعریف گیت ورودی جدید' });
-  await pointDialog.getByLabel('عنوان گیت ورودی').fill(gate);
-  await pointDialog.getByLabel('سیاست اعتبارسنجی پذیرش').selectOption({ label: policyLabel });
-  await pointDialog.getByRole('button', { name: 'ثبت گیت بازرسی' }).click();
+  // Structure-based: the check-in point wording is being renamed («نقطه ورود»), the form's shape is not.
+  await page.getByRole('main').getByRole('button', { name: /افزودن/ }).first().click();
+  const pointDialog = page.getByRole('dialog');
+  await pointDialog.getByRole('textbox').first().fill(gate);
+  await pointDialog.getByRole('combobox').selectOption(policy);
+  await pointDialog.locator('button[type=submit]').click();
   const card = page.getByRole('article', { name: gate });
   await card.getByRole('button', { name: 'اتصال دستگاه' }).click();
   const pairDialog = page.getByRole('dialog', { name: 'اتصال دستگاه اسکنر' });
@@ -44,8 +45,8 @@ test('scanner: paired by link, hashed manifest, server-decided admission, single
   const saraTicket = await issue(sara);
 
   await organizerSignIn(page, organizer.api_key);
-  const gate = `گیت شمالی ${uid()}`;
-  const link = await pairingLink(page, event.id, gate, 'یک‌بار ورود (ورود یکتا)');
+  const gate = `ورودی شمالی ${uid()}`;
+  const link = await pairingLink(page, event.id, gate, 'SINGLE_USE');
   const pointId = link.pathname.split('/').at(-1)!;
   const scannerToken = link.searchParams.get('token')!;
 
@@ -66,7 +67,8 @@ test('scanner: paired by link, hashed manifest, server-decided admission, single
   expect(manifest.tickets.map((t) => t.qr_hash).sort()).toEqual([qrHash(event.id, rezaTicket.qr_secret), qrHash(event.id, saraTicket.qr_secret)].sort());
   for (const secret of [rezaTicket.qr_secret, saraTicket.qr_secret]) expect(manifestBody).not.toContain(secret);
 
-  const log = scanner.getByRole('region', { name: 'آخرین اسکن‌های این گیت' });
+  // The recent-scans log is the only list on the scanner screen.
+  const log = scanner.getByRole('main').getByRole('list');
   const verdict = scanner.getByRole('alert');
 
   await test.step('online scan: the server admits the ticket', async () => {
@@ -109,8 +111,8 @@ test('scanner: unpairing revokes the device on the server and its token stops wo
   const organizer = await createOrganizer();
   const event = await createEvent(organizer.api_key, { publish: false });
   await organizerSignIn(page, organizer.api_key);
-  const gate = `گیت چندبار ${uid()}`;
-  const link = await pairingLink(page, event.id, gate, 'چندبار ورود (نامحدود)');
+  const gate = `ورودی آزاد ${uid()}`;
+  const link = await pairingLink(page, event.id, gate, 'MULTI_ENTRY');
   const pointId = link.pathname.split('/').at(-1)!;
   const scannerToken = link.searchParams.get('token')!;
 

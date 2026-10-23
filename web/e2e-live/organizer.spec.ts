@@ -67,15 +67,19 @@ test('organizer: platform admin provisions the organizer, who sets up and publis
   const workspace = page.getByRole('navigation', { name: 'فضای کاری همایش' });
   await page.getByRole('link', { name: eventName }).first().click();
 
-  await test.step('add a ticket tier', async () => {
-    await workspace.getByRole('link', { name: 'رده‌های بلیت' }).click();
-    await page.getByRole('button', { name: 'افزودن رده بلیت جدید' }).first().click();
-    const dialog = page.getByRole('dialog', { name: 'تعریف رده بلیت جدید' });
-    await dialog.getByLabel('عنوان رده بلیت').fill(tierName);
-    await dialog.getByLabel('سقف سهمیه پذیرش (تعداد)').fill('25');
-    await dialog.getByRole('button', { name: 'ثبت رده بلیت' }).click();
+  await test.step('add a pass type (ticket tier)', async () => {
+    // Structure-based: the pass-type wording is being renamed («نوع کارت ورود»), the form's shape is not.
+    await expect(workspace).toBeVisible();
+    await page.goto(`/organizer/events/${event.id}/tiers`);
+    await page.getByRole('main').getByRole('button', { name: /افزودن/ }).first().click();
+    const dialog = page.getByRole('dialog');
+    await dialog.getByRole('textbox').first().fill(tierName);
+    await dialog.getByRole('spinbutton').fill('25');
+    await dialog.locator('button[type=submit]').click();
     await expect(page.getByRole('status').filter({ hasText: tierName })).toBeVisible();
   });
+  const tiers = await api<Tier[]>('GET', `/api/events/${event.id}/ticket-tiers`, { token: apiKey });
+  expect(tiers.map((t) => [t.name, t.quota])).toEqual([[tierName, 25]]);
 
   await test.step('publish the Page Studio page: the public page goes live', async () => {
     const anonymous = await browser.newContext();
@@ -116,7 +120,7 @@ test('organizer: platform admin provisions the organizer, who sets up and publis
   expect(files.map((f) => [f.label, f.kind])).toEqual([['برنامهٔ کامل', 'pdf']]);
 
   await test.step('participants: a registration from the public page is listed', async () => {
-    const tier = (await api<Tier[]>('GET', `/api/events/${event.id}/ticket-tiers`, { token: apiKey }))[0];
+    const [tier] = tiers;
     const attendee = `شرکت‌کننده ${id}`;
     await reserveTicket(event.id, tier.id, uniqueMobile(), attendee);
     await workspace.getByRole('link', { name: 'شرکت‌کنندگان' }).click();
