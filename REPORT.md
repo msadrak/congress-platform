@@ -1,11 +1,14 @@
 # Project Delivery Report: Congress Management Platform
 
 > **Historical delivery report (2026-10-06). Its status line is superseded: the platform is NOT "production-ready" or
-> "100% verified".** `docs/pilot/MASTER-PILOT-READINESS.md` rates it a **conditional GO for a controlled on-premise
-> pilot (up to 1,000 attendees)** and **NO-GO for unrestricted production**.
+> "100% verified".** The 2026-10-11 pilot assessment (`docs/pilot/MASTER-PILOT-READINESS.md`, itself now historical)
+> rated it a conditional GO for a controlled on-premise pilot and NO-GO for unrestricted production; the current state
+> of the upgrade programme is in `docs/handover/UPGRADE_HANDOVER.md`.
 >
-> **Current sources of truth:** the ADRs in `docs/adr/` (with their "Status / Implementation notes" sections where present),
-> `GLOSSARY.md`, `AGENTS.md`, and `docs/pilot/MASTER-PILOT-READINESS.md` for what the platform is cleared to run.
+> **Current sources of truth:** `docs/handover/UPGRADE_HANDOVER.md` (what is merged, in flight and open), the ADRs in
+> `docs/adr/` (with their "Status / Implementation notes" sections), `GLOSSARY.md`, `AGENTS.md`, and the operations
+> documents `docs/deployment/STAGING_OPERATIONS.md`, `docs/deployment/HOSTED_STAGING_READINESS.md` and
+> `docs/release/07-CONGRESS-DAY-RUNBOOK.md`. `docs/pilot/MASTER-PILOT-READINESS.md` (2026-10-11) is historical.
 >
 > Also outdated here: PBKDF2 **password** hashing and e-mail accounts (removed; mobile + SMS code, ADR 0012);
 > **Redis** in the stack (not used; ADR 0006 status); the decoupled **Order** of ADR 0003/0005 (not implemented, tickets

@@ -65,11 +65,12 @@ Invoke-RestMethod -Method Post -Uri http://localhost:18080/api/organizers/<organ
 
 | Portal | URL (`https://localhost:8443` or `http://localhost:18080`) |
 |---|---|
-| Platform home | `/` |
-| Organizer console | `/organizer` (members sign in by SMS code; the API key stays available) → events → **Program** (sessions, CSV timetable upload), **Venue** (entrances, halls), Booths, **Public page** (Page Studio), **Attendee panel** (preview), Analytics, Front Desk; `/organizer/members` and `/organizer/activity` (audit log) for managers and owners |
+| Platform home | `/` (B2B home page, with a "find my pass" entry for attendees) |
+| Platform console | `/platform` (platform admin token; SMS gateway, caps and outbox health), `/platform/sign-in` (sign-in rules, venue networks), `/platform/organizers`. Reachable only from `CONGRESS_ADMIN_ALLOW` networks (ADR 0013) |
+| Organizer console | `/organizer` (members sign in by SMS code; the API key stays available) → events → overview, **Program** (sessions, CSV timetable upload, schedule files), **Venue** (entrances, halls), Tiers, Check-in (points, scanner pairing), Booths, Operators (desk), **Public page** (Page Studio), **Attendee panel** (preview), Front Desk, SMS, **Participants** (edit, cancel, reissue, transfer, export; ADR 0017), Analytics; `/organizer/members` (**Members**) and `/organizer/activity` (**Activity**, the audit log) for managers and owners (ADR 0016) |
 | Public congress | `/e/<slug>` (after Publish) and `/e/<slug>/booths/<id>` |
-| Attendee | `/sign-in`, `/my-tickets`, `/my-network`, `/c/<slug>/my-congress`; `/t/<code>` (SMS pass link, opens the pass without sign-in) |
-| Reception | `/reception` (congress code) or `/reception/<event-id>` |
+| Attendee | `/sign-in`; `/me` (every congress, passes, network, profile; `/my-tickets` and `/my-network` redirect here); `/c/<slug>/my-congress`, `/c/<slug>/my-ticket`, `/c/<slug>/my-network`, `/c/<slug>/my-profile`, `/c/<slug>/details`; `/t/<code>` (SMS pass link, opens the pass without sign-in, ADR 0015) |
+| Reception | `/reception` (congress code), `/reception/e/<slug>` or `/reception/<event-id>` |
 | Exhibitor | `/booth/<booth-id>` |
 | Gate scanner | `/scan/<point-id>` (pair with a device token) |
 

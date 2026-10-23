@@ -107,7 +107,7 @@ The bucket was again a local stand-in, not a real provider. **Not exercised:** A
 
 ## 3. Environment variables and secrets
 
-The template is `deploy/hosted/.env.hosted.example`. On the server it becomes `.staging/staging.env`, which is git-ignored. `stack.mjs init` generates the three secrets.
+The template is `deploy/hosted/.env.hosted.example`. On the server it becomes `.staging/staging.env`, which is git-ignored. The hosted template marks four secrets `<generate: …>` with the command that generates each: `POSTGRES_PASSWORD`, `CONGRESS_PLATFORM_ADMIN_TOKEN`, `CONGRESS_JWT_SECRET` and `CONGRESS_METRICS_TOKEN`. (`stack.mjs init` generates the same four, but from the *staging* template, `deploy/staging/.env.staging.example`, and only when `.staging/staging.env` does not exist yet.) `CONGRESS_SECRET_BOX_KEY` is not in the template; see below.
 
 | Variable | Value on a real server |
 |---|---|

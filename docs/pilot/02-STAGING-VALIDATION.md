@@ -1,5 +1,11 @@
 # 02 — Staging Environment Validation & Infrastructure Assessment
 
+> **Historical (2026-10-11).** The Nginx layout and manual `pg_dump` drill below were not adopted: the platform runs as
+> one Docker Compose stack behind Caddy, operated with `node scripts/staging/stack.mjs`. Current references:
+> [`docs/deployment/STAGING_OPERATIONS.md`](../deployment/STAGING_OPERATIONS.md),
+> [`HOSTED_STAGING_READINESS.md`](../deployment/HOSTED_STAGING_READINESS.md) and
+> [`docs/handover/UPGRADE_HANDOVER.md`](../handover/UPGRADE_HANDOVER.md).
+
 **Evaluation Date:** 2026-10-11  
 **Target Environment:** Local Staging / On-Premise Gateway  
 **Classification:** PARTIALLY VERIFIED (Local Staging PASS / Remote HTTPS PENDING)  
@@ -28,11 +34,16 @@ To resolve Phase 8 inconsistencies, infrastructure readiness is explicitly decom
 The staging environment configuration is encapsulated in `backend/app/config.py`:
 
 ```ini
-CONGRESS_DATABASE_URL=postgresql+asyncpg://congress:congress@127.0.0.1:5433/congress
-CONGRESS_PLATFORM_ADMIN_TOKEN=dev-staging-admin-token-secure-64bit
-CONGRESS_JWT_SECRET=provide-a-secure-random-secret-key-at-least-32-chars-long
+CONGRESS_DATABASE_URL=postgresql+asyncpg://congress:<password>@127.0.0.1:5433/congress
+CONGRESS_PLATFORM_ADMIN_TOKEN=<generate: python3 -c "import secrets; print(secrets.token_urlsafe(32))">
+CONGRESS_JWT_SECRET=<generate: python3 -c "import secrets; print(secrets.token_hex(32))">
 CONGRESS_CORS_ORIGINS=["http://127.0.0.1:5180", "http://localhost:5173"]
 ```
+
+> **Placeholders, not values.** The 2026-10-11 version of this block showed literal example strings for the admin
+> token and the JWT secret; never copy such strings. Generate every secret on the machine that uses it. Today
+> `node scripts/staging/stack.mjs init` writes `.staging/staging.env` with generated secrets, and staging/production
+> refuse development defaults (`docs/deployment/STAGING_OPERATIONS.md`).
 
 *Security Audit:* The default IPv4 binding (`127.0.0.1`) prevents Windows `wslrelay` IPv6 connection dropouts and guarantees reliable database pooling.
 

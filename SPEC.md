@@ -2,8 +2,10 @@
 
 > **Historical specification (October 2026, V1). Not maintained; parts are outdated.**
 >
-> **Current sources of truth:** the ADRs in `docs/adr/` (with their "Status / Implementation notes" sections where present),
-> `GLOSSARY.md`, `AGENTS.md`, and `docs/pilot/MASTER-PILOT-READINESS.md` for what the platform is cleared to run.
+> **Current sources of truth:** `docs/handover/UPGRADE_HANDOVER.md` (what is merged, in flight and open), the ADRs in
+> `docs/adr/` (with their "Status / Implementation notes" sections), `GLOSSARY.md`, `AGENTS.md`, and the operations
+> documents `docs/deployment/STAGING_OPERATIONS.md`, `docs/deployment/HOSTED_STAGING_READINESS.md` and
+> `docs/release/07-CONGRESS-DAY-RUNBOOK.md`. `docs/pilot/MASTER-PILOT-READINESS.md` (2026-10-11) is historical.
 >
 > Outdated here:
 > - **Password sign-in** (user story 3 and related): sign-in is a mobile number plus an SMS code; passwords and e-mail

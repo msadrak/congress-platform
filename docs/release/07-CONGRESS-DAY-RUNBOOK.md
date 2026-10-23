@@ -8,6 +8,10 @@ which used `GET /docs` (answers 404 in production) and a raw `pg_dump`.
 server command below is `node scripts/staging/stack.mjs …`, run in the checkout on the server; `event-mode`,
 `install-timers` need `sudo`.
 
+**Words for the staff briefing** (the Persian UI terms in `GLOSSARY.md`): the attendee's ticket and pass are both
+«کارت ورود» and its code is «کد QR»; a ticket tier is «نوع کارت ورود»; a check-in point (each scanning station, below
+also called a gate) is «نقطه ورود»; a walk-in is «ثبت‌نام حضوری»; a program session is «جلسه».
+
 Three rules hold for the whole congress:
 
 1. **No deploys, no restarts and no organizer key rotation while gates scan.** A new backend needs new scanner
@@ -162,7 +166,7 @@ deploy, every gate device must run the new web app:
 - Organizer → Analytics shows attendance on the event's own clock (ADR 0020).
 - Hourly backups run by themselves; `check` alerts if one is older than 2 h.
 
-### Gate result guide
+### Scanner result guide
 | Screen | Meaning | Action |
 |---|---|---|
 | Green | Admitted, decided by the server | Let in |
