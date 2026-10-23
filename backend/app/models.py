@@ -159,6 +159,7 @@ class User(Base):
     """An attendee, booth staff or desk operator account. Identity is the mobile number, proven by SMS code."""
 
     __tablename__ = "users"
+    __table_args__ = (CheckConstraint("session_version >= 0", name="ck_users_session_version"),)
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     # Canonical 09xxxxxxxxx (app/sms/phone.py). NULL only for a walk-in who gave no number; such an account
@@ -179,6 +180,9 @@ class User(Base):
     )
     # Set when the person deleted their account: the row stays (anonymised) so check-in statistics add up.
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Carried by every access token as `sv` (migration 0030). Signing out and deleting the account increment it,
+    # so every session of the account ends at once (app/routes/auth.py).
+    session_version: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
 
 
 class DeskOperator(Base):

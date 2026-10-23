@@ -129,11 +129,18 @@ class Settings(BaseSettings):
     # How often each API process checks platform_settings for changes saved by another process.
     platform_settings_refresh_seconds: float = Field(default=3.0, gt=0, le=300)
 
-    # Data retention (app/retention.py): used/expired sign-in codes and the text of sent SMS are removed.
+    # Data retention (app/retention.py): used/expired sign-in codes, the text of sent SMS, sign-in SMS log rows,
+    # full numbers in the SMS log, expired short links and expired bookkeeping rows are removed on a schedule.
     retention_enabled: bool = True
     retention_interval_seconds: float = Field(default=3600.0, gt=0, le=86_400)
     otp_retention_hours: int = Field(default=24, ge=1)
     sms_body_retention_days: int = Field(default=30, ge=1)
+    otp_sms_log_retention_days: int = Field(default=30, ge=1)
+    sms_mobile_retention_days: int = Field(default=90, ge=1)
+    short_link_grace_days: int = Field(default=30, ge=0)
+    # Audit log entries older than this many days may be purged, only by an explicit operator command
+    # (`python -m app.retention purge-audit`). Unset (default): the audit log is kept forever.
+    audit_retention_days: int | None = Field(default=None, ge=180)
 
     # ── Operations: logs, metrics, error reporting (app/logging_setup.py, app/observability.py) ──
     # json = one object per line (log shippers), text = human-readable. Unset: json in staging/production.

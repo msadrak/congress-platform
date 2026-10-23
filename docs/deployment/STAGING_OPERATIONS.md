@@ -457,6 +457,30 @@ Application settings live in `.staging/staging.env`. `BACKUP_*` and `ALERT_*` ma
 | `ALERT_TELEGRAM_API` | `https://api.telegram.org` | Bot API base URL (a relay where Telegram is blocked) |
 | `ALERT_REPEAT_HOURS` | 6 | Reminder interval while a problem lasts |
 
+## Data retention
+
+Each API process removes personal data and bookkeeping it no longer needs once an hour (`backend/app/retention.py`). Messages still to be sent are never touched. The defaults below apply unless the variable is passed to the `api` service (compose does not pass them today; add a line under `api.environment` to change one).
+
+| Variable | Default | What happens |
+|---|---|---|
+| `CONGRESS_RETENTION_ENABLED` | `true` | `false` stops the hourly pass |
+| `CONGRESS_RETENTION_INTERVAL_SECONDS` | 3600 | Time between passes |
+| `CONGRESS_OTP_RETENTION_HOURS` | 24 | Used or expired sign-in codes (`otp_challenges`) are deleted |
+| `CONGRESS_SMS_BODY_RETENTION_DAYS` | 30 | The text of sent SMS is cleared (the delivery log keeps who, when, status) |
+| `CONGRESS_OTP_SMS_LOG_RETENTION_DAYS` | 30 | Delivery-log rows of sign-in codes (`sms_messages`, kind `otp`) are deleted |
+| `CONGRESS_SMS_MOBILE_RETENTION_DAYS` | 90 | Every other delivery-log row keeps only a masked number (`0912***4567`) |
+| `CONGRESS_SHORT_LINK_GRACE_DAYS` | 30 | SMS pass links are deleted this long after they expired (a link expires 30 days after its congress ends; afterwards it answers "not found" instead of "expired") |
+| — | — | Expired walk-in `Idempotency-Key`s and expired rate-limit counters are deleted |
+| `CONGRESS_AUDIT_RETENTION_DAYS` | unset (keep forever) | See below; at least 180 |
+
+**Audit log.** How long to keep `audit_events` is an open product decision, so nothing purges it by default, and the hourly pass never does. The table is append-only (a trigger refuses UPDATE and DELETE). When a retention period is decided, an operator purges older entries explicitly, with the table owner's database role (the role the migrations ran as; on this stack the API's own `congress` role):
+
+```bash
+docker compose -p congress-staging exec -e CONGRESS_AUDIT_RETENTION_DAYS=730 api python -m app.retention purge-audit
+```
+
+It refuses to run without `CONGRESS_AUDIT_RETENTION_DAYS`, disables the trigger only inside its own transaction (other sessions wait on the table lock and never see it off), and records itself as an `audit.purged` entry. Take a backup first; deleted entries come back only from a backup.
+
 ## Moving to a real domain (Linux VPS)
 
 1. Install Docker Engine and the Compose plugin; clone the repository; run `node scripts/staging/stack.mjs init`. Then edit `.staging/staging.env`:

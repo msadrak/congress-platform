@@ -1,6 +1,7 @@
 """Ticket confirmation SMS: queued with the ticket, delivered in the background, retried safely."""
 
 import asyncio
+import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -18,6 +19,7 @@ from app.sms.provider import RecordingProvider, SmsResult
 from tests.conftest import _truncate_all, make_test_settings
 from tests.helpers import bearer, pass_link, provision_organizer, publish_page, sign_in
 from tests.test_events import EVENT
+from tests.test_participants import congress, register
 from tests.test_ticket_tiers import create_event, tier
 
 MOBILE = "09121112233"
@@ -248,3 +250,47 @@ async def test_platform_caps_hold_queued_messages_without_using_attempts(media_r
             assert await deliver_due(app.state.sessionmaker, app.state.sms) == 1
             (message,) = await confirmations(app)
             assert (message.status, message.attempts, message.last_error) == ("pending", 0, "HOURLY_CAP_REACHED")
+
+
+async def test_notices_for_a_pass_that_stopped_working_meanwhile_are_not_sent(app: FastAPI, client: AsyncClient) -> None:
+    organizer, event_id, tier_id = await congress(client)
+    _, ticket = await register(client, event_id, tier_id, "09121112301", "Changed Mind")
+    item = f"/api/events/{event_id}/participants/{ticket['id']}"
+    assert (await client.post(f"{item}/reissue", json={}, headers=bearer(organizer))).status_code == 200
+    assert (await client.post(f"{item}/cancel", json={}, headers=bearer(organizer))).status_code == 200
+
+    await deliver_due(app.state.sessionmaker, app.state.sms)
+
+    async with app.state.sessionmaker() as session:
+        messages = {m.kind: m for m in await session.scalars(select(SmsMessage).where(SmsMessage.event_id == uuid.UUID(event_id)))}
+    assert (messages["ticket_confirmation"].status, messages["ticket_confirmation"].last_error) == (
+        "failed", "TICKET_CANCELLED",
+    )
+    assert (messages["ticket_reissued"].status, messages["ticket_reissued"].last_error) == ("failed", "PASS_REVOKED")
+    assert messages["ticket_cancelled"].status == "sent"  # the notice about the cancellation itself still goes
+    assert [m.kind for m in recorder(app).sent_to("09121112301")] == ["otp", "ticket_cancelled"]
+    log = (await client.get(f"/api/events/{event_id}/sms/messages", headers=bearer(organizer))).json()
+    assert not any(m["can_retry"] for m in log if m["last_error"] in ("TICKET_CANCELLED", "PASS_REVOKED"))
+
+
+async def test_a_claimed_message_is_not_sent_once_the_account_is_deleted(app: FastAPI, client: AsyncClient) -> None:
+    _, event_id, tier_id = await congress(client)
+    await register(client, event_id, tier_id, "09121112311", "Stays")
+    leaving, _ = await register(client, event_id, tier_id, "09121112312", "Leaves")
+    provider = recorder(app)
+    send = provider.send_text
+
+    async def account_deleted_while_sending(mobile: str, text: str, *, kind: str, code: str | None = None) -> SmsResult:
+        if mobile == "09121112311":  # the batch is in flight when the other person deletes their account
+            assert (await client.delete("/api/auth/me", headers={"Authorization": f"Bearer {leaving}"})).status_code == 204
+        return await send(mobile, text, kind=kind, code=code)
+
+    provider.send_text = account_deleted_while_sending  # type: ignore[method-assign]
+    try:
+        assert await deliver_due(app.state.sessionmaker, provider) == 2
+    finally:
+        provider.send_text = send  # type: ignore[method-assign]
+
+    assert [m.kind for m in provider.sent_to("09121112312")] == ["otp"]
+    statuses = {(m.mobile, m.status, m.last_error) for m in await confirmations(app)}
+    assert statuses == {("09121112311", "sent", None), ("0912***2312", "failed", "ACCOUNT_DELETED")}

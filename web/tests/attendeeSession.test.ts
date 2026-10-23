@@ -97,6 +97,30 @@ describe("attendee session policy", () => {
     assert.equal(session.isAttendeeSessionExpired(), false);
   });
 
+  it("3: signing out asks the server to end the sessions, and signs out here even when that fails", async () => {
+    const original = globalThis.fetch;
+    const calls: { url: string; init: RequestInit | undefined }[] = [];
+    globalThis.fetch = (input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({ url: String(input), init });
+      return Promise.reject(new TypeError("offline"));
+    };
+    try {
+      const token = signInWithPass("user-a");
+      session.signOutAttendee();
+      assert.equal(storage.getItem(ATTENDEE_TOKEN_STORAGE), null);
+      assert.equal(storage.getItem(cacheKey("user-a")), null);
+      assert.equal(calls.length, 1);
+      assert.equal(calls[0].url, "/api/auth/logout");
+      assert.equal(calls[0].init?.method, "POST");
+      assert.deepEqual(calls[0].init?.headers, { Authorization: `Bearer ${token}` });
+      session.signOutAttendee(); // nothing stored: no request
+      assert.equal(calls.length, 1);
+      await Promise.resolve(); // the rejected request is swallowed
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
   it("4: My Tickets keeps the session only while it shows the owner's cached pass", () => {
     const kept = signInWithPass("user-a");
     assert.equal(session.keepPassOnExpiredSession(kept, true), true);

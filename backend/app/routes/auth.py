@@ -27,6 +27,7 @@ from app.security import (
     create_signup_token,
     decode_access_token,
     is_user_token,
+    user_token_session_ok,
 )
 from app.sms import SmsProvider, sms_provider
 from app.sms.otp import OtpPurpose, consume_challenge, issue_challenge
@@ -34,7 +35,7 @@ from app.sms.phone import IranMobile, ascii_digits
 from app.platform_config import platform_config
 from app.sms.gateway import DAILY_CAP_REACHED, HOURLY_CAP_REACHED, NOT_CONFIGURED
 from app.sms.templates import platform_body, render
-from app.account import AccountExport, delete_account, export_account, refresh_upcoming_snapshots
+from app.account import AccountExport, delete_account, end_sessions, export_account, refresh_upcoming_snapshots
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 _bearer = HTTPBearer(auto_error=False)
@@ -155,6 +156,12 @@ async def current_user(
             status.HTTP_401_UNAUTHORIZED, "User account not found",
             headers={"WWW-Authenticate": "Bearer"},
         )
+    if not user_token_session_ok(payload, user.session_version):
+        # Signed out (on this or another device) or deleted since this token was issued.
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED, "Session ended",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     return user
 
 
@@ -164,7 +171,9 @@ CurrentUserDep = Annotated[User, Depends(current_user)]
 
 def _session_for(user: User, request: Request) -> AuthResponse:
     jwt_secret: str = request.app.state.settings.jwt_secret
-    return AuthResponse(access_token=create_access_token(user.id, jwt_secret), user=UserOut.model_validate(user))
+    return AuthResponse(
+        access_token=create_access_token(user.id, jwt_secret, user.session_version), user=UserOut.model_validate(user)
+    )
 
 
 async def _should_send(session: SessionDep, mobile: str, purpose: OtpPurpose) -> bool:
@@ -365,9 +374,24 @@ async def export_my_data(user: CurrentUserDep, session: SessionDep) -> AccountEx
     return await export_account(session, user)
 
 
-@router.delete("/me", status_code=status.HTTP_204_NO_CONTENT)
+@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
+async def logout(user: CurrentUserDep, session: SessionDep) -> Response:
+    """Sign out everywhere: every session of the account ends, on this device and all others.
+
+    Sessions are versioned per account, not per device, so there is no "this device only" variant; the
+    person signs in again with an SMS code wherever they still need the account.
+    """
+    await end_sessions(session, user)
+    await session.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.delete("/me", status_code=status.HTTP_204_NO_CONTENT, responses=error_responses(409))
 async def delete_my_account(user: CurrentUserDep, session: SessionDep) -> Response:
-    """Delete the account: it is anonymised (see app/account.py) and this session stops working."""
+    """Delete the account: it is anonymised (see app/account.py) and every session of it ends.
+
+    Refused with 409 ACCOUNT_LAST_OWNER while the person is the last owner of an organizer.
+    """
     await delete_account(session, user)
     await session.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)

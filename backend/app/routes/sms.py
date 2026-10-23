@@ -23,7 +23,7 @@ from app.platform_config import platform_config
 from app.rate_limit import DAY_SECONDS, LONGEST_WINDOW_SECONDS, Budget, limiter
 from app.routes.events import OwnedEventDep
 from app.sms import SmsGateway, sms_provider
-from app.sms.outbox import confirmation_values, link_origin
+from app.sms.outbox import NOT_SENT_REASONS, confirmation_values, link_origin
 from app.sms.phone import IranMobile, mask_mobile
 from app.sms.templates import (
     EVENT_KINDS,
@@ -120,7 +120,8 @@ def _message_out(m: SmsMessage, link_opened_at: datetime | None) -> SmsMessageOu
         id=m.id, kind=m.kind, mobile=mask_mobile(m.mobile), body=m.body, status=m.status,
         attempts=m.attempts, last_error=m.last_error, created_at=m.created_at, sent_at=m.sent_at,
         link_opened_at=link_opened_at,
-        can_retry=requeueable and m.status in ("failed", "unknown"),
+        # Not sent on purpose (account deleted, ticket cancelled, pass revoked): a retry would be refused again.
+        can_retry=requeueable and m.status in ("failed", "unknown") and m.last_error not in NOT_SENT_REASONS,
         can_resolve=m.status == "unknown",
     )
 

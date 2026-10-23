@@ -9,13 +9,16 @@ import jwt
 
 
 def create_access_token(
-    user_id: uuid.UUID, secret: str, expires_delta: timedelta | None = None
+    user_id: uuid.UUID, secret: str, session_version: int = 0, expires_delta: timedelta | None = None
 ) -> str:
+    """An attendee session. `sv` is the account's session version: signing out or deleting the account
+    increments it, which ends every token issued before (`user_token_session_ok`)."""
     now = datetime.now(timezone.utc)
     exp = now + (expires_delta or timedelta(days=7))
     payload = {
         "sub": str(user_id),
         "type": "user",
+        "sv": session_version,
         "iat": int(now.timestamp()),
         "exp": int(exp.timestamp()),
     }
@@ -27,6 +30,13 @@ def create_access_token(
 # token, now or later, can pass for a user by leaving its type out. Delete the allowance after 2026-12-08.
 LEGACY_UNTYPED_USER_TOKENS_UNTIL = int(datetime(2026, 12, 1, tzinfo=timezone.utc).timestamp())
 
+# User access tokens carried no session version (`sv`) before migration 0030. A token without one is honoured
+# only when issued before this instant AND while the account is still at version 0, i.e. has never signed out
+# since: sessions from before the release keep working until they expire (7 days), and signing out ends them
+# like any other. If the release ships after this date, move it to (release date + 1 day) so those sessions are
+# not cut short; delete the allowance 8 days after it (planned: after 2027-01-08).
+LEGACY_UNVERSIONED_USER_TOKENS_UNTIL = int(datetime(2027, 1, 1, tzinfo=timezone.utc).timestamp())
+
 
 def is_user_token(payload: dict[str, Any]) -> bool:
     """True for a user access token: `type` is "user", or absent on a token issued before the cutoff above."""
@@ -35,6 +45,17 @@ def is_user_token(payload: dict[str, Any]) -> bool:
         return type(issued_at) is int and issued_at < LEGACY_UNTYPED_USER_TOKENS_UNTIL
     token_type: object = payload["type"]
     return token_type == "user"
+
+
+def user_token_session_ok(payload: dict[str, Any], session_version: int) -> bool:
+    """True when a user token belongs to the account's current session version (see the cutoff above)."""
+    if "sv" not in payload:
+        issued_at = payload.get("iat")
+        return (
+            session_version == 0 and type(issued_at) is int and issued_at < LEGACY_UNVERSIONED_USER_TOKENS_UNTIL
+        )
+    token_version: object = payload["sv"]
+    return type(token_version) is int and token_version == session_version
 
 
 SIGNUP_TOKEN_MINUTES = 15

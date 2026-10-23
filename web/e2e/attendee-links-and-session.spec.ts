@@ -30,6 +30,7 @@ async function fixture(page: Page) {
     if (/^\/api\/public\/events\/[^/]+\/booths$/.test(path)) return json(200, []);
     if (request.headers().authorization !== bearer) return json(401, { detail: 'Invalid authorization token' });
     if (path === '/api/auth/me') return json(200, user);
+    if (path === '/api/auth/logout') return route.fulfill({ status: 204 });
     if (path === '/api/attendees/me/tickets') return json(200, [ticket]);
     if (path === '/api/attendees/me/network') return json(200, []);
     if (path === '/api/attendees/me/network/privacy') return json(200, { share_contact_with_peers: false });
@@ -116,8 +117,12 @@ test.describe('attendee header session control', () => {
     await signedIn(page);
     await page.goto('/c/alpha/my-ticket');
     await expect(page.getByText('Pass alpha').first()).toBeVisible();
+    // The server is asked to end the account's sessions everywhere, with the session being signed out.
+    const logout = page.waitForRequest(request => new URL(request.url()).pathname === '/api/auth/logout');
     await logoutButton(page).click();
     await page.getByRole('dialog').getByRole('button', { name: 'Log out' }).click();
+    const sent = await logout;
+    expect([sent.method(), sent.headers().authorization]).toEqual(['POST', bearer]);
     await expect(page).toHaveURL(/\/c\/alpha\/sign-in$/);
     expect(await page.evaluate(key => localStorage.getItem(key), TOKEN_KEY)).toBeNull();
   });

@@ -11,17 +11,25 @@ message the gateway could not even attempt (not configured, a platform cap, busy
 A pass claims its messages (`sending`, `lease_until`) before sending; if it dies before recording an outcome, the
 next pass marks them `unknown` once the lease has run out. The organizer can retry a failed message, and retry
 or resolve an unknown one, by hand (app/routes/sms.py).
+
+Just before sending, each claimed message is checked once more, because things change between queueing and
+sending: it is not sent, and is marked `failed` with the reason in `last_error`, when its recipient deleted the
+account (`ACCOUNT_DELETED`, which account deletion also writes on messages not yet claimed), when the ticket it
+confirms is no longer active (`TICKET_CANCELLED`), or when a pass link it carries was revoked meanwhile
+(`PASS_REVOKED`: the ticket was cancelled, reissued or transferred since). A cancellation notice is always sent.
 """
 
 import asyncio
 import logging
+import re
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.config import Settings
-from app.models import Booth, Event, SmsMessage, Ticket, TicketTier, User
+from app.links import CODE_ALPHABET, CODE_LENGTH
+from app.models import Booth, Event, ShortLink, SmsMessage, Ticket, TicketTier, User
 from app.sms.phone import mask_mobile
 from app.sms.gateway import DEFERRED_ERRORS
 from app.sms.provider import SmsProvider, SmsResult
@@ -34,6 +42,14 @@ BATCH_SIZE = 20
 # Longer than a whole batch can take (BATCH_SIZE sends, each bounded by the provider timeout and a free slot).
 LEASE = timedelta(minutes=10)
 LEASE_EXPIRED = "LEASE_EXPIRED"
+# Why a claimed message was not sent after all (`last_error` of a `failed` message; see the module docstring).
+ACCOUNT_DELETED = "ACCOUNT_DELETED"
+TICKET_CANCELLED = "TICKET_CANCELLED"
+PASS_REVOKED = "PASS_REVOKED"
+NOT_SENT_REASONS = frozenset({ACCOUNT_DELETED, TICKET_CANCELLED, PASS_REVOKED})
+# Notices that stay true after the pass stopped working, so they are sent regardless.
+_PASS_INDEPENDENT_KINDS = frozenset({"ticket_cancelled"})
+_PASS_LINK = re.compile(rf"/t/([{CODE_ALPHABET}]{{{CODE_LENGTH}}})(?![0-9a-z])")
 
 
 def backoff(attempts: int) -> timedelta:
@@ -185,18 +201,66 @@ async def _record(
         await session.commit()
 
 
+async def _not_sent_reason(sessionmaker: async_sessionmaker[AsyncSession], message: SmsMessage) -> str | None:
+    """None when the claimed message should go out now; otherwise why not (see the module docstring)."""
+    async with sessionmaker() as session:
+        current = (
+            await session.execute(select(SmsMessage.status, SmsMessage.last_error).where(SmsMessage.id == message.id))
+        ).first()
+        if current is None or current.status != "sending":
+            # No longer ours: account deletion marked it failed meanwhile (or the lease ran out).
+            return (current.last_error if current is not None else None) or LEASE_EXPIRED
+        if message.kind in _PASS_INDEPENDENT_KINDS:
+            return None
+        if message.ticket_id is not None:
+            holder = (
+                await session.execute(
+                    select(Ticket.status, User.deleted_at)
+                    .join(User, Ticket.user_id == User.id)
+                    .where(Ticket.id == message.ticket_id)
+                )
+            ).first()
+            if holder is not None and holder.deleted_at is not None:
+                return ACCOUNT_DELETED
+            if holder is None or holder.status != "active":
+                return TICKET_CANCELLED
+        codes = _PASS_LINK.findall(message.body or "")
+        if codes:
+            revoked = await session.scalar(
+                select(ShortLink.code).where(ShortLink.code.in_(codes), ShortLink.revoked_at.is_not(None)).limit(1)
+            )
+            if revoked is not None:
+                return PASS_REVOKED
+    return None
+
+
+async def _record_not_sent(sessionmaker: async_sessionmaker[AsyncSession], message: SmsMessage, reason: str) -> None:
+    async with sessionmaker() as session:
+        await session.execute(
+            update(SmsMessage)
+            .where(SmsMessage.id == message.id, SmsMessage.status == "sending")
+            .values(status="failed", last_error=reason, lease_until=None)
+        )
+        await session.commit()
+    logger.info("SMS %s to %s not sent: %s", message.kind, mask_mobile(message.mobile), reason)
+
+
 async def deliver_due(
     sessionmaker: async_sessionmaker[AsyncSession], provider: SmsProvider, *, now: datetime | None = None
 ) -> int:
     """Send one batch of due messages; returns how many were claimed.
 
-    Claimed in one short transaction (`sending` with a lease), sent with no transaction open, and each outcome
-    recorded in its own short transaction, so no row lock or connection is held while the provider answers and
-    a failure after sending never repeats the messages already sent.
+    Claimed in one short transaction (`sending` with a lease), checked once more just before sending, sent with
+    no transaction open, and each outcome recorded in its own short transaction, so no row lock or connection is
+    held while the provider answers and a failure after sending never repeats the messages already sent.
     """
     now = now or datetime.now(timezone.utc)
     messages = await _claim(sessionmaker, now)
     for message in messages:
+        reason = await _not_sent_reason(sessionmaker, message)
+        if reason is not None:
+            await _record_not_sent(sessionmaker, message, reason)
+            continue
         result = await provider.send_text(message.mobile, message.body or "", kind=message.kind)
         await _record(sessionmaker, message, result, now)
     return len(messages)

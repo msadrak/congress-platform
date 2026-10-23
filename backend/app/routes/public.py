@@ -9,7 +9,7 @@ from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import SessionDep
-from app.models import Booth, BoothBookmark, Event, EventPage, MediaAsset, TicketTier
+from app.models import Booth, BoothBookmark, Event, EventPage, MediaAsset, TicketTier, User
 from app.page_document import PageDocument
 from app.page_render import PublicPage, public_media_url, render_page
 from app.seo import default_head, page_language, pick, render_head
@@ -17,7 +17,7 @@ from app.routes.events import registration_problem
 from app.routes.program import PublicSession, PublicVenuePlace, live_program
 from app.routes.program_files import PublicProgramFile, visible_program_files
 from app.routes.ticket_tiers import TicketTierOut
-from app.security import decode_access_token, is_user_token
+from app.security import decode_access_token, is_user_token, user_token_session_ok
 
 router = APIRouter(prefix="/api/public/events", tags=["public"])
 
@@ -147,19 +147,24 @@ async def booth_directory(session: AsyncSession, event_id: uuid.UUID) -> list[Pu
 
 
 async def optional_user_id(
-    request: Request, authorization: Annotated[str | None, Header()] = None
+    request: Request, session: SessionDep, authorization: Annotated[str | None, Header()] = None
 ) -> uuid.UUID | None:
+    """The signed-in attendee, if a current session is presented; anything else reads as anonymous."""
     if not authorization or not authorization.startswith("Bearer "):
         return None
     token = authorization[7:].strip()
     secret: str = request.app.state.settings.jwt_secret
     payload = decode_access_token(token, secret)
-    if payload and "sub" in payload and is_user_token(payload):
-        try:
-            return uuid.UUID(payload["sub"])
-        except Exception:
-            return None
-    return None
+    if not (payload and "sub" in payload and is_user_token(payload)):
+        return None
+    try:
+        user_id = uuid.UUID(payload["sub"])
+    except Exception:
+        return None
+    user = await session.get(User, user_id)
+    if user is None or user.deleted_at is not None or not user_token_session_ok(payload, user.session_version):
+        return None
+    return user_id
 
 
 @router.get("")
