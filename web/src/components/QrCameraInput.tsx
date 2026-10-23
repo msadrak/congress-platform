@@ -22,8 +22,6 @@ interface QrCameraInputProps {
   onDecode: (value: string) => void;
   /** The words' language; the app's locale when left out. */
   locale?: AttendeeLocale;
-  /** @deprecated Ignored; the attendee network scan panel (UX-ATT-SHELL) still passes it. Use `locale`. */
-  isRtl?: boolean;
   /** Turning the camera off from outside (dialog closed, booth or session changed, submitting). */
   disabled?: boolean;
   /**

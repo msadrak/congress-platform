@@ -3,7 +3,7 @@ import type { AttendeeTicketDetail } from "../../../api/client";
 import type { AttendeeLocale } from "../../../lib/i18n";
 import { LinkButton } from "../../ui/Button";
 import { Icon } from "../../ui/Icon";
-import { networkCopy } from "../attendeeCopy";
+import { attendeeCopy } from "../../../copy/attendee";
 
 export type MyPass =
   | { status: "loading" }
@@ -12,7 +12,7 @@ export type MyPass =
 
 /** "My code": the attendee's own pass QR, for a colleague to scan into their network. */
 export function MyCodePanel({ myPass, locale, registerTo }: { myPass: MyPass; locale: AttendeeLocale; registerTo: string }) {
-  const c = networkCopy[locale];
+  const c = attendeeCopy[locale].network;
   if (myPass.status === "loading") return <div role="status" aria-label={c.myCode} className="skeleton mx-auto h-72 w-full max-w-xs rounded-2xl" />;
   const pass = myPass.status === "ready" ? myPass.pass : null;
   if (!pass) {
@@ -39,7 +39,6 @@ export function MyCodePanel({ myPass, locale, registerTo }: { myPass: MyPass; lo
       <div className="min-w-0 space-y-2">
         <p className="text-lg font-semibold leading-snug text-text-primary break-words">{pass.attendee_name}</p>
         <p className="text-sm text-text-muted break-words">{pass.ticket_tier_name}</p>
-        <p className="max-w-sm text-sm leading-relaxed text-text-secondary">{c.myCodeLead}</p>
         {myPass.status === "ready" && myPass.fromCache && (
           <p className="inline-flex items-center gap-1.5 text-xs font-medium text-status-warning-text">
             <Icon name="wifi-off" size={14} />

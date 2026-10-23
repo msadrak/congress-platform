@@ -16,13 +16,12 @@
  *    The kept token authorizes nothing more: My Tickets stops sending it.
  */
 import { ATTENDEE_TOKEN_STORAGE, registerUnauthorizedHandler } from "../api/client.ts";
+import { attendeeCopy } from "../copy/attendee.ts";
 import { clearOwnerScopedTickets, getAuthenticatedUserId } from "./ticketCache.ts";
 import type { AttendeeLocale } from "./i18n";
 
 export function sessionChangedMessage(locale: AttendeeLocale): string {
-  return locale === "fa"
-    ? "نشست شما در زبانه دیگری تغییر کرد. لطفاً این صفحه را دوباره بارگذاری کنید."
-    : "Your attendee session changed in another tab. Please reload this page.";
+  return attendeeCopy[locale].shell.sessionChanged;
 }
 
 const listeners = new Set<() => void>();

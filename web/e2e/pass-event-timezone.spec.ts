@@ -69,8 +69,8 @@ test('an SMS-link pass shows the congress days of its own zone, not the phone\'s
   await expect(page).toHaveURL(/\/c\/alpha\/my-ticket$/);
   await expect(card(page)).toContainText(range(10, 12));
   await expect(card(page)).not.toContainText(range(9, 12));
-  await expect(card(page)).toContainText('Jan 1, 2099');
-  await expect(card(page)).not.toContainText('Dec 31, 2098');
+  await expect(card(page)).toContainText('1 Jan 2099');
+  await expect(card(page)).not.toContainText('31 Dec 2098');
 });
 
 test('Persian readers get the Solar Hijri days of the congress\'s zone', async ({ page }) => {
@@ -92,7 +92,7 @@ test('a pass without a zone (saved by an older version) is read in the phone\'s 
 
   await expect(page).toHaveURL(/\/c\/alpha\/my-ticket$/);
   await expect(card(page)).toContainText(range(9, 12));
-  await expect(card(page)).toContainText('Dec 31, 2098');
+  await expect(card(page)).toContainText('31 Dec 2098');
 });
 
 test('a signed-in pass uses the zone the server names for its congress', async ({ page }) => {
@@ -103,7 +103,7 @@ test('a signed-in pass uses the zone the server names for its congress', async (
   await page.goto('/c/alpha/my-ticket');
 
   await expect(card(page)).toContainText(range(10, 13));
-  await expect(card(page)).toContainText('Jan 1, 2099');
+  await expect(card(page)).toContainText('1 Jan 2099');
 });
 
 test('a signed-in pass from a server that sends no zone is read in the phone\'s zone', async ({ page }) => {
@@ -113,7 +113,7 @@ test('a signed-in pass from a server that sends no zone is read in the phone\'s 
   await page.goto('/c/alpha/my-ticket');
 
   await expect(card(page)).toContainText(range(9, 12));
-  await expect(card(page)).toContainText('Dec 31, 2098');
+  await expect(card(page)).toContainText('31 Dec 2098');
 });
 
 test('an unknown zone name never breaks the pass', async ({ page }) => {

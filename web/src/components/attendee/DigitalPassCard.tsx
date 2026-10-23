@@ -1,7 +1,7 @@
 import QRCode from "react-qr-code";
 import type { AttendeeTicketDetail } from "../../api/client";
 import { passCopy } from "../../copy/pass";
-import type { AttendeeLocale, TranslationDictionary } from "../../lib/i18n";
+import type { AttendeeLocale } from "../../lib/i18n";
 import { isCancelledStatus } from "../../lib/attendeePasses";
 import { formatPassDateRange, formatPassIssuedDate } from "../../lib/passDates";
 import { CongressSignature } from "../brand/CongressSignature";
@@ -24,7 +24,6 @@ interface DigitalPassCardProps {
   ticket: PassCardTicket;
   locale: AttendeeLocale;
   /** No longer read: the card's words are in `copy/pass.ts`. Callers may drop it. */
-  t?: TranslationDictionary;
   /** Confirmed by the server in this session (not an offline copy or a rejected session). Kept for the preview. */
   verified?: boolean;
   /** Offers the print button (paper backup) when set. */

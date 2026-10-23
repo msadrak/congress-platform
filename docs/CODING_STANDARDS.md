@@ -26,7 +26,7 @@ Mechanical rules live in checks, not here: no `any` (oxlint `typescript/no-expli
 
 ### E. User-Facing Copy (`src/copy/<area>.ts`)
 - **Rule:** New user-facing strings go into a typed copy module `web/src/copy/<area>.ts` (`const fa = {…} as const; const en: CopyShape<typeof fa> = {…}; export const <area>Copy = { fa, en };`) and are read with `useCopy(<area>Copy)` or `<area>Copy[locale]`. Shared buttons, status words and messages come from `copy/common.ts`. No new inline `isRtl ? "…" : "…"` text. Persian terms follow GLOSSARY.md "Persian UI terms"; error messages follow §2.F. Every string exists in fa and en; values from people or the network go into a whole-sentence function and render inside `<bdi>`, never concatenated fragments.
-- **Locale:** one app-wide locale (`useLocale` in `lib/i18n.ts`; `useAttendeeLocale` adds the legacy dictionary). It also sets `<html lang dir>`.
+- **Locale:** one app-wide locale (`useLocale` in `lib/i18n.ts`; the legacy dictionary is gone). It also sets `<html lang dir>`.
 - **Checks:** `web/tests/glossary.test.ts` (banned terms, with a per-file allowlist that only shrinks), `web/tests/copyGuard.test.ts` (per-file counts of inline locale ternaries, Persian text in `.tsx`, developer terms and "..." in Persian strings, against `tests/copy-baseline.json`, which only goes down), `web/tests/apiErrorCodes.test.ts` (every backend code has fa and en messages; Persian readers never see English).
 - **Why:** One place per string keeps the wording reviewable and consistent; the type makes a missing translation a build error.
 

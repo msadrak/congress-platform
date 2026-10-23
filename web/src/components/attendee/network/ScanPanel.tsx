@@ -6,7 +6,7 @@ import { formatCountdown } from "../../../lib/retryAfter";
 import { QrCameraInput } from "../../QrCameraInput";
 import { Button } from "../../ui/Button";
 import { Icon } from "../../ui/Icon";
-import { networkCopy } from "../attendeeCopy";
+import { attendeeCopy } from "../../../copy/attendee";
 
 export interface ScanError {
   text: string;
@@ -30,6 +30,8 @@ interface ScanPanelProps {
   result: ScanResult | null;
   noteBusy: boolean;
   noteSaved: boolean;
+  /** The camera starts by itself (the person asked to scan, and the browser already allows the camera). */
+  autoStart?: boolean;
   onSubmit: (secret: string) => void;
   onSaveNote: (note: string) => void;
   onNext: () => void;
@@ -39,9 +41,8 @@ interface ScanPanelProps {
  * The scan sheet: the camera first, typing the code behind a link. After a successful scan it turns into
  * the confirmation with an optional private note, then back to the camera for the next person.
  */
-export function ScanPanel({ locale, busy, error, retrySeconds, registerTo, result, noteBusy, noteSaved, onSubmit, onSaveNote, onNext }: ScanPanelProps) {
-  const c = networkCopy[locale];
-  const isRtl = locale === "fa";
+export function ScanPanel({ locale, busy, error, retrySeconds, registerTo, result, noteBusy, noteSaved, autoStart = false, onSubmit, onSaveNote, onNext }: ScanPanelProps) {
+  const c = attendeeCopy[locale].network;
   const id = useId();
   const [manual, setManual] = useState(false);
   const [code, setCode] = useState("");
@@ -118,7 +119,7 @@ export function ScanPanel({ locale, busy, error, retrySeconds, registerTo, resul
   return (
     <div className="space-y-4">
       <p className="text-sm leading-relaxed text-text-secondary">{c.scanLead}</p>
-      <QrCameraInput isRtl={isRtl} disabled={busy || limited} onDecode={onSubmit} />
+      <QrCameraInput locale={locale} disabled={busy || limited} autoStart={autoStart} onDecode={onSubmit} />
       {busy && (
         <p role="status" className="text-xs text-text-secondary">
           {c.saving}
@@ -138,7 +139,7 @@ export function ScanPanel({ locale, busy, error, retrySeconds, registerTo, resul
             {error.text}
           </p>
           {error.register && (
-            <Link to={registerTo} className="inline-flex min-h-11 items-center gap-1 font-semibold underline underline-offset-4">
+            <Link to={registerTo} className="inline-flex min-h-12 items-center gap-1 font-semibold underline underline-offset-4">
               {c.getPass}
               <Icon name="arrow-right" size={14} />
             </Link>
@@ -151,7 +152,7 @@ export function ScanPanel({ locale, busy, error, retrySeconds, registerTo, resul
         aria-expanded={manual}
         aria-controls={`${id}-manual`}
         onClick={() => setManual((v) => !v)}
-        className="inline-flex min-h-11 items-center gap-1.5 rounded-lg text-sm font-semibold text-action-primary underline-offset-4 hover:underline cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
+        className="inline-flex min-h-12 items-center gap-1.5 rounded-lg text-sm font-semibold text-action-primary underline-offset-4 hover:underline cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
       >
         <Icon name={manual ? "camera" : "keyboard"} size={17} />
         {manual ? c.hideCodeLink : c.enterCodeLink}
@@ -176,13 +177,9 @@ export function ScanPanel({ locale, busy, error, retrySeconds, registerTo, resul
                 value={code}
                 onChange={(e) => setCode(e.target.value)}
                 placeholder="k7m2 q9xa …"
-                aria-describedby={`${id}-code-hint`}
                 className="ui-input ps-10 font-mono text-start"
               />
             </div>
-            <span id={`${id}-code-hint`} className="mt-1.5 block text-xs text-text-muted">
-              {c.codeHint}
-            </span>
           </div>
           <Button type="submit" variant="primary" size="lg" isFullWidth disabled={busy || limited} aria-busy={busy}>
             {busy ? c.saving : c.saveContact}

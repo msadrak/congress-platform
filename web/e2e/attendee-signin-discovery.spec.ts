@@ -156,8 +156,11 @@ test.describe('direct attendee sign-in', () => {
     const requests = await fixture(page);
     await anonymous(page);
     await page.goto('/c/alpha/my-profile');
-    await page.getByRole('link', { name: /Sign In/ }).first().click();
+    // The page has the phone form itself; the header's log in is the way to the full sign-in page.
+    await page.locator('header').getByRole('link', { name: 'Log In' }).click();
     await expect(page).toHaveURL(/\/c\/alpha\/sign-in\?next=%2Fc%2Falpha%2Fmy-profile$/);
+    // The sign-in page's own heading: the page being left has a «Sign in» heading and the congress name too.
+    await expect(page.getByRole('heading', { name: 'Sign in with your mobile' })).toBeVisible();
     await expect(page.getByText('Alpha Congress').first()).toBeVisible();
 
     await signInWithCode(page, '۰۹۱۲ ۱۲۳ ۴۵۶۷');  // Persian digits and spaces, as typed on a phone
@@ -192,7 +195,7 @@ test.describe('direct attendee sign-in', () => {
     await page.unrouteAll();
     await fixture(page, { verifyAbort: true });
     await page.getByLabel('Code from the SMS').fill(CODE);
-    await expect(page.getByRole('alert')).toContainText('Could not reach the server');
+    await expect(page.getByRole('alert')).toContainText("Can't connect");
   });
 
   test('a new number completes a short profile, then continues to the destination', async ({ page }) => {
@@ -562,7 +565,7 @@ test.describe('event-scoped badge scan', () => {
     // The camera waits for the user's tap: no permission request on open.
     expect(await page.evaluate(() => window.__cameraRequests)).toBe(0);
 
-    await page.getByRole('button', { name: 'Scan with camera' }).click();
+    await page.getByRole('button', { name: 'Turn on camera' }).click();
     await expect(page.getByRole('status').filter({ hasText: 'Peer was added to your network.' })).toBeVisible();
     expect(requests.find(r => r.path === '/api/attendees/me/network/scan')?.body).toEqual({ qr_secret: 'Peer-Secret', private_notes: '', event_id: 'event-a' });
     expect(await page.evaluate(() => (window.__cameraTracks ?? []).map(track => track.readyState))).toEqual(['ended']);
@@ -584,10 +587,10 @@ test.describe('event-scoped badge scan', () => {
     await signedIn(page);
     await page.goto('/c/alpha/my-network');
     await page.getByRole('tab', { name: 'Scan' }).click();
-    await page.getByRole('button', { name: 'Scan with camera' }).click();
-    await expect(page.getByRole('button', { name: 'Stop camera' })).toBeVisible();
+    await page.getByRole('button', { name: 'Turn on camera' }).click();
+    await expect(page.getByRole('button', { name: 'Turn off camera' })).toBeVisible();
     await page.getByRole('tab', { name: 'My code' }).click();
-    await expect(page.getByRole('button', { name: 'Stop camera' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Turn off camera' })).toHaveCount(0);
     await expect.poll(() => page.evaluate(() => (window.__cameraTracks ?? []).map(track => track.readyState))).toEqual(['ended']);
   });
 });

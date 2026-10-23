@@ -42,7 +42,7 @@ test("formatClock shows seconds on the event's clock", () => {
 });
 
 test("formatDay uses the Solar Hijri calendar in Persian and the Gregorian one in English", () => {
-  assert.equal(formatDay("2027-04-11", "en"), "Sun, Apr 11");
+  assert.equal(formatDay("2027-04-11", "en"), "Sun 11 Apr");
   assert.equal(formatDay("2027-04-11", "fa"), "یکشنبه ۲۲ فروردین");
   assert.equal(formatDay("bad", "en"), "bad");
 });

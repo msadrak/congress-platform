@@ -2,23 +2,24 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react
 import { useParams } from "react-router-dom";
 import { createApiClient } from "../api/client";
 import { AttendeeLayout } from "../layouts/AttendeeLayout";
-import { useAttendeeLocale } from "../lib/i18n";
+import { useLocale } from "../lib/i18n";
 import { attendeeResponseState, isStoredAttendeeToken } from "../lib/attendeeSession";
 import { useAttendeeSession } from "../hooks/useAttendeeSession";
 import { loadOwnerScopedTickets, saveOwnerScopedTickets } from "../lib/ticketCache";
-import { congressPath, useCongressEvent, useRevalidateOnFocus } from "../lib/congressContext";
-import { signInPath } from "../lib/safeRedirect";
-import { LoadingBlock, StatusPanel } from "../components/ui/PortalState";
-import { Button, LinkButton } from "../components/ui/Button";
-import { Icon } from "../components/ui/Icon";
+import { useCongressEvent, useRevalidateOnFocus } from "../lib/congressContext";
+import { attendeeCopy } from "../copy/attendee";
+import { LinkButton } from "../components/ui/Button";
+import { LoadingBlock } from "../components/ui/PortalState";
+import { ErrorState, StateBlock } from "../components/ui/StateBlock";
 import { BoothDirectory } from "../components/BoothDirectory";
 import { CongressHomeView, type HomeOverview, type HomePersonal } from "../components/attendee/CongressHomeView";
 import { panelLabels, publishedPage } from "../components/attendee/panelContent";
 
 export default function MyCongress() {
   const { slug = "" } = useParams<{ slug: string }>();
-  const localeHook = useAttendeeLocale();
-  const { locale, t, isRtl } = localeHook;
+  const localeHook = useLocale();
+  const { locale, isRtl } = localeHook;
+  const copy = attendeeCopy[locale];
   const congress = useCongressEvent(slug);
   const { token } = useAttendeeSession();
   const [overview, setOverview] = useState<HomeOverview | null>(null);
@@ -89,36 +90,33 @@ export default function MyCongress() {
 
   const shell = (content: ReactNode) => (
     <AttendeeLayout localeProps={localeHook} eventSlug={slug} destination="my-congress">
-      <div className="mx-auto max-w-6xl space-y-12 px-4 pt-5 sm:space-y-16 sm:px-6 sm:pt-8">{content}</div>
+      <div className="mx-auto max-w-6xl space-y-8 px-4 pt-5 sm:space-y-10 sm:px-6 sm:pt-8">{content}</div>
     </AttendeeLayout>
   );
   const narrow = (content: ReactNode) => shell(<div className="mx-auto max-w-3xl pt-6">{content}</div>);
 
   if (congress.status === "missing") {
     return narrow(
-      <StatusPanel icon="search" title={isRtl ? "همایش پیدا نشد" : "Congress not found"}>
-        <LinkButton to="/me" variant="secondary" size="md">
-          {t.myPasses}
-        </LinkButton>
-      </StatusPanel>
+      <StateBlock
+        icon="search"
+        title={copy.program.notFoundTitle}
+        body={copy.program.notFoundBody}
+        action={
+          <LinkButton to="/me" variant="secondary">
+            {copy.program.back}
+          </LinkButton>
+        }
+      />
     );
   }
   if (congress.status === "error") {
-    return narrow(
-      <StatusPanel tone="danger" icon="alert" title={isRtl ? "اطلاعات همایش بارگذاری نشد" : "Could not load this congress"}>
-        <p>{isRtl ? "اتصال را بررسی کنید و دوباره تلاش کنید." : "Check your connection and try again."}</p>
-        <Button type="button" variant="secondary" size="md" onClick={() => window.location.reload()}>
-          <Icon name="sync" size={16} />
-          {isRtl ? "تلاش دوباره" : "Try again"}
-        </Button>
-      </StatusPanel>
-    );
+    return narrow(<ErrorState title={copy.program.loadFailedTitle} body={copy.program.loadFailedBody} onRetry={() => window.location.reload()} />);
   }
-  if (!event || !page || !labels) return shell(<LoadingBlock label={t.navMyCongress} />);
+  if (!event || !page || !labels) return shell(<LoadingBlock label={copy.shell.tabs["my-congress"]} />);
 
   const signedOut = !token || (failed && !overview);
   const personal: HomePersonal = signedOut
-    ? { status: "signed-out", signInTo: signInPath(slug, congressPath(slug, "my-congress")) }
+    ? { status: "signed-out" }
     : overview
       ? { status: "ready", overview }
       : { status: "loading" };
@@ -126,10 +124,8 @@ export default function MyCongress() {
   return shell(
     <CongressHomeView
       event={event}
-      page={page}
       labels={labels}
       locale={locale}
-      t={t}
       personal={personal}
       booths={(index) => (
         <BoothDirectory

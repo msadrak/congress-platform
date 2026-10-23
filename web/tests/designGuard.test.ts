@@ -37,24 +37,10 @@ const EXEMPT: Readonly<Record<string, readonly string[]>> = {
 };
 
 /**
- * UX-ATT-SHELL (team2) is still rewriting these attendee files. Counts may only fall: a rise fails, and so does
- * an entry above the file's real count (lower it, or delete the entry at zero). Never add a file.
+ * Files that may still break a rule, with the count they may have. Counts may only fall: a rise fails, and so
+ * does an entry above the file's real count (lower it, or delete it at zero). Never add a file. Empty since UX-Z.
  */
-const ALLOWED: Readonly<Record<string, Readonly<Record<string, number>>>> = {
-  "src/components/attendee/CongressDetailsView.tsx": { textSize: 2, meridian: 1, eyebrowClass: 1 },
-  "src/components/attendee/CongressHero.tsx": { textSize: 1, meridian: 1, eyebrowClass: 1 },
-  "src/components/attendee/CongressHomeView.tsx": { radius: 2, meridian: 2 },
-  "src/components/attendee/CongressSchedule.tsx": { textSize: 1, hexColour: 2 },
-  "src/components/attendee/ProgramExplorer.tsx": { textSize: 1 },
-  // Deleted by UX-ATT-SHELL.
-  "src/components/attendee/SignInPrompt.tsx": { radius: 1 },
-  "src/components/attendee/network/ContactCard.tsx": { radius: 2, textSize: 1 },
-  "src/components/attendee/zonedFormat.ts": { intlDateTimeFormat: 1 },
-  "src/layouts/AttendeeLayout.tsx": { radius: 2, textSize: 4 },
-  "src/pages/Me.tsx": { textSize: 2, meridian: 1 },
-  "src/pages/MyNetwork.tsx": { radius: 1, textSize: 1, meridian: 1, eyebrowClass: 1 },
-  "src/pages/MyProfile.tsx": { radius: 1, textSize: 1, meridian: 1, eyebrowClass: 1 },
-};
+const ALLOWED: Readonly<Record<string, Readonly<Record<string, number>>>> = {};
 
 const WEB = new URL("..", import.meta.url).pathname;
 

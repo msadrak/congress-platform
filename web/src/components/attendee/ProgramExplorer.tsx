@@ -5,19 +5,24 @@ import { safeTimeZone } from "../../lib/congressPhase";
 import { distinctValues } from "../../lib/programSchedule";
 import { filterSessions, groupByZonedDay, initialZonedDay } from "../../lib/programExplorer";
 import { Icon } from "../ui/Icon";
-import { n, programCopy } from "./attendeeCopy";
+import { attendeeCopy } from "../../copy/attendee";
+import { n } from "./attendeeCopy";
 import { ScheduleEmpty, SessionRow } from "./CongressSchedule";
 import { downloadSessionCalendar } from "./sessionCalendar";
 import type { PersonalAgenda } from "./useAgenda";
 import { useNow } from "./useNow";
-import { formatDayLabel, zoneLabel } from "./zonedFormat";
+import { venueZoneLabel } from "../../lib/format";
+import { formatDayLabel } from "./zonedFormat";
 
 const chip = (active: boolean) =>
-  `press inline-flex min-h-11 shrink-0 items-center gap-2 rounded-full border px-4 text-sm font-semibold transition-colors cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring ${
+  `press inline-flex min-h-12 shrink-0 items-center gap-2 rounded-full border px-4 text-sm font-semibold transition-colors cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring ${
     active
       ? "border-transparent bg-surface-ink text-white"
       : "border-border-default bg-surface-panel text-text-secondary hover:border-border-strong hover:text-text-primary"
   }`;
+
+/** The arrow keys that move to the next and the previous day tab: the tabs read right to left in Persian. */
+const ARROWS = { fa: ["ArrowLeft", "ArrowRight"], en: ["ArrowRight", "ArrowLeft"] } as const;
 
 const chipRow = "-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 sm:mx-0 sm:flex-wrap sm:px-0";
 
@@ -47,7 +52,7 @@ function ChipGroup({ label, all, values, value, onChange }: { label: string; all
  * (★, kept on this device) and an `.ics` per session. Days and times are the venue's.
  */
 export function ProgramExplorer({ sessions, locale, timeZone, event, agenda }: ProgramExplorerProps) {
-  const c = programCopy[locale];
+  const c = attendeeCopy[locale].program;
   const now = useNow(60_000);
   const tz = safeTimeZone(timeZone);
   const panelId = useId();
@@ -79,8 +84,7 @@ export function ProgramExplorer({ sessions, locale, timeZone, event, agenda }: P
 
   // Arrow keys move between day tabs (roving focus), Home/End jump to the ends.
   const onTabKey = (e: KeyboardEvent<HTMLButtonElement>, index: number) => {
-    const forward = locale === "fa" ? "ArrowLeft" : "ArrowRight";
-    const backward = locale === "fa" ? "ArrowRight" : "ArrowLeft";
+    const [forward, backward] = ARROWS[locale];
     let next = index;
     if (e.key === forward) next = (index + 1) % days.length;
     else if (e.key === backward) next = (index - 1 + days.length) % days.length;
@@ -92,8 +96,7 @@ export function ProgramExplorer({ sessions, locale, timeZone, event, agenda }: P
     tabRefs.current[next]?.focus();
   };
 
-  const visitorZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-  const zone = tz && tz !== visitorZone ? zoneLabel(tz, day.sessions[0].starts_at) : null;
+  const zone = venueZoneLabel(tz, day.sessions[0].starts_at, locale);
 
   return (
     <div className="space-y-5">
@@ -121,7 +124,7 @@ export function ProgramExplorer({ sessions, locale, timeZone, event, agenda }: P
                   <span>{c.day(n(i + 1, locale))}</span>
                   <span className={`text-xs font-medium ${selected ? "text-ink-200" : "text-text-muted"}`}>{formatDayLabel(d.sessions[0].starts_at, locale, tz, "short")}</span>
                   {filtering && (
-                    <span className={`rounded-full px-1.5 text-[11px] tabular ${selected ? "bg-white/15 text-white" : "bg-surface-panel-subtle text-text-muted"}`}>
+                    <span className={`rounded-full px-1.5 text-caption tabular ${selected ? "bg-white/15 text-white" : "bg-surface-panel-subtle text-text-muted"}`}>
                       {n(matching[i].length, locale)}
                     </span>
                   )}
@@ -176,7 +179,7 @@ export function ProgramExplorer({ sessions, locale, timeZone, event, agenda }: P
         {shown.length === 0 ? (
           <div className="flex flex-wrap items-center gap-3 px-4 py-6 text-sm text-text-secondary sm:px-6">
             <p>{agendaOnly && agenda.ids.length === 0 ? c.agendaEmpty : c.noMatch}</p>
-            <button type="button" onClick={clearFilters} className="inline-flex min-h-11 items-center gap-1.5 rounded-lg px-2 font-semibold text-action-primary underline-offset-4 hover:underline cursor-pointer">
+            <button type="button" onClick={clearFilters} className="inline-flex min-h-12 items-center gap-1.5 rounded-lg px-2 font-semibold text-action-primary underline-offset-4 hover:underline cursor-pointer">
               <Icon name="x" size={16} />
               {c.clearFilters}
             </button>

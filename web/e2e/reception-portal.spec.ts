@@ -248,7 +248,7 @@ test.describe('independent entry and sign-in', () => {
     await page.route(/\/desk\/login$/, route => route.abort('failed'));
     // Retrying the same code: the operator presses the button (the field did not change, so no auto-submit).
     await page.getByRole('button', { name: 'Sign in', exact: true }).click();
-    await expect(page.getByRole('alert')).toContainText('Could not reach the server');
+    await expect(page.getByRole('alert')).toContainText("Can't connect");
     expect((await stored(page)).desk).toBeNull();
   });
 

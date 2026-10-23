@@ -36,12 +36,12 @@ describe("formatLocalizedDate", () => {
   });
 
   it("English: short weekday and month", () => {
-    assert.equal(formatLocalizedDate("2026-10-15T08:00:00Z", "en", "Asia/Tehran"), "Thu, Oct 15, 2026");
+    assert.equal(formatLocalizedDate("2026-10-15T08:00:00Z", "en", "Asia/Tehran"), "Thu 15 Oct 2026");
   });
 
   it("the time zone decides the day", () => {
-    assert.equal(formatLocalizedDate("2026-10-15T22:00:00Z", "en", "UTC"), "Thu, Oct 15, 2026");
-    assert.equal(formatLocalizedDate("2026-10-15T22:00:00Z", "en", "Asia/Tehran"), "Fri, Oct 16, 2026");
+    assert.equal(formatLocalizedDate("2026-10-15T22:00:00Z", "en", "UTC"), "Thu 15 Oct 2026");
+    assert.equal(formatLocalizedDate("2026-10-15T22:00:00Z", "en", "Asia/Tehran"), "Fri 16 Oct 2026");
     assert.equal(formatLocalizedDate("2026-10-15T22:00:00Z", "fa", "Asia/Tehran"), "جمعه ۲۴ مهر ۱۴۰۵");
   });
 

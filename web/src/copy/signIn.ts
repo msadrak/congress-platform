@@ -2,7 +2,7 @@ import type { CopyShape } from "./useCopy";
 
 /** Words of the attendee and booth sign-in page (`pages/AttendeeSignIn.tsx`; copy SPEC §4.3). */
 const fa = {
-  title: "ورود به سامانه شرکت‌کنندگان",
+  title: "ورود با شمارهٔ موبایل",
   profileHeading: "تکمیل اطلاعات",
   signedInAs: "با این حساب وارد شده‌اید:",
   continue: "ادامه",
@@ -24,8 +24,7 @@ const fa = {
 } as const;
 
 const en: CopyShape<typeof fa> = {
-  // The attendee title keeps its words until the attendee specs (UX-ATT-SHELL, team2) move to «ورود» / "Sign in".
-  title: "Sign in to your attendee portal",
+  title: "Sign in with your mobile",
   profileHeading: "Complete your profile",
   signedInAs: "You are signed in as",
   continue: "Continue",

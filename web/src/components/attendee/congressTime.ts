@@ -1,6 +1,7 @@
+import { attendeeCopy } from "../../copy/attendee";
 import { daysBetween, homePhase, zonedDayKey } from "../../lib/congressPhase";
 import { formatDateRange as formatRange, formatNumber } from "../../lib/format";
-import { formatLocalizedNumber, type AttendeeLocale } from "../../lib/i18n";
+import type { AttendeeLocale } from "../../lib/i18n";
 
 /** Where "now" sits relative to a congress's real start/end timestamps. */
 export type CongressPhase =
@@ -29,21 +30,13 @@ export function congressPhase(startsAt: string, endsAt: string, now: Date = new 
 }
 
 export function phaseLabel(phase: CongressPhase, locale: AttendeeLocale): string {
-  const n = (value: number) => formatLocalizedNumber(value, locale);
-  if (locale === "fa") {
-    if (phase.kind === "ended") return "به پایان رسیده";
-    if (phase.kind === "live") {
-      return phase.totalDays > 1 ? `در حال برگزاری · روز ${n(phase.day)} از ${n(phase.totalDays)}` : "در حال برگزاری";
-    }
-    if (phase.days === 0) return "امروز آغاز می‌شود";
-    if (phase.days === 1) return "فردا آغاز می‌شود";
-    return `${n(phase.days)} روز تا آغاز`;
-  }
-  if (phase.kind === "ended") return "Ended";
-  if (phase.kind === "live") return phase.totalDays > 1 ? `Live now · Day ${phase.day} of ${phase.totalDays}` : "Live now";
-  if (phase.days === 0) return "Starts today";
-  if (phase.days === 1) return "Starts tomorrow";
-  return `Starts in ${phase.days} days`;
+  const c = attendeeCopy[locale].home.phase;
+  const n = (value: number) => formatNumber(value, locale);
+  if (phase.kind === "ended") return c.ended;
+  if (phase.kind === "live") return phase.totalDays > 1 ? c.liveDay(n(phase.day), n(phase.totalDays)) : c.live;
+  if (phase.days === 0) return c.today;
+  if (phase.days === 1) return c.tomorrow;
+  return c.inDays(n(phase.days));
 }
 
 /**
@@ -52,9 +45,4 @@ export function phaseLabel(phase: CongressPhase, locale: AttendeeLocale): string
  */
 export function formatDateRange(startsAt: string, endsAt: string, locale: AttendeeLocale, timeZone?: string): string {
   return formatRange(startsAt, endsAt, locale, timeZone);
-}
-
-/** Two-digit section index, in Persian digits for the Persian UI ("01" / "۰۱"). */
-export function sectionIndex(value: number, locale: AttendeeLocale): string {
-  return formatNumber(value, locale, { minimumIntegerDigits: 2, useGrouping: false });
 }

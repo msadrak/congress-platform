@@ -23,8 +23,8 @@ export type Instant = string | number | Date;
 /**
  * | style     | fa                         | en                   |
  * |-----------|----------------------------|----------------------|
- * | `day`     | سه‌شنبه ۱۹ آبان ۱۴۰۵         | Tue, Nov 10, 2026    |
- * | `weekday` | سه‌شنبه ۱۹ آبان              | Tue, Nov 10          |
+ * | `day`     | سه‌شنبه ۱۹ آبان ۱۴۰۵         | Tue 10 Nov 2026      |
+ * | `weekday` | سه‌شنبه ۱۹ آبان              | Tue 10 Nov           |
  * | `heading` | سه‌شنبه ۱۹ آبان              | Tuesday 10 November  |
  * | `short`   | ۱۹ آبان                    | 10 Nov               |
  * | `long`    | ۱۹ آبان ۱۴۰۵               | 10 November 2026     |
@@ -32,7 +32,7 @@ export type Instant = string | number | Date;
  * | `time`    | ۰۸:۳۰                      | 08:30                |
  * | `clock`   | ۰۸:۳۰:۰۵                   | 08:30:05             |
  *
- * English keeps the wording each screen already showed (and its tests pin).
+ * English is day-month (en-GB) everywhere, without the comma ICU puts after a weekday before a year.
  */
 export type DateStyle = "day" | "weekday" | "heading" | "short" | "long" | "dayTime" | "time" | "clock";
 
@@ -141,8 +141,8 @@ function persianDate(at: number, timeZone: string | undefined, weekday: boolean,
 }
 
 const ENGLISH: Record<Exclude<DateStyle, "time" | "clock" | "dayTime">, [string, Intl.DateTimeFormatOptions]> = {
-  day: ["en-US", { weekday: "short", year: "numeric", month: "short", day: "numeric" }],
-  weekday: ["en-US", { weekday: "short", month: "short", day: "numeric" }],
+  day: ["en-GB", { weekday: "short", year: "numeric", month: "short", day: "numeric" }],
+  weekday: ["en-GB", { weekday: "short", month: "short", day: "numeric" }],
   heading: ["en-GB", { weekday: "long", day: "numeric", month: "long" }],
   short: ["en-GB", { day: "numeric", month: "short" }],
   long: ["en-GB", { day: "numeric", month: "long", year: "numeric" }],
@@ -160,7 +160,7 @@ function formatAt(at: number, style: DateStyle, locale: Locale, timeZone: string
     return persianPunctuation(persianDate(at, timeZone, weekday, style === "day" || style === "long"));
   }
   const [tag, options] = ENGLISH[style];
-  return dateTimeFormat(tag, options, timeZone).format(at);
+  return dateTimeFormat(tag, options, timeZone).format(at).replace(/^([A-Za-z]+),\s/, "$1 ");
 }
 
 /**
@@ -447,7 +447,7 @@ export function formatWallValue(value: string, locale: Locale): string {
 }
 
 /**
- * The read-out under a date field: «سه‌شنبه ۱۹ آبان ۱۴۰۵، ساعت ۰۸:۳۰ (وقت تهران)» / "Tue, Nov 10, 2026, 08:30
+ * The read-out under a date field: «سه‌شنبه ۱۹ آبان ۱۴۰۵، ساعت ۰۸:۳۰ (وقت تهران)» / "Tue 10 Nov 2026, 08:30
  * (Tehran time)". The time is the instant the congress's clocks show it, so a wall time that a daylight-saving
  * change skips reads as the time it becomes. "" when the value is blank or invalid.
  */

@@ -81,7 +81,7 @@ const en: CopyShape<typeof fa> = {
   opensInNewTab: "(opens in a new tab)",
   loading: "Loading…",
   loadFailed: (thing: string) => `Couldn't load ${thing}.`,
-  network: "Could not reach the server. Check your connection and try again.",
+  network: "Can't connect. Check your internet and try again.",
   generic: "That didn't work. Try again.",
   search: "Search",
   clearSearch: "Clear search",

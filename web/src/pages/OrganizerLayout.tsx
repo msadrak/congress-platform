@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, Outlet, useLocation, useNavigate, useParams } from "react-router-dom";
 import { ORGANIZER_KEY_STORAGE, createApiClient, registerUnauthorizedHandler, type EventOut, type OrganizerSessionOut } from "../api/client";
-import { useAttendeeLocale, type TranslationDictionary } from "../lib/i18n";
+import { useLocale } from "../lib/i18n";
 import { formatDateRange } from "../lib/format";
 import { EVENT_NAV_GROUPS, eventSectionFromPath, eventTimeStatus, eventWorkspacePath, type EventWorkspaceSection } from "../lib/organizerWorkspace";
 import { ROLE_COPY, isOrganizerRole } from "../lib/organizerConsole";
@@ -34,7 +34,6 @@ export interface OrganizerOutletContext {
   /** Who is signed in (organizer key as owner, or a member with a role); null until /api/organizer/me answers. */
   session: OrganizerSessionOut | null;
   locale: "fa" | "en";
-  t: TranslationDictionary;
   isRtl: boolean;
   dir: "rtl" | "ltr";
 }
@@ -63,7 +62,7 @@ export default function OrganizerLayout() {
   const navigate = useNavigate();
   const location = useLocation();
   const { eventId } = useParams<{ eventId?: string }>();
-  const { locale, setLocale, t, isRtl, dir } = useAttendeeLocale();
+  const { locale, setLocale, isRtl, dir } = useLocale();
   const copy = organizerCopy[locale];
 
   const [apiKey, setApiKey] = useState<string | null>(() => (typeof window !== "undefined" ? sessionStorage.getItem(ORGANIZER_KEY_STORAGE) : null));
@@ -319,7 +318,7 @@ export default function OrganizerLayout() {
           section === "page" ? "max-w-[112rem] pb-6 sm:pb-8 lg:pb-10" : "max-w-[78rem] py-6 sm:py-8 lg:py-10"
         }`}
       >
-        <Outlet context={{ apiKey, onKeyRejected: handleKeyRejected, reportEvent, session, locale, t, isRtl, dir } satisfies OrganizerOutletContext} />
+        <Outlet context={{ apiKey, onKeyRejected: handleKeyRejected, reportEvent, session, locale, isRtl, dir } satisfies OrganizerOutletContext} />
       </main>
     </div>
   );

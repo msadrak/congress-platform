@@ -81,7 +81,7 @@ test("a zone without daylight saving and one with it", () => {
 
 test("the read-out names the day, the time and the congress's zone", () => {
   assert.equal(describeWallValue("2026-11-10T08:30", "fa", TEHRAN), "سه‌شنبه ۱۹ آبان ۱۴۰۵، ساعت ۰۸:۳۰ (وقت تهران)");
-  assert.equal(describeWallValue("2026-11-10T08:30", "en", TEHRAN), "Tue, Nov 10, 2026, 08:30 (Tehran time)");
+  assert.equal(describeWallValue("2026-11-10T08:30", "en", TEHRAN), "Tue 10 Nov 2026, 08:30 (Tehran time)");
   assert.equal(describeWallValue("2026-11-10", "fa"), "سه‌شنبه ۱۹ آبان ۱۴۰۵");
   assert.equal(describeWallValue("", "fa", TEHRAN), "");
 });
@@ -119,7 +119,7 @@ function renderChecks() {
     const html = render(fields.DateTimeField, { label: "Starts", value: "2026-11-10T08:30", locale: "en", timeZone: TEHRAN, error: "Required" });
     assert.match(html, /<option value="11" selected="">November<\/option>/);
     assert.match(html, /aria-label="Year"[^>]*value="2026"/);
-    assert.ok(html.includes("Tue, Nov 10, 2026, 08:30 (Tehran time)"));
+    assert.ok(html.includes("Tue 10 Nov 2026, 08:30 (Tehran time)"));
     const errorId = /<p id="([^"]+)"[^>]*>Required<\/p>/.exec(html)?.[1];
     assert.ok(errorId);
     const controls = html.match(/<(select|input)\b[^>]*>/g) ?? [];

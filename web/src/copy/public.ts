@@ -327,7 +327,7 @@ const en: CopyShape<typeof fa> = {
   notFoundTitle: "Congress not found",
   notFoundBody: "Check the address.",
   eventLoadFailedTitle: "Congress page unavailable",
-  eventLoadFailed: "Could not reach the server. Check your connection and try again.",
+  eventLoadFailed: "Can't connect. Check your internet and try again.",
   retry: "Try again",
   loading: "Loading congress",
 
@@ -347,7 +347,7 @@ const en: CopyShape<typeof fa> = {
   boothNotFound: "Booth not found",
   boothNotFoundBody: "Check the address.",
   boothLoadFailedTitle: "Booth page unavailable",
-  boothLoadFailed: "Could not reach the server. Check your connection and try again.",
+  boothLoadFailed: "Can't connect. Check your internet and try again.",
   backToEvent: "Back to the congress page",
   platformHome: "Platform home",
   loadingBooth: "Loading booth",
@@ -489,7 +489,7 @@ const otpEn: CopyShape<typeof otpFa> = {
   smsFailed: "The SMS could not be sent. Try again in a moment.",
   mayStillArrive: "The SMS service has not confirmed the message yet. The code may still arrive in a minute; if it does not, ask for a new one.",
   expired: "The verification expired. Request a new code.",
-  network: "Could not reach the server. Check your connection and try again.",
+  network: "Can't connect. Check your internet and try again.",
   server: "Sign-in is temporarily unavailable. Try again shortly.",
 };
 

@@ -55,7 +55,7 @@ export const EventWorkspaceContext = createContext<EventWorkspaceContextValue | 
  * Adopting it in another event page (Program, Venue, Page Studio, Panel, SMS, Analytics ...):
  * 1. Its route is already a child of `events/:eventId` in App.tsx, so the provider is above it.
  * 2. Replace the page's own `GET /api/events/{event_id}` and its `reportEvent` call with
- *    `const { event, loading, error, client, t, isRtl } = useEventWorkspace()`; the provider reports
+ *    `const { event, loading, error, client, locale } = useEventWorkspace()`; the provider reports
  *    the event to the layout, and `client` carries the organizer key (a 401 reaches the layout's key gate
  *    through the API client itself; only raw `fetch` calls report it with `onKeyRejected(apiKey)`).
  * 3. Load the page's own lists with `useEventList(loader)` (pages/organizer/eventLists.ts) and render

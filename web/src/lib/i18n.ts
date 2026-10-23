@@ -1,108 +1,16 @@
 /**
- * The locale store (`useLocale`/`setLocale`, which also sets `<html lang dir>`) and the last legacy dictionary
- * keys, still read by the attendee screens (UX-ATT-SHELL, team2) and the link pass. New words go into
- * `src/copy/<area>.ts`; this dictionary only shrinks.
+ * The locale store: `useLocale`/`setLocale` (which also sets `<html lang dir>`) and the locale formatting names.
+ * Words live in `src/copy/<area>.ts`.
  */
 import { useEffect, useSyncExternalStore } from "react";
 export type AttendeeLocale = "fa" | "en";
-export type TranslationDictionary = (typeof translations)["fa"];
 export const ATTENDEE_LOCALE_STORAGE = "congress_attendee_locale";
-export const translations = {
-  fa: {
-    // Navigation & Shell
-    myPasses: "کارت‌های ورود من",
-    logout: "خروج از حساب",
-    login: "ورود",
-    attendeePortal: "سامانه اختصاصی شرکت‌کنندگان",
-    navMyCongress: "همایش من",
-    navMyTicket: "کارت ورود من",
-    navMyProfile: "پروفایل من",
-    navCongressDetails: "جزئیات همایش",
-    languageToggle: "English",
-    // Ticket Pass Portal
-    tierLabel: "نوع کارت ورود",
-    venueLabel: "محل برگزاری",
-    offlineNotice: "آفلاین: نمایش کارت ورود ذخیره‌شده",
-    unauthenticatedTitle: "ورود",
-    unauthenticatedDesc: "برای دیدن کارت ورود وارد شوید.",
-    loginAction: "ورود به حساب کاربری",
-    // Unknown address
-    notFoundTitle: "صفحه پیدا نشد",
-    notFoundDesc: "نشانی این صفحه درست نیست یا دیگر وجود ندارد. اگر از پیوند پیامک آمده‌اید، وارد حساب خود شوید تا کارت ورودتان را ببینید.",
-    notFoundBack: "بازگشت",
-    notFoundSignIn: "ورود شرکت‌کنندگان",
-    // Bookmarked Booths
-    savedBoothsHeading: "غرفه‌های ذخیره‌شده",
-    savedBoothsDesc: "غرفه‌هایی که برای بازدید ذخیره کرده‌اید.",
-    viewBoothAction: "مشاهده پروفایل غرفه",
-    removeBookmarkAction: "حذف از ذخیره‌ها",
-    bookmarkRemovedFeedback: "غرفه از ذخیره‌ها حذف شد.",
-    networkHeading: "ارتباطات و همراهان من در همایش",
-    // ── SMS short link / one-tap pass (ADR 0015). Terms: GLOSSARY.md "Persian UI terms" (tests/glossary.test.ts).
-    linkOpeningLabel: "در حال باز کردن کارت ورود…",
-    linkPassSignInAction: "برای شبکه‌سازی وارد شوید",
-    linkExpiredTitle: "این پیوند دیگر معتبر نیست",
-    linkExpiredDesc: "برای دیدن کارت ورود وارد شوید یا تازه‌ترین پیامک را باز کنید.",
-    linkInvalidTitle: "این پیوند معتبر نیست",
-    linkInvalidDesc: "پیوند را کامل و بدون تغییر از پیامک باز کنید، یا برای دیدن کارت ورود وارد شوید.",
-    linkThrottledTitle: "تلاش‌های زیادی انجام شد",
-    linkThrottledDesc: "چند دقیقه دیگر دوباره تلاش کنید، یا برای دیدن کارت ورود وارد شوید.",
-    linkOfflineTitle: "اتصال برقرار نشد",
-    linkOfflineDesc: "اتصال اینترنت را بررسی کنید و دوباره تلاش کنید.",
-    linkRetryAction: "تلاش دوباره",
-    linkSignInAction: "ورود و دیدن کارت ورود",
-  },
-  en: {
-    // Navigation & Shell
-    myPasses: "My Passes",
-    logout: "Log Out",
-    login: "Log In",
-    attendeePortal: "Attendee Portal",
-    navMyCongress: "My Congress",
-    navMyTicket: "My Ticket",
-    navMyProfile: "My Profile",
-    navCongressDetails: "Congress Details",
-    languageToggle: "فارسی",
-    // Ticket Pass Portal
-    tierLabel: "Pass type",
-    venueLabel: "Venue Location",
-    offlineNotice: "Offline: showing your saved pass",
-    unauthenticatedTitle: "Sign In to Attendee Portal",
-    unauthenticatedDesc: "You must be signed in to access your digital tickets and peer connections.",
-    loginAction: "Sign In",
-    // Unknown address
-    notFoundTitle: "Page not found",
-    notFoundDesc: "This address is wrong or no longer exists. If you came from an SMS link, sign in to see your pass.",
-    notFoundBack: "Go back",
-    notFoundSignIn: "Attendee sign-in",
-    // Bookmarked Booths
-    savedBoothsHeading: "Saved Exhibition Booths",
-    savedBoothsDesc: "Commercial exhibitors and sponsors you have bookmarked during the event.",
-    viewBoothAction: "View Booth Profile",
-    removeBookmarkAction: "Remove Bookmark",
-    bookmarkRemovedFeedback: "Booth removed from your saved list.",
-    networkHeading: "My Professional Connections",
-    // ── SMS short link / one-tap pass (ADR 0015).
-    linkOpeningLabel: "Opening your pass…",
-    linkPassSignInAction: "Sign in for networking",
-    linkExpiredTitle: "This link is no longer valid",
-    linkExpiredDesc: "Sign in to see your pass, or open your latest SMS.",
-    linkInvalidTitle: "This link is not valid",
-    linkInvalidDesc: "Open the link from the SMS exactly as it was sent, or sign in to see your pass.",
-    linkThrottledTitle: "Too many attempts",
-    linkThrottledDesc: "Try again in a few minutes, or sign in to see your pass.",
-    linkOfflineTitle: "Couldn't connect",
-    linkOfflineDesc: "Check your internet connection and try again.",
-    linkRetryAction: "Try again",
-    linkSignInAction: "Sign in to see your pass",
-  },
-};
 // Formatting lives in `lib/format.ts` (the one formatter set); these names stay for existing callers.
 import { codeFontClass, formatDate, formatNumber } from "./format.ts";
 export { codeFontClass };
 
 /**
- * «پنجشنبه ۲۳ مهر ۱۴۰۵» / "Thu, Oct 15, 2026": `formatDate(…, "day", …)` on the clock of `timeZone` (the
+ * «پنجشنبه ۲۳ مهر ۱۴۰۵» / "Thu 15 Oct 2026": `formatDate(…, "day", …)` on the clock of `timeZone` (the
  * reader's own when it is omitted or unknown). An unreadable date is returned as given.
  */
 export function formatLocalizedDate(dateStr: string, locale: AttendeeLocale, timeZone?: string): string {
@@ -118,9 +26,6 @@ export interface LocaleState {
   setLocale: (newLocale: AttendeeLocale) => void;
   isRtl: boolean;
   dir: "rtl" | "ltr";
-}
-export interface AttendeeLocaleContext extends LocaleState {
-  t: (typeof translations)["fa"];
 }
 
 /*
@@ -195,10 +100,4 @@ export function useLocale(contentDefault?: AttendeeLocale): LocaleState {
   }, [contentDefault]);
   const locale = chosen ?? contentDefault ?? fallback ?? "fa";
   return { locale, setLocale, isRtl: locale === "fa", dir: DIRECTION[locale] };
-}
-
-/** The app's locale with the legacy dictionary (`t`). */
-export function useAttendeeLocale(): AttendeeLocaleContext {
-  const state = useLocale();
-  return { ...state, t: translations[state.locale] };
 }

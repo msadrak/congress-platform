@@ -86,7 +86,7 @@ test('a rate-limited scan counts down Retry-After and holds the scanner', async 
   await typeCode(page);
   await expect(page.getByRole('status').filter({ hasText: /Too many scans\. Try again in 1:(30|29|28)\./ })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Add to My Network' })).toBeDisabled();
-  await expect(page.getByRole('button', { name: 'Scan with camera' })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Turn on camera' })).toBeDisabled();
 });
 
 test('a scan without an active pass explains it and links to registration', async ({ page }) => {

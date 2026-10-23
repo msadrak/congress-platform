@@ -97,9 +97,9 @@ test('the day picker filters the dashboard and hours are on the event clock', as
 
   await expect(page.getByTestId('kpi-scans')).toHaveText('30');
   const dayPicker = page.getByRole('combobox', { name: 'Day', exact: true });
-  await expect(dayPicker.locator('option')).toHaveText(['All days', 'Sat, Apr 10', 'Sun, Apr 11']);
+  await expect(dayPicker.locator('option')).toHaveText(['All days', 'Sat 10 Apr', 'Sun 11 Apr']);
   // All days: one series across both event days, in Tehran time although the browser is in New York.
-  await expect(page.getByTestId('hourly-range-event')).toHaveText('(Sat, Apr 10 08:00 – Sun, Apr 11 11:00)');
+  await expect(page.getByTestId('hourly-range-event')).toHaveText('(Sat 10 Apr 08:00 – Sun 11 Apr 11:00)');
   await expect(page.getByTestId('analytics-timezone')).toHaveText('Tehran time');
   await expect(page.getByTestId('analytics-timezone')).toHaveAttribute('title', 'Asia/Tehran');
   expect(attendance()[0].searchParams.has('day')).toBe(false);
@@ -122,7 +122,7 @@ test('polling runs every 30 s while visible and pauses while the tab is hidden',
   // The fake clock keeps running, so a slow machine may read a second later.
   await expect(page.getByTestId('analytics-refreshed-at')).toHaveText(/^09:30:0\d$/);
   // "today" is the event's date: 2027-04-11 in Tehran.
-  await expect(page.getByRole('combobox', { name: 'Day', exact: true }).locator('option').nth(2)).toHaveText('Sun, Apr 11 (today)');
+  await expect(page.getByRole('combobox', { name: 'Day', exact: true }).locator('option').nth(2)).toHaveText('Sun 11 Apr (today)');
   expect(attendance()).toHaveLength(1);
 
   await page.clock.runFor(30_000);

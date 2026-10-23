@@ -9,31 +9,28 @@ test.beforeEach(async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
 });
 
-test('before: countdown, every pass, the checklist, zero contacts in words and 44 px booth saves', async ({ page }) => {
+test('before: one countdown chip, every pass, the checklist, zero contacts in words and 44 px booth saves', async ({ page }) => {
   await panelApi(page, { tickets: twoPasses });
   await signIn(page);
   // Three days and 2½ hours before 09:00 Tehran on 10 May.
   await page.clock.setFixedTime(new Date('2027-05-07T03:00:00Z'));
   await page.goto('/c/alpha/my-congress');
 
-  const timer = page.getByRole('timer');
-  await expect(timer).toContainText('3days');
-  await expect(timer).toContainText('2hours');
-  await expect(timer).toContainText('30minutes');
-  expect((await headings(page)).slice(0, 4)).toEqual(['Your passes', 'Until the congress opens', 'Congress program', 'My Network']);
+  // One countdown: the phase chip (days only).
+  await expect(page.getByText('Starts in 3 days')).toBeVisible();
+  await expect(page.getByRole('timer')).toHaveCount(0);
+  expect((await headings(page)).slice(0, 3)).toEqual(['Your passes', 'Congress program', 'My Network']);
   await expect(page.getByText('Workshop add-on')).toBeVisible();
   await expect(page.getByText('Delegate', { exact: true })).toBeVisible();
-  await expect(page.getByRole('link', { name: /Show pass & QR code/ })).toHaveAttribute('href', '/c/alpha/my-ticket');
+  await expect(page.getByRole('link', { name: 'Show my pass' })).toHaveAttribute('href', '/c/alpha/my-ticket');
 
-  // Checklist: the calendar file, directions in the map apps, the add-to-home-screen hint.
+  // Checklist: the calendar file and directions in the map apps (the install hint lives under the pass).
   const download = page.waitForEvent('download');
   await page.getByRole('button', { name: /Add the congress to your calendar/ }).click();
   expect((await download).suggestedFilename()).toBe('alpha.ics');
   await expect(page.getByText('Calendar file downloaded')).toBeVisible();
   await page.getByText('Directions to the venue').click();
   await expect(page.getByRole('link', { name: /Neshan/ })).toHaveAttribute('href', /neshan\.org\/maps\/search\/Milad/);
-  await page.getByText('Add to your home screen').click();
-  await expect(page.getByText(/Add to Home Screen/)).toBeVisible();
 
   // Zero is a sentence, never a bare 0.
   await expect(page.getByText('No contacts yet')).toBeVisible();
@@ -49,8 +46,9 @@ test('during: the pass QR comes first and opens the pass; now and next follow th
   await page.goto('/c/alpha/my-congress');
 
   await expect(page.getByText(/Live now · Day 2 of 3/)).toBeVisible();
-  expect((await headings(page))[0]).toBe('Your passes');
-  const passes = page.getByRole('link', { name: /Show pass & QR code:/ });
+  // The pass QR comes before the program (the page's first h2 is the program, after the pass links).
+  expect((await headings(page))[0]).toBe('Congress program');
+  const passes = page.getByRole('link', { name: /Show my pass:/ });
   await expect(passes).toHaveCount(2);
   await expect(passes.first().locator('svg').first()).toBeVisible();
   await expect(page.getByText('Show this QR code at the entrance').first()).toBeVisible();
@@ -83,7 +81,8 @@ test('Persian: zero contacts read as words, no overflow at 320 px', async ({ pag
   await page.clock.setFixedTime(new Date('2027-05-07T03:00:00Z'));
   await page.goto('/c/alpha/my-congress');
   await expect(page.getByText('هنوز مخاطبی ندارید')).toBeVisible();
-  await expect(page.getByRole('timer')).toContainText('روز');
+  await expect(page.getByText(/روز تا آغاز/)).toBeVisible();
+  await expect(page.getByRole('timer')).toHaveCount(0);
   expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBe(0);
 });
 

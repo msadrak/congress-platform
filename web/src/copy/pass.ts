@@ -38,6 +38,10 @@ const fa = {
     reserve: "رزرو کارت ورود",
     cancelledTitle: "این کارت ورود لغو شده است",
     cancelledBody: "کد QR آن دیگر در ورودی پذیرفته نمی‌شود. اگر می‌خواهید در همایش شرکت کنید، دوباره کارت ورود رزرو کنید.",
+    loading: "کارت ورود من",
+    offline: "آفلاین: نمایش کارت ورود ذخیره‌شده",
+    /** Under a pass opened from an SMS link. */
+    linkSignIn: "برای شبکه‌سازی وارد شوید",
   },
   /** Cancelling one's own registration. */
   cancel: {
@@ -81,6 +85,9 @@ const en: CopyShape<typeof fa> = {
     reserve: "Reserve a pass",
     cancelledTitle: "This pass has been cancelled",
     cancelledBody: "Its QR code is no longer accepted at the entrance. To attend the congress, reserve a pass again.",
+    loading: "My pass",
+    offline: "Offline: showing your saved pass",
+    linkSignIn: "Sign in for networking",
   },
   cancel: {
     action: "Cancel registration",

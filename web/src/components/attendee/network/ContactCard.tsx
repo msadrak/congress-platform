@@ -5,8 +5,8 @@ import { formatMobile, telHref } from "../../../lib/mobile";
 import { Badge } from "../../ui/Badge";
 import { Button } from "../../ui/Button";
 import { Icon } from "../../ui/Icon";
-import { Monogram } from "../Monogram";
-import { networkCopy } from "../attendeeCopy";
+import { Avatar } from "../../ui/Avatar";
+import { attendeeCopy } from "../../../copy/attendee";
 
 interface ContactCardProps {
   contact: ConnectionOut;
@@ -21,7 +21,7 @@ interface ContactCardProps {
 
 /** One contact: identity, mobile when shared, the private note (editable), vCard and removal. */
 export function ContactCard({ contact, locale, fresh, savingNote, onSaveNote, onVcard, onRemove }: ContactCardProps) {
-  const c = networkCopy[locale];
+  const c = attendeeCopy[locale].network;
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
   const noteId = `notes-${contact.id}`;
@@ -33,12 +33,12 @@ export function ContactCard({ contact, locale, fresh, savingNote, onSaveNote, on
   return (
     <article
       aria-labelledby={`conn-${contact.id}`}
-      className={`overflow-hidden rounded-[var(--radius-xl)] border bg-surface-panel shadow-soft transition-shadow hover:shadow-lift ${
+      className={`overflow-hidden rounded-card border bg-surface-panel shadow-soft transition-shadow hover:shadow-lift ${
         fresh ? "border-event-accent/50 ring-2 ring-event-accent/25" : "border-border-default"
       }`}
     >
       <div className="flex items-start gap-4 p-5 sm:p-6">
-        <Monogram name={contact.full_name} seed={contact.connected_user_id} size="lg" />
+        <Avatar name={contact.full_name} seed={contact.connected_user_id} size="lg" ring />
         <div className="min-w-0 flex-1 space-y-1.5">
           <div className="flex flex-wrap items-center gap-2">
             <h3 id={`conn-${contact.id}`} className="text-lg font-semibold leading-snug tracking-[-0.02em] text-text-primary break-words">
@@ -61,7 +61,7 @@ export function ContactCard({ contact, locale, fresh, savingNote, onSaveNote, on
             {contact.mobile ? (
               <a
                 href={telHref(contact.mobile)}
-                className="inline-flex min-h-11 max-w-full items-center gap-1.5 rounded font-mono text-action-primary underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-focus-ring"
+                className="inline-flex min-h-12 max-w-full items-center gap-1.5 rounded font-mono text-action-primary underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-focus-ring"
               >
                 <Icon name="phone" size={15} />
                 <bdi dir="ltr" className="truncate">{formatMobile(contact.mobile, locale)}</bdi>
@@ -96,7 +96,7 @@ export function ContactCard({ contact, locale, fresh, savingNote, onSaveNote, on
                 setDraft(contact.private_notes || "");
                 setEditing(true);
               }}
-              className="-my-2 -me-2 inline-flex min-h-11 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg px-2 text-xs font-semibold text-action-primary underline-offset-4 hover:underline cursor-pointer focus-visible:outline-2 focus-visible:outline-focus-ring"
+              className="-my-2 -me-2 inline-flex min-h-12 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg px-2 text-xs font-semibold text-action-primary underline-offset-4 hover:underline cursor-pointer focus-visible:outline-2 focus-visible:outline-focus-ring"
             >
               {c.editNote}
             </button>
@@ -122,7 +122,7 @@ export function ContactCard({ contact, locale, fresh, savingNote, onSaveNote, on
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border-subtle px-5 py-3 sm:px-6">
-        <p className="flex items-center gap-1.5 text-[11px] text-text-muted">
+        <p className="flex items-center gap-1.5 text-caption text-text-muted">
           <Icon name="calendar" size={14} />
           <span>{c.connectedOn}</span>
           <span>{formatLocalizedDate(contact.created_at, locale)}</span>
@@ -137,7 +137,7 @@ export function ContactCard({ contact, locale, fresh, savingNote, onSaveNote, on
             onClick={onRemove}
             aria-label={c.removeLabel(contact.full_name)}
             title={c.remove}
-            className="press grid size-11 place-items-center rounded-[10px] border border-border-default text-text-muted transition-colors hover:border-status-danger-border hover:bg-status-danger-bg hover:text-status-danger-text cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
+            className="press grid size-11 place-items-center rounded-control border border-border-default text-text-muted transition-colors hover:border-status-danger-border hover:bg-status-danger-bg hover:text-status-danger-text cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
           >
             <Icon name="trash" size={18} />
           </button>

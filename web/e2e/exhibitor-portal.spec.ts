@@ -588,7 +588,7 @@ test.describe('camera input', () => {
     await openCapture(page);
     // A desktop pointer and no granted permission: the camera waits for the button.
     expect((await state(page)).streams).toBe(0);
-    await page.getByRole('button', { name: 'Scan with camera' }).click();
+    await page.getByRole('button', { name: 'Turn on camera' }).click();
     await expect(page.getByLabel('Camera preview')).toBeVisible();
     await page.evaluate(() => { (window as unknown as { __code: string }).__code = 'camera-badge'; });
     await expect(page.getByTestId('capture-result')).toContainText('Captured camera-badge');
@@ -621,7 +621,7 @@ test.describe('camera input', () => {
     await page.goto('/booth/booth-a');
     await page.evaluate(() => { (window as unknown as { __deny: boolean }).__deny = true; });
     await openCapture(page);
-    await page.getByRole('button', { name: 'Scan with camera' }).click();
+    await page.getByRole('button', { name: 'Turn on camera' }).click();
     await expect(page.getByRole('alert')).toContainText('Camera permission was denied');
     await codeInput(page).fill('manual-after-denial');
     await saveLead(page);
@@ -634,7 +634,7 @@ test.describe('camera input', () => {
     await seed(page, STAFF);
     await page.goto('/booth/booth-a');
     await openCapture(page);
-    await page.getByRole('button', { name: 'Scan with camera' }).click();
+    await page.getByRole('button', { name: 'Turn on camera' }).click();
     await expect(page.getByLabel('Camera preview')).toBeVisible();
     await page.keyboard.press('Escape');
     await expect(page.getByRole('dialog')).toHaveCount(0);
@@ -643,7 +643,7 @@ test.describe('camera input', () => {
     const before = (await state(page)).stopped;
     await page.evaluate(() => { (window as unknown as { __holdGum: (() => void) | null }).__holdGum = () => undefined; });
     await openCapture(page);
-    await page.getByRole('button', { name: 'Scan with camera' }).click();
+    await page.getByRole('button', { name: 'Turn on camera' }).click();
     await page.keyboard.press('Escape');
     await expect(page.getByRole('dialog')).toHaveCount(0);
     await page.evaluate(() => { const w = window as unknown as { __holdGum: (() => void) | null }; w.__holdGum?.(); w.__holdGum = null; });

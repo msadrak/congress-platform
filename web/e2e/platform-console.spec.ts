@@ -297,7 +297,7 @@ test('on a phone the new-organizer name field is at least 300 px wide', async ({
 test('a request that gets no response says so and ends its spinner', async ({ page }) => {
   await fixture(page);
   await openConsole(page);
-  const offline = 'Could not reach the server. Check your connection and try again.';
+  const offline = "Can't connect. Check your internet and try again.";
   // Routes registered later take precedence over the fixture's.
   await page.route('**/api/platform/sign-in', route => route.abort('internetdisconnected'));
   await page.route('**/api/platform/sms', route => route.abort('internetdisconnected'));

@@ -114,6 +114,8 @@
   --color-status-success-bg: var(--status-success-bg);
   --color-status-success-border: var(--status-success-border);
   --color-status-success-solid: var(--status-success-solid);
+  /* Success text on ink (dark) surfaces, e.g. the live session line of the attendee schedule. */
+  --color-status-success-on-ink: #3EE0A1;
 
   --color-status-warning-text: var(--status-warning-text);
   --color-status-warning-bg: var(--status-warning-bg);
@@ -175,8 +177,6 @@
   --radius-3xl: 24px;
   --radius-control: var(--radius-lg);
   --radius-card: var(--radius-xl);
-  /* Deprecated: only UX-ATT-SHELL (team2) attendee files still use it; delete once that branch has merged. */
-  --radius-arc: var(--radius-2xl);
 
   --shadow-soft: 0 1px 1px rgb(14 12 43 / 0.03), 0 2px 6px -2px rgb(14 12 43 / 0.08);
   --shadow-lift: 0 1px 2px rgb(14 12 43 / 0.04), 0 14px 30px -14px rgb(32 0 205 / 0.22);
@@ -313,24 +313,6 @@
 }
 
 @layer components {
-  /*
-   * Neutralised decoration (UX-F1), kept only for the attendee screens UX-ATT-SHELL (team2) is still rewriting:
-   * .eyebrow is plain muted meta text and .shape-arc* the card radius. Delete both once that branch has merged.
-   */
-  .eyebrow {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.5rem;
-    font-size: var(--text-meta);
-    font-weight: 500;
-    color: var(--text-muted);
-  }
-
-  .shape-arc,
-  .shape-arc-lg {
-    border-radius: var(--radius-card);
-  }
-
   /* Form controls */
   .ui-label {
     display: block;

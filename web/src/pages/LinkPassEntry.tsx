@@ -3,14 +3,15 @@ import { useNavigate, useParams } from "react-router-dom";
 import { createApiClient } from "../api/client";
 import { useAttendeeSession } from "../hooks/useAttendeeSession";
 import { congressPath } from "../lib/congressContext";
-import { useAttendeeLocale } from "../lib/i18n";
+import { linkPassCopy } from "../copy/linkPass";
+import { useLocale } from "../lib/i18n";
 import { linkOutcome, saveLinkPass, type LinkOutcome } from "../lib/linkPass";
 import { signInPath } from "../lib/safeRedirect";
 import { MobileOtpForm } from "../components/auth/MobileOtpForm";
 import { Button, LinkButton } from "../components/ui/Button";
 import { Icon, type IconName } from "../components/ui/Icon";
 import { LanguageToggle } from "../components/ui/LanguageToggle";
-import { StatusPanel } from "../components/ui/PortalState";
+import { StateBlock } from "../components/ui/StateBlock";
 
 interface Failure {
   outcome: LinkOutcome;
@@ -27,7 +28,8 @@ interface Failure {
 export default function LinkPassEntry() {
   const { code = "" } = useParams<{ code: string }>();
   const navigate = useNavigate();
-  const { t, locale, setLocale, dir } = useAttendeeLocale();
+  const { locale, setLocale, dir } = useLocale();
+  const c = linkPassCopy[locale];
   const { signIn } = useAttendeeSession();
   const [failure, setFailure] = useState<Failure | null>(null);
   const [attempt, setAttempt] = useState(0);
@@ -70,16 +72,16 @@ export default function LinkPassEntry() {
         <span aria-hidden="true" className="grid size-14 place-items-center rounded-2xl bg-aiteb-lavender text-aiteb-indigo motion-safe:animate-pulse">
           <Icon name="ticket" size={26} />
         </span>
-        {t.linkOpeningLabel}
+        {c.opening}
       </div>,
     );
   }
 
   const copy: Record<LinkOutcome, { icon: IconName; title: string; body: string }> = {
-    expired: { icon: "hourglass", title: t.linkExpiredTitle, body: t.linkExpiredDesc },
-    invalid: { icon: "link", title: t.linkInvalidTitle, body: t.linkInvalidDesc },
-    throttled: { icon: "clock", title: t.linkThrottledTitle, body: t.linkThrottledDesc },
-    offline: { icon: "wifi-off", title: t.linkOfflineTitle, body: t.linkOfflineDesc },
+    expired: { icon: "hourglass", title: c.expiredTitle, body: c.expiredBody },
+    invalid: { icon: "link", title: c.invalidTitle, body: c.invalidBody },
+    throttled: { icon: "clock", title: c.throttledTitle, body: c.throttledBody },
+    offline: { icon: "wifi-off", title: c.offlineTitle, body: c.offlineBody },
   };
   const { icon, title, body } = copy[failure.outcome];
   const signInTo = failure.slug
@@ -87,39 +89,42 @@ export default function LinkPassEntry() {
     : signInPath(undefined, "/me");
 
   return page(
-    <StatusPanel tone={failure.outcome === "offline" ? "neutral" : "danger"} icon={icon} title={title}>
-      <p>{body}</p>
-      <div className="flex flex-col gap-3">
-        {failure.outcome === "offline" && (
-          <Button
-            type="button"
-            variant="primary"
-            size="lg"
-            isFullWidth
-            onClick={() => {
-              setFailure(null);
-              setAttempt((n) => n + 1);
-            }}
-          >
-            <Icon name="sync" size={18} />
-            {t.linkRetryAction}
-          </Button>
-        )}
-        {failure.outcome === "expired" ? (
-          <MobileOtpForm
-            locale={locale}
-            onSignedIn={(auth) => {
-              signIn(auth.access_token);
-              navigate(failure.slug ? congressPath(failure.slug, "my-ticket") : "/me", { replace: true });
-            }}
-          />
-        ) : (
-          <LinkButton to={signInTo} variant={failure.outcome === "offline" ? "secondary" : "primary"} size="lg" isFullWidth>
-            {t.linkSignInAction}
-            <Icon name="arrow-right" size={18} />
-          </LinkButton>
-        )}
-      </div>
-    </StatusPanel>,
+    // Offline is a polite status; a dead or refused link is an announced error (StateBlock's alert).
+    <div role={failure.outcome === "offline" ? "status" : undefined}>
+      <StateBlock kind={failure.outcome === "offline" ? "empty" : "error"} icon={icon} headingLevel={1} title={title}>
+        <p>{body}</p>
+        <div className="flex flex-col gap-3">
+          {failure.outcome === "offline" && (
+            <Button
+              type="button"
+              variant="primary"
+              size="lg"
+              isFullWidth
+              onClick={() => {
+                setFailure(null);
+                setAttempt((n) => n + 1);
+              }}
+            >
+              <Icon name="sync" size={18} />
+              {c.retry}
+            </Button>
+          )}
+          {failure.outcome === "expired" ? (
+            <MobileOtpForm
+              locale={locale}
+              onSignedIn={(auth) => {
+                signIn(auth.access_token);
+                navigate(failure.slug ? congressPath(failure.slug, "my-ticket") : "/me", { replace: true });
+              }}
+            />
+          ) : (
+            <LinkButton to={signInTo} variant={failure.outcome === "offline" ? "secondary" : "primary"} size="lg" isFullWidth>
+              {c.signIn}
+              <Icon name="arrow-right" size={18} />
+            </LinkButton>
+          )}
+        </div>
+      </StateBlock>
+    </div>,
   );
 }

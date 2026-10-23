@@ -59,7 +59,7 @@ export function formatClock(value: string | number | Date, timeZone: string, loc
 
 /**
  * A local date of the event ("2027-04-11", already on the event's clock, so no zone is applied): the Solar
- * Hijri calendar with Persian digits for `fa` («یکشنبه ۲۲ فروردین»), Gregorian for `en` ("Sun, Apr 11").
+ * Hijri calendar with Persian digits for `fa` («یکشنبه ۲۲ فروردین»), Gregorian for `en` ("Sun 11 Apr").
  */
 export function formatDay(day: string, locale: TimeLocale): string {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(day);

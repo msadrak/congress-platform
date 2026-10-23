@@ -316,7 +316,7 @@ const en: CopyShape<typeof fa> = {
     clearFilters: "Clear filters",
     loading: "Loading participants…",
     loadError: "The participant list could not be loaded.",
-    networkError: "Could not reach the server. Check your connection and try again.",
+    networkError: "Can't connect. Check your internet and try again.",
     retry: "Try again",
     dismiss: "Dismiss",
     close: "Close",

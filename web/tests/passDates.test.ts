@@ -36,8 +36,8 @@ test("the issued date is the day in the congress's zone too", () => {
   assert.equal(formatPassIssuedDate(STARTS, "fa", "Asia/Tehran"), formatLocalizedDate(STARTS, "fa", "Asia/Tehran"));
   assert.match(formatPassIssuedDate(STARTS, "fa", "Asia/Tehran"), /۲۱ فروردین ۱۴۰۶/);
   assert.match(formatPassIssuedDate(STARTS, "fa", "Pacific/Honolulu"), /۲۰ فروردین ۱۴۰۶/);
-  assert.match(formatPassIssuedDate(STARTS, "en", "Asia/Tehran"), /Apr 10, 2027/);
-  assert.match(formatPassIssuedDate(STARTS, "en", "Pacific/Honolulu"), /Apr 9, 2027/);
+  assert.match(formatPassIssuedDate(STARTS, "en", "Asia/Tehran"), /10 Apr 2027/);
+  assert.match(formatPassIssuedDate(STARTS, "en", "Pacific/Honolulu"), /9 Apr 2027/);
   for (const zone of [undefined, null, "Not/AZone"]) {
     assert.equal(formatPassIssuedDate(STARTS, "en", zone), formatLocalizedDate(STARTS, "en", deviceZone), String(zone));
   }

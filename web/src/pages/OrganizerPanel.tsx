@@ -9,7 +9,7 @@ import { panelLabels, type PanelPage } from "../components/attendee/panelContent
 import { Icon } from "../components/ui/Icon";
 import { organizerProgramCopy } from "../copy/organizerProgram";
 import { eventAccentStyle } from "../lib/eventAccent";
-import { translations, type AttendeeLocale } from "../lib/i18n";
+import type { AttendeeLocale } from "../lib/i18n";
 import { normalizeDocument } from "../lib/pageDocument";
 import { useOrganizerImages } from "../lib/pageMedia";
 import { usePageTitle } from "../hooks/usePageTitle";
@@ -119,7 +119,6 @@ export function OrganizerPanelFrame() {
   const doc = useMemo(() => (preview ? normalizeDocument(preview.page.document) : null), [preview]);
   const images = useOrganizerImages(apiKey, eventId, preview?.page.assets ?? []);
   const isRtl = locale === "fa";
-  const t = translations[locale];
 
   const sample = useMemo<PassCardTicket | null>(
     () =>
@@ -174,7 +173,7 @@ export function OrganizerPanelFrame() {
   if (view === "details") {
     content = (
       <div className="mx-auto max-w-6xl space-y-10 px-4 pt-6 sm:space-y-14 sm:px-6 sm:pt-10">
-        <CongressDetailsView event={preview} page={page} labels={labels} locale={locale} t={t} agendaOwner={null} />
+        <CongressDetailsView event={preview} page={page} labels={labels} locale={locale} agendaOwner={null} />
       </div>
     );
   } else if (view === "card") {
@@ -184,7 +183,7 @@ export function OrganizerPanelFrame() {
           <Icon name="eye" size={16} />
           {c.panel.samplePass}
         </p>
-        <DigitalPassCard ticket={sample} locale={locale} t={t} verified />
+        <DigitalPassCard ticket={sample} locale={locale} verified />
       </div>
     );
   } else {
@@ -195,7 +194,7 @@ export function OrganizerPanelFrame() {
           page={page}
           labels={labels}
           locale={locale}
-          t={t}
+         
           personal={{
             status: "ready",
             overview: {

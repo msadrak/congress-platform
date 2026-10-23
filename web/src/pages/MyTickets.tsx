@@ -5,7 +5,7 @@ import { passCopy } from "../copy/pass";
 import { loadOwnerScopedTickets, saveOwnerScopedTickets } from "../lib/ticketCache";
 import { isStoredAttendeeToken, keepPassOnExpiredSession, sessionChangedMessage } from "../lib/attendeeSession";
 import { useAttendeeSession } from "../hooks/useAttendeeSession";
-import { formatLocalizedDate, formatLocalizedNumber, useAttendeeLocale } from "../lib/i18n";
+import { formatLocalizedDate, formatLocalizedNumber, useLocale } from "../lib/i18n";
 import { AttendeeLayout } from "../layouts/AttendeeLayout";
 import { congressPath } from "../lib/congressContext";
 import { signInPath } from "../lib/safeRedirect";
@@ -51,8 +51,8 @@ function hasQrFlag(state: unknown): boolean {
 
 /** `/c/:slug/my-ticket`: this congress's pass, QR first. */
 export default function MyTickets() {
-  const localeHook = useAttendeeLocale();
-  const { locale, t } = localeHook;
+  const localeHook = useLocale();
+  const { locale } = localeHook;
   const copy = passCopy[locale].page;
   const cancelCopy = passCopy[locale].cancel;
   const { slug = "" } = useParams<{ slug: string }>();
@@ -247,7 +247,7 @@ export default function MyTickets() {
         <DigitalPassCard ticket={card} locale={locale} onPrint={handlePrint} onExpand={openQr} />
         <div className="at-print-collapse text-center">
           <LinkButton to={signInPath(slug, congressPath(slug, "my-congress"))} variant="ghost" size="sm">
-            {t.linkPassSignInAction}
+            {copy.linkSignIn}
             <Icon name="arrow-right" size={14} />
           </LinkButton>
         </div>
@@ -270,7 +270,7 @@ export default function MyTickets() {
   const nothingYet = activePasses.length === 0 && cancelledPasses.length === 0;
   if (loading && nothingYet) {
     return shell(
-      <div role="status" aria-label={t.navMyTicket} aria-busy="true" className="space-y-4">
+      <div role="status" aria-label={copy.loading} aria-busy="true" className="space-y-4">
         <div className="skeleton mx-auto aspect-square w-72 rounded-2xl" />
         <div className="skeleton mx-auto h-6 w-48 rounded-full" />
         <div className="skeleton h-28 rounded-2xl" />
@@ -348,7 +348,7 @@ export default function MyTickets() {
   const offlineLine =
     isOffline || (isCachedPass && !refreshing) ? (
       <Notice tone="warning" icon="wifi-off">
-        {t.offlineNotice}
+        {copy.offline}
       </Notice>
     ) : null;
 

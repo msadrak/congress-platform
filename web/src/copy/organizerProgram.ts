@@ -311,7 +311,7 @@ const en: CopyShape<typeof fa> = {
       archived: "This congress is archived and read-only.",
       not_found: "This file no longer exists; refresh the page.",
       unauthorized: "Your role can't do this.",
-      network: "Could not reach the server. Check your connection and try again.",
+      network: "Can't connect. Check your internet and try again.",
       server: "That didn't work. Try again.",
     },
   },

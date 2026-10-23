@@ -25,13 +25,13 @@ const STYLES: DateStyle[] = ["day", "weekday", "heading", "short", "long", "dayT
 test("a congress day reads «سه‌شنبه ۱۹ آبان ۱۴۰۵» in natural order", () => {
   assert.equal(formatDate(AT, "day", "fa", TEHRAN), "سه‌شنبه ۱۹ آبان ۱۴۰۵");
   assert.equal(formatEventDate(AT, "fa", { timeZone: TEHRAN, style: "day" }), "سه‌شنبه ۱۹ آبان ۱۴۰۵");
-  assert.equal(formatDate(AT, "day", "en", TEHRAN), "Tue, Nov 10, 2026");
+  assert.equal(formatDate(AT, "day", "en", TEHRAN), "Tue 10 Nov 2026");
 });
 
 test("each style in both languages", () => {
   const expected: Record<DateStyle, [string, string]> = {
-    day: ["سه‌شنبه ۱۹ آبان ۱۴۰۵", "Tue, Nov 10, 2026"],
-    weekday: ["سه‌شنبه ۱۹ آبان", "Tue, Nov 10"],
+    day: ["سه‌شنبه ۱۹ آبان ۱۴۰۵", "Tue 10 Nov 2026"],
+    weekday: ["سه‌شنبه ۱۹ آبان", "Tue 10 Nov"],
     heading: ["سه‌شنبه ۱۹ آبان", "Tuesday 10 November"],
     short: ["۱۹ آبان", "10 Nov"],
     long: ["۱۹ آبان ۱۴۰۵", "10 November 2026"],

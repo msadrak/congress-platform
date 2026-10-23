@@ -50,7 +50,7 @@ test('a 401 on My Congress removes the token and the cached pass, and shows the 
   await signedInWithCachedPass(page);
   await page.goto('/c/alpha/my-congress');
   await expect(page.locator('header').getByRole('link', { name: 'Log In' })).toBeVisible();
-  await expect(page.getByRole('link', { name: /Sign In/ }).first()).toBeVisible();
+  await expect(page.getByTestId('otp-mobile-step')).toBeVisible();
   expect(await stored(page)).toEqual([null, null, null]);
   // No pass from the removed cache stays on screen.
   await expect(page.getByText('Cached Delegate Pass')).toHaveCount(0);
@@ -61,7 +61,7 @@ test('My Network: a list that gets no response says so and stops loading', async
   await page.route('**/api/attendees/me/network/search?*', route => route.abort('internetdisconnected'));
   await signedInWithCachedPass(page);
   await page.goto('/c/alpha/my-network');
-  await expect(page.getByRole('alert')).toContainText('Could not reach the server.');
+  await expect(page.getByRole('alert')).toContainText("Can't connect.");
   await expect(page.getByRole('status', { name: 'Contacts' })).toHaveCount(0);
   // A network failure is not a rejected session.
   expect((await stored(page))[0]).toBe(token);
@@ -72,7 +72,7 @@ test('a new page opens at its top', async ({ page }) => {
   await fixture(page, 'ok');
   await signedInWithCachedPass(page);
   await page.goto('/c/alpha/details');
-  await expect(page.getByText('About Alpha Congress')).toBeVisible();
+  await expect(page.getByRole('link', { name: 'About the congress' })).toBeVisible();
   // Every page is tall enough to scroll (the style outlives client-side navigation).
   await page.evaluate(() => {
     document.body.style.minHeight = '6000px';

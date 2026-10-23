@@ -46,11 +46,7 @@ const ROOTS = [join(WEB, "src"), join(WEB, "index.html"), join(REPO, "backend/ap
  * removes its files' entries (an entry whose term is gone fails this test until it is deleted), and no file
  * or term is ever added. Paths are relative to the repository root.
  */
-const ALLOWED: Readonly<Record<string, readonly string[]>> = {
-  // UX-ATT-SHELL (team2): these two files are still being rewritten there.
-  "web/src/components/attendee/attendeeCopy.ts": ["بلیت", "نشست", "گردید"],
-  "web/src/lib/attendeeSession.ts": ["نشست"],
-};
+const ALLOWED: Readonly<Record<string, readonly string[]>> = {};
 
 function* files(path: string): Generator<string> {
   if (statSync(path).isDirectory()) {

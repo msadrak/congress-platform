@@ -2,15 +2,15 @@ import { expect, test } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
 import { bearer, panelApi, signIn } from './attendeePanelFixtures';
 
-test('name, organization and title are edited through PATCH /api/auth/me with the pass note', async ({ page }) => {
+test('name, organization and title are edited through PATCH /api/auth/me; Save and the pass note appear with a change', async ({ page }) => {
   const requests = await panelApi(page);
   await signIn(page);
   await page.goto('/c/alpha/my-profile');
-  await expect(page.getByText('These changes also update your pass for upcoming congresses')).toBeVisible();
   const save = page.getByRole('button', { name: 'Save changes' });
-  await expect(save).toBeDisabled();
+  await expect(save).toHaveCount(0);
 
   await page.getByLabel('Full name').fill('Dr. Sara Fixture');
+  await expect(page.getByTestId('profile-save-bar')).toContainText('Also updates passes for upcoming congresses.');
   await page.getByLabel('Title').fill('Interventional cardiologist');
   await save.click();
   await expect(page.getByRole('status').filter({ hasText: 'Your details were saved.' })).toBeVisible();
@@ -62,7 +62,8 @@ test('language, data export and sign-out', async ({ page }) => {
   await expect(page.getByRole('radio', { name: 'فارسی' })).toHaveAttribute('aria-checked', 'true');
   expect(await page.evaluate(() => localStorage.getItem('congress_attendee_locale'))).toBe('fa');
 
-  await page.getByRole('button', { name: 'خروج از حساب' }).last().click();
+  await page.getByRole('button', { name: 'خروج از حساب' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'خروج', exact: true }).click();
   await expect(page).toHaveURL(/\/c\/alpha\/my-congress$/);
   expect(await page.evaluate(() => localStorage.getItem('congress_attendee_token'))).toBeNull();
 });

@@ -12,10 +12,8 @@ const fa = {
 } as const;
 
 const en: CopyShape<typeof fa> = {
-  // "Scan with camera" / "Stop camera" stay until the attendee specs (UX-ATT-SHELL, team2) move to
-  // "Turn on camera" / "Turn off camera" (copy SPEC §4.6).
-  turnOn: "Scan with camera",
-  turnOff: "Stop camera",
+  turnOn: "Turn on camera",
+  turnOff: "Turn off camera",
   preview: "Camera preview",
   starting: "Waiting for camera permission…",
   live: "Hold the pass QR code in front of the camera.",

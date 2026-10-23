@@ -31,7 +31,7 @@ for (const section of ['', '/tiers', '/check-in']) {
     await page.goto(`/organizer/events/event-a${section}`);
     const alert = page.getByRole('alert').filter({ hasText: "Couldn't load the congress" });
     await expect(alert).toBeVisible({ timeout: 3000 });
-    await expect(alert).toContainText('Could not reach the server');
+    await expect(alert).toContainText("Can't connect");
     const retry = alert.getByRole('button', { name: 'Try again' });
     await expect(retry).toBeVisible();
 

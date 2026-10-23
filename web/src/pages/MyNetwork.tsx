@@ -3,19 +3,24 @@ import { useParams, useSearchParams } from "react-router-dom";
 import { apiErrorCode, createApiClient, localizedApiError, type ConnectionOut } from "../api/client";
 import { attendeeResponseState, isStoredAttendeeToken, sessionChangedMessage } from "../lib/attendeeSession";
 import { useAttendeeSession } from "../hooks/useAttendeeSession";
-import { useAttendeeLocale } from "../lib/i18n";
+import { attendeeCopy } from "../copy/attendee";
+import { useLocale } from "../lib/i18n";
 import { AttendeeLayout } from "../layouts/AttendeeLayout";
 import { congressPath, useCongressEvent } from "../lib/congressContext";
-import { signInPath } from "../lib/safeRedirect";
 import { errorMessages, networkErrorMessage } from "../lib/errorMessages";
 import { retryDeadline, secondsLeft } from "../lib/retryAfter";
 import { loadOwnerScopedTickets, saveOwnerScopedTickets } from "../lib/ticketCache";
 import { appendPage, removeContact, replaceContact, withContactFirst } from "../lib/networkList";
 import { Button, LinkButton } from "../components/ui/Button";
+import { Card } from "../components/ui/Card";
 import { ConfirmDialog } from "../components/ui/ConfirmDialog";
 import { Icon } from "../components/ui/Icon";
-import { SignInPrompt } from "../components/attendee/SignInPrompt";
-import { contactsPhrase, n, networkCopy } from "../components/attendee/attendeeCopy";
+import { SearchInput } from "../components/ui/Input";
+import { Notice } from "../components/ui/Notice";
+import { PageHeader } from "../components/ui/PageHeader";
+import { ErrorState, StateBlock } from "../components/ui/StateBlock";
+import { InlineSignIn } from "../components/attendee/InlineSignIn";
+import { contactsPhrase, n } from "../components/attendee/attendeeCopy";
 import { ContactCard } from "../components/attendee/network/ContactCard";
 import { MyCodePanel, type MyPass } from "../components/attendee/network/MyCodePanel";
 import { ScanPanel, type ScanError, type ScanResult } from "../components/attendee/network/ScanPanel";
@@ -38,19 +43,21 @@ interface ContactList {
 
 const EMPTY_LIST: ContactList = { key: null, status: "ready", items: [], total: 0, cursor: null };
 
-type Notice = { tone: "ok" | "error"; text: string } | null;
+type Message = { tone: "ok" | "error"; text: string } | null;
 
 export default function MyNetwork() {
-  const localeHook = useAttendeeLocale();
+  const localeHook = useLocale();
   const { locale } = localeHook;
-  const c = networkCopy[locale];
-  const { slug } = useParams<{ slug?: string }>();
+  const c = attendeeCopy[locale].network;
+  // Every route to this page carries a congress (`/my-network` without one redirects to `/me`).
+  const { slug = "" } = useParams<{ slug: string }>();
   const congress = useCongressEvent(slug);
   const eventId = congress.status === "ready" ? congress.event.id : null;
   const { token } = useAttendeeSession();
-  const registerTo = slug ? `/e/${encodeURIComponent(slug)}` : "/";
+  const registerTo = `/e/${encodeURIComponent(slug)}`;
 
-  // Link contract: `/c/:slug/my-network?scan=1` opens the scan sheet (the camera still waits for a tap).
+  // Link contract: `/c/:slug/my-network?scan=1` opens the scan sheet, and the camera starts by itself when the
+  // browser already allows it (otherwise the person presses the button, as the prompt must wait for them).
   const [searchParams, setSearchParams] = useSearchParams();
   const scanRequested = searchParams.get("scan") === "1";
   const [mode, setMode] = useState<Mode>(scanRequested ? "scan" : "code");
@@ -73,7 +80,7 @@ export default function MyNetwork() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
-  const [notice, setNotice] = useState<Notice>(null);
+  const [notice, setNotice] = useState<Message>(null);
   const [savingNoteId, setSavingNoteId] = useState<string | null>(null);
   const [removing, setRemoving] = useState<ConnectionOut | null>(null);
 
@@ -116,8 +123,8 @@ export default function MyNetwork() {
     return () => window.clearInterval(timer);
   }, [retryUntil]);
 
-  // Inside a congress the list is that congress's contacts; the legacy page lists every congress.
-  const listReady = Boolean(token) && (!slug || eventId !== null);
+  // The list is this congress's contacts: it loads once the congress is known.
+  const listReady = Boolean(token) && eventId !== null;
   const searchPage = useCallback(
     (cursor: string | null) => {
       const client = createApiClient({ kind: "user", token: token ?? "" }, { networkErrors: "result" });
@@ -142,7 +149,7 @@ export default function MyNetwork() {
 
   // "My code" is this congress's active pass; offline, the owner's cached copy.
   useEffect(() => {
-    if (!token || !slug) return;
+    if (!token) return;
     let active = true;
     createApiClient({ kind: "user", token })
       .GET("/api/attendees/me/tickets")
@@ -337,17 +344,13 @@ export default function MyNetwork() {
     </AttendeeLayout>
   );
 
-  // Unauthenticated view (fails closed)
+  // Unauthenticated view (fails closed): the phone form, in place.
   if (!token) {
     return layout(
-      <SignInPrompt
-        seed={slug}
-        icon="users"
-        title={localeHook.t.unauthenticatedTitle}
-        description={localeHook.t.unauthenticatedDesc}
-        actionLabel={localeHook.t.loginAction}
-        to={signInPath(slug, slug ? congressPath(slug, "my-network") : "/me")}
-      />,
+      <div className="mx-auto max-w-3xl space-y-6 px-4 pt-5 sm:px-6 sm:pt-8">
+        <PageHeader title={c.title} />
+        <InlineSignIn locale={locale} title={c.signInTitle} body={c.signInBody} />
+      </div>,
     );
   }
 
@@ -356,150 +359,106 @@ export default function MyNetwork() {
   const tabId = (m: Mode) => `network-tab-${m}`;
 
   return layout(
-    <div className="mx-auto max-w-3xl space-y-8 px-4 pt-6 sm:space-y-10 sm:px-6 sm:pt-10">
-      {/* Masthead */}
-      <div className="space-y-3">
-        <span className="eyebrow">{c.eyebrow}</span>
-        <h1 className="text-[1.75rem] font-semibold leading-tight tracking-[-0.03em] text-text-primary text-balance sm:text-4xl">{slug ? c.title : localeHook.t.networkHeading}</h1>
-        {!listLoading || list.items.length > 0 ? (
-          <p className={`font-semibold ${list.total === 0 ? "text-base text-text-secondary" : "text-lg text-event-accent"}`}>{contactsPhrase(list.total, locale)}</p>
-        ) : null}
-      </div>
+    <div className="mx-auto max-w-3xl space-y-6 px-4 pt-5 sm:space-y-8 sm:px-6 sm:pt-8">
+      <PageHeader title={c.title} meta={list.status === "ready" && list.total > 0 ? contactsPhrase(list.total, locale) : undefined} />
 
       {/* My code / Scan */}
-      {slug && (
-        <section aria-label={c.modes} className="relative overflow-hidden shape-arc border border-border-default bg-surface-panel shadow-soft">
-          <span aria-hidden="true" className="absolute inset-x-0 top-0 h-[3px] bg-[image:var(--grad-aiteb)]" />
-          <div className="space-y-6 p-5 sm:p-7">
-            <div role="tablist" aria-label={c.modes} className="grid grid-cols-2 gap-1 rounded-full border border-border-default bg-surface-panel-subtle p-1">
-              {(["code", "scan"] as const).map((m) => (
-                <button
-                  key={m}
-                  ref={(el) => {
-                    tabRefs.current[m] = el;
-                  }}
-                  type="button"
-                  role="tab"
-                  id={tabId(m)}
-                  aria-selected={mode === m}
-                  aria-controls="network-mode-panel"
-                  tabIndex={mode === m ? 0 : -1}
-                  onClick={() => setMode(m)}
-                  onKeyDown={onTabKey}
-                  className={`press inline-flex min-h-12 items-center justify-center gap-2 rounded-full text-sm font-semibold transition-colors cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring ${
-                    mode === m ? "bg-surface-ink text-white shadow-soft" : "text-text-secondary hover:text-text-primary"
-                  }`}
-                >
-                  <Icon name={m === "code" ? "qr" : "scan"} size={18} />
-                  {m === "code" ? c.myCode : c.scan}
-                </button>
-              ))}
-            </div>
-            <div id="network-mode-panel" role="tabpanel" aria-labelledby={tabId(mode)}>
-              {mode === "code" ? (
-                <MyCodePanel myPass={myPass} locale={locale} registerTo={registerTo} />
-              ) : (
-                <ScanPanel
-                  locale={locale}
-                  busy={scanBusy}
-                  error={scanError}
-                  retrySeconds={retrySeconds}
-                  registerTo={registerTo}
-                  result={result}
-                  noteBusy={noteBusy}
-                  noteSaved={noteSaved}
-                  onSubmit={(secret) => void submitScan(secret)}
-                  onSaveNote={(note) => void saveScanNote(note)}
-                  onNext={() => {
-                    setResult(null);
-                    setNoteSaved(false);
-                  }}
-                />
-              )}
-            </div>
-          </div>
-        </section>
-      )}
-
-      {/* Contacts */}
-      <section aria-labelledby="network-list-title" className="space-y-5">
-        <div className="flex flex-wrap items-end justify-between gap-3">
-          <h2 id="network-list-title" className="text-lg font-semibold tracking-[-0.02em] text-text-primary sm:text-xl">{c.listTitle}</h2>
-          {list.status === "ready" && list.total > 0 && (
-            <p className="text-xs font-medium text-text-muted tabular">{c.shownOf(n(list.items.length, locale), n(list.total, locale))}</p>
+      <Card className="space-y-5 p-4 sm:p-6">
+        <div role="tablist" aria-label={c.modes} className="grid grid-cols-2 gap-1 rounded-control border border-border-default bg-surface-panel-subtle p-1">
+          {(["code", "scan"] as const).map((m) => (
+            <button
+              key={m}
+              ref={(el) => {
+                tabRefs.current[m] = el;
+              }}
+              type="button"
+              role="tab"
+              id={tabId(m)}
+              aria-selected={mode === m}
+              aria-controls="network-mode-panel"
+              tabIndex={mode === m ? 0 : -1}
+              onClick={() => setMode(m)}
+              onKeyDown={onTabKey}
+              className={`press inline-flex min-h-12 items-center justify-center gap-2 rounded-control text-sm font-semibold transition-colors cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring ${
+                mode === m ? "bg-surface-ink text-white shadow-soft" : "text-text-secondary hover:text-text-primary"
+              }`}
+            >
+              <Icon name={m === "code" ? "qr" : "scan"} size={18} />
+              {m === "code" ? c.myCode : c.scan}
+            </button>
+          ))}
+        </div>
+        <div id="network-mode-panel" role="tabpanel" aria-labelledby={tabId(mode)}>
+          {mode === "code" ? (
+            <MyCodePanel myPass={myPass} locale={locale} registerTo={registerTo} />
+          ) : (
+            <ScanPanel
+              locale={locale}
+              busy={scanBusy}
+              error={scanError}
+              retrySeconds={retrySeconds}
+              registerTo={registerTo}
+              result={result}
+              noteBusy={noteBusy}
+              noteSaved={noteSaved}
+              autoStart
+              onSubmit={(secret) => void submitScan(secret)}
+              onSaveNote={(note) => void saveScanNote(note)}
+              onNext={() => {
+                setResult(null);
+                setNoteSaved(false);
+              }}
+            />
           )}
         </div>
+      </Card>
+
+      {/* Contacts */}
+      <section aria-label={c.title} className="space-y-4">
+        {list.status === "ready" && list.total > 0 && <p className="text-xs font-medium text-text-muted tabular">{c.shownOf(n(list.items.length, locale), n(list.total, locale))}</p>}
 
         {(list.total > 0 || searching) && (
-          <div className="relative">
-            <label htmlFor="network-search" className="sr-only">{c.searchLabel}</label>
-            <Icon name="search" size={18} className="pointer-events-none absolute inset-y-0 start-3.5 my-auto text-ink-400" />
-            <input
-              id="network-search"
-              type="search"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder={c.searchPlaceholder}
-              className="ui-input ps-10"
-            />
-          </div>
+          <SearchInput
+            aria-label={c.searchLabel}
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onClear={() => setQuery("")}
+            placeholder={c.searchPlaceholder}
+          />
         )}
 
-        {notice && (
-          <div
-            role={notice.tone === "error" ? "alert" : "status"}
-            className={`flex items-start gap-2.5 rounded-2xl border px-4 py-3 text-sm leading-relaxed ${
-              notice.tone === "error" ? "border-status-danger-border bg-status-danger-bg text-status-danger-text" : "border-action-subtle-border bg-action-subtle text-action-primary"
-            }`}
-          >
-            <Icon name={notice.tone === "error" ? "alert" : "check-circle"} size={18} className="mt-0.5 shrink-0" />
-            <span className="min-w-0 break-words">{notice.text}</span>
-          </div>
-        )}
+        {notice && <Notice tone={notice.tone}>{notice.text}</Notice>}
 
         {loadError ? (
-          <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-status-danger-border bg-status-danger-bg p-4 text-sm text-status-danger-text">
-            <p className="flex items-center gap-2">
-              <Icon name="alert" size={18} />
-              {list.error === undefined ? c.loadFailed : localizedApiError(list.error, locale)}
-            </p>
-            <Button type="button" variant="secondary" size="md" onClick={() => setReloadKey((k) => k + 1)}>
-              <Icon name="sync" size={16} />
-              {c.retry}
-            </Button>
-          </div>
+          <ErrorState title={c.loadFailed} body={list.error === undefined ? undefined : localizedApiError(list.error, locale)} onRetry={() => setReloadKey((k) => k + 1)} />
         ) : listLoading && list.items.length === 0 ? (
-          <div role="status" aria-label={c.listTitle} className="space-y-4">
-            <div className="skeleton h-44 rounded-2xl" />
-            <div className="skeleton h-44 rounded-2xl" />
+          <div role="status" aria-label={c.title} className="space-y-4">
+            <div className="skeleton h-44 rounded-card" />
+            <div className="skeleton h-44 rounded-card" />
           </div>
         ) : list.items.length === 0 ? (
           searching ? (
             <p className="text-sm text-text-secondary">{c.noResults}</p>
           ) : (
-            <div className="relative overflow-hidden rounded-[var(--radius-xl)] border border-dashed border-border-strong p-8 text-center sm:p-10">
-              <div aria-hidden="true" className="bg-meridian absolute inset-0 opacity-60" />
-              <div className="relative mx-auto max-w-md space-y-4">
-                <span aria-hidden="true" className="mx-auto grid size-16 place-items-center rounded-2xl [border-start-end-radius:26px] bg-surface-ink text-white shadow-lift">
-                  <Icon name="users" size={28} />
-                </span>
-                <h3 className="text-lg font-semibold tracking-[-0.02em] text-text-primary">{c.emptyTitle}</h3>
-                <p className="text-sm leading-relaxed text-text-secondary">{c.emptyBody}</p>
-                {slug && (
+            <div data-testid="network-empty">
+              <StateBlock
+                icon="users"
+                title={c.emptyTitle}
+                action={
                   <Button
                     type="button"
                     variant="primary"
                     size="lg"
+                    icon="scan"
                     onClick={() => {
                       chooseMode("scan");
                       window.scrollTo({ top: 0, behavior: "smooth" });
                     }}
                   >
-                    <Icon name="scan" size={18} />
                     {c.scan}
                   </Button>
-                )}
-              </div>
+                }
+              />
             </div>
           )
         ) : (
@@ -526,16 +485,13 @@ export default function MyNetwork() {
           </Button>
         )}
 
-        {slug && (
-          <p className="flex flex-wrap items-center gap-x-2 gap-y-1 border-t border-border-subtle pt-5 text-xs text-text-muted">
-            <Icon name="shield" size={15} />
-            <span>{c.privacyLink}</span>
-            <LinkButton to={congressPath(slug, "my-profile")} variant="ghost" size="sm" className="min-h-11">
-              {c.openProfile}
-              <Icon name="arrow-right" size={14} />
-            </LinkButton>
-          </p>
-        )}
+        <p className="flex flex-wrap items-center gap-x-2 gap-y-1 border-t border-border-subtle pt-4 text-xs text-text-muted">
+          <Icon name="shield" size={15} />
+          <span>{c.privacyLink}</span>
+          <LinkButton to={congressPath(slug, "my-profile")} variant="ghost" size="sm" iconEnd="arrow-right">
+            {c.openProfile}
+          </LinkButton>
+        </p>
       </section>
 
       <ConfirmDialog
