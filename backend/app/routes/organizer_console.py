@@ -5,13 +5,14 @@ organizers picks one. Owners manage the members; every change is written to the 
 read here as the organizer's activity.
 """
 
+import hashlib
 import uuid
 from datetime import datetime, timezone
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, HTTPException, Query, Request, Response, status
 from pydantic import BaseModel, ConfigDict, StringConstraints
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
 from app.audit import masked, record
@@ -19,10 +20,18 @@ from app.auth import OrganizerPrincipal, OrganizerPrincipalDep
 from app.db import SessionDep
 from app.errors import ApiError, error_responses
 from app.models import AuditEvent, Organizer, OrganizerMember, SmsMessage, User
+from app.rate_limit import limiter
 from app.roles import Role
 from app.routes.auth import OtpCode, verify_code
-from app.security import create_organizer_member_token, create_organizer_select_token, decode_access_token
+from app.search import before_cursor, encode_cursor
+from app.security import (
+    ORGANIZER_SELECT_TOKEN_MINUTES,
+    create_organizer_member_token,
+    create_organizer_select_token,
+    decode_access_token,
+)
 from app.sms.phone import IranMobile
+from app.sms.templates import platform_body, render
 
 router = APIRouter(prefix="/api/organizer", tags=["organizer-console"])
 
@@ -164,6 +173,10 @@ async def _signed_in(
     return MemberLoginOut(status="signed_in", access_token=token, session=_session_out(principal, mobile))
 
 
+def sign_in_expired() -> ApiError:
+    return ApiError(status.HTTP_401_UNAUTHORIZED, "SIGN_IN_EXPIRED", "The sign-in expired. Request a new code.")
+
+
 def not_a_member() -> ApiError:
     return ApiError(status.HTTP_403_FORBIDDEN, "NOT_A_MEMBER", "This number is not a member of an organizer")
 
@@ -191,20 +204,24 @@ async def member_login(body: MemberLogin, request: Request, session: SessionDep)
 
 @router.post("/session", responses=error_responses(status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN))
 async def choose_organizer(body: MemberSessionCreate, request: Request, session: SessionDep) -> MemberLoginOut:
-    """The second step for a member of several organizers: a session with the one they picked."""
+    """The second step for a member of several organizers: a session with the one they picked. A selection
+    token works once, like the signup token (a copied token cannot open further sessions)."""
     payload = decode_access_token(body.selection_token, request.app.state.settings.jwt_secret)
     if payload is None or payload.get("type") != "organizer_select":
-        raise ApiError(status.HTTP_401_UNAUTHORIZED, "SIGN_IN_EXPIRED", "The sign-in expired. Request a new code.")
+        raise sign_in_expired()
     try:
         user_id = uuid.UUID(str(payload.get("user_id")))
     except ValueError:
-        raise ApiError(status.HTTP_401_UNAUTHORIZED, "SIGN_IN_EXPIRED", "The sign-in expired. Request a new code.")
+        raise sign_in_expired() from None
     user = await session.get(User, user_id)
     chosen = [
         (m, o) for m, o in (await _active_memberships(session, user_id) if user else []) if o.id == body.organizer_id
     ]
     if user is None or user.mobile is None or not chosen:
         raise not_a_member()
+    spent = f"organizer-select:{hashlib.sha256(body.selection_token.encode()).hexdigest()}"
+    if not await limiter(request).claim_once(spent, ORGANIZER_SELECT_TOKEN_MINUTES * 60 + 60):
+        raise sign_in_expired()
     member, organizer = chosen[0]
     return await _signed_in(session, request, member, organizer, user.mobile)
 
@@ -239,11 +256,13 @@ async def list_members(session: SessionDep, organizer_id: uuid.UUID) -> list[Mem
     return [_member_out(member, mobile) for member, mobile in rows.all()]
 
 
-def invitation_text(organizer: Organizer, member: OrganizerMember, origin: str) -> str:
-    return (
-        f"{member.display_name} عزیز، شما با نقش «{ROLE_FA[member.role]}» به کنسول «{organizer.name}» اضافه شدید. "
-        f"ورود با همین شماره: {origin.rstrip('/')}/organizer"
-    )
+async def invitation_text(session: SessionDep, organizer: Organizer, member: OrganizerMember, origin: str) -> str:
+    """The platform's `member_invite` wording (app/sms/templates.py), linking to the console on the public origin."""
+    values = {
+        "name": member.display_name, "role": ROLE_FA[member.role], "organizer": organizer.name,
+        "link": f"{origin.rstrip('/')}/organizer",
+    }
+    return render(await platform_body(session, "member_invite"), values)
 
 
 async def add_member(
@@ -285,7 +304,7 @@ async def add_member(
         SmsMessage(
             kind="member_invite",
             mobile=body.mobile,
-            body=invitation_text(organizer, member, settings.public_origin or str(request.base_url)),
+            body=await invitation_text(session, organizer, member, settings.public_origin or str(request.base_url)),
             status="pending",
             send_after=datetime.now(timezone.utc),
         )
@@ -392,11 +411,7 @@ async def revoke_member(
 
 # --- Activity ------------------------------------------------------------------------------------------------
 
-def _cursor(row: AuditEvent) -> str:
-    return f"{row.at.isoformat()}|{row.id}"
-
-
-@router.get("/activity", responses=error_responses(status.HTTP_422_UNPROCESSABLE_CONTENT))
+@router.get("/activity", responses=error_responses(status.HTTP_400_BAD_REQUEST))
 async def organizer_activity(
     principal: OrganizerPrincipalDep,
     session: SessionDep,
@@ -410,16 +425,11 @@ async def organizer_activity(
     if event_id is not None:
         query = query.where(AuditEvent.event_id == event_id)
     if before is not None:
-        at_text, _, id_text = before.partition("|")
-        try:
-            at, row_id = datetime.fromisoformat(at_text), uuid.UUID(id_text)
-        except ValueError:
-            raise ApiError(status.HTTP_422_UNPROCESSABLE_CONTENT, "BAD_CURSOR", "Invalid activity cursor") from None
         # Rows of one transaction share a timestamp: the id breaks the tie, so a page boundary loses nothing.
-        query = query.where(or_(AuditEvent.at < at, and_(AuditEvent.at == at, AuditEvent.id < row_id)))
+        query = query.where(before_cursor(AuditEvent.at, AuditEvent.id, before))
     rows = list(await session.scalars(query.order_by(AuditEvent.at.desc(), AuditEvent.id.desc()).limit(limit + 1)))
     page = rows[:limit]
     return ActivityPage(
         items=[AuditEventOut.model_validate(row) for row in page],
-        next_before=_cursor(page[-1]) if len(rows) > limit else None,
+        next_before=encode_cursor(page[-1].at, page[-1].id) if len(rows) > limit else None,
     )

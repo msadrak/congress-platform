@@ -7,7 +7,9 @@ from fastapi import FastAPI
 from httpx import AsyncClient
 from sqlalchemy import select
 
-from app.models import SmsMessage
+from app.models import RateLimitCounter, SmsMessage
+from app.sms.gateway import SmsGateway
+from app.sms.provider import SmsResult
 from tests.conftest import ADMIN_TOKEN
 from tests.helpers import bearer, desk_sign_in, provision_organizer, request_code, sign_in
 from tests.test_roles import member_session
@@ -66,6 +68,29 @@ async def test_organizer_codes_go_only_to_members(client: AsyncClient) -> None:
     assert refused.status_code == 401
 
 
+async def test_organizer_codes_have_their_own_budget_and_may_still_arrive(client: AsyncClient, app: FastAPI) -> None:
+    organizer = await provision_organizer(client, "Acme Congress Co")
+    await add_member(client, organizer, "09121008006")
+    await add_member(client, organizer, "09121008008", "viewer")
+
+    member = await client.post("/api/auth/otp/request", json={"mobile": "09121008008", "purpose": "organizer"})
+    stranger = await client.post("/api/auth/otp/request", json={"mobile": "09121008007", "purpose": "organizer"})
+    # A member and a stranger get the same answer: the form cannot tell who is a member.
+    assert member.status_code == stranger.status_code == 202
+    assert {**member.json(), "mobile": None} == {**stranger.json(), "mobile": None}
+
+    gateway: SmsGateway = app.state.sms
+    gateway.recorder.queued_results.append(SmsResult(ok=False, error="TIMEOUT", unknown=True))
+    timed_out = await client.post("/api/auth/otp/request", json={"mobile": "09121008006", "purpose": "organizer"})
+    assert timed_out.status_code == 202 and timed_out.json()["delivery"] == "uncertain"
+    # The organizer purpose spends its own per-number budget, not the attendee sign-in one.
+    signin = await client.post("/api/auth/otp/request", json={"mobile": "09121008006"})
+    assert signin.status_code == 202
+    async with app.state.sessionmaker() as session:
+        keys = set(await session.scalars(select(RateLimitCounter.key).where(RateLimitCounter.key.like("otp:send:%"))))
+    assert {"otp:send:organizer:09121008006", "otp:send:signin:09121008006"} <= keys
+
+
 async def test_an_attendee_sign_in_code_does_not_open_the_console(client: AsyncClient) -> None:
     organizer = await provision_organizer(client, "Acme Congress Co")
     await add_member(client, organizer, "09121008003")
@@ -100,6 +125,11 @@ async def test_a_member_of_several_organizers_chooses_one(client: AsyncClient) -
         "/api/organizer/session", json={"selection_token": login["selection_token"], "organizer_id": stranger["id"]}
     )
     assert not_mine.status_code == 403 and not_mine.json()["code"] == "NOT_A_MEMBER"
+    # Like the signup token, a selection token opens one session only.
+    reused = await client.post(
+        "/api/organizer/session", json={"selection_token": login["selection_token"], "organizer_id": second["id"]}
+    )
+    assert reused.status_code == 401 and reused.json()["code"] == "SIGN_IN_EXPIRED"
     forged = await client.post(
         "/api/organizer/session", json={"selection_token": chosen.json()["access_token"], "organizer_id": second["id"]}
     )

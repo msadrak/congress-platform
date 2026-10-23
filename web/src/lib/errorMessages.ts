@@ -90,7 +90,6 @@ export const errorMessages: Record<AttendeeLocale, Record<string, string>> = {
     MEMBER_EXISTS: "این شماره هم‌اکنون عضو این سازمان است.",
     MEMBER_REVOKED: "این عضو حذف شده است؛ برای بازگرداندن، دوباره او را دعوت کنید.",
     LAST_OWNER: "پیش از حذف یا تغییر نقش آخرین مالک، مالک دیگری اضافه کنید.",
-    BAD_CURSOR: "ادامهٔ فهرست بارگیری نشد. صفحه را دوباره باز کنید.",
   },
   en: {
     EVENT_NOT_FOUND: "This congress could not be found.",
@@ -176,7 +175,6 @@ export const errorMessages: Record<AttendeeLocale, Record<string, string>> = {
     MEMBER_EXISTS: "This number is already a member of this organization.",
     MEMBER_REVOKED: "This member was removed; invite them again to restore access.",
     LAST_OWNER: "Add another owner before removing or demoting the last one.",
-    BAD_CURSOR: "The rest of the list could not be loaded. Reopen the page.",
   },
 };
 

@@ -145,10 +145,43 @@ export default function PlatformSms() {
     s === "environment" ? (isRtl ? "از فایل .env" : "from .env") : s === "console" ? (isRtl ? "از این پنل" : "set here") : null;
   // SMS pass links are short links (ADR 0015); "sample2345" can never be a real code.
   const sampleOrigin = (status.short_link_origin ?? status.public_origin ?? window.location.origin).replace(/\/$/, "");
+  const consoleOrigin = (status.public_origin ?? window.location.origin).replace(/\/$/, "");
   const samples: Record<string, Record<string, string>> = {
     otp: { code: "1".repeat(status.sign_in.otp_length), minutes: String(Math.max(1, Math.floor(status.sign_in.otp_ttl_seconds / 60))) },
     ticket_confirmation: { name: "نام شرکت‌کننده", event: "همایش نمونه", tier: "عمومی", location: "تهران", link: `${sampleOrigin}/t/sample2345` },
+    // Invitations link to pages on the public origin, not to short links.
+    staff_invite: { name: "نام نماینده", booth: "غرفهٔ نمونه", event: "همایش نمونه", link: `${consoleOrigin}/booth/sample` },
+    member_invite: { name: "نام عضو", role: "مدیر", organizer: "برگزارکنندهٔ نمونه", link: `${consoleOrigin}/organizer` },
   };
+  const titles: Record<string, string> = isRtl
+    ? {
+        otp: "پیامک کد ورود (همه همایش‌ها)",
+        ticket_confirmation: "پیامک پیش‌فرض تأیید ثبت‌نام",
+        ticket_cancelled: "پیامک پیش‌فرض لغو بلیت",
+        ticket_reissued: "پیامک پیش‌فرض صدور دوبارهٔ کارت ورود",
+        staff_invite: "پیامک دعوت نمایندهٔ غرفه",
+        member_invite: "پیامک دعوت عضو برگزارکننده",
+      }
+    : {
+        otp: "Sign-in code SMS (every congress)",
+        ticket_confirmation: "Default ticket confirmation SMS",
+        ticket_cancelled: "Default ticket cancellation SMS",
+        ticket_reissued: "Default pass reissue SMS",
+        staff_invite: "Booth representative invitation SMS",
+        member_invite: "Organizer member invitation SMS",
+      };
+  const notes: Record<string, string> = isRtl
+    ? {
+        otp: "{code} لازم است. این متن برای ورود همه شرکت‌کنندگان، نمایندگان غرفه، اپراتورها و اعضای برگزارکننده ارسال می‌شود.",
+        staff_invite: "{link} لازم است: نشانی پنل غرفه. وقتی برگزارکننده نماینده‌ای به غرفه اضافه می‌کند ارسال می‌شود.",
+        member_invite: "{link} لازم است: نشانی کنسول برگزارکننده. وقتی عضوی به سازمان برگزارکننده اضافه می‌شود ارسال می‌شود.",
+      }
+    : {
+        otp: "{code} is required. Sent to every attendee, booth representative, desk operator and organizer member who signs in.",
+        staff_invite: "{link} is required: the booth portal address. Sent when an organizer adds a representative to a booth.",
+        member_invite: "{link} is required: the organizer console address. Sent when a member is added to an organizer.",
+      };
+  const eventDefaultNote = isRtl ? "برای همایش‌هایی که برگزارکننده متن اختصاصی تعیین نکرده است." : "Used for congresses whose organizer has not set their own text.";
 
   return (
     <div className="space-y-8">
@@ -275,16 +308,12 @@ export default function PlatformSms() {
           template={template}
           sample={samples[template.kind] ?? samples.ticket_confirmation}
           locale={locale}
-          title={template.kind === "otp" ? (isRtl ? "پیامک کد ورود (همه همایش‌ها)" : "Sign-in code SMS (every congress)") : template.kind === "ticket_cancelled" ? (isRtl ? "پیامک پیش‌فرض لغو بلیت" : "Default ticket cancellation SMS") : template.kind === "ticket_reissued" ? (isRtl ? "پیامک پیش‌فرض صدور دوبارهٔ کارت ورود" : "Default pass reissue SMS") : isRtl ? "پیامک پیش‌فرض تأیید ثبت‌نام" : "Default ticket confirmation SMS"}
+          title={titles[template.kind] ?? template.kind}
           customLabel={isRtl ? "متن سفارشی" : "Custom text"}
           defaultLabel={isRtl ? "متن داخلی سامانه" : "Built-in text"}
           resetDescription={isRtl ? "متن سفارشی حذف و متن داخلی سامانه استفاده می‌شود." : "The custom text is removed and the built-in text is used."}
           savedMessage={isRtl ? "ذخیره شد و بلافاصله اعمال می‌شود." : "Saved; it applies immediately."}
-          note={
-            template.kind === "otp"
-              ? isRtl ? "{code} لازم است. این متن برای ورود همه شرکت‌کنندگان، نمایندگان غرفه و اپراتورها ارسال می‌شود." : "{code} is required. Sent to every attendee, booth representative and desk operator who signs in."
-              : isRtl ? "برای همایش‌هایی که برگزارکننده متن اختصاصی تعیین نکرده است." : "Used for congresses whose organizer has not set their own text."
-          }
+          note={notes[template.kind] ?? eventDefaultNote}
           onSave={async (body) => {
             const { data, error, response } = await client.PUT("/api/platform/sms-templates/{kind}", { params: { path: { kind: template.kind } }, body: { body } });
             checkResponse(response.status);

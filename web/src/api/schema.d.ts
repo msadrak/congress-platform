@@ -276,7 +276,8 @@ export interface paths {
         put?: never;
         /**
          * Choose Organizer
-         * @description The second step for a member of several organizers: a session with the one they picked.
+         * @description The second step for a member of several organizers: a session with the one they picked. A selection
+         *     token works once, like the signup token (a copied token cannot open further sessions).
          */
         post: operations["choose_organizer_api_organizer_session_post"];
         delete?: never;
@@ -1375,7 +1376,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Export Booth Leads Csv */
+        /**
+         * Export Booth Leads Csv
+         * @description The booth's leads as CSV. Each download is written to the congress organizer's audit log (ADR 0016):
+         *     it carries attendees' personal data out of the platform.
+         */
         get: operations["export_booth_leads_csv_api_booths__booth_id__leads_export_csv_get"];
         put?: never;
         post?: never;
@@ -4654,7 +4659,7 @@ export interface components {
              * @default otp
              * @enum {string}
              */
-            kind: "otp" | "ticket_confirmation" | "ticket_cancelled" | "ticket_reissued" | "staff_invite";
+            kind: "otp" | "ticket_confirmation" | "ticket_cancelled" | "ticket_reissued" | "staff_invite" | "member_invite";
             /** Body */
             body?: string | null;
         };
@@ -5361,7 +5366,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "otp" | "ticket_confirmation" | "ticket_cancelled" | "ticket_reissued" | "staff_invite";
+            kind: "otp" | "ticket_confirmation" | "ticket_cancelled" | "ticket_reissued" | "staff_invite" | "member_invite";
             /** Body */
             body: string;
             /** Is Custom */
@@ -6528,6 +6533,15 @@ export interface operations {
                     "application/json": components["schemas"]["ActivityPage"];
                 };
             };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description ROLE_FORBIDDEN: needs the manager role */
             403: {
                 headers: {
@@ -6537,13 +6551,13 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
-            /** @description Unprocessable Entity */
+            /** @description Validation Error */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -6659,6 +6673,15 @@ export interface operations {
                 };
                 content?: never;
             };
+            /** @description ROLE_FORBIDDEN: needs the manager role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description Conflict */
             409: {
                 headers: {
@@ -6754,6 +6777,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["EventOut"];
+                };
+            };
+            /** @description ROLE_FORBIDDEN: needs the manager role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
             /** @description Validation Error */
@@ -6869,6 +6901,15 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description ROLE_FORBIDDEN: needs the manager role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
             };
             /** @description Not Found */
             404: {
@@ -8848,6 +8889,15 @@ export interface operations {
                 };
                 content?: never;
             };
+            /** @description ROLE_FORBIDDEN: needs the manager role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description Not Found */
             404: {
                 headers: {
@@ -10808,6 +10858,15 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
+            /** @description ROLE_FORBIDDEN: needs the manager role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description Conflict */
             409: {
                 headers: {
@@ -10898,6 +10957,15 @@ export interface operations {
                 };
                 content?: never;
             };
+            /** @description ROLE_FORBIDDEN: needs the manager role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description Not Found */
             404: {
                 headers: {
@@ -10950,6 +11018,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ProgramFileOut"];
+                };
+            };
+            /** @description ROLE_FORBIDDEN: needs the manager role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
             /** @description Not Found */
@@ -11492,6 +11569,15 @@ export interface operations {
                     "application/json": components["schemas"]["SmsMessageOut"];
                 };
             };
+            /** @description ROLE_FORBIDDEN: needs the manager role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description Not Found */
             404: {
                 headers: {
@@ -11540,6 +11626,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SmsMessageOut"];
+                };
+            };
+            /** @description ROLE_FORBIDDEN: needs the manager role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
             /** @description Not Found */
@@ -11609,7 +11704,7 @@ export interface operations {
                 "x-admin-token"?: string | null;
             };
             path: {
-                kind: "otp" | "ticket_confirmation" | "ticket_cancelled" | "ticket_reissued" | "staff_invite";
+                kind: "otp" | "ticket_confirmation" | "ticket_cancelled" | "ticket_reissued" | "staff_invite" | "member_invite";
             };
             cookie?: never;
         };
@@ -11646,7 +11741,7 @@ export interface operations {
                 "x-admin-token"?: string | null;
             };
             path: {
-                kind: "otp" | "ticket_confirmation" | "ticket_cancelled" | "ticket_reissued" | "staff_invite";
+                kind: "otp" | "ticket_confirmation" | "ticket_cancelled" | "ticket_reissued" | "staff_invite" | "member_invite";
             };
             cookie?: never;
         };

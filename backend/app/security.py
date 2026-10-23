@@ -145,12 +145,13 @@ def create_organizer_member_token(
 
 def create_organizer_select_token(user_id: uuid.UUID, secret: str) -> str:
     """Proof of a verified SMS code for a person who belongs to several organizers, exchanged for a session
-    with the organizer they pick. Its `type` keeps it from authenticating anywhere else."""
+    with the organizer they pick, once. Its `type` keeps it from authenticating anywhere else."""
     now = datetime.now(timezone.utc)
     payload = {
         "sub": f"organizer-select:{user_id}",
         "type": "organizer_select",
         "user_id": str(user_id),
+        "jti": uuid.uuid4().hex,
         "iat": int(now.timestamp()),
         "exp": int((now + timedelta(minutes=ORGANIZER_SELECT_TOKEN_MINUTES)).timestamp()),
     }
