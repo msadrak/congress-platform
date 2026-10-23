@@ -1,7 +1,7 @@
 import uuid
 from httpx import AsyncClient
 
-from tests.helpers import bearer, provision_organizer, sign_in
+from tests.helpers import bearer, provision_organizer, publish_page, sign_in
 from tests.test_events import EVENT
 from tests.test_ticket_tiers import create_event, tier
 
@@ -19,6 +19,7 @@ async def test_attendee_can_reserve_free_ticket_and_receives_qr(
 ) -> None:
     organizer = await provision_organizer(client, "Acme Congress Co")
     event_id = await create_event(client, organizer)
+    await publish_page(client, organizer, event_id)
     tier_resp = await client.post(
         f"/api/events/{event_id}/ticket-tiers",
         json=tier(name="General Admission", quota=100),
@@ -50,6 +51,7 @@ async def test_reserving_beyond_quota_is_rejected_as_sold_out(
 ) -> None:
     organizer = await provision_organizer(client, "Acme Congress Co")
     event_id = await create_event(client, organizer)
+    await publish_page(client, organizer, event_id)
     # Tier with capacity of exactly 1
     tier_resp = await client.post(
         f"/api/events/{event_id}/ticket-tiers",
@@ -84,6 +86,7 @@ async def test_user_cannot_reserve_two_tickets_for_the_same_event(
 ) -> None:
     organizer = await provision_organizer(client, "Acme Congress Co")
     event_id = await create_event(client, organizer)
+    await publish_page(client, organizer, event_id)
     tier1_resp = await client.post(
         f"/api/events/{event_id}/ticket-tiers",
         json=tier(name="Tier 1", quota=50),
@@ -120,6 +123,7 @@ async def test_closed_tier_cannot_be_reserved(
 ) -> None:
     organizer = await provision_organizer(client, "Acme Congress Co")
     event_id = await create_event(client, organizer)
+    await publish_page(client, organizer, event_id)
     tier_resp = await client.post(
         f"/api/events/{event_id}/ticket-tiers",
         json=tier(name="Closed Pass", quota=50, is_open=False),
@@ -142,6 +146,7 @@ async def test_attendee_can_retrieve_their_tickets_list(
 ) -> None:
     organizer = await provision_organizer(client, "Acme Congress Co")
     event_id = await create_event(client, organizer)
+    await publish_page(client, organizer, event_id)
     tier_resp = await client.post(
         f"/api/events/{event_id}/ticket-tiers",
         json=tier(name="Standard Pass", quota=100),

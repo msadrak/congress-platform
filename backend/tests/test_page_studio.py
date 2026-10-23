@@ -209,13 +209,20 @@ async def test_preview_renders_the_draft_for_the_owner_only(client: AsyncClient)
     assert "Coming soon" not in str(public)
 
 
-async def test_unpublish_hides_the_page_but_not_the_operations(client: AsyncClient) -> None:
+async def test_unpublish_hides_the_page_and_new_reservations_but_keeps_tickets(client: AsyncClient) -> None:
     organizer = await provision_organizer(client, "Acme Congress Co")
     event_id = await create_event(client, organizer)
     tier_id = (
         await client.post(f"/api/events/{event_id}/ticket-tiers", json=tier(), headers=bearer(organizer))
     ).json()["id"]
     await publish_page(client, organizer, event_id)
+    _, holder = await register_user(client, "09121000056")
+    kept = await client.post(
+        f"/api/events/{event_id}/tickets/reserve",
+        json={"ticket_tier_id": tier_id},
+        headers={"Authorization": f"Bearer {holder}"},
+    )
+    assert kept.status_code == 201, kept.text
 
     unpublished = await client.post(f"/api/events/{event_id}/page/unpublish", headers=bearer(organizer))
     _, token = await register_user(client, "09121000057")
@@ -227,7 +234,10 @@ async def test_unpublish_hides_the_page_but_not_the_operations(client: AsyncClie
 
     assert unpublished.json()["is_published"] is False
     assert (await client.get(PUBLIC)).status_code == 404
-    assert reserved.status_code == 201, reserved.text
+    # Reservations need a published page; tickets already issued stay valid.
+    assert reserved.status_code == 404, reserved.text
+    mine = await client.get("/api/attendees/me/tickets", headers={"Authorization": f"Bearer {holder}"})
+    assert [t["id"] for t in mine.json()] == [kept.json()["id"]]
     assert (await page_state(client, organizer, event_id))["draft"]["sections"]
 
 

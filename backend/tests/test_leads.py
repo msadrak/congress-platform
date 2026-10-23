@@ -1,7 +1,7 @@
 import uuid
 from httpx import AsyncClient
 
-from tests.helpers import bearer, provision_organizer
+from tests.helpers import bearer, provision_organizer, publish_page
 from tests.test_booths import BOOTH_PAYLOAD
 from tests.test_events import EVENT
 from tests.test_ticket_tiers import create_event, tier
@@ -13,6 +13,7 @@ async def setup_booth_staff_and_attendee(
 ) -> tuple[str, str, str, str, dict[str, str]]:
     organizer = await provision_organizer(client, "Acme Congress Co")
     event_id = await create_event(client, organizer)
+    await publish_page(client, organizer, event_id)
     tier_resp = await client.post(
         f"/api/events/{event_id}/ticket-tiers",
         json=tier(name="General", quota=100),
@@ -225,6 +226,7 @@ async def test_scanning_ticket_from_different_event_is_rejected(
         headers=bearer(org2),
     )
     event_2_id = event_2_resp.json()["id"]
+    await publish_page(client, org2, event_2_id)
 
     tier2 = (
         await client.post(
