@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Link, Outlet, useLocation, useNavigate, useParams } from "react-router-dom";
-import { ORGANIZER_KEY_STORAGE, type EventOut } from "../api/client";
+import { ORGANIZER_KEY_STORAGE, registerUnauthorizedHandler, type EventOut } from "../api/client";
 import { formatLocalizedDate, useAttendeeLocale, type TranslationDictionary } from "../lib/i18n";
 import {
   EVENT_SETUP_SECTIONS,
@@ -22,7 +22,11 @@ export type ActiveEvent = Pick<EventOut, "id" | "name" | "slug" | "starts_at" | 
 
 export interface OrganizerOutletContext {
   apiKey: string | null;
-  /** Reports a 401 for the exact key that was sent; any other key or failure is left alone. */
+  /**
+   * Reports a 401 for the exact key that was sent; any other key or failure is left alone. Requests
+   * through `createApiClient({ kind: "organizer" })` already report it (registerUnauthorizedHandler),
+   * so only raw `fetch` calls need this.
+   */
   onKeyRejected: (sentKey: string) => void;
   /** A page reports the event it has successfully loaded so the workspace can name it. */
   reportEvent: (event: ActiveEvent) => void;
@@ -95,6 +99,9 @@ export default function OrganizerLayout() {
     setApiKey((current) => (current === sentKey ? null : current));
     setKeyRejected(true);
   }, []);
+
+  // Every organizer-key request answered 401 lands here, whichever page sent it.
+  useEffect(() => registerUnauthorizedHandler("organizer", handleKeyRejected), [handleKeyRejected]);
 
   const reportEvent = useCallback((reported: ActiveEvent) => {
     setActiveEvent({

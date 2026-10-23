@@ -28,7 +28,7 @@ export default function OrganizerVenue() {
 
 function OrganizerVenueContent() {
   const { eventId } = useParams<{ eventId: string }>();
-  const { apiKey, onKeyRejected, reportEvent, locale, isRtl } = useOutletContext<OrganizerOutletContext>();
+  const { apiKey, reportEvent, locale, isRtl } = useOutletContext<OrganizerOutletContext>();
 
   const [event, setEvent] = useState<EventOut | null>(null);
   const [places, setPlaces] = useState<VenuePlaceOut[]>([]);
@@ -42,20 +42,14 @@ function OrganizerVenueContent() {
   /** Places with a request in flight (reorder, delete): their controls are disabled meanwhile. */
   const [busyIds, setBusyIds] = useState<ReadonlySet<string>>(new Set());
 
+  // A 401 reaches the organizer layout's key gate through the API client (registerUnauthorizedHandler).
   const client = useMemo(() => (apiKey ? createApiClient({ kind: "organizer", token: apiKey }) : null), [apiKey]);
-  const rejected = useCallback(
-    (status: number) => {
-      if (status === 401 && apiKey) onKeyRejected(apiKey);
-    },
-    [apiKey, onKeyRejected],
-  );
 
   const loadPlaces = useCallback(async () => {
     if (!client || !eventId) return;
-    const { data, response } = await client.GET("/api/events/{event_id}/venue-places", { params: { path: { event_id: eventId } } });
-    rejected(response.status);
+    const { data } = await client.GET("/api/events/{event_id}/venue-places", { params: { path: { event_id: eventId } } });
     if (data) setPlaces(data);
-  }, [client, eventId, rejected]);
+  }, [client, eventId]);
 
   useEffect(() => {
     // Without an organizer key nothing is dispatched; the layout shows the key gate.
@@ -68,7 +62,6 @@ function OrganizerVenueContent() {
         client.GET("/api/events/{event_id}/venue-places", { params: { path } }),
         client.GET("/api/events/{event_id}/sessions", { params: { path } }),
       ]);
-      [ev, list, program].forEach((r) => rejected(r.response.status));
       if (!active) return;
       if (ev.data) setEvent(ev.data);
       if (list.data) setPlaces(list.data);
@@ -87,7 +80,7 @@ function OrganizerVenueContent() {
     };
     // Load once per event and key; the copy language does not trigger a reload.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [client, eventId, rejected]);
+  }, [client, eventId]);
 
   useEffect(() => {
     if (event) reportEvent(event);
@@ -132,7 +125,6 @@ function OrganizerVenueContent() {
             params: { path: { event_id: eventId } },
             body: { kind: target.kind, name, location },
           });
-    rejected(result.response.status);
     if (!result.data) return formatApiError(result.error);
     const saved = result.data;
     setPlaces((prev) => [...prev.filter((p) => p.id !== saved.id), saved]);
@@ -166,7 +158,6 @@ function OrganizerVenueContent() {
       ),
     ).catch(() => null);
     setBusy(ids, false);
-    results?.forEach((r) => rejected(r.response.status));
     const failed = results ? results.find((r) => !r.data) : undefined;
     if (!results || failed) {
       const reason = failed ? formatApiError(failed.error) : isRtl ? "اتصال برقرار نشد." : "No connection.";
@@ -183,7 +174,6 @@ function OrganizerVenueContent() {
     const { error, response } = await client.DELETE("/api/events/{event_id}/venue-places/{place_id}", {
       params: { path: { event_id: eventId, place_id: place.id } },
     });
-    rejected(response.status);
     setBusy([place.id], false);
     if (!response.ok) {
       setNotice({ tone: "error", text: isRtl ? `حذف نشد: ${formatApiError(error)}` : `Not deleted: ${formatApiError(error)}` });

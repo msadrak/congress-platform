@@ -22,7 +22,11 @@ interface ScannerPairingDialogProps {
   apiKey: string;
   locale: "fa" | "en";
   isRtl: boolean;
-  onKeyRejected: (sentKey: string) => void;
+  /**
+   * @deprecated Unused: the API client reports a 401 to the organizer layout itself
+   * (registerUnauthorizedHandler). Kept until OrganizerEventDetail stops passing it.
+   */
+  onKeyRejected?: (sentKey: string) => void;
   onClose: () => void;
 }
 
@@ -36,7 +40,7 @@ const formatDateTime = (iso: string, locale: "fa" | "en") => {
  * Pair a phone or tablet with one check-in point: issue a point-scoped device token, hand it over as a
  * QR pairing link (shown once; the API never returns it again), and list or revoke the point's devices.
  */
-export function ScannerPairingDialog({ point, apiKey, locale, isRtl, onKeyRejected, onClose }: ScannerPairingDialogProps) {
+export function ScannerPairingDialog({ point, apiKey, locale, isRtl, onClose }: ScannerPairingDialogProps) {
   const [deviceName, setDeviceName] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
@@ -65,9 +69,8 @@ export function ScannerPairingDialog({ point, apiKey, locale, isRtl, onKeyReject
     const client = createApiClient({ kind: "organizer", token: apiKey });
     client
       .GET("/api/checkin-points/{point_id}/devices", { params: { path: { point_id: pointId } } })
-      .then(({ data, error, response }) => {
+      .then(({ data, error }) => {
         if (!active) return;
-        if (response.status === 401) onKeyRejected(apiKey);
         if (error) setDevicesError(formatApiError(error));
         else setDevices(data ?? []);
       })
@@ -102,11 +105,10 @@ export function ScannerPairingDialog({ point, apiKey, locale, isRtl, onKeyReject
     setSubmitting(true);
     const client = createApiClient({ kind: "organizer", token: apiKey });
     try {
-      const { data, error, response } = await client.POST("/api/checkin-points/{point_id}/token", {
+      const { data, error } = await client.POST("/api/checkin-points/{point_id}/token", {
         params: { path: { point_id: point.id } },
         body: { device_name: name },
       });
-      if (response.status === 401) onKeyRejected(apiKey);
       if (error) {
         setFormError(formatApiError(error));
       } else if (data) {
@@ -140,10 +142,9 @@ export function ScannerPairingDialog({ point, apiKey, locale, isRtl, onKeyReject
     setRevokingId(device.id);
     const client = createApiClient({ kind: "organizer", token: apiKey });
     try {
-      const { data, error, response } = await client.POST("/api/checkin-points/{point_id}/devices/{device_id}/revoke", {
+      const { data, error } = await client.POST("/api/checkin-points/{point_id}/devices/{device_id}/revoke", {
         params: { path: { point_id: point.id, device_id: device.id } },
       });
-      if (response.status === 401) onKeyRejected(apiKey);
       if (error) {
         setDevicesError(isRtl ? `لغو دستگاه انجام نشد: ${formatApiError(error)}` : `Could not revoke the device: ${formatApiError(error)}`);
       } else if (data) {
