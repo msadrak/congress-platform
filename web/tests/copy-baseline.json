@@ -311,25 +311,6 @@
     "ternary": 42,
     "persian": 44
   },
-  "src/pages/PlatformConsole.tsx": {
-    "persian": 27,
-    "ternary": 25
-  },
-  "src/pages/PlatformOrganizerMembers.tsx": {
-    "persian": 20
-  },
-  "src/pages/PlatformOrganizers.tsx": {
-    "ternary": 35,
-    "persian": 34
-  },
-  "src/pages/PlatformSignIn.tsx": {
-    "persian": 31,
-    "ternary": 19
-  },
-  "src/pages/PlatformSms.tsx": {
-    "ternary": 71,
-    "persian": 93
-  },
   "src/pages/ReceptionPortal.tsx": {
     "ternary": 23,
     "persian": 24,

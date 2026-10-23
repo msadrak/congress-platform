@@ -74,10 +74,6 @@ const ALLOWED: Readonly<Record<string, readonly string[]>> = {
   "web/src/pages/OrganizerLayout.tsx": ["فضای کاری", "کنسول"],
   "web/src/pages/OrganizerPanel.tsx": ["بلیت"],
   "web/src/pages/OrganizerSms.tsx": ["بلیت"],
-  "web/src/pages/PlatformConsole.tsx": ["توکن"],
-  "web/src/pages/PlatformOrganizerMembers.tsx": ["کنسول", "بارگیری"],
-  "web/src/pages/PlatformOrganizers.tsx": ["کنسول"],
-  "web/src/pages/PlatformSms.tsx": ["بلیت", "کنسول"],
   "web/src/pages/ReceptionPortal.tsx": ["ایستگاه", "نمایید"],
   "web/src/pages/organizer/EventOperators.tsx": ["نشست"],
 };
