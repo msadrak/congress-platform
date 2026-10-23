@@ -170,6 +170,22 @@ async def test_the_desk_lists_the_check_in_points_and_admits_with_the_gate_rules
     assert row.summary == {"status": "ADMITTED", "rejection_reason": None, "checkin_point_id": hall}
 
 
+async def test_the_desk_does_not_offer_archived_points_and_refuses_admission_there(client: AsyncClient) -> None:
+    desk = await open_desk(client)
+    issued = await walk_in(client, desk)
+    hall = await point(client, desk)
+    old_door = await point(client, desk, name="Old door")
+    archived = await client.post(
+        f"/api/events/{desk.event_id}/checkin-points/{old_door}/archive", headers=bearer(desk.organizer)
+    )
+    assert archived.status_code == 200, archived.text
+
+    points = await client.get(f"/api/events/{desk.event_id}/desk/checkin-points", headers=desk.headers)
+    assert [p["id"] for p in points.json()] == [hall]
+    refused = (await admit(client, desk, issued["ticket_id"], old_door)).json()
+    assert (refused["status"], refused["rejection_reason"]) == ("REJECTED", "POINT_ARCHIVED")
+
+
 async def test_desk_admission_shows_single_use_tier_and_capacity_refusals(client: AsyncClient) -> None:
     desk = await open_desk(client)
     alice, bob = await walk_in(client, desk, "Alice"), await walk_in(client, desk, "Bob")

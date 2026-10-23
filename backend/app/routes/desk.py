@@ -1010,9 +1010,12 @@ async def lookup_attendee_by_qr(
 
 @router.get("/api/events/{event_id}/desk/checkin-points")
 async def list_desk_checkin_points(desk_ctx: AuthorizedDeskDep, session: SessionDep) -> list[CheckInPointOut]:
-    """Where the desk can admit an attendee ("admit at point X")."""
+    """Where the desk can admit an attendee ("admit at point X"); archived points are not offered (an admission
+    there would be refused POINT_ARCHIVED, as at their scanners)."""
     points = await session.scalars(
-        select(CheckInPoint).where(CheckInPoint.event_id == desk_ctx.event.id).order_by(CheckInPoint.created_at)
+        select(CheckInPoint)
+        .where(CheckInPoint.event_id == desk_ctx.event.id, CheckInPoint.archived_at.is_(None))
+        .order_by(CheckInPoint.created_at)
     )
     return [CheckInPointOut.model_validate(point) for point in points]
 

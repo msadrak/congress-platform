@@ -1141,7 +1141,8 @@ export interface paths {
         };
         /**
          * List Desk Checkin Points
-         * @description Where the desk can admit an attendee ("admit at point X").
+         * @description Where the desk can admit an attendee ("admit at point X"); archived points are not offered (an admission
+         *     there would be refused POINT_ARCHIVED, as at their scanners).
          */
         get: operations["list_desk_checkin_points_api_events__event_id__desk_checkin_points_get"];
         put?: never;
