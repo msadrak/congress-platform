@@ -106,7 +106,7 @@ export function DigitalPassCard({ ticket, locale, t, verified, onPrint }: Digita
           <span className="block text-sm font-semibold text-white break-words">{ticket.ticket_tier_name}</span>
         </div>
         <div className="min-w-0 space-y-1 border-t border-white/10 pt-4">
-          <span className="block text-[11px] font-medium text-ink-400">{isRtl ? "تاریخ ثبت بلیط" : "Issued Date"}</span>
+          <span className="block text-[11px] font-medium text-ink-400">{isRtl ? "تاریخ ثبت بلیت" : "Issued Date"}</span>
           <span className="block text-sm font-semibold text-white">{formatLocalizedDate(ticket.created_at, locale)}</span>
         </div>
         <div className="col-span-2 flex flex-wrap items-end justify-between gap-3 border-t border-white/10 pt-4">

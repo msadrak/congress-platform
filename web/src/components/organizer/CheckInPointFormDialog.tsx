@@ -75,7 +75,7 @@ export function CheckInPointFormDialog(props: CheckInPointFormDialogProps) {
     }
     if (draft.policy === "TIER_RESTRICTED" && draft.allowedTiers.length === 0) {
       setInvalidField("tiers");
-      setFormError(isRtl ? "حداقل یک رده بلیط مجاز برای این گیت انتخاب کنید." : "Select at least one allowed tier.");
+      setFormError(isRtl ? "حداقل یک رده بلیت مجاز برای این گیت انتخاب کنید." : "Select at least one allowed tier.");
       return;
     }
     if (!apiKey || !client) return;

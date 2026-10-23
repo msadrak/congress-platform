@@ -1020,7 +1020,7 @@ export function ReceptionStation({ eventId, organizer, locale, t, isRtl }: Recep
                   </option>
                 ))}
               </select>
-              {tiers.length === 0 && <p className="mt-1.5 text-xs text-text-muted">{isRtl ? "هنوز رده بلیطی برای این همایش تعریف نشده است." : "No ticket tier is defined for this congress yet."}</p>}
+              {tiers.length === 0 && <p className="mt-1.5 text-xs text-text-muted">{isRtl ? "هنوز رده بلیتی برای این همایش تعریف نشده است." : "No ticket tier is defined for this congress yet."}</p>}
             </div>
 
             {formError && (

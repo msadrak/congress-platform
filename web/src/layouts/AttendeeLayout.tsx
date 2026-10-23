@@ -254,7 +254,7 @@ export function AttendeeLayout({ children, activeTab, localeProps, eventSlug, de
             </p>
             <p className="ps-6 text-[11px] leading-relaxed text-text-muted">
               {isRtl
-                ? "هشدار امنیتی: حافظه موقت مرورگر شامل شناسه محرمانه کیوآرکد است. از ورود در رایانه‌های عمومی و اشتراکی خودداری فرمایید."
+                ? "هشدار امنیتی: حافظه موقت مرورگر شامل شناسه محرمانه کد QR است. از ورود در رایانه‌های عمومی و اشتراکی خودداری فرمایید."
                 : "Privacy Advisory: Browser storage contains your reusable QR credential. Log out when using shared computers."}
             </p>
           </div>

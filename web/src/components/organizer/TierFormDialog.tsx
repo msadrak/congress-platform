@@ -111,7 +111,7 @@ export function TierFormDialog(props: TierFormDialogProps) {
     <Field
       label={t.tierQuotaLabel}
       required
-      hint={isEdit ? (isRtl ? "سهمیه نمی‌تواند کمتر از بلیط‌های صادرشده باشد." : "Quota cannot fall below confirmed registrations.") : undefined}
+      hint={isEdit ? (isRtl ? "سهمیه نمی‌تواند کمتر از بلیت‌های صادرشده باشد." : "Quota cannot fall below confirmed registrations.") : undefined}
     >
       <input
         type="number"
@@ -136,7 +136,7 @@ export function TierFormDialog(props: TierFormDialogProps) {
             setFormError(null);
           }
         }}
-        title={isEdit ? t.editTierTitle || (isRtl ? "ویرایش رده بلیط و سهمیه" : "Edit Ticket Tier") : t.createTierModalTitle}
+        title={isEdit ? t.editTierTitle || (isRtl ? "ویرایش رده بلیت و سهمیه" : "Edit Ticket Tier") : t.createTierModalTitle}
         description={isEdit ? t.editTierDesc || (isRtl ? "ویرایش نام، توضیحات، سهمیه و وضعیت ثبت‌نام رده." : "Update tier details.") : t.createTierModalDesc}
         size="md"
       >
@@ -160,7 +160,7 @@ export function TierFormDialog(props: TierFormDialogProps) {
 
                 <Field label={t.tierStatusLabel || (isRtl ? "وضعیت ثبت‌نام" : "Registration Status")}>
                   <select value={draft.isOpen ? "open" : "closed"} onChange={(e) => setDraft((d) => ({ ...d, isOpen: e.target.value === "open" }))} className="ui-select">
-                    <option value="open">{t.tierOpenOption || (isRtl ? "باز جهت ثبت‌نام و صدور بلیط" : "Open for Registration")}</option>
+                    <option value="open">{t.tierOpenOption || (isRtl ? "باز جهت ثبت‌نام و صدور بلیت" : "Open for Registration")}</option>
                     <option value="closed">{t.tierClosedOption || (isRtl ? "بسته شده (عدم پذیرش ثبت‌نام)" : "Closed")}</option>
                   </select>
                 </Field>
@@ -219,7 +219,7 @@ export function TierFormDialog(props: TierFormDialogProps) {
       {isEdit && (
         <ConfirmDialog
           isOpen={confirmClose}
-          title={isRtl ? "بستن این رده بلیط؟" : "Close this ticket tier?"}
+          title={isRtl ? "بستن این رده بلیت؟" : "Close this ticket tier?"}
           description={
             isRtl
               ? "پس از بستن، شرکت‌کنندگان جدید نمی‌توانند این رده را رزرو کنند. رزروهای موجود حفظ می‌شود."

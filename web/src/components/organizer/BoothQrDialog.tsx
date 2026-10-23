@@ -49,7 +49,7 @@ export function BoothQrDialog({ booth, eventName, t, isRtl, onClose }: BoothQrDi
           </div>
           <Button type="button" variant="ink" size="md" isFullWidth onClick={() => window.print()}>
             <Icon name="print" size={18} />
-            {isRtl ? "چاپ کیوآرکد استند" : "Print Standee QR"}
+            {isRtl ? "چاپ کد QR استند" : "Print Standee QR"}
           </Button>
         </div>
       )}

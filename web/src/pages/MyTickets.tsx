@@ -354,7 +354,7 @@ export default function MyTickets() {
       icon: "qr",
       title: isRtl ? "در گیت ورود" : "At the gate",
       body: isRtl
-        ? "نور صفحه را زیاد کنید و کیوآر را صاف و بی‌حرکت زیر اسکنر نگه دارید."
+        ? "نور صفحه را زیاد کنید و کد QR را صاف و بی‌حرکت زیر اسکنر نگه دارید."
         : "Turn your screen brightness up and hold the QR flat and still under the scanner.",
     },
     { icon: "wifi-off", title: isRtl ? "بدون اینترنت" : "Works offline", body: t.offlineNoticeDesc },
@@ -362,7 +362,7 @@ export default function MyTickets() {
       icon: "print",
       title: isRtl ? "نسخه کاغذی" : "Paper backup",
       body: isRtl
-        ? "با نماد چاپ روی کارت، نسخه‌ای کاغذی با همان کیوآر تهیه کنید."
+        ? "با نماد چاپ روی کارت، نسخه‌ای کاغذی با همان کد QR تهیه کنید."
         : "Use the print icon on the pass for a paper copy carrying the same QR.",
     },
   ];
@@ -398,7 +398,7 @@ export default function MyTickets() {
               <span className="block text-sm font-semibold">{isRtl ? "نشست شما معتبر نیست" : "Your session is no longer valid"}</span>
               <p>
                 {isRtl
-                  ? "این بلیط از نسخه ذخیره‌شده نمایش داده می‌شود و ممکن است به‌روز نباشد. برای تازه‌سازی دوباره وارد شوید."
+                  ? "این بلیت از نسخه ذخیره‌شده نمایش داده می‌شود و ممکن است به‌روز نباشد. برای تازه‌سازی دوباره وارد شوید."
                   : "This pass is shown from your saved offline copy and may be out of date. Sign in again to refresh it."}
               </p>
             </div>
@@ -457,7 +457,7 @@ export default function MyTickets() {
         {tickets.length > 1 && (
           <div className="at-print-collapse space-y-2.5">
             <span className="block text-xs font-semibold text-text-muted">
-              {isRtl ? "انتخاب بلیط فعال:" : "Select Active Pass:"}
+              {isRtl ? "انتخاب بلیت فعال:" : "Select Active Pass:"}
             </span>
             <div className="flex flex-wrap gap-2">
               {tickets.map((tkt, idx) => {
@@ -478,7 +478,7 @@ export default function MyTickets() {
                       <CongressSignature seed={tkt.event_slug} tone="ink" className="size-full" />
                     </span>
                     {(slug ? tkt.ticket_tier_name : tkt.event_name) ||
-                      (isRtl ? `بلیط ${formatLocalizedNumber(idx + 1, locale)}` : `Ticket ${idx + 1}`)}
+                      (isRtl ? `بلیت ${formatLocalizedNumber(idx + 1, locale)}` : `Ticket ${idx + 1}`)}
                   </button>
                 );
               })}
