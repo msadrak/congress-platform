@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent } from "react";
 import { Link, useParams } from "react-router-dom";
-import { apiErrorCode, createScannerApiClient, formatApiError, type CheckInManifest } from "../api/client";
+import { apiErrorCode, createScannerApiClient, formatApiError, localizedApiError, type CheckInManifest } from "../api/client";
+import { usePageTitle } from "../hooks/usePageTitle";
 import { playErrorBuzz, playSuccessChime, playProvisionalChime } from "../lib/audioFeedback";
 import { useAttendeeLocale } from "../lib/i18n";
 import jsQR from "jsqr";
@@ -113,13 +114,15 @@ function isManifest(value: unknown): value is CheckInManifest {
 export default function GateScanner() {
   const { pointId } = useParams<{ pointId: string }>();
   const { locale, setLocale, t } = useAttendeeLocale();
+  usePageTitle(scannerCopy[locale].product);
   const toggleLocale = () => { setLocale(locale === "fa" ? "en" : "fa"); };
   const [tokenInput, setTokenInput] = useState("");
   const [manualCode, setManualCode] = useState("");
   // Persisted scanner credential (survives browser restart via IndexedDB)
   const [persistedCredential, setPersistedCredential] = useState<PersistedScannerCredential | null>(null);
   // Authorization lifecycle: definitive server rejects + offline-window verdict
-  type AuthBlock = { kind: "REVOKED" | "FORBIDDEN" | "EXPIRED"; message: string };
+  // `message` is the server's English diagnostic (shown verbatim to supervisors); `localized` is the reader's language.
+  type AuthBlock = { kind: "REVOKED" | "FORBIDDEN" | "EXPIRED"; message: string; localized?: string };
   const [authBlocked, setAuthBlockedState] = useState<AuthBlock | null>(null);
   // Long-lived callbacks (sync timer, online handler, HID listener, camera loop) and back-to-back
   // scans read these refs, never a render's snapshot: they are written synchronously with the state.
@@ -268,8 +271,8 @@ export default function GateScanner() {
   // A device that lost its authority keeps no attendee data: the cached manifest and every synced scan
   // are deleted. Unsynced scans stay (the only copy) until re-pairing uploads them or an operator
   // discards them.
-  const enterAuthBlocked = (kind: "REVOKED" | "FORBIDDEN" | "EXPIRED", message: string) => {
-    setAuthBlocked({ kind, message });
+  const enterAuthBlocked = (kind: "REVOKED" | "FORBIDDEN" | "EXPIRED", message: string, localized?: string) => {
+    setAuthBlocked({ kind, message, localized });
     applyManifest(null);
     applyAdmissionState({}, 0);
     setRecentScans([]);
@@ -372,7 +375,10 @@ export default function GateScanner() {
   const [conflicts, setConflicts] = useState<QueuedScan[]>([]);
   const [showConflictDrawer, setShowConflictDrawer] = useState<boolean>(false);
   const [loading, setLoading] = useState(true);
-  const [initError, setInitError] = useState<string | null>(null);
+  // Why the scanner cannot start: a copy key (rendered in the current language) or the server's own text.
+  type InitProblem = ((c: ScannerCopy) => string) | string;
+  const [initError, setInitErrorState] = useState<InitProblem | null>(null);
+  const setInitError = (problem: InitProblem | null) => setInitErrorState(() => problem);
 
   // Sync states
   const [pendingCount, setPendingCount] = useState(0);
@@ -444,7 +450,7 @@ export default function GateScanner() {
           const detail = res.error ? formatApiError(res.error) : `HTTP ${status}`;
           const kind = classifyAuthFailure(status, detail, apiErrorCode(res.error));
           if (kind !== "TRANSIENT") {
-            enterAuthBlocked(kind, detail);
+            enterAuthBlocked(kind, detail, res.error ? localizedApiError(res.error, locale) : detail);
             return { kind: "blocked", detail };
           }
           if (status >= 500 || status === 429) noteServerContact(false);
@@ -501,7 +507,7 @@ export default function GateScanner() {
       const detail = error ? formatApiError(error) : `HTTP ${response.status}`;
       const kind = classifyAuthFailure(response.status, detail, apiErrorCode(error));
       if (kind !== "TRANSIENT") {
-        enterAuthBlocked(kind, detail);
+        enterAuthBlocked(kind, detail, error ? localizedApiError(error, locale) : detail);
         return;
       }
       backOff();
@@ -550,7 +556,7 @@ export default function GateScanner() {
       applyManifest(null);
       applyAdmissionState({}, 0);
       setRecentScans([]);
-      setInitError("Pair this scanner with a valid device token before loading attendee data.");
+      setInitError((c) => c.initNoToken);
       setLoading(false);
       updatePendingCount();
       return;
@@ -576,7 +582,7 @@ export default function GateScanner() {
         setLoading(false);
       }
     } catch (error) {
-      setInitError(error instanceof ScannerStorageBlockedError ? error.message : "Scanner storage is unavailable on this device.");
+      setInitError(error instanceof ScannerStorageBlockedError ? (c) => c.initStorageBlocked : (c) => c.initStorageUnavailable);
       setLoading(false);
       return;
     }
@@ -588,10 +594,10 @@ export default function GateScanner() {
         setAuthBlocked(null);
         await refreshRecentScans();
       } else if (!cached) {
-        setInitError(outcome.kind === "blocked" ? outcome.detail : "Failed to connect to event server.");
+        setInitError(outcome.kind === "blocked" ? outcome.detail : (c) => c.initConnectFailed);
       }
     } else if (!cached) {
-      setInitError("Failed to connect to event server.");
+      setInitError((c) => c.initConnectFailed);
     }
 
     if (!authBlockedRef.current) setConflicts(await getConflictsForPoint(pointId));
@@ -644,7 +650,7 @@ export default function GateScanner() {
         if (err) {
           const kind = classifyAuthFailure(response.status, formatApiError(err), apiErrorCode(err));
           if (kind !== "TRANSIENT") {
-            enterAuthBlocked(kind, formatApiError(err));
+            enterAuthBlocked(kind, formatApiError(err), localizedApiError(err, locale));
             return;
           }
           if (response.status >= 500 || response.status === 429) noteServerContact(false);
@@ -790,7 +796,7 @@ export default function GateScanner() {
         const detail = formatApiError(error);
         const kind = classifyAuthFailure(response.status, detail, apiErrorCode(error));
         if (kind !== "TRANSIENT") {
-          enterAuthBlocked(kind, detail);
+          enterAuthBlocked(kind, detail, localizedApiError(error, locale));
           return "blocked";
         }
       }
@@ -1351,7 +1357,10 @@ export default function GateScanner() {
   if (initError || !manifest) {
     const en = scannerCopy.en;
     const kind = authBlocked?.kind ?? (getStoredScannerToken() ? "UNAVAILABLE" : "UNPAIRED");
-    const message = authBlocked?.message ?? initError ?? "Manifest not found.";
+    const problem: InitProblem = initError ?? ((c) => c.initManifestMissing);
+    // The English diagnostic, and the same in the reader's language.
+    const message = authBlocked?.message ?? (typeof problem === "string" ? problem : problem(en));
+    const localMessage = authBlocked?.localized ?? (typeof problem === "string" ? problem : problem(copy));
     const view = {
       REVOKED: { icon: "alert", tone: "danger", title: [copy.revokedTitle, en.revokedTitle], hint: [copy.revokedBody(pendingCount), en.revokedBody(pendingCount)] },
       FORBIDDEN: { icon: "gate", tone: "warning", title: [copy.forbiddenTitle, en.forbiddenTitle], hint: [copy.forbiddenBody, en.forbiddenBody] },
@@ -1369,7 +1378,7 @@ export default function GateScanner() {
           ? []
           : [message]
         : kind === "UNPAIRED"
-          ? [message]
+          ? [localMessage, message]
           : [v.title[1], message, v.hint[1]];
     return (
       <SetupFrame {...frameProps}>
@@ -1533,7 +1542,7 @@ export default function GateScanner() {
                   }}
                 />
               </p>
-              <p dir="auto" className="text-[#FFB3C4]">{authBlocked.message}</p>
+              <p dir="auto" className="text-[#FFB3C4]">{authBlocked.localized ?? authBlocked.message}</p>
               <p className="text-[#FFB3C4]/80">
                 {locale === "en"
                   ? `${pendingCount} unsynced scan(s) preserved. Ask a supervisor for a fresh token, then re-pair from the Unpair section below — your queued records are kept.`
