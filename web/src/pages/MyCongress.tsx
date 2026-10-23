@@ -95,7 +95,7 @@ export default function MyCongress() {
   if (congress.status === "missing") {
     return narrow(
       <StatusPanel icon="search" title={isRtl ? "همایش پیدا نشد" : "Congress not found"}>
-        <LinkButton to="/my-tickets" variant="secondary" size="md">
+        <LinkButton to="/me" variant="secondary" size="md">
           {t.myPasses}
         </LinkButton>
       </StatusPanel>

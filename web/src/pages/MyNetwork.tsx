@@ -328,7 +328,7 @@ export default function MyNetwork() {
           title={t.unauthenticatedTitle}
           description={t.unauthenticatedDesc}
           actionLabel={t.loginAction}
-          to={signInPath(slug, slug ? congressPath(slug, "my-network") : "/my-network")}
+          to={signInPath(slug, slug ? congressPath(slug, "my-network") : "/me")}
         />
       </AttendeeLayout>
     );

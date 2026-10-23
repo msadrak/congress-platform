@@ -58,8 +58,8 @@ export function PublicLayout({ children, locale, onLocaleChange, congressName, c
   const signInTarget = eventSlug ? signInPath(eventSlug, `/c/${eventSlug}/my-congress`) : "/sign-in";
   const { signedIn } = useAttendeeSession();
   // Inside a congress the attendee links open that congress's own pass and network.
-  const passPath = eventSlug ? `/c/${eventSlug}/my-ticket` : "/my-tickets";
-  const networkPath = eventSlug ? `/c/${eventSlug}/my-network` : "/my-network";
+  const passPath = eventSlug ? `/c/${eventSlug}/my-ticket` : "/me";
+  const networkPath = eventSlug ? `/c/${eventSlug}/my-network` : "/me";
   const [prevPath, setPrevPath] = useState(location.pathname);
   if (prevPath !== location.pathname) {
     setPrevPath(location.pathname);
@@ -221,11 +221,8 @@ export function PublicLayout({ children, locale, onLocaleChange, congressName, c
                 {c.navArchitecture}
               </a>
               <span aria-hidden="true" className="mx-2 h-5 w-px bg-border-default" />
-              <Link to="/my-tickets" className={navLinkLight}>
+              <Link to="/me" className={navLinkLight}>
                 {c.myTickets}
-              </Link>
-              <Link to="/my-network" className={navLinkLight}>
-                {c.myNetwork}
               </Link>
             </nav>
 
@@ -271,8 +268,7 @@ export function PublicLayout({ children, locale, onLocaleChange, congressName, c
                   </li>
                 ))}
                 {[
-                  { to: "/my-tickets", label: c.menuPasses },
-                  { to: "/my-network", label: c.myNetwork },
+                  { to: "/me", label: c.menuPasses },
                   { to: signInTarget, label: c.attendeeSignIn },
                 ].map((item) => (
                   <li key={item.label}>
@@ -331,9 +327,9 @@ export function PublicLayout({ children, locale, onLocaleChange, congressName, c
                   {congress ? (
                     <li><Link to={signedIn ? passPath : signInTarget} className={footerLink}>{signedIn ? c.myPass : c.findMyPass}</Link></li>
                   ) : (
-                    <li><Link to="/my-tickets" className={footerLink}>{c.footerPasses}</Link></li>
+                    <li><Link to="/me" className={footerLink}>{c.footerPasses}</Link></li>
                   )}
-                  <li><Link to={networkPath} className={footerLink}>{c.footerNetwork}</Link></li>
+                  {eventSlug && <li><Link to={networkPath} className={footerLink}>{c.footerNetwork}</Link></li>}
                 </ul>
               </div>
               {/* Staff and platform entries stay on the platform home; attendee pages never show them. */}

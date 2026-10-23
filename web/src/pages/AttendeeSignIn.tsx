@@ -98,7 +98,7 @@ export default function AttendeeSignIn() {
   const congressMissing = Boolean(slug) && congress.status === "missing";
   const knownSlug = slug && !congressMissing ? slug : undefined;
 
-  const fallback = boothId ? `/booth/${boothId}` : knownSlug ? congressPath(knownSlug, "my-congress") : "/my-tickets";
+  const fallback = boothId ? `/booth/${boothId}` : knownSlug ? congressPath(knownSlug, "my-congress") : "/me";
   const destination = safeNextPath(searchParams.get("next"), fallback);
 
   const { token, signIn, signOut: endSession } = useAttendeeSession();
