@@ -16,6 +16,11 @@ export interface EventWorkspace extends OrganizerOutletContext {
   loading: boolean;
   /** Why the event failed to load (the API's message), or null. */
   error: string | null;
+  /**
+   * What kind of failure `error` is: `network` (no response: offline, DNS, reset), `not-found` (404: deleted, or
+   * another organizer's), `other` (any other refusal or server error); null without a failure.
+   */
+  errorKind: EventLoadErrorKind | null;
   /** Fetches the event again; the current event stays on screen meanwhile. */
   reload: () => void;
   /** Replaces the loaded event with one the API returned (e.g. after a PATCH), without a refetch. */
@@ -27,7 +32,14 @@ export interface EventWorkspace extends OrganizerOutletContext {
    * staff run the day, managers change the setup. Hide or disable what it may not do; the server still decides.
    */
   can: (needed: OrganizerRole) => boolean;
+  /**
+   * The setup may be changed: `can("manager")` on an event that is loaded and not archived (roleAccess
+   * `canEditEvent`). Hide add / edit / delete / reorder without it; day actions use `can("staff")`.
+   */
+  canEdit: boolean;
 }
+
+export type EventLoadErrorKind = "network" | "not-found" | "other";
 
 interface EventWorkspaceContextValue extends EventWorkspace {
   /** Starts loading the event: the provider fetches nothing until a page asks for the workspace. */
@@ -48,7 +60,8 @@ export const EventWorkspaceContext = createContext<EventWorkspaceContextValue | 
  *    through the API client itself; only raw `fetch` calls report it with `onKeyRejected(apiKey)`).
  * 3. Load the page's own lists with `useEventList(loader)` (pages/organizer/eventLists.ts) and render
  *    `<EventSectionGate listsLoaded={...} />` (pages/organizer/EventSectionUi.tsx) while
- *    `!event || error || !listsLoaded`: the same skeleton and failure card as the other sections.
+ *    `!event || error || !listsLoaded`: the same skeleton, failure, not-found and archived states as the other
+ *    sections. Hide setup controls with `canEdit`.
  * 4. Drop the page's `key={eventId}` wrapper: the layout already remounts the workspace per event.
  * After saving the event itself, call `replaceEvent(saved)` so every section and the layout show it.
  */
