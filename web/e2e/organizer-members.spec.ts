@@ -28,9 +28,9 @@ test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem('congress_attendee_locale', 'en'));
 });
 
-async function fixture(page: Page, role: Role, options: { lastOwner?: boolean } = {}) {
+async function fixture(page: Page, role: Role, options: { lastOwner?: boolean; activity?: unknown[]; members?: ReturnType<typeof member>[] } = {}) {
   const requests: Recorded[] = [];
-  let members = [member('m-0001', 'Neda Karimi', role, { mobile: MOBILE }), member('m-0002', 'Ali Rad', 'staff')];
+  let members = options.members ?? [member('m-0001', 'Neda Karimi', role, { mobile: MOBILE }), member('m-0002', 'Ali Rad', 'staff')];
   await page.route(/^https?:\/\/[^/]+\/api\//, async route => {
     const request = route.request();
     const url = new URL(request.url());
@@ -73,6 +73,7 @@ async function fixture(page: Page, role: Role, options: { lastOwner?: boolean } 
       return json(200, saved);
     }
     if (path === '/api/organizer/activity') {
+      if (options.activity) return json(200, { items: options.activity, next_before: null });
       if (url.searchParams.get('before') === 'cursor-1') {
         return json(200, { items: [audit('a-3', 'organizer.key_rotated', { actor_type: 'platform_admin', actor_label: 'Platform admin', ip: null })], next_before: null });
       }
@@ -172,7 +173,8 @@ test('the activity log reads who did what, filters by congress and pages back', 
   const list = page.getByTestId('activity-list');
   await expect(list.getByText("changed a member's role")).toBeVisible();
   await expect(list.getByText('Ali Rad: Staff → Viewer')).toBeVisible();
-  await expect(list.getByText('events › booths')).toBeVisible();
+  await expect(list.getByText('edited a booth')).toBeVisible();
+  await expect(list).not.toContainText('events › booths');
   await expect(list.getByText('Cardiology 2027')).toBeVisible();
   await page.getByRole('button', { name: 'Older entries' }).click();
   await expect(list.getByText('rotated the API key')).toBeVisible();
@@ -180,4 +182,33 @@ test('the activity log reads who did what, filters by congress and pages back', 
 
   await page.getByLabel('Congress').selectOption('event-a');
   await expect.poll(() => requests.some(r => r.path === '/api/organizer/activity' && r.query.includes('event_id=event-a'))).toBe(true);
+});
+
+test('Persian activity and members never show route templates or the raw key label', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('congress_attendee_locale', 'fa'));
+  await fixture(page, 'owner', {
+    activity: [
+      audit('a-1', 'http.post', { event_id: 'event-a', actor_type: 'organizer_key', actor_label: 'Integration key', ip: null, summary: { route: '/api/checkin-points/{point_id}/token', method: 'POST', status: 201 } }),
+      audit('a-2', 'http.patch', { event_id: 'event-a', summary: { route: '/api/events/{event_id}/participants/{ticket_id}', method: 'PATCH', status: 200 } }),
+      audit('a-3', 'export.download', { actor_type: 'booth_staff', actor_label: 'رضا', summary: { route: '/api/booths/{booth_id}/leads/export-csv', method: 'GET', status: 200 } }),
+      audit('a-4', 'http.delete', { summary: { route: '/api/events/{event_id}/brand-new/{thing_id}', method: 'DELETE', status: 204 } }),
+    ],
+    members: [member('m-0001', 'Neda Karimi', 'owner', { mobile: MOBILE, invited_by: 'api-key' })],
+  });
+  await seedSession(page);
+  await page.goto('/organizer/activity');
+  const list = page.getByTestId('activity-list');
+  await expect(list).toContainText('کلید API');
+  await expect(list).toContainText('برای نقطه ورود کد جفت‌سازی اسکنر صادر کرد');
+  await expect(list).toContainText('اطلاعات شرکت‌کننده را ویرایش کرد');
+  await expect(list).toContainText('نمایندهٔ غرفه');
+  await expect(list).toContainText('فهرست لیدهای غرفه را دریافت کرد (CSV)');
+  await expect(list).toContainText('موردی را حذف کرد');
+  const text = await list.innerText();
+  for (const raw of ['checkin-points', 'participants', 'brand-new', '›', 'Integration key', 'booth_staff']) expect(text).not.toContain(raw);
+
+  await page.goto('/organizer/members');
+  const table = page.getByTestId('members-table');
+  await expect(table).toContainText('افزوده‌شده به دست کلید API');
+  await expect(table).not.toContainText('api-key');
 });
