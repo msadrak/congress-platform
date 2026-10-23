@@ -119,7 +119,8 @@ test('polling runs every 30 s while visible and pauses while the tab is hidden',
   await seed(page);
   await page.goto('/organizer/events/event-a/analytics');
   await expect(page.getByTestId('kpi-scans')).toHaveText('30');
-  await expect(page.getByTestId('analytics-refreshed-at')).toHaveText('09:30:00');
+  // The fake clock keeps running, so a slow machine may read a second later.
+  await expect(page.getByTestId('analytics-refreshed-at')).toHaveText(/^09:30:0\d$/);
   // "today" is the event's date: 2027-04-11 in Tehran.
   await expect(page.getByRole('combobox', { name: 'Day', exact: true }).locator('option').nth(2)).toHaveText('Sun, Apr 11 (today)');
   expect(attendance()).toHaveLength(1);
