@@ -2,6 +2,9 @@
 
 Single place to claim work on the upgrade programme. Read `UPGRADE_HANDOVER.md` first.
 
+## Persian UI terms (decided 2026-10-23 — use in every new string)
+Ticket type / tier = «نوع کارت ورود» · attendee ticket = «کارت ورود» · session = «جلسه» · check-in point = «نقطه ورود» · QR = «کد QR» · never «بلیط» · walk-in = «ثبت‌نام حضوری».
+
 ## How to claim (any team)
 1. `git fetch origin` and look at the newest version of this file on `integration/upgrade`.
 2. Pick a row whose status is **free**. Check its "Files / area" column does not overlap a row that is **taken**.
@@ -47,13 +50,13 @@ Status values: `free` · `taken` · `ready to merge` · `merged` · `blocked (re
 |---|---|---|---|
 | OPS-1 | Real-infrastructure drills: ACME on the real domain, a real S3 provider for encrypted backups + PITR restore drill, systemd timers on a Linux host, Sentry endpoint, Telegram delivery/relay from Iran | `deploy/**`, `scripts/staging/**` (only fixes found), docs | Needs server access — a human or ops team with credentials |
 | LOAD-1 | Re-run `scripts/load/` on staging after the next deploy; update targets/notes for the current API (published page, OTP budgets, hashed manifest) | `scripts/load/**` | Needs a staging stack |
-| GLOSS-2 | Glossary decision + sweep: Persian terms for ticket type (tier), ticket vs pass, session («نشست»/«جلسه»), check-in point («گیت بازرسی»?); extend `web/tests/glossary.test.ts` | all web copy | **blocked** until the product owner decides the terms |
 | SMS-2 | Backup SMS provider adapter with failover only on definite non-delivery | `backend/app/sms/provider.py`, `gateway.py` | **blocked** until the product owner chooses a provider |
 
 ## Later (start after the overlapping branches merge)
 
 | ID | Scope | Waits for |
 |---|---|---|
+| GLOSS-2 | Glossary sweep of all remaining strings to the DECIDED terms: ticket type «نوع کارت ورود» (plural «انواع کارت ورود»), attendee ticket «کارت ورود», session «جلسه», check-in point «نقطه ورود», «کد QR», never «بلیط»; extend `web/tests/glossary.test.ts` to ban «رده»/«نشست»/«گیت بازرسی» in fa copy | B6a, B6b, C1, C2, WEB-FIX-1, WEB-FIX-2 merged (they already use the new terms in files they touch) |
 | A11Y-1 | Accessibility pass: field `aria-describedby`, tabs/switch roles, route focus management, `StatusPanel` title as a heading (404/expired-link/error pages have no h1), `<html lang/dir>` updated per locale, page titles on error/scanner pages, contrast on dark gradients; VoiceOver/TalkBack check | B5d, B6a, B6b, C2 merged |
 | DATE-1 | Jalali date picker for organizer date/time inputs (event tz aware) | B6a merged |
 | ARCH-2 | Archived read-only on desk and check-in routes (if C1/C2 leave gaps) | C1, C2 merged |
