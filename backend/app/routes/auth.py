@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
 from app.db import SessionDep
-from app.models import DeskOperator, SmsMessage, User
+from app.models import DeskOperator, Organizer, OrganizerMember, SmsMessage, User
 from app.rate_limit import (
     LONGEST_WINDOW_SECONDS,
     OTP_VERIFY_PER_IP,
@@ -156,11 +156,20 @@ def _session_for(user: User, request: Request) -> AuthResponse:
 
 
 async def _should_send(session: SessionDep, mobile: str, purpose: OtpPurpose) -> bool:
-    """Sign-in codes go to any number (that is how accounts are created). Desk codes only go to numbers of
-    active desk operators, so the desk form cannot be used to spend SMS credit on arbitrary numbers; the
-    response is the same either way."""
+    """Sign-in codes go to any number (that is how accounts are created). Desk and organizer codes only go to
+    numbers of active desk operators or organizer members, so those forms cannot be used to spend SMS credit on
+    arbitrary numbers; the response is the same either way."""
     if purpose == "signin":
         return True
+    if purpose == "organizer":
+        member = await session.scalar(
+            select(OrganizerMember.id)
+            .join(User, OrganizerMember.user_id == User.id)
+            .join(Organizer, OrganizerMember.organizer_id == Organizer.id)
+            .where(User.mobile == mobile, OrganizerMember.revoked_at.is_(None), Organizer.revoked_at.is_(None))
+            .limit(1)
+        )
+        return member is not None
     operator = await session.scalar(
         select(DeskOperator.id)
         .join(User, DeskOperator.user_id == User.id)

@@ -9,11 +9,13 @@ from pydantic import ValidationError
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from app.audit import AuditMiddleware
 from app.config import STRICT_ENVIRONMENTS, Settings, describe_settings_error
 from app.errors import ApiError, api_error_handler
 from app.logging_setup import configure_logging
 from app.observability import install_observability
 from app.rate_limit import FailureLimiter
+from app.roles import document_role_errors
 from app.schema_guard import assert_schema_current
 from app.platform_config import apply_platform, environment_config, keep_loading_platform, reload_platform
 from app.sms import build_gateway
@@ -30,6 +32,7 @@ from app.routes import (
     health,
     leads,
     network,
+    organizer_console,
     organizers,
     pages,
     participants,
@@ -91,6 +94,8 @@ def create_app(settings: Settings) -> FastAPI:
     app.state.limiter = FailureLimiter(enabled=settings.auth_rate_limits_enabled)
     app.state.sms = build_gateway(settings)
     app.add_exception_handler(ApiError, api_error_handler)
+    # Inside the request-id middleware (added later, so outer): audit rows carry the request id.
+    app.add_middleware(AuditMiddleware)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
@@ -102,6 +107,7 @@ def create_app(settings: Settings) -> FastAPI:
     app.include_router(auth.router)
     app.include_router(access.router)
     app.include_router(organizers.router)
+    app.include_router(organizer_console.router)
     app.include_router(events.router)
     app.include_router(ticket_tiers.router)
     app.include_router(tickets.router)
@@ -122,6 +128,7 @@ def create_app(settings: Settings) -> FastAPI:
     app.include_router(platform.router)
     if settings.environment != "production":
         app.include_router(sms_outbox.router)
+    document_role_errors(app)
     return app
 
 

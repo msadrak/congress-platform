@@ -10,7 +10,7 @@ from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 from sqlalchemy import Select, func, or_, select
 from sqlalchemy.exc import IntegrityError
 
-from app.auth import OrganizerDep, organizer_is_active, resolve_organizer_key
+from app.auth import OrganizerDep, authorize, organizer_accepts_token, resolve_organizer_principal
 from app.db import SessionDep
 from app.models import (
     CheckIn,
@@ -303,7 +303,7 @@ async def authorized_checkin_point(
 
     # 1. Attempt validation as Scanner JWT
     payload = decode_access_token(token, jwt_secret)
-    if payload is not None:
+    if payload is not None and payload.get("type") != "organizer_member":
         token_type = payload.get("type")
         if token_type == "scanner":
             token_point_id = payload.get("point_id")
@@ -346,7 +346,7 @@ async def authorized_checkin_point(
                     status.HTTP_403_FORBIDDEN,
                     "Scanner token is not authorized for this check-in point",
                 )
-            if not await organizer_is_active(session, event.organizer_id):
+            if not await organizer_accepts_token(session, event.organizer_id, payload.get("iat")):
                 raise HTTPException(
                     status.HTTP_401_UNAUTHORIZED,
                     "Scanner token is no longer valid",
@@ -360,12 +360,13 @@ async def authorized_checkin_point(
                 "Insufficient permissions for check-in point scanning",
             )
 
-    # 2. Attempt validation as Organizer API Key
-    organizer = await resolve_organizer_key(session, request, token)
-    if organizer is not None:
-        if event.organizer_id != organizer.id:
+    # 2. The organizer itself: its API key or a member session with a role that may scan (app.roles).
+    principal = await resolve_organizer_principal(session, request, token)
+    if principal is not None:
+        if event.organizer_id != principal.organizer.id:
             # Mask presence of foreign organizer's check-in point with 404
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Check-in point not found")
+        authorize(request, principal)
         return point
 
     raise HTTPException(

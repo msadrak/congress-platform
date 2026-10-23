@@ -12,7 +12,7 @@ reference it and a congress's attendance statistics must still add up. What iden
   show only the anonymised profile;
 * exhibitor leads about them stay with the exhibitor (rating and notes are the exhibitor's data) but no longer
   carry a name, organization or mobile;
-* booth-staff assignments are removed and desk-operator access is revoked;
+* booth-staff assignments are removed, and desk-operator access and organizer memberships are revoked;
 * pending SMS to them are not sent, sent SMS lose their text and keep only a masked number, and sign-in codes
   for the number are deleted.
 """
@@ -35,6 +35,7 @@ from app.models import (
     DeskOperator,
     Event,
     Lead,
+    OrganizerMember,
     OtpChallenge,
     SmsMessage,
     Ticket,
@@ -80,6 +81,11 @@ async def delete_account(session: AsyncSession, user: User) -> None:
         update(DeskOperator)
         .where(DeskOperator.user_id == user.id, DeskOperator.is_revoked.is_(False))
         .values(is_revoked=True, revoked_at=now, session_version=DeskOperator.session_version + 1)
+    )
+    await session.execute(
+        update(OrganizerMember)
+        .where(OrganizerMember.user_id == user.id, OrganizerMember.revoked_at.is_(None))
+        .values(revoked_at=now, session_version=OrganizerMember.session_version + 1)
     )
     if user.mobile:
         await session.execute(delete(OtpChallenge).where(OtpChallenge.mobile == user.mobile))

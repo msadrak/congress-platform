@@ -193,8 +193,9 @@ export interface paths {
         put?: never;
         /**
          * Rotate Organizer Key
-         * @description New key shown once; the previous key is rejected from this commit on. Also reinstates a revoked
-         *     organizer (rotation is how a compromised tenant gets access back).
+         * @description New key shown once; the previous key is rejected from this commit on, and so is every scanner, desk and
+         *     member session issued before it (they sign in or pair again). Also reinstates a revoked organizer (rotation
+         *     is how a compromised tenant gets access back).
          */
         post: operations["rotate_organizer_key_api_organizers__organizer_id__rotate_key_post"];
         delete?: never;
@@ -214,6 +215,177 @@ export interface paths {
         put?: never;
         /** Revoke Organizer Key */
         post: operations["revoke_organizer_key_api_organizers__organizer_id__revoke_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/organizers/{organizer_id}/members": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Platform List Members */
+        get: operations["platform_list_members_api_organizers__organizer_id__members_get"];
+        put?: never;
+        /**
+         * Platform Add Member
+         * @description Add a member, normally the organizer's first owner, who then invites the rest from the console.
+         */
+        post: operations["platform_add_member_api_organizers__organizer_id__members_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/organizer/login": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Member Login
+         * @description Exchange an SMS code (requested with purpose "organizer") for a console session.
+         */
+        post: operations["member_login_api_organizer_login_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/organizer/session": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Choose Organizer
+         * @description The second step for a member of several organizers: a session with the one they picked.
+         */
+        post: operations["choose_organizer_api_organizer_session_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/organizer/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Console Session */
+        get: operations["console_session_api_organizer_me_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/organizer/logout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Console Logout
+         * @description Ends every session of this member (an API key has no session to end).
+         */
+        post: operations["console_logout_api_organizer_logout_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/organizer/members": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Organizer Members */
+        get: operations["organizer_members_api_organizer_members_get"];
+        put?: never;
+        /** Invite Member */
+        post: operations["invite_member_api_organizer_members_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/organizer/members/{member_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update Member */
+        patch: operations["update_member_api_organizer_members__member_id__patch"];
+        trace?: never;
+    };
+    "/api/organizer/members/{member_id}/revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Revoke Member */
+        post: operations["revoke_member_api_organizer_members__member_id__revoke_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/organizer/activity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Organizer Activity
+         * @description The organizer's audit log, newest first: console actions, desk operators, and what the platform admin did
+         *     to this organizer (key rotation, revocation, members added).
+         */
+        get: operations["organizer_activity_api_organizer_activity_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1825,6 +1997,13 @@ export interface components {
             /** Sms Messages */
             sms_messages: components["schemas"]["ExportSms"][];
         };
+        /** ActivityPage */
+        ActivityPage: {
+            /** Items */
+            items: components["schemas"]["AuditEventOut"][];
+            /** Next Before */
+            next_before: string | null;
+        };
         /** AgendaItem */
         AgendaItem: {
             /**
@@ -2021,6 +2200,39 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+        };
+        /** AuditEventOut */
+        AuditEventOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * At
+             * Format: date-time
+             */
+            at: string;
+            /** Actor Type */
+            actor_type: string;
+            /** Actor Label */
+            actor_label: string;
+            /** Action */
+            action: string;
+            /** Event Id */
+            event_id: string | null;
+            /** Entity Type */
+            entity_type: string | null;
+            /** Entity Id */
+            entity_id: string | null;
+            /** Summary */
+            summary: {
+                [key: string]: unknown;
+            };
+            /** Ip */
+            ip: string | null;
+            /** Request Id */
+            request_id: string | null;
         };
         /** AuthResponse */
         AuthResponse: {
@@ -3329,6 +3541,103 @@ export interface components {
              */
             created_at: string;
         };
+        /** MemberChoice */
+        MemberChoice: {
+            organizer: components["schemas"]["OrganizerSummary"];
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "owner" | "manager" | "staff" | "viewer";
+        };
+        /** MemberCreate */
+        MemberCreate: {
+            /** Mobile */
+            mobile: string;
+            /** Display Name */
+            display_name: string;
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "owner" | "manager" | "staff" | "viewer";
+        };
+        /** MemberLogin */
+        MemberLogin: {
+            /** Mobile */
+            mobile: string;
+            /** Code */
+            code: string;
+        };
+        /**
+         * MemberLoginOut
+         * @description `signed_in` carries the session; `choose_organizer` (a member of several) a token for /session.
+         */
+        MemberLoginOut: {
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "signed_in" | "choose_organizer";
+            /** Access Token */
+            access_token?: string | null;
+            /**
+             * Token Type
+             * @default bearer
+             */
+            token_type: string;
+            session?: components["schemas"]["OrganizerSessionOut"] | null;
+            /** Selection Token */
+            selection_token?: string | null;
+            /**
+             * Organizers
+             * @default []
+             */
+            organizers: components["schemas"]["MemberChoice"][];
+        };
+        /** MemberOut */
+        MemberOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Display Name */
+            display_name: string;
+            /** Mobile */
+            mobile: string | null;
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "owner" | "manager" | "staff" | "viewer";
+            /** Invited By */
+            invited_by: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Revoked At */
+            revoked_at: string | null;
+        };
+        /** MemberSessionCreate */
+        MemberSessionCreate: {
+            /** Selection Token */
+            selection_token: string;
+            /**
+             * Organizer Id
+             * Format: uuid
+             */
+            organizer_id: string;
+        };
+        /** MemberUpdate */
+        MemberUpdate: {
+            /** Display Name */
+            display_name?: string | null;
+            /** Role */
+            role?: ("owner" | "manager" | "staff" | "viewer") | null;
+        };
         /** OrganizerCreate */
         OrganizerCreate: {
             /** Name */
@@ -3368,6 +3677,34 @@ export interface components {
              */
             api_key: string;
         };
+        /**
+         * OrganizerSessionOut
+         * @description Who is signed in to the console: the API key (as owner) or a member, and with which role.
+         */
+        OrganizerSessionOut: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "key" | "member";
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "owner" | "manager" | "staff" | "viewer";
+            organizer: components["schemas"]["OrganizerSummary"];
+            member?: components["schemas"]["MemberOut"] | null;
+        };
+        /** OrganizerSummary */
+        OrganizerSummary: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+        };
         /** OtpComplete */
         OtpComplete: {
             /** Signup Token */
@@ -3394,7 +3731,7 @@ export interface components {
              * @default signin
              * @enum {string}
              */
-            purpose: "signin" | "desk";
+            purpose: "signin" | "desk" | "organizer";
         };
         /** OtpRequestOut */
         OtpRequestOut: {
@@ -5007,6 +5344,449 @@ export interface operations {
             };
         };
     };
+    platform_list_members_api_organizers__organizer_id__members_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-admin-token"?: string | null;
+            };
+            path: {
+                organizer_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemberOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    platform_add_member_api_organizers__organizer_id__members_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-admin-token"?: string | null;
+            };
+            path: {
+                organizer_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MemberCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemberOut"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    member_login_api_organizer_login_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MemberLogin"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemberLoginOut"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    choose_organizer_api_organizer_session_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MemberSessionCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemberLoginOut"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    console_session_api_organizer_me_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrganizerSessionOut"];
+                };
+            };
+        };
+    };
+    console_logout_api_organizer_logout_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    organizer_members_api_organizer_members_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemberOut"][];
+                };
+            };
+            /** @description ROLE_FORBIDDEN: needs the manager role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    invite_member_api_organizer_members_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MemberCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemberOut"];
+                };
+            };
+            /** @description ROLE_FORBIDDEN: needs the owner role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_member_api_organizer_members__member_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                member_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MemberUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemberOut"];
+                };
+            };
+            /** @description ROLE_FORBIDDEN: needs the owner role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    revoke_member_api_organizer_members__member_id__revoke_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                member_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemberOut"];
+                };
+            };
+            /** @description ROLE_FORBIDDEN: needs the owner role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    organizer_activity_api_organizer_activity_get: {
+        parameters: {
+            query?: {
+                event_id?: string | null;
+                before?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ActivityPage"];
+                };
+            };
+            /** @description ROLE_FORBIDDEN: needs the manager role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     list_events_api_events_get: {
         parameters: {
             query?: never;
@@ -5047,6 +5827,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["EventOut"];
+                };
+            };
+            /** @description ROLE_FORBIDDEN: needs the manager role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
             /** @description Validation Error */
@@ -5115,6 +5904,15 @@ export interface operations {
                     "application/json": components["schemas"]["EventOut"];
                 };
             };
+            /** @description ROLE_FORBIDDEN: needs the manager role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description Validation Error */
             422: {
                 headers: {
@@ -5181,6 +5979,15 @@ export interface operations {
                     "application/json": components["schemas"]["TicketTierOut"];
                 };
             };
+            /** @description ROLE_FORBIDDEN: needs the manager role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description Validation Error */
             422: {
                 headers: {
@@ -5215,6 +6022,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TicketTierOut"];
+                };
+            };
+            /** @description ROLE_FORBIDDEN: needs the manager role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
             /** @description Validation Error */
@@ -5405,6 +6221,15 @@ export interface operations {
                     "application/json": components["schemas"]["ParticipantPage"];
                 };
             };
+            /** @description ROLE_FORBIDDEN: needs the staff role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description Validation Error */
             422: {
                 headers: {
@@ -5440,6 +6265,15 @@ export interface operations {
                     "application/json": unknown;
                 };
             };
+            /** @description ROLE_FORBIDDEN: needs the manager role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description Validation Error */
             422: {
                 headers: {
@@ -5470,6 +6304,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ParticipantDetail"];
+                };
+            };
+            /** @description ROLE_FORBIDDEN: needs the staff role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
             /** @description Not Found */
@@ -5510,6 +6353,15 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description ROLE_FORBIDDEN: needs the manager role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
             };
             /** @description Not Found */
             404: {
@@ -5565,6 +6417,15 @@ export interface operations {
                     "application/json": components["schemas"]["ParticipantDetail"];
                 };
             };
+            /** @description ROLE_FORBIDDEN: needs the manager role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description Not Found */
             404: {
                 headers: {
@@ -5608,6 +6469,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ParticipantDetail"];
+                };
+            };
+            /** @description ROLE_FORBIDDEN: needs the manager role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
             /** @description Not Found */
@@ -5664,6 +6534,15 @@ export interface operations {
                     "application/json": components["schemas"]["ParticipantDetail"];
                 };
             };
+            /** @description ROLE_FORBIDDEN: needs the manager role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description Not Found */
             404: {
                 headers: {
@@ -5716,6 +6595,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ParticipantDetail"];
+                };
+            };
+            /** @description ROLE_FORBIDDEN: needs the manager role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
             /** @description Not Found */
@@ -5802,6 +6690,15 @@ export interface operations {
                     "application/json": components["schemas"]["CheckInPointOut"];
                 };
             };
+            /** @description ROLE_FORBIDDEN: needs the manager role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description Validation Error */
             422: {
                 headers: {
@@ -5836,6 +6733,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CheckInPointOut"];
+                };
+            };
+            /** @description ROLE_FORBIDDEN: needs the manager role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
             /** @description Validation Error */
@@ -5873,6 +6779,15 @@ export interface operations {
                     "application/json": components["schemas"]["ScannerTokenOut"];
                 };
             };
+            /** @description ROLE_FORBIDDEN: needs the staff role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description Validation Error */
             422: {
                 headers: {
@@ -5902,6 +6817,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ScannerDeviceOut"][];
+                };
+            };
+            /** @description ROLE_FORBIDDEN: needs the staff role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
             /** @description Validation Error */
@@ -5967,6 +6891,15 @@ export interface operations {
                     "application/json": components["schemas"]["ScannerDeviceOut"];
                 };
             };
+            /** @description ROLE_FORBIDDEN: needs the staff role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description Validation Error */
             422: {
                 headers: {
@@ -5999,6 +6932,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CheckInManifest"];
+                };
+            };
+            /** @description ROLE_FORBIDDEN: needs the staff role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
             /** @description Validation Error */
@@ -6036,6 +6978,15 @@ export interface operations {
                     "application/json": components["schemas"]["BatchScanResponse"];
                 };
             };
+            /** @description ROLE_FORBIDDEN: needs the staff role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description Validation Error */
             422: {
                 headers: {
@@ -6069,6 +7020,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ScanResult"];
+                };
+            };
+            /** @description ROLE_FORBIDDEN: needs the staff role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
             /** @description Validation Error */
@@ -6137,6 +7097,15 @@ export interface operations {
                     "application/json": components["schemas"]["DeskMeOut"];
                 };
             };
+            /** @description ROLE_FORBIDDEN: needs the staff role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description Validation Error */
             422: {
                 headers: {
@@ -6168,6 +7137,15 @@ export interface operations {
                     "application/json": components["schemas"]["TicketTierOut"][];
                 };
             };
+            /** @description ROLE_FORBIDDEN: needs the staff role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description Validation Error */
             422: {
                 headers: {
@@ -6197,6 +7175,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DeskOperatorOut"][];
+                };
+            };
+            /** @description ROLE_FORBIDDEN: needs the manager role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
             /** @description Validation Error */
@@ -6234,6 +7221,15 @@ export interface operations {
                     "application/json": components["schemas"]["DeskOperatorOut"];
                 };
             };
+            /** @description ROLE_FORBIDDEN: needs the manager role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description Validation Error */
             422: {
                 headers: {
@@ -6266,6 +7262,15 @@ export interface operations {
                     "application/json": components["schemas"]["DeskOperatorOut"];
                 };
             };
+            /** @description ROLE_FORBIDDEN: needs the manager role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description Validation Error */
             422: {
                 headers: {
@@ -6296,6 +7301,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DeskOperatorOut"];
+                };
+            };
+            /** @description ROLE_FORBIDDEN: needs the manager role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
             /** @description Validation Error */
@@ -6333,6 +7347,15 @@ export interface operations {
                     "application/json": components["schemas"]["DeskRegistrationOut"];
                 };
             };
+            /** @description ROLE_FORBIDDEN: needs the staff role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description Validation Error */
             422: {
                 headers: {
@@ -6367,6 +7390,15 @@ export interface operations {
                     "application/json": components["schemas"]["AttendeeSearchItem"][];
                 };
             };
+            /** @description ROLE_FORBIDDEN: needs the staff role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description Validation Error */
             422: {
                 headers: {
@@ -6399,6 +7431,15 @@ export interface operations {
                     "application/json": components["schemas"]["AttendeeDetailCard"];
                 };
             };
+            /** @description ROLE_FORBIDDEN: needs the staff role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description Validation Error */
             422: {
                 headers: {
@@ -6429,6 +7470,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PassSmsResendOut"];
+                };
+            };
+            /** @description ROLE_FORBIDDEN: needs the staff role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
             /** @description Validation Error */
@@ -6527,6 +7577,15 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
+            /** @description ROLE_FORBIDDEN: needs the manager role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description Validation Error */
             422: {
                 headers: {
@@ -6567,6 +7626,15 @@ export interface operations {
             };
             /** @description Bad Request */
             400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description ROLE_FORBIDDEN: needs the manager role */
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -6640,6 +7708,15 @@ export interface operations {
                     "application/json": components["schemas"]["BoothOut"];
                 };
             };
+            /** @description ROLE_FORBIDDEN: needs the manager role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description Validation Error */
             422: {
                 headers: {
@@ -6669,6 +7746,15 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description ROLE_FORBIDDEN: needs the manager role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
             };
             /** @description Validation Error */
             422: {
@@ -6706,6 +7792,15 @@ export interface operations {
                     "application/json": components["schemas"]["BoothOut"];
                 };
             };
+            /** @description ROLE_FORBIDDEN: needs the manager role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description Validation Error */
             422: {
                 headers: {
@@ -6736,6 +7831,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["BoothStaffOut"][];
+                };
+            };
+            /** @description ROLE_FORBIDDEN: needs the staff role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
             /** @description Validation Error */
@@ -6772,6 +7876,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["BoothStaffOut"];
+                };
+            };
+            /** @description ROLE_FORBIDDEN: needs the manager role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
             /** @description Validation Error */
@@ -7281,6 +8394,15 @@ export interface operations {
                     "application/json": components["schemas"]["PageStateOut"];
                 };
             };
+            /** @description ROLE_FORBIDDEN: needs the manager role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description Validation Error */
             422: {
                 headers: {
@@ -7316,6 +8438,15 @@ export interface operations {
                     "application/json": components["schemas"]["PageStateOut"];
                 };
             };
+            /** @description ROLE_FORBIDDEN: needs the manager role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description Validation Error */
             422: {
                 headers: {
@@ -7345,6 +8476,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PageStateOut"];
+                };
+            };
+            /** @description ROLE_FORBIDDEN: needs the manager role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
             /** @description Validation Error */
@@ -7380,6 +8520,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PageStateOut"];
+                };
+            };
+            /** @description ROLE_FORBIDDEN: needs the manager role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
             /** @description Validation Error */
@@ -7485,6 +8634,15 @@ export interface operations {
                     "application/json": components["schemas"]["MediaAssetOut"];
                 };
             };
+            /** @description ROLE_FORBIDDEN: needs the manager role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description Validation Error */
             422: {
                 headers: {
@@ -7546,6 +8704,15 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description ROLE_FORBIDDEN: needs the manager role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
             };
             /** @description Validation Error */
             422: {
@@ -7644,6 +8811,15 @@ export interface operations {
                     "application/json": components["schemas"]["VenuePlaceOut"];
                 };
             };
+            /** @description ROLE_FORBIDDEN: needs the manager role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description Validation Error */
             422: {
                 headers: {
@@ -7673,6 +8849,15 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description ROLE_FORBIDDEN: needs the manager role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
             };
             /** @description Validation Error */
             422: {
@@ -7708,6 +8893,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["VenuePlaceOut"];
+                };
+            };
+            /** @description ROLE_FORBIDDEN: needs the manager role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
             /** @description Validation Error */
@@ -7776,6 +8970,15 @@ export interface operations {
                     "application/json": components["schemas"]["EventSessionOut"];
                 };
             };
+            /** @description ROLE_FORBIDDEN: needs the manager role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description Validation Error */
             422: {
                 headers: {
@@ -7811,6 +9014,15 @@ export interface operations {
                     "application/json": components["schemas"]["EventSessionImportOut"];
                 };
             };
+            /** @description ROLE_FORBIDDEN: needs the manager role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description Validation Error */
             422: {
                 headers: {
@@ -7840,6 +9052,15 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description ROLE_FORBIDDEN: needs the manager role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
             };
             /** @description Validation Error */
             422: {
@@ -7875,6 +9096,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["EventSessionOut"];
+                };
+            };
+            /** @description ROLE_FORBIDDEN: needs the manager role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
             /** @description Validation Error */
@@ -8154,6 +9384,15 @@ export interface operations {
                     "application/json": components["schemas"]["SmsTemplateOut"];
                 };
             };
+            /** @description ROLE_FORBIDDEN: needs the manager role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description Validation Error */
             422: {
                 headers: {
@@ -8184,6 +9423,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SmsTemplateOut"];
+                };
+            };
+            /** @description ROLE_FORBIDDEN: needs the manager role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
             /** @description Validation Error */
@@ -8221,6 +9469,15 @@ export interface operations {
                     "application/json": components["schemas"]["SmsTestOut"];
                 };
             };
+            /** @description ROLE_FORBIDDEN: needs the manager role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description Validation Error */
             422: {
                 headers: {
@@ -8252,6 +9509,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SmsMessageOut"][];
+                };
+            };
+            /** @description ROLE_FORBIDDEN: needs the manager role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
             /** @description Validation Error */
