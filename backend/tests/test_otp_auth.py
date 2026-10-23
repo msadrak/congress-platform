@@ -60,7 +60,7 @@ async def test_request_sends_a_six_digit_code_and_logs_the_sms_without_it(app: F
     (sent,) = recorder(app).sent_to(MOBILE)
     assert sent.code is not None and sent.code.isdigit() and len(sent.code) == 6
     assert sent.kind == "otp"
-    assert sent.text == f"کد ورود شما به سامانه همایش: {sent.code}\nاین کد تا 2 دقیقه معتبر است؛ آن را به کسی ندهید."
+    assert sent.text == f"کد ورود همایش: {sent.code}\nآن را به کسی ندهید."
     async with app.state.sessionmaker() as session:
         (log,) = (await session.scalars(select(SmsMessage))).all()
         challenge = await session.scalar(select(OtpChallenge))

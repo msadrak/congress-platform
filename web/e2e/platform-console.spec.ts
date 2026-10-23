@@ -5,7 +5,7 @@ import type { Page } from '@playwright/test';
 // (backend/tests/test_platform_console.py covers the real API).
 const TOKEN = 'synthetic-platform-admin-token';
 const KEY = 'sk_live_abcdefghijklmnop1234';
-const OTP_DEFAULT = 'کد ورود شما به سامانه همایش: {code}\nاین کد تا {minutes} دقیقه معتبر است؛ آن را به کسی ندهید.';
+const OTP_DEFAULT = 'کد ورود همایش: {code}\nآن را به کسی ندهید.';
 const CONFIRMATION_DEFAULT = '{name} عزیز، ثبت‌نام شما در «{event}» تأیید شد.\nکارت ورود: {link}';
 
 type Recorded = { method: string; path: string; auth: string | undefined; admin: string | undefined; body: unknown };
@@ -143,7 +143,7 @@ test('the sign-in text must keep {code}; it is saved and tested from the console
   const requests = await fixture(page);
   await openConsole(page);
   const otp = page.getByRole('region', { name: 'Sign-in code SMS (every congress)' });
-  await expect(otp.getByTestId('sms-preview')).toContainText('کد ورود شما به سامانه همایش: 111111');
+  await expect(otp.getByTestId('sms-preview')).toContainText('کد ورود همایش: 111111');
   const editor = otp.getByLabel('Message text');
   await editor.fill('AITeb code');
   await expect(otp.getByText('Required placeholder: {code}')).toBeVisible();
