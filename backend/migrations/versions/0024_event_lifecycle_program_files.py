@@ -18,6 +18,8 @@ revision: str = "0024"
 down_revision: Union[str, Sequence[str], None] = "0023"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
+# Expand only (new columns with defaults or nullable, a new table): the 0023 release runs on this schema.
+backward_compatible = True
 
 
 def upgrade() -> None:
