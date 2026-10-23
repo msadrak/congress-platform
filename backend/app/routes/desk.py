@@ -62,6 +62,7 @@ from app.ticket_lifecycle import (
     queue_ticket_sms,
     reactivate_ticket,
     reissue_ticket,
+    take_tier_place,
     transfer_ticket,
 )
 
@@ -730,8 +731,9 @@ async def _claim_walk_in_key(
 
 
 async def _tier_unavailable(session: AsyncSession, event: Event, tier_id: uuid.UUID) -> ApiError:
-    """Why a place in the tier could not be taken, with the codes (and statuses) of the attendee reservation."""
-    tier = await session.get(TicketTier, tier_id)
+    """Why a place in the tier could not be taken, with the codes (and statuses) of the attendee reservation. Read
+    afresh: the tier may have changed since this request loaded it."""
+    tier = await session.get(TicketTier, tier_id, populate_existing=True)
     if tier is None or tier.event_id != event.id:
         return ApiError(status.HTTP_404_NOT_FOUND, "TIER_NOT_FOUND", "Ticket tier not found")
     if not tier.is_open:
@@ -752,7 +754,7 @@ async def _reactivate_walk_in(
     again in the chosen tier (taking a place), with a new pass and a confirmation SMS (app.ticket_lifecycle)."""
     event = desk_ctx.event
     try:
-        secret, code = await reactivate_ticket(session, ticket, body.ticket_tier_id, user, event)
+        secret, code = await reactivate_ticket(session, ticket, body.ticket_tier_id, user, event, reserve_quota=False)
     except TicketStateError:
         raise await _tier_unavailable(session, event, body.ticket_tier_id) from None
     ticket.issued_by_operator_id = desk_ctx.operator.id if desk_ctx.operator else None
@@ -765,7 +767,10 @@ async def _reactivate_walk_in(
         session, link_origin(request.app.state.settings, str(request.base_url)), "ticket_confirmation",
         mobile=user.mobile, name=ticket.attendee_full_name, event=event, ticket=ticket, code=code,
     )
-    tier_name = await session.scalar(select(TicketTier.name).where(TicketTier.id == body.ticket_tier_id))
+    # The tier place last: its row lock is then held only for the commit (take_tier_place).
+    tier_name = await take_tier_place(session, body.ticket_tier_id, event.id)
+    if tier_name is None:
+        raise await _tier_unavailable(session, event, body.ticket_tier_id)
     await session.commit()
     return DeskRegistrationOut(
         ticket_id=ticket.id,
@@ -773,7 +778,7 @@ async def _reactivate_walk_in(
         attendee_mobile=body.mobile,
         organization=body.organization.strip(),
         title=body.title.strip(),
-        ticket_tier_name=tier_name or "",
+        ticket_tier_name=tier_name,
         qr_secret=secret,
         issued_by=desk_ctx.operator_name,
         created_at=ticket.created_at,
@@ -805,6 +810,16 @@ async def create_desk_registration(
         if replay is not None:
             response.headers["Idempotent-Replayed"] = "true"
             return replay
+
+    # Refuse a tier that is known to fail before writing anything; the place itself is taken last (step 5).
+    tier_row = await session.get(TicketTier, body.ticket_tier_id)
+    if (
+        tier_row is None
+        or tier_row.event_id != event.id
+        or not tier_row.is_open
+        or tier_row.reserved_count >= tier_row.quota
+    ):
+        raise await _tier_unavailable(session, event, body.ticket_tier_id)
 
     # 1. Resolve User: an existing account with this mobile, or a new one (no mobile = cannot sign in later)
     user = None
@@ -842,25 +857,7 @@ async def create_desk_registration(
             )
         return await _reactivate_walk_in(session, request, desk_ctx, body, existing_ticket, user, key_id)
 
-    # 3. Atomic inventory decrement on TicketTier
-    stmt = (
-        update(TicketTier)
-        .where(
-            TicketTier.id == body.ticket_tier_id,
-            TicketTier.event_id == event.id,
-            TicketTier.is_open.is_(True),
-            TicketTier.reserved_count < TicketTier.quota,
-        )
-        .values(reserved_count=TicketTier.reserved_count + 1)
-        .returning(TicketTier.name)
-    )
-    res = await session.execute(stmt)
-    tier_name = res.scalar_one_or_none()
-
-    if tier_name is None:
-        raise await _tier_unavailable(session, event, body.ticket_tier_id)
-
-    # 4. Mint Ticket with Operator Attribution
+    # 3. Mint Ticket with Operator Attribution
     operator_id = desk_ctx.operator.id if desk_ctx.operator else None
     ticket = Ticket(
         event_id=event.id,
@@ -874,7 +871,7 @@ async def create_desk_registration(
     try:
         await session.flush()
     except IntegrityError:
-        # A concurrent registration gave this attendee a ticket a moment ago; raising also returns the seat.
+        # A concurrent registration gave this attendee a ticket a moment ago (no place has been taken yet).
         raise ApiError(
             status.HTTP_409_CONFLICT, "ALREADY_REGISTERED", "Attendee already has an active ticket for this congress"
         ) from None
@@ -883,7 +880,7 @@ async def create_desk_registration(
             update(DeskIdempotencyKey).where(DeskIdempotencyKey.id == key_id).values(ticket_id=ticket.id)
         )
 
-    # 5. Mint polymorphic EntityQR
+    # 4. Mint polymorphic EntityQR
     secret = generate_entity_qr_secret()
     qr = EntityQR(
         secret=secret,
@@ -897,6 +894,11 @@ async def create_desk_registration(
         session, request.app.state.settings, str(request.base_url), user=user, event=event, ticket=ticket,
         code=link.code,
     )
+    # 5. The tier place, last: the tier row is then locked only for the commit (take_tier_place). It is the one
+    # atomic gate, so concurrent walk-ins and reservations never oversell the tier; a refusal rolls back the rest.
+    tier_name = await take_tier_place(session, body.ticket_tier_id, event.id)
+    if tier_name is None:
+        raise await _tier_unavailable(session, event, body.ticket_tier_id)
     await session.commit()
 
     # The pass shows what the desk typed. When the number already has an account, the account keeps its own

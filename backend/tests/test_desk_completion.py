@@ -15,7 +15,7 @@ from fastapi import FastAPI
 from httpx import AsyncClient
 from sqlalchemy import func, select
 
-from app.models import AuditEvent, CheckIn, DeskCheckIn, SmsMessage, TicketPrint, TicketTier
+from app.models import AuditEvent, CheckIn, DeskCheckIn, EntityQR, SmsMessage, Ticket, TicketPrint, TicketTier, User
 from app.sms.gateway import SmsGateway
 from app.sms.provider import SmsResult
 from tests.helpers import bearer, desk_sign_in, provision_organizer
@@ -474,6 +474,81 @@ async def test_reactivation_respects_a_sold_out_tier(client: AsyncClient) -> Non
 
     assert again.status_code == 410
     assert (await card(client, desk, first["ticket_id"]))["status"] == "cancelled"
+
+
+async def test_concurrent_walk_ins_never_oversell_the_last_places(client: AsyncClient, app: FastAPI) -> None:
+    """Walk-ins take the tier place last, like attendee reservations (PERF-1): the conditional increment is still
+    the one gate, so twenty desks pressing at once for the last three places issue exactly three passes."""
+    desk = await open_desk(client)
+    last = (
+        await client.post(
+            f"/api/events/{desk.event_id}/ticket-tiers", json=tier(name="Last Seats", quota=5), headers=bearer(desk.organizer)
+        )
+    ).json()["id"]
+    for i in range(2):  # two places already taken: three left for twenty contenders
+        await walk_in(client, desk, f"Early {i}", ticket_tier_id=last)
+
+    responses = await asyncio.gather(*(
+        client.post(
+            f"/api/events/{desk.event_id}/desk-registrations",
+            json={"full_name": f"Contender {i}", "mobile": f"0912100{5000 + i}", "ticket_tier_id": last},
+            headers=desk.headers,
+        )
+        for i in range(20)
+    ))
+
+    assert sorted(r.status_code for r in responses) == [201] * 3 + [410] * 17, [r.text for r in responses]
+    assert {r.json()["code"] for r in responses if r.status_code == 410} == {"TIER_SOLD_OUT"}
+    assert {r.json()["ticket_tier_name"] for r in responses if r.status_code == 201} == {"Last Seats"}
+    async with app.state.sessionmaker() as session:
+        found = await session.get(TicketTier, uuid.UUID(last))
+        assert found is not None and found.reserved_count == 5
+        tickets = await session.scalar(select(func.count()).select_from(Ticket).where(Ticket.ticket_tier_id == found.id))
+        assert tickets == 5
+        # A refused walk-in leaves nothing behind: no pass and no confirmation SMS.
+        orphans = await session.scalar(
+            select(func.count()).select_from(EntityQR).where(
+                EntityQR.entity_type == "attendee_ticket", ~select(Ticket.id).where(Ticket.id == EntityQR.entity_id).exists()
+            )
+        )
+        assert orphans == 0
+        texted = await session.scalar(
+            select(func.count()).select_from(SmsMessage).where(
+                SmsMessage.kind == "ticket_confirmation", SmsMessage.mobile.like("0912100%")
+            )
+        )
+        assert texted == 3
+
+
+async def test_a_walk_in_to_a_closed_or_foreign_tier_is_refused_before_anything_is_written(
+    client: AsyncClient, app: FastAPI
+) -> None:
+    desk = await open_desk(client)
+    other = await open_desk(client, name="Other Congress Co", mobile="09121004499")
+    closed = await client.patch(
+        f"/api/events/{desk.event_id}/ticket-tiers/{desk.tier_id}", json={"is_open": False}, headers=bearer(desk.organizer)
+    )
+    assert closed.status_code == 200, closed.text
+
+    def attempt(tier_id: str, mobile: str) -> Any:
+        return client.post(
+            f"/api/events/{desk.event_id}/desk-registrations",
+            json={"full_name": "Nobody Yet", "mobile": mobile, "ticket_tier_id": tier_id},
+            headers=desk.headers,
+        )
+
+    refused_closed = await attempt(desk.tier_id, "09121006001")
+    refused_foreign = await attempt(other.tier_id, "09121006002")
+    refused_missing = await attempt(str(uuid.uuid4()), "09121006003")
+
+    assert (refused_closed.status_code, refused_closed.json()["code"]) == (400, "TIER_CLOSED")
+    assert (refused_foreign.status_code, refused_foreign.json()["code"]) == (404, "TIER_NOT_FOUND")
+    assert (refused_missing.status_code, refused_missing.json()["code"]) == (404, "TIER_NOT_FOUND")
+    async with app.state.sessionmaker() as session:
+        created = await session.scalar(
+            select(func.count()).select_from(User).where(User.mobile.in_(["09121006001", "09121006002", "09121006003"]))
+        )
+        assert created == 0
 
 
 # --- Operators ------------------------------------------------------------------------------------------------------
