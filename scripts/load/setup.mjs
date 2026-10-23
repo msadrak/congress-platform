@@ -9,14 +9,19 @@
  *   --gates <n>            check-in points with one scanner token each, plus one backlog point [10]
  *   --tickets <n>          gate tickets issued at the front desk (no SMS, no sign-in) [300]
  *   --attendees <n>        attendees signed in by SMS code, for reservation-burst.js [500]
- *   --relax-otp-limits     raise the per-IP SMS budget (platform console) so one load generator can send
- *                          more than 100 codes an hour; undo with --restore-otp-limits
+ *   --relax-otp-limits     raise the per-IP sign-in code budget and lift the platform SMS caps (platform
+ *                          console) so one load generator can sign hundreds of attendees in and the burst
+ *                          scenarios stay under the caps; undo with --restore-otp-limits
  *   --concurrency <n>      parallel setup requests [8]
  *   --out <path>           fixture file [scripts/load/.fixture/fixture.json]
  *
  * The admin token defaults to $CONGRESS_PLATFORM_ADMIN_TOKEN. Signing attendees in needs their codes: in a
  * non-production environment with the `console` SMS provider, GET /api/platform/sms-outbox (admin token)
  * returns the code each number "received"; production never registers that route, so --attendees 0 there.
+ * The event is made reservable the way an organizer does it: an open registration window and a published
+ * Page Studio page (an unpublished event answers 404 EVENT_NOT_FOUND to attendees). Before signing anyone in,
+ * the budgets are checked (per-IP code budget, platform SMS caps, test-mode SMS), so a run fails up front
+ * with the option to use instead of half-way through with 429/503.
  * Writes organizer/scanner/attendee credentials into the fixture: keep it out of git (.fixture/ is ignored).
  */
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -88,6 +93,8 @@ async function restoreOtpLimits() {
   console.log(`per-IP SMS budget now ${rules.otp_sends_per_ip_per_hour}/hour (${rules.sources?.otp_sends_per_ip_per_hour ?? 'environment'})`);
   const restored = await api('PUT', '/api/platform/sign-in', { admin: true, body: { reset: ['otp_sends_per_ip_per_hour'] } });
   console.log(`restored to the environment default: ${restored.otp_sends_per_ip_per_hour}/hour`);
+  const sms = await api('PUT', '/api/platform/sms', { admin: true, body: { reset: ['hourly_cap', 'daily_cap'] } });
+  console.log(`platform SMS caps restored to the environment defaults: ${sms.hourly_cap}/hour, ${sms.daily_cap}/day (0 = no cap)`);
 }
 
 async function relaxOtpLimits() {
@@ -97,7 +104,56 @@ async function relaxOtpLimits() {
   }
   await api('PUT', '/api/platform/sign-in', { admin: true, body: { otp_sends_per_ip_per_hour: RELAXED_IP_BUDGET } });
   console.log(`per-IP SMS budget raised to ${RELAXED_IP_BUDGET}/hour (was ${before.otp_sends_per_ip_per_hour}); undo with --restore-otp-limits`);
+  const sms = await api('GET', '/api/platform/sms', { admin: true });
+  if (Object.values(sms.caps_source ?? {}).includes('console')) {
+    console.warn(`note: an SMS cap was set in the platform console (${sms.hourly_cap}/hour, ${sms.daily_cap}/day); --restore-otp-limits resets both to the environment defaults`);
+  }
+  await api('PUT', '/api/platform/sms', { admin: true, body: { hourly_cap: 0, daily_cap: 0 } });
+  console.log(`platform SMS caps lifted for the run (were ${sms.hourly_cap}/hour, ${sms.daily_cap}/day)`);
   return before.otp_sends_per_ip_per_hour;
+}
+
+/**
+ * Fails before any account is created when signing ATTENDEES in would run into a limit: the per-IP code budget
+ * (one load generator is one address) or the platform SMS caps (sign-in codes now, plus one confirmation per
+ * reservation during the burst). requireTestModeSms() runs first: only test mode exposes the codes, and
+ * anything else would send real SMS.
+ */
+async function requireTestModeSms() {
+  if (ATTENDEES === 0) return;
+  const sms = await api('GET', '/api/platform/sms', { admin: true });
+  if (sms.effective !== 'console') {
+    throw new Error(`SMS is not in test mode here (effective: ${sms.effective}): signing ${ATTENDEES} attendees in would send real SMS. Use --attendees 0, or set CONGRESS_SMS_PROVIDER=console / test mode in the platform console.`);
+  }
+}
+
+async function checkSmsHeadroom(relaxed) {
+  if (ATTENDEES === 0 || relaxed) return;
+  const rules = await api('GET', '/api/platform/sign-in', { admin: true });
+  const problems = [];
+  if (ATTENDEES > rules.otp_sends_per_ip_per_hour) {
+    problems.push(`${ATTENDEES} sign-in codes from one address exceed the per-IP budget (${rules.otp_sends_per_ip_per_hour}/hour)`);
+  }
+  const health = await api('GET', '/api/platform/sms/outbox', { admin: true });
+  // Codes now, then one ticket confirmation per reservation in reservation-burst.js.
+  const needed = 2 * ATTENDEES;
+  for (const [label, cap, used] of [['hourly', health.hourly_cap, health.sent_last_hour], ['daily', health.daily_cap, health.sent_last_day]]) {
+    if (cap > 0 && used + needed > cap) problems.push(`${used} SMS in the last ${label === 'hourly' ? 'hour' : 'day'} + ~${needed} for this run exceed the ${label} platform cap (${cap})`);
+  }
+  if (problems.length) throw new Error(`${problems.join('; ')}. Re-run with --relax-otp-limits (undo afterwards with --restore-otp-limits) or fewer --attendees.`);
+}
+
+/** What an organizer does before attendees can reserve: an open registration window and a published page. */
+async function makeReservable(key, event) {
+  const opens = new Date(Date.now() - 3_600_000).toISOString();
+  await api('PATCH', `/api/events/${event.id}`, {
+    token: key,
+    body: { registration_enabled: true, registration_opens_at: opens, registration_closes_at: event.starts_at },
+  });
+  const page = await api('GET', `/api/events/${event.id}/page`, { token: key });
+  await api('POST', `/api/events/${event.id}/page/publish`, { token: key, body: { revision: page.draft_revision } });
+  const visible = await api('GET', `/api/public/events/${event.slug}`);
+  if (!visible.registration_open) throw new Error(`The event is published but registration is not open: ${JSON.stringify(visible).slice(0, 300)}`);
 }
 
 /** Sign in by SMS code, reading the code from the dev-only outbox; completes the profile of a new number. */
@@ -123,7 +179,9 @@ async function main() {
   if (args['restore-otp-limits']) return restoreOtpLimits();
   const started = Date.now();
   await api('GET', '/api/health');
+  await requireTestModeSms();
   const previousIpBudget = args['relax-otp-limits'] ? await relaxOtpLimits() : undefined;
+  await checkSmsHeadroom(previousIpBudget !== undefined);
 
   const organizer = await api('POST', '/api/organizers', { admin: true, body: { name: `Load Test ${SLUG}` } });
   const key = organizer.api_key;
@@ -141,7 +199,8 @@ async function main() {
   const tier = (name, quota) => api('POST', `/api/events/${event.id}/ticket-tiers`, { token: key, body: { name, quota } });
   const reservationTier = await tier('Load Reservation Pass', Math.max(ATTENDEES * 2, 1000));
   const gateTier = await tier('Load Gate Pass', Math.max(TICKETS * 2, 100));
-  console.log(`event ${event.id} (${SLUG}) with tiers ${reservationTier.id} (reservations) and ${gateTier.id} (gate tickets)`);
+  await makeReservable(key, event);
+  console.log(`event ${event.id} (${SLUG}) published, registration open; tiers ${reservationTier.id} (reservations) and ${gateTier.id} (gate tickets)`);
 
   const point = async (name) => {
     const created = await api('POST', `/api/events/${event.id}/checkin-points`, { token: key, body: { name } });

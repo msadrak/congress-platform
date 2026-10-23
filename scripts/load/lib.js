@@ -2,13 +2,20 @@
 import { fail } from 'k6';
 import { Counter } from 'k6/metrics';
 
-/** API origin as seen from the k6 container, e.g. http://host.docker.internal:8000 or https://localhost:8443. */
+/** API origin as seen from the k6 container, e.g. http://congress-load-api-<id>:8000 (with K6_NETWORK) or http://api:8000. */
 export const BASE_URL = (__ENV.BASE_URL || 'http://host.docker.internal:8000').replace(/\/+$/, '');
 
 /** Any 5xx answer. Every scenario holds this at zero. */
 export const serverErrors = new Counter('server_errors');
 
-export const JSON_HEADERS = { 'Content-Type': 'application/json' };
+/**
+ * Host header override (HOST_HEADER=localhost) for a local staging stack reached through Caddy from a container:
+ * Caddy serves plain HTTP only for the `localhost` site and redirects every other host (host.docker.internal,
+ * web) to HTTPS with 308. Every request in these scenarios carries JSON_HEADERS, so the override applies to all.
+ */
+const HOST_HEADER = __ENV.HOST_HEADER ? { Host: __ENV.HOST_HEADER } : {};
+
+export const JSON_HEADERS = { 'Content-Type': 'application/json', ...HOST_HEADER };
 
 /**
  * The fixture written by setup.mjs (organizer, event, tiers, gates, tickets, tokens). Read in the init
