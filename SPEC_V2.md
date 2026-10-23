@@ -2,8 +2,10 @@
 
 > **Historical specification (October 2026, milestone V2). Not maintained; parts are outdated.**
 >
-> **Current sources of truth:** the ADRs in `docs/adr/` (with their "Status / Implementation notes" sections where present),
-> `GLOSSARY.md`, `AGENTS.md`, and `docs/pilot/MASTER-PILOT-READINESS.md` for what the platform is cleared to run.
+> **Current sources of truth:** `docs/handover/UPGRADE_HANDOVER.md` (what is merged, in flight and open), the ADRs in
+> `docs/adr/` (with their "Status / Implementation notes" sections), `GLOSSARY.md`, `AGENTS.md`, and the operations
+> documents `docs/deployment/STAGING_OPERATIONS.md`, `docs/deployment/HOSTED_STAGING_READINESS.md` and
+> `docs/release/07-CONGRESS-DAY-RUNBOOK.md`. `docs/pilot/MASTER-PILOT-READINESS.md` (2026-10-11) is historical.
 > Lead retrieval and networking are governed by ADR 0011; identity by ADR 0012.
 >
 > Outdated platform-wide (see `SPEC.md`'s banner): password sign-in (now mobile + SMS code, ADR 0012), Redis/Celery

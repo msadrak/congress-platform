@@ -46,14 +46,18 @@ _Avoid_: Invite link, transfer link
 
 **Ticket**:
 A digital entitlement issued to an attendee granting admission to an event or specific sessions.
-_Avoid_: Pass, voucher, registration (when referring to the ticket)
+_Avoid_: voucher, registration (when referring to the ticket). In English domain text and code, keep Ticket (the record) and pass (what the attendee shows: QR, holder, tier) apart. The Persian UI does not: it calls the reserved ticket and its pass both «کارت ورود» (see Persian UI terms).
+
+**Ticket Tier**:
+A free admission category of an event with a quota (`ticket_tiers`), optionally with its own sales window; every Ticket belongs to one.
+_Avoid_: Ticket type, class, category (in the domain model)
 
 **Self-Registration**:
 The online process where a prospective attendee registers their own account and receives a ticket.
 _Avoid_: Public registration, web signup
 
 **Participant**:
-One registration (Ticket) of an event as the organizer's register lists it: the ticket holder together with the registration's own copy of their details (name, organization, title, mobile), which the organizer can correct without touching the person's User account. _Being introduced by the participants workstream (participant-detail snapshots, cancel, reissue, transfer); not yet on the main line._ Use only for the organizer's register and its exports; elsewhere the person is an Attendee.
+One registration (Ticket) of an event as the organizer's register lists it: the ticket holder together with the registration's own copy of their name, organization and title (`tickets.attendee_*`), which the organizer can correct without touching the person's User account; the mobile number stays on the account. Managed on the organizer's Participants page (edit, cancel, reissue, transfer, export, delete a mistaken registration; ADR 0017, merged on `integration/upgrade`, not yet on `main`). Use only for the organizer's register and its exports; elsewhere the person is an Attendee.
 _Avoid_: Registrant, delegate, guest
 
 **Desk Registration**:
@@ -131,3 +135,17 @@ _Avoid_: Gate (when meaning the place), door, entry
 **Coded error**:
 An API error that carries a stable machine-readable `code` (for example `TIER_SOLD_OUT`, `LINK_EXPIRED`) next to its English `detail`; clients decide on the code and show a localized message, never the English text (`docs/CODING_STANDARDS.md` §2.F).
 _Avoid_: Error string, error message (when the code is meant)
+
+## Persian UI terms
+
+Decided by the product owner (2026-10-23). Use them in every Persian string of the app, in SMS wording and in Persian
+documentation. `web/tests/glossary.test.ts` guards the spellings it can check mechanically.
+
+| Concept | Persian in the UI | Avoid |
+|---|---|---|
+| Ticket Tier | «نوع کارت ورود» (plural «انواع کارت ورود») | «رده» |
+| Ticket and its pass, as the attendee sees them | «کارت ورود», for both the reserved ticket and the pass that shows its QR. «بلیت» only where "ticket" is unavoidable | «بلیط» (misspelling, never) |
+| Session | «جلسه» | «نشست» |
+| Check-In Point | «نقطه ورود» | «گیت»، «گیت بازرسی» |
+| QR code | «کد QR» | a transliteration of "QR" |
+| Walk-in (Desk Registration) | «ثبت‌نام حضوری» | |

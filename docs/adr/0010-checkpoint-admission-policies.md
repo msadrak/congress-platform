@@ -33,5 +33,8 @@ The decision above stands as history; the code implements a narrower version of 
 - **`TIER_RESTRICTED`** works as described.
 - **Offline:** the web scanner (`web/src/lib/scannerEngine.ts`) evaluates all four policies locally from the manifest
   and marks offline admissions provisional; the server re-evaluates every scan at batch sync and its verdict wins. For a capped
-  point the device only knows its own count, so offline admissions can overshoot the cap until sync; the engine has a
-  fail-closed option (`CAPACITY_UNAVAILABLE_OFFLINE`) that nothing turns on yet.
+  point the device cannot know the room's count, so the scanner turns on the engine's fail-closed option: offline, a
+  capacity-capped point rejects everyone (`CAPACITY_UNAVAILABLE_OFFLINE`, set in `web/src/pages/GateScanner.tsx`).
+  Online scans are decided by the server (`POST /api/checkin-points/{id}/scan`, ADR 0009 status notes).
+- Per-day single-use windows, IN/OUT occupancy and tier filters combined with other policies are being built in the
+  unmerged `ws/c1-gate-rules` branch.

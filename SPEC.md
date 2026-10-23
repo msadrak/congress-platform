@@ -2,14 +2,16 @@
 
 > **Historical specification (October 2026, V1). Not maintained; parts are outdated.**
 >
-> **Current sources of truth:** the ADRs in `docs/adr/` (with their "Status / Implementation notes" sections where present),
-> `GLOSSARY.md`, `AGENTS.md`, and `docs/pilot/MASTER-PILOT-READINESS.md` for what the platform is cleared to run.
+> **Current sources of truth:** `docs/handover/UPGRADE_HANDOVER.md` (what is merged, in flight and open), the ADRs in
+> `docs/adr/` (with their "Status / Implementation notes" sections), `GLOSSARY.md`, `AGENTS.md`, and the operations
+> documents `docs/deployment/STAGING_OPERATIONS.md`, `docs/deployment/HOSTED_STAGING_READINESS.md` and
+> `docs/release/07-CONGRESS-DAY-RUNBOOK.md`. `docs/pilot/MASTER-PILOT-READINESS.md` (2026-10-11) is historical.
 >
 > Outdated here:
 > - **Password sign-in** (user story 3 and related): sign-in is a mobile number plus an SMS code; passwords and e-mail
 >   were removed (ADR 0012).
 > - **Redis** for caching, rate limiting and queues: not used. Inventory is a PostgreSQL conditional update; throttling
->   and the SMS outbox run inside the single API process (ADR 0002 and 0006 status).
+>   is counted in PostgreSQL (ADR 0019) and the SMS outbox is a PostgreSQL table polled by the API (ADR 0002 and 0006 status).
 > - **Native Flutter scanner** with ML Kit and SQLite: never built and now parked (`mobile/README.md`). The web PWA at
 >   `/scan/:pointId` is the only scanner.
 > - Admission policies are narrower than described: no single-use time windows, no entry/exit, capacity counts total

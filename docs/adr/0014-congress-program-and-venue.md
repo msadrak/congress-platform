@@ -28,3 +28,24 @@ already has Check-In Points, which are scanning stations, not places attendees l
 - A Track is a free-text label, so spelling variants become separate filter values; organizers fix them by editing.
 - Hall names from an import can create near-duplicate halls (a typo is a new hall); the organizer merges them by
   moving sessions and deleting the extra hall.
+
+## Status / Implementation notes (2026-10-23)
+
+Implemented as decided, and extended by the events/program workstream (B4, migration `0024`).
+
+- **Event time zone:** `events.timezone` (an IANA name, default `Asia/Tehran`, validated against the zone database in
+  `backend/app/routes/events.py`). Program days and analytics (ADR 0020) use the event's wall clock.
+- **Program validation:** a session must lie within the event's days in its time zone (`event_day_window`), and
+  `ends_at >= starts_at` is a database CHECK (`ck_event_sessions_time_order`). The all-or-nothing import still names
+  the failing rows.
+- **Spreadsheet timetables:** the organizer console reads CSV saved from Excel and accepts Solar Hijri (Jalali) dates
+  such as `1405/08/11 09:00`, converting them to Gregorian before calling the import API (`web/src/lib/sessionCsv.ts`,
+  `jalali.ts`); the API itself takes ISO times.
+- **Schedule files (client issue 1):** besides structured sessions, the organizer can upload the program as a PDF or an
+  image (`program_files`, `backend/app/routes/program_files.py`). Like the program they are operational: live for
+  attendees once saved, behind the published page. PDFs are checked by magic bytes and images re-encoded like Page
+  Studio images; files are stored under server-generated names in the media root (at most 8,000,000 bytes) and served
+  with `nosniff` and a sandboxing Content-Security-Policy.
+- **Archived events are read-only** for the program, the venue directory and the schedule files (`WritableEventDep`).
+- Attendee side: the program explorer (day tabs, track and hall filters, search, personal agenda, per-session `.ics`)
+  and the program and venue on the public page `/e/:slug`.

@@ -5,6 +5,14 @@ production gate scanner is the web PWA at `/scan/:pointId` (`web/src/pages/GateS
 a pure-Dart copy of the scanner's offline logic, with its tests, so that a native app can be revived later without
 starting from nothing.
 
+> **It no longer matches the API (2026-10-23).** The engine speaks the scanner contract from before the A2 scanner
+> workstream. It expects raw `qr_secret` values in the manifest (`lib/models/manifest_ticket.dart`), but the API now
+> sends only `qr_hash = sha256("<event_id>:<normalized secret>")`, so every badge would be "not in manifest". It uploads
+> scans without a `client_verdict` (the server then evaluates them as from an old scanner), and has no server-decided
+> online scan (`POST /api/checkin-points/{id}/scan`), no manifest deltas (`?since=`, `removed_qr_hashes`), no batch limit
+> of 200, no fail-closed offline capacity and no local wipe on unpair. ADR 0009's status notes describe the current
+> contract; reviving this package starts with porting it from `web/src/lib/scanner*.ts`.
+
 ## What exists
 
 - `lib/services/policy_engine.dart`: offline evaluation of a scan against a downloaded manifest for the four
