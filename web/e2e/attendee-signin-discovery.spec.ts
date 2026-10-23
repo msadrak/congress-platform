@@ -39,6 +39,8 @@ const user = { id: 'user-1', mobile: MOBILE, full_name: 'Sara Fixture', organiza
 type Recorded = { method: string; path: string; auth: string | undefined; body: unknown };
 interface Options {
   requestStatus?: number;
+  retryAfter?: string;
+  verifyStatus?: number;
   verifyAbort?: boolean;
   newNumber?: boolean;
   bookmarkFails?: boolean;
@@ -59,11 +61,12 @@ async function fixture(page: Page, options: Options = {}) {
     const json = (status: number, body: unknown) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
 
     if (path === '/api/auth/otp/request') {
-      if (options.requestStatus) return route.fulfill({ status: options.requestStatus, contentType: 'application/json', headers: { 'Retry-After': '42' }, body: '{"detail":"no"}' });
+      if (options.requestStatus) return route.fulfill({ status: options.requestStatus, contentType: 'application/json', headers: { 'Retry-After': options.retryAfter ?? '42' }, body: '{"detail":"no"}' });
       return json(202, { mobile: JSON.parse(raw ?? '{}').mobile, code_length: 6, expires_in: 120, resend_after: 60 });
     }
     if (path === '/api/auth/otp/verify') {
       if (options.verifyAbort) return route.abort('failed');
+      if (options.verifyStatus) return route.fulfill({ status: options.verifyStatus, contentType: 'application/json', headers: { 'Retry-After': options.retryAfter ?? '42' }, body: '{"detail":"Too many attempts"}' });
       if (JSON.parse(raw ?? '{}').code !== CODE) return json(401, { detail: 'The code is wrong or has expired.' });
       return options.newNumber
         ? json(200, { status: 'profile_required', access_token: null, token_type: 'bearer', user: null, signup_token: 'signup-fixture' })
@@ -173,7 +176,8 @@ test.describe('direct attendee sign-in', () => {
     await anonymous(page);
     await page.goto('/c/alpha/sign-in?next=%2Fc%2Falpha%2Fmy-profile');
     await signInWithCode(page);
-    await expect(page.getByText('This number is new to us.')).toBeVisible();
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Complete your profile');
+    await expect(page.getByText('This is your first sign-in with this number.')).toBeVisible();
     await page.getByRole('button', { name: 'Create my account' }).click();
     await expect(page.getByText('Enter your full name.')).toBeVisible();
     await page.getByLabel('Full name').fill('Neda Karimi');
@@ -191,7 +195,100 @@ test.describe('direct attendee sign-in', () => {
     await page.goto('/c/alpha/sign-in');
     await page.getByLabel('Mobile number').fill(MOBILE);
     await page.getByRole('button', { name: 'Send code' }).click();
-    await expect(page.getByRole('alert')).toContainText('Try again in 42 s');
+    await expect(page.getByTestId('otp-rate-limit')).toContainText(/You can ask for a new one in \u2066?0:4[12]\u2069?\./);
+    await expect(page.getByTestId('otp-announcer')).toHaveText('Too many codes requested. You can ask for a new one in 42 seconds.');
+    // The language toggle re-renders the message rather than keeping the English text.
+    await page.getByRole('button', { name: 'تغییر زبان به فارسی' }).click();
+    await expect(page.getByTestId('otp-rate-limit')).toContainText('دیگر می‌توانید کد تازه بگیرید');
+  });
+
+  test('a 429 locks only the throttled action with a live countdown, then unlocks it', async ({ page }) => {
+    const requests = await fixture(page, { requestStatus: 429, retryAfter: '4' });
+    await anonymous(page);
+    await page.goto('/c/alpha/sign-in');
+    await page.getByLabel('Mobile number').fill(MOBILE);
+    const send = page.getByRole('button', { name: 'Send code' });
+    await send.click();
+    await expect(send).toHaveAttribute('aria-disabled', 'true');
+    await expect(send).toBeFocused();  // aria-disabled keeps the button focusable, unlike disabled
+    await expect(page.getByTestId('otp-rate-limit')).toContainText('0:0');
+    // Activating the locked button (Playwright's click would wait for it to unlock) sends nothing.
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(300);
+    expect(requests.filter(r => r.path === '/api/auth/otp/request')).toHaveLength(1);
+
+    await expect(send).not.toHaveAttribute('aria-disabled', 'true', { timeout: 6000 });
+    await expect(page.getByTestId('otp-rate-limit')).toHaveCount(0);
+    await expect(page.getByTestId('otp-announcer')).toHaveText('You can try again now.');
+    await send.click();
+    expect(requests.filter(r => r.path === '/api/auth/otp/request')).toHaveLength(2);
+  });
+
+  test('a 429 on the code locks checking but not changing the number', async ({ page }) => {
+    await fixture(page, { verifyStatus: 429, retryAfter: '120' });
+    await anonymous(page);
+    await page.goto('/c/alpha/sign-in');
+    await signInWithCode(page);
+    const verify = page.getByRole('button', { name: 'Continue' });
+    await expect(verify).toHaveAttribute('aria-disabled', 'true');
+    await expect(page.getByTestId('otp-rate-limit')).toContainText(/You can try again in \u2066?(2:00|1:59)\u2069?\./);
+    await page.getByRole('button', { name: 'Change number' }).click();
+    await expect(page.getByRole('button', { name: 'Send code' })).not.toHaveAttribute('aria-disabled', 'true');
+  });
+
+  test('a pasted SMS fills only the code and submits it; editing clears an error', async ({ page }) => {
+    await fixture(page);
+    await anonymous(page);
+    await page.goto('/c/alpha/sign-in?next=%2Fc%2Falpha%2Fmy-ticket');
+    await page.getByLabel('Mobile number').fill(MOBILE);
+    await page.getByRole('button', { name: 'Send code' }).click();
+    const field = page.getByLabel('Code from the SMS');
+    await field.fill('000000');
+    await expect(page.getByText('The code is wrong or has expired.')).toBeVisible();
+    await field.press('Backspace');
+    await expect(page.getByText('The code is wrong or has expired.')).toHaveCount(0);
+
+    await field.fill('');
+    await field.evaluate((input, text) => {
+      const data = new DataTransfer();
+      data.setData('text/plain', text);
+      input.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }));
+    }, 'کد ورود شما: ۴۸۲۹۱۳\nاعتبار ۲ دقیقه');
+    await expect(page).toHaveURL(/\/c\/alpha\/my-ticket$/);
+  });
+
+  test('the new-number profile keeps its heading and button in view on a short screen', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 480 });
+    await fixture(page, { newNumber: true });
+    await anonymous(page);
+    await page.goto('/c/alpha/sign-in');
+    await signInWithCode(page);
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Complete your profile');
+    await expect(page.getByRole('button', { name: 'Create my account' })).toBeInViewport({ ratio: 1 });
+    await page.getByLabel('Full name').fill('Neda Karimi');
+    await expect(page.getByRole('button', { name: 'Create my account' })).toBeInViewport({ ratio: 1 });
+  });
+
+  test('the code field stays on screen with a short (keyboard-sized) viewport', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 480 });
+    await fixture(page);
+    await anonymous(page);
+    await page.goto('/c/alpha/sign-in');
+    await page.getByLabel('Mobile number').fill(MOBILE);
+    await page.getByRole('button', { name: 'Send code' }).click();
+    await expect(page.getByLabel('Code from the SMS')).toBeInViewport({ ratio: 1 });
+  });
+
+  test('the sign-in page never links to the platform root', async ({ page }) => {
+    await fixture(page);
+    await anonymous(page);
+    for (const path of ['/c/alpha/sign-in', '/sign-in', '/booth/booth-1/sign-in', '/c/nope/sign-in']) {
+      await page.goto(path);
+      await expect(page.getByLabel('Mobile number')).toBeVisible();
+      await expect(page.locator('a[href="/"]')).toHaveCount(0);
+    }
+    await page.goto('/c/alpha/sign-in');
+    await expect(page.getByRole('link', { name: /Alpha Congress|Attendee Portal/ }).first()).toHaveAttribute('href', '/e/alpha');
   });
 
   test('external and unknown return destinations are ignored', async ({ page }) => {
@@ -217,9 +314,27 @@ test.describe('direct attendee sign-in', () => {
     await expect(page).toHaveURL(/\/c\/alpha\/my-ticket$/);
 
     await page.goto('/c/alpha/sign-in');
-    await page.getByRole('button', { name: 'Use a different account' }).click();
+    await page.getByRole('button', { name: 'Not you? Sign out' }).click();
     await expect(page.getByLabel('Mobile number')).toBeVisible();
     expect(await page.evaluate(() => localStorage.getItem('congress_attendee_token'))).toBeNull();
+  });
+
+  test('a valid existing session continues on its own to the safe destination', async ({ page }) => {
+    await fixture(page);
+    await signedIn(page);
+    await page.goto('/c/alpha/sign-in?next=%2Fc%2Falpha%2Fmy-ticket');
+    await expect(page.getByTestId('existing-session')).toContainText('Taking you there in a moment');
+    await expect(page).toHaveURL(/\/c\/alpha\/my-ticket$/, { timeout: 5000 });
+
+    // An unsafe `next` still lands on the congress fallback.
+    await page.goto(`/c/alpha/sign-in?next=${encodeURIComponent('https://evil.example/')}`);
+    await expect(page).toHaveURL(/\/c\/alpha\/my-congress$/, { timeout: 5000 });
+
+    // Reaching for the card stops the timer.
+    await page.goto('/c/alpha/sign-in?next=%2Fc%2Falpha%2Fmy-ticket');
+    await page.getByTestId('existing-session').getByText('Sara Fixture').click();
+    await page.waitForTimeout(2600);
+    await expect(page).toHaveURL(/\/c\/alpha\/sign-in/);
   });
 
   test('a rejected stored session shows the form instead of a false signed-in state', async ({ page }) => {
