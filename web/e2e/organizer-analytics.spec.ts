@@ -253,6 +253,6 @@ test('a rejected key on the dashboard returns to the sign-in gate through the co
   await fixture(page, { failures: [{ status: 401, body: { detail: 'Invalid API key' } }] });
   await seed(page);
   await page.goto('/organizer/events/event-a/analytics');
-  await expect(page.getByRole('alert')).toHaveText('Your organizer API key was rejected. Please enter a valid key.');
+  await expect(page.getByRole('alert')).toHaveText('The organizer key was not accepted.');
   expect(await page.evaluate(() => sessionStorage.getItem('congress_organizer_api_key'))).toBeNull();
 });

@@ -399,7 +399,7 @@ test('Persian console: localized environment, members and coded errors, no raw E
   await page.getByRole('button', { name: 'اعضا', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: /^اعضای «.?Alpha Society.?»$/ });
   const list = dialog.getByTestId('platform-members');
-  await expect(list).toContainText('افزوده‌شده به دست کلید API');
+  await expect(list).toContainText('افزوده‌شده به دست کلید سازمان');
   await expect(list).toContainText('۰۹۱۲ ۱۱۱ ۲۲۳۳');
   await expect(list).toContainText('مالک');
   await expect(list).not.toContainText('api-key');

@@ -111,18 +111,19 @@ test('a member signs in with an SMS code, picks an organizer and works with thei
   expect(await page.evaluate(() => sessionStorage.getItem('congress_organizer_api_key'))).toBe('member-token');
   expect(requests.filter(r => r.path === '/api/events').every(r => r.auth === 'Bearer member-token')).toBe(true);
 
-  await page.getByRole('button', { name: 'Sign Out' }).click();
+  await page.getByRole('button', { name: /^(Account menu|Menu)$/ }).click();
+  await page.getByRole('menuitem', { name: 'Sign out' }).click();
   await expect(page.getByRole('heading', { name: 'Sign in to the organizer console' })).toBeVisible();
   expect(requests.some(r => r.path === '/api/organizer/logout' && r.auth === 'Bearer member-token')).toBe(true);
   expect(await page.evaluate(() => sessionStorage.getItem('congress_organizer_api_key'))).toBeNull();
 });
 
-test('the API key stays available as a second sign-in method', async ({ page }) => {
+test('the organizer key stays available behind a secondary link', async ({ page }) => {
   await fixture(page, 'owner');
   await page.goto('/organizer');
-  await page.getByRole('button', { name: 'API key' }).click();
+  await page.getByRole('button', { name: 'Use organizer key' }).click();
   await expect(page.locator('#apiKeyInput')).toBeVisible();
-  await expect(page.getByText('acts as an owner')).toBeVisible();
+  await expect(page.getByText('For integrations; acts as owner.')).toBeVisible();
 });
 
 test('an owner adds a member, changes a role and removes a member', async ({ page }) => {
@@ -132,36 +133,51 @@ test('an owner adds a member, changes a role and removes a member', async ({ pag
 
   const table = page.getByTestId('members-table');
   await expect(table.getByText('Ali Rad')).toBeVisible();
-  await page.getByRole('button', { name: 'Add member' }).first().click();
+  // Role meanings live in the role picker, not in cards under the table.
+  await expect(page.getByText('Reception, scanners and participant lookup')).toHaveCount(0);
+  await page.getByRole('button', { name: 'New member' }).first().click();
   const dialog = page.getByRole('dialog');
-  await dialog.getByLabel('Name').fill('Maryam Bagheri');
-  await dialog.getByLabel('Mobile number').fill('0912 555 1234');
+  await dialog.getByRole('textbox', { name: 'Name' }).fill('Maryam Bagheri');
+  await dialog.getByRole('textbox', { name: 'Mobile number' }).fill('0912 555 1234');
   await dialog.getByRole('radio', { name: /Manager/ }).check();
-  await dialog.getByRole('button', { name: 'Add and send SMS' }).click();
+  await dialog.getByRole('button', { name: 'Add', exact: true }).click();
   await expect(page.getByRole('status').filter({ hasText: 'Maryam Bagheri was added' })).toBeVisible();
   expect(requests.find(r => r.path === '/api/organizer/members' && r.method === 'POST')?.body).toEqual({ display_name: 'Maryam Bagheri', mobile: '09125551234', role: 'manager' });
 
-  await page.getByLabel('Role of Ali Rad').selectOption('viewer');
+  // A role change goes through the role picker and asks first; cancelling changes nothing.
+  await page.getByRole('button', { name: 'Actions for Ali Rad' }).click();
+  await page.getByRole('menuitem', { name: 'Change role' }).click();
+  const roleDialog = page.getByRole('dialog', { name: 'Role of Ali Rad' });
+  await roleDialog.getByRole('radio', { name: /Viewer/ }).click();
+  await page.getByRole('dialog', { name: "Change Ali Rad's role to Viewer?" }).getByRole('button', { name: 'Cancel' }).click();
+  expect(requests.some(r => r.method === 'PATCH')).toBe(false);
+  await roleDialog.getByRole('radio', { name: /Viewer/ }).click();
+  await page.getByRole('dialog', { name: "Change Ali Rad's role to Viewer?" }).getByRole('button', { name: 'Change role' }).click();
   await expect(page.getByText("Ali Rad's role changed; they need to sign in again.")).toBeVisible();
   expect(requests.find(r => r.method === 'PATCH')?.body).toEqual({ role: 'viewer' });
 
-  await table.getByRole('row', { name: /Maryam Bagheri/ }).getByRole('button', { name: 'Remove' }).click();
-  await page.getByRole('dialog').getByRole('button', { name: 'Remove' }).click();
-  await expect(page.getByText('Maryam Bagheri was removed and signed out.')).toBeVisible();
-  await expect(table.getByRole('row', { name: /Maryam Bagheri/ }).getByText('Removed')).toBeVisible();
+  await page.getByRole('button', { name: 'Actions for Maryam Bagheri' }).click();
+  await page.getByRole('menuitem', { name: 'Remove access' }).click();
+  await page.getByRole('dialog', { name: "Remove Maryam Bagheri's access?" }).getByRole('button', { name: 'Remove access' }).click();
+  await expect(page.getByText('Maryam Bagheri removed.')).toBeVisible();
+  await expect(table.getByRole('row', { name: /Maryam Bagheri/ }).getByText('Access removed')).toBeVisible();
 });
 
 test('refusals arrive in the reader\'s language: the last owner and a role that may not manage members', async ({ page }) => {
   await fixture(page, 'owner', { lastOwner: true });
   await seedSession(page);
   await page.goto('/organizer/members');
-  await page.getByLabel('Role of Neda Karimi').selectOption('manager');
+  await page.getByRole('button', { name: 'Actions for Neda Karimi' }).click();
+  await page.getByRole('menuitem', { name: 'Change role' }).click();
+  await page.getByRole('dialog', { name: 'Role of Neda Karimi' }).getByRole('radio', { name: /Manager/ }).click();
+  await page.getByRole('button', { name: 'Change role' }).click();
   await expect(page.getByRole('alert')).toContainText('Add another owner before removing or demoting the last one.');
 
   await page.unrouteAll({ behavior: 'ignoreErrors' });
   await fixture(page, 'staff');
   await page.goto('/organizer/members');
-  await expect(page.getByRole('alert')).toContainText('Your role in this organization does not allow this.');
+  await expect(page.getByRole('heading', { name: "Your role can't see the members" })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Congresses' }).last()).toBeVisible();
   await expect(page.getByRole('link', { name: /Activity/ })).toHaveCount(0);
 });
 
@@ -177,7 +193,7 @@ test('the activity log reads who did what, filters by congress and pages back', 
   await expect(list).not.toContainText('events › booths');
   await expect(list.getByText('Cardiology 2027')).toBeVisible();
   await page.getByRole('button', { name: 'Older entries' }).click();
-  await expect(list.getByText('rotated the API key')).toBeVisible();
+  await expect(list.getByText('rotated the organizer key')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Older entries' })).toHaveCount(0);
 
   await page.getByLabel('Congress').selectOption('event-a');
@@ -198,17 +214,43 @@ test('Persian activity and members never show route templates or the raw key lab
   await seedSession(page);
   await page.goto('/organizer/activity');
   const list = page.getByTestId('activity-list');
-  await expect(list).toContainText('کلید API');
-  await expect(list).toContainText('برای نقطه ورود کد جفت‌سازی اسکنر صادر کرد');
+  await expect(list).toContainText('کلید سازمان');
+  await expect(list).toContainText('برای نقطه ورود پیوند اتصال اسکنر ساخت');
   await expect(list).toContainText('اطلاعات شرکت‌کننده را ویرایش کرد');
   await expect(list).toContainText('نمایندهٔ غرفه');
-  await expect(list).toContainText('فهرست لیدهای غرفه را دریافت کرد (CSV)');
+  await expect(list).toContainText('خروجی اکسل لیدهای غرفه را دریافت کرد');
   await expect(list).toContainText('موردی را حذف کرد');
   const text = await list.innerText();
-  for (const raw of ['checkin-points', 'participants', 'brand-new', '›', 'Integration key', 'booth_staff']) expect(text).not.toContain(raw);
+  for (const raw of ['checkin-points', 'participants', 'brand-new', '›', 'Integration key', 'booth_staff', 'API']) expect(text).not.toContain(raw);
 
   await page.goto('/organizer/members');
   const table = page.getByTestId('members-table');
-  await expect(table).toContainText('افزوده‌شده به دست کلید API');
+  await expect(table).toContainText('Neda Karimi');
   await expect(table).not.toContainText('api-key');
+  await expect(table).toContainText('۰۹۱۲ ۱۲۳ ۴۵۶۷');
 });
+
+test('the activity log in English never shows a raw route either', async ({ page }) => {
+  await fixture(page, 'owner', {
+    activity: [audit('a-1', 'http.delete', { summary: { route: '/api/events/{event_id}/brand-new/{thing_id}', method: 'DELETE', status: 204 } })],
+  });
+  await seedSession(page);
+  await page.goto('/organizer/activity');
+  const list = page.getByTestId('activity-list');
+  await expect(list).toContainText('deleted an item');
+  for (const raw of ['brand-new', 'thing', '›', '{']) await expect(list).not.toContainText(raw);
+});
+
+for (const path of ['/organizer', '/organizer/members']) {
+  test(`offline, ${path} shows an alert with a retry within 3 s and no page error`, async ({ page }) => {
+    const errors: string[] = [];
+    page.on('pageerror', (error) => errors.push(error.message));
+    await seedSession(page);
+    await page.route(/^https?:\/\/[^/]+\/api\//, (route) => route.abort('internetdisconnected'));
+    await page.goto(path);
+    const alert = page.getByRole('alert');
+    await expect(alert).toBeVisible({ timeout: 3000 });
+    await expect(alert.getByRole('button', { name: 'Try again' })).toBeVisible();
+    expect(errors).toEqual([]);
+  });
+}

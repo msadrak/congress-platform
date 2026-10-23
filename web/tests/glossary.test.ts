@@ -49,18 +49,13 @@ const ROOTS = [join(WEB, "src"), join(WEB, "index.html"), join(REPO, "backend/ap
 const ALLOWED: Readonly<Record<string, readonly string[]>> = {
   "web/src/components/attendee/attendeeCopy.ts": ["بلیت", "نشست", "گردید"],
   "web/src/components/organizer/BoothStaffDialog.tsx": ["پورتال"],
-  "web/src/components/organizer/EventEditDialog.tsx": ["اسلاگ"],
   "web/src/components/organizer/OperatorFormDialog.tsx": ["گیت"],
-  "web/src/components/organizer/OrganizerKeyGate.tsx": ["فضای کاری", "نشست"],
   "web/src/components/organizer/ScannerPairingDialog.tsx": ["کنسول", "لینک"],
   "web/src/components/organizer/studio/studioCopy.ts": ["جست‌وجو", "فضای کاری"],
   "web/src/components/public/copy.ts": ["بلیت", "گیت", "سرنخ", "نشست"],
   "web/src/components/public/homeCopy.ts": ["گیت", "سرنخ", "فضای کاری", "جست‌وجو", "پرتال"],
   "web/src/lib/attendeeSession.ts": ["نشست"],
-  "web/src/lib/organizerConsole.ts": ["جست‌وجو", "کنسول", "نشست", "بارگیری"],
   "web/src/pages/AttendeeSignIn.tsx": ["فضای کاری", "پرتال", "سرنخ"],
-  "web/src/pages/OrganizerEvents.tsx": ["بلیت"],
-  "web/src/pages/OrganizerLayout.tsx": ["فضای کاری", "کنسول"],
   "web/src/pages/OrganizerPanel.tsx": ["بلیت"],
   "web/src/pages/organizer/EventOperators.tsx": ["نشست"],
 };

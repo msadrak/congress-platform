@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { createApiClient, localizedApiError, type MemberLoginOut } from "../../api/client";
 import type { AttendeeLocale } from "../../lib/i18n";
-import { ROLE_COPY, SIGN_IN_COPY } from "../../lib/organizerConsole";
+import { ROLE_COPY } from "../../lib/organizerConsole";
+import { organizerCopy } from "../../copy/organizer";
 import { MobileOtpForm } from "../auth/MobileOtpForm";
 import { FormAlert } from "./WorkspaceUi";
 import { Icon } from "../ui/Icon";
@@ -14,23 +15,18 @@ interface OrganizerMemberSignInProps {
   onSession: (token: string) => void;
 }
 
-const TOO_MANY: Record<AttendeeLocale, string> = {
-  fa: "تلاش‌های زیادی انجام شد. کمی بعد دوباره تلاش کنید.",
-  en: "Too many attempts. Try again in a little while.",
-};
-
 /**
  * Member sign-in for the organizer console (ADR 0016): mobile number, SMS code, and, for a person who belongs
  * to several organizers, the organizer to manage.
  */
 export function OrganizerMemberSignIn({ locale, onSession }: OrganizerMemberSignInProps) {
-  const copy = SIGN_IN_COPY[locale];
+  const copy = organizerCopy[locale].signIn;
   const [selection, setSelection] = useState<{ token: string; choices: Choice[] } | null>(null);
   const [choosing, setChoosing] = useState<string | null>(null);
   const [choiceError, setChoiceError] = useState<string | null>(null);
 
   const verifyCode = async (mobile: string, code: string): Promise<string | null> => {
-    const { data, error, response } = await createApiClient({ kind: "anonymous" }).POST("/api/organizer/login", {
+    const { data, error, response } = await createApiClient({ kind: "anonymous" }, { networkErrors: "result" }).POST("/api/organizer/login", {
       body: { mobile, code },
     });
     if (data?.status === "signed_in" && data.access_token) {
@@ -42,15 +38,15 @@ export function OrganizerMemberSignIn({ locale, onSession }: OrganizerMemberSign
       return null;
     }
     if (response.status === 401 || response.status === 422) return copy.codeInvalid;
-    if (response.status === 429) return TOO_MANY[locale];
-    return localizedApiError(error, locale);
+    if (response.status === 429) return copy.tooMany;
+    return localizedApiError(error, locale, response.status);
   };
 
   const choose = async (organizerId: string) => {
     if (!selection || choosing) return;
     setChoosing(organizerId);
     setChoiceError(null);
-    const { data, error } = await createApiClient({ kind: "anonymous" }).POST("/api/organizer/session", {
+    const { data, error, response } = await createApiClient({ kind: "anonymous" }, { networkErrors: "result" }).POST("/api/organizer/session", {
       body: { selection_token: selection.token, organizer_id: organizerId },
     });
     setChoosing(null);
@@ -58,16 +54,13 @@ export function OrganizerMemberSignIn({ locale, onSession }: OrganizerMemberSign
       onSession(data.access_token);
       return;
     }
-    setChoiceError(localizedApiError(error, locale));
+    setChoiceError(localizedApiError(error, locale, response.status));
   };
 
   if (selection) {
     return (
       <div className="space-y-4" data-testid="organizer-choice">
-        <div className="space-y-1">
-          <h2 className="text-base font-semibold text-text-primary">{copy.chooseTitle}</h2>
-          <p className="text-sm text-text-secondary">{copy.chooseDesc}</p>
-        </div>
+        <h2 className="text-title-sm font-semibold text-text-primary">{copy.chooseTitle}</h2>
         {choiceError && <FormAlert>{choiceError}</FormAlert>}
         <ul className="space-y-2">
           {selection.choices.map((choice) => (
@@ -77,7 +70,7 @@ export function OrganizerMemberSignIn({ locale, onSession }: OrganizerMemberSign
                 onClick={() => void choose(choice.organizer.id)}
                 disabled={choosing !== null}
                 aria-busy={choosing === choice.organizer.id}
-                className="flex min-h-14 w-full cursor-pointer items-center justify-between gap-3 rounded-xl border border-border-default bg-surface-panel px-4 py-3 text-start shadow-soft transition-colors hover:border-border-strong focus-visible:outline-2 focus-visible:outline-focus-ring disabled:cursor-wait disabled:opacity-70"
+                className="flex min-h-14 w-full cursor-pointer items-center justify-between gap-3 rounded-control border border-border-default bg-surface-panel px-4 py-3 text-start shadow-soft transition-colors hover:border-border-strong focus-visible:outline-2 focus-visible:outline-focus-ring disabled:cursor-wait disabled:opacity-70"
               >
                 <span className="min-w-0">
                   <span className="block truncate text-sm font-semibold text-text-primary">
@@ -94,5 +87,5 @@ export function OrganizerMemberSignIn({ locale, onSession }: OrganizerMemberSign
     );
   }
 
-  return <MobileOtpForm locale={locale} purpose="organizer" verifyCode={verifyCode} verifyLabel={copy.verify} />;
+  return <MobileOtpForm locale={locale} purpose="organizer" verifyCode={verifyCode} verifyLabel={copy.submit} />;
 }

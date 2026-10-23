@@ -123,7 +123,7 @@ test('leaving the studio with unsaved edits asks first', async ({ page }) => {
   await page.goto(`/organizer/events/${EVENT.id}/page`);
   await page.getByRole('tab', { name: 'Brand & hero' }).click();
   await page.getByLabel('Subtitle').fill('Unsaved words');
-  const nav = page.getByRole('navigation', { name: 'Event workspace' });
+  const nav = page.getByRole('navigation', { name: 'Congress sections' });
   await nav.getByRole('link', { name: /Program/ }).click();
   const guard = page.getByRole('dialog', { name: 'Leave with unsaved changes?' });
   await guard.getByRole('button', { name: 'Stay and keep editing' }).click();
@@ -140,7 +140,7 @@ test('a saved studio leaves without asking', async ({ page }) => {
   await page.setViewportSize({ width: 1600, height: 1000 });
   await page.goto(`/organizer/events/${EVENT.id}/page`);
   await expect(page.getByTestId('page-studio')).toBeVisible();
-  await page.getByRole('navigation', { name: 'Event workspace' }).getByRole('link', { name: /Program/ }).click();
+  await page.getByRole('navigation', { name: 'Congress sections' }).getByRole('link', { name: /Program/ }).click();
   await expect(page).toHaveURL(/\/program$/);
 });
 
