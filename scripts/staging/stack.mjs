@@ -5,7 +5,8 @@
  *   node scripts/staging/stack.mjs init [--add-missing]  generate .staging/staging.env (never overwrites; --add-missing adds
  *                                                     generated secrets an older file lacks, e.g. CONGRESS_SECRET_BOX_KEY)
  *   node scripts/staging/stack.mjs up                 build images (tagged with the commit too), migrate, start, wait until
- *                                                     healthy; keeps the last 5 releases' images for rollback
+ *                                                     healthy; keeps the last 5 releases' images for rollback. On an older
+ *                                                     env file it first adds what init --add-missing adds (upgrades)
  *   node scripts/staging/stack.mjs releases           deployed releases (newest first) and the current one
  *   node scripts/staging/stack.mjs rollback [<sha>]   run the previous (or the given) release's images again; no migration
  *   node scripts/staging/stack.mjs status             containers, health, URLs
@@ -309,8 +310,35 @@ function ensurePersistentHostDirs() {
   });
 }
 
+/**
+ * `up` on an install whose .staging/staging.env predates a generated secret (an upgrade from an older release): adds
+ * what `init --add-missing` would add, so the upgrade needs no extra command, and stops on what needs a person.
+ * Nothing that is set is ever replaced.
+ */
+export function completeEnvForUp(env, { write = setEnvValues, log = say } = {}) {
+  const { add, problems } = missingSecrets(env);
+  // A template copied by hand (deploy/hosted/.env.hosted.example) with a <...> placeholder left in.
+  const placeholders = Object.entries(env).filter(([, v]) => /<[^<>]+>/.test(v)).map(([k]) => k);
+  if (placeholders.length) problems.push(`still a <...> placeholder: ${placeholders.join(', ')} (fill in the real value)`);
+  if (problems.length) throw new Error(`${ENV_FILE} needs attention before \`up\`:\n  - ${problems.join('\n  - ')}`);
+  const keys = Object.keys(add);
+  if (!keys.length) return [];
+  write(add);
+  log(`Added ${keys.join(', ')} to ${ENV_FILE} (generated, not printed; nothing that was set is replaced). Include the updated file in your copy of the server's secrets.`);
+  return keys;
+}
+
+/** Settings an upgrade cannot fill in itself but that break a scheduled job afterwards (printed by `up`). */
+export function upgradeWarnings(env) {
+  // Releases before the encrypted off-host copies uploaded plain files; now scheduled-backup refuses without the key.
+  if (!offsiteConfigured(env)) return [];
+  return encryptionProblems(env).map((p) => `${p}. Until it is set, scheduled-backup fails and check reports it as critical. Keep the key in a password manager off this server, and consider a new BACKUP_S3_PREFIX for the encrypted copies.`);
+}
+
 async function up() {
   requireEnv();
+  completeEnvForUp(parseEnvFile(ENV_FILE));
+  for (const w of upgradeWarnings(readEnv())) say(`  WARNING: ${w}`);
   cdnPreflight();
   ensurePersistentHostDirs();
   const release = releaseId();

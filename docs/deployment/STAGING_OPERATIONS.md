@@ -14,6 +14,25 @@ One Docker Compose project (`congress-staging`, file `deploy/staging/compose.yam
 - **Migration lock:** migrations take a PostgreSQL advisory lock, so concurrent runs serialise.
 - **API workers.** The image runs `python -m app.serve`, which starts uvicorn with `CONGRESS_API_WORKERS` worker processes (default **1**); see [Scaling](#scaling) before raising it.
 
+## Upgrading an existing install
+
+An update is a backup, `git pull` and `node scripts/staging/stack.mjs up`. `up` builds, migrates (all pending migrations in one transaction), restarts, waits for health and records the release. On a `.staging/staging.env` written by an older release it first adds the secret that release did not generate (`CONGRESS_SECRET_BOX_KEY`), and never replaces a value that is set. Rehearsed on 2026-10-23 from `main` (schema 0018) with real data (organizer, published page with an image, pass type, ticket, scan, booth, a saved sms.ir key, a 4-digit sign-in code rule): `up` alone migrated 0018 → 0026 in under a minute and all of it kept working, including the old organizer key, scanner token and the attendee's sign-in.
+
+1. Not during a congress, and not while scanners still hold offline scans that have not synced.
+2. Back up with the release you run now: `node scripts/staging/stack.mjs scheduled-backup` (or `backup`). Copy it off the machine.
+3. Run `git status`. If you edited `deploy/staging/Caddyfile` by hand (the old guide's "delete the `http://localhost` block"), undo it with `git checkout -- deploy/staging/Caddyfile`. `CONGRESS_LOCAL_HTTP=off` in `.staging/staging.env` does the same thing, and the hosted template already sets it.
+4. Only if off-host copies are configured (`BACKUP_S3_*`): add `BACKUP_ENCRYPTION_KEY` (`openssl rand -base64 48`) to `/etc/congress/backup.env` and to your password manager. Consider a new `BACKUP_S3_PREFIX` as well. Off-host copies are now always encrypted, so without the key `scheduled-backup` fails and `check` reports it as critical. `up` warns about this.
+5. `git pull` the reviewed commit, then run `node scripts/staging/stack.mjs up`.
+6. `node scripts/staging/stack.mjs check` must not report anything critical. Then save the updated `.staging/staging.env` with the server's other secrets: it now holds `CONGRESS_SECRET_BOX_KEY`.
+7. Linux server with timers: run `sudo node scripts/staging/stack.mjs install-timers --user <operating user>` once. It replaces the hand-copied units, because `check` now sends its own alerts and reads `/etc/congress/backup.env`.
+8. Reload every scanner device. Tell organizers and operators that the screens have changed (`docs/handover/UPGRADE_HANDOVER.md` §7).
+
+**If `up` stops at `migrate`** (for example `0021` naming rows that break an integrity rule), the database is still at 0018. Check out the previous commit and run `up` to bring the old release back. Fix the rows, then try again.
+
+**After a successful first upgrade** there is no `rollback` to `main`: `rollback` answers "No earlier release is kept", and `main`'s `up` stops at `migrate`, leaving the site down. The way back is the backup from step 2 ([First upgrade from `main`](#first-upgrade-from-main)).
+
+Nothing else needs editing. Compose gives every new setting its default. `CONGRESS_OTP_LENGTH` below 6 refuses to start in staging/production, but env files from older releases never set it. A 4- or 5-digit code length saved in the platform console is raised to 6 automatically.
+
 ## Prerequisites
 
 - Docker Desktop (Windows/macOS) or Docker Engine + Compose v2 (Linux).
@@ -28,7 +47,7 @@ node scripts/staging/stack.mjs up       # builds both images, migrates, starts, 
 node scripts/staging/stack.mjs ca       # exports Caddy's local root CA to .staging\caddy-root.crt
 ```
 
-`init` generates `POSTGRES_PASSWORD`, `CONGRESS_PLATFORM_ADMIN_TOKEN`, `CONGRESS_JWT_SECRET`, `CONGRESS_SECRET_BOX_KEY` (distinct from the JWT secret) and `CONGRESS_METRICS_TOKEN`. It never overwrites an existing `.staging/staging.env`; on an install made before the secret-box key existed, `node scripts/staging/stack.mjs init --add-missing` adds that key only (credentials sealed before keep opening; nothing that is set is replaced), then `stack.mjs start`. A missing database password, JWT secret or admin token is reported, never generated: a new one would lock out the existing database or every session.
+`init` generates `POSTGRES_PASSWORD`, `CONGRESS_PLATFORM_ADMIN_TOKEN`, `CONGRESS_JWT_SECRET`, `CONGRESS_SECRET_BOX_KEY` (distinct from the JWT secret) and `CONGRESS_METRICS_TOKEN`. It never overwrites an existing `.staging/staging.env`. On an install made before the secret-box key existed, `stack.mjs up` adds that key itself before it builds (as `node scripts/staging/stack.mjs init --add-missing` does by hand): credentials sealed before keep opening, and nothing that is set is replaced. A missing database password, JWT secret or admin token is reported, never generated: a new one would lock out the existing database or every session.
 
 `init` puts the data under `~/congress-persistent-data` (or `$CONGRESS_PERSISTENT_DATA_ROOT` if set while it runs) and warns when that folder already holds a PostgreSQL data directory or other containers mount it. The root `docker-compose.yml` development database uses its own folder, `~/congress-dev-data` (`CONGRESS_DEV_DATA_ROOT`); before 2026-10 both defaulted to `~/congress-persistent-data/data/postgres`, so a machine that ran both may have one database under both names: stop both, keep the staging folder, and move nothing while either runs.
 
@@ -222,7 +241,7 @@ Drill results (ws/a3-ops): rollback was refused for an unmarked migration (previ
 
 Migrations since `main` (`0018`), in the order they run. The chain order differs from the numbers because branches
 landed in a different order than they were numbered; each file's `down_revision` is the truth. "Rollback OK" means the
-module sets `backward_compatible = True` (checked in `backend/migrations/versions/*` on 2026-10-23, head `0029`):
+module sets `backward_compatible = True` (checked in `backend/migrations/versions/*` on 2026-10-23, head `0026`):
 
 | Order | Rev | Purpose | Rollback OK |
 |---|---|---|---|
@@ -235,9 +254,12 @@ module sets `backward_compatible = True` (checked in `backend/migrations/version
 | 7 | 0027 | lead soft delete | yes |
 | 8 | 0028 | audit log | yes |
 | 9 | 0029 | organizer members | yes |
+| 10 | 0030 | attendee session version (sign out everywhere) | yes |
+| 11 | 0025 | check-in policies, occupancy, session doors, device heartbeat | yes |
+| 12 | 0026 | badge prints, desk check-ins | yes |
 
 How to read it: `rollback` to an older release works only when **every** migration after that release's schema is
-marked. From head `0029`, a release built for `0022` can be rolled back to (0027–0029 are marked); a release built for
+marked. From head `0026`, a release built for `0022` or later can be rolled back to (0027–0030, 0025 and 0026 are marked); a release built for
 `0024` or earlier cannot (0021 and 0022 are not), and neither can `main`. Going further back is a restore of the
 backup taken before the upgrade, or a point-in-time restore to just before it. Later migrations (for example from the
 C1/C2 workstreams) extend this table; check their flags before deploying.
@@ -246,15 +268,18 @@ C1/C2 workstreams) extend this table; check their flags before deploying.
 
 `main` is at schema `0018` and predates the release tooling. The first upgrade to this line is special:
 
-- **One way.** `0018 → 0029` crosses five migrations that are not rollback-compatible, and `main`'s images require the
+- **One way.** `0018 → 0026` (twelve migrations, in the chain order above) crosses five migrations that are not rollback-compatible, and `main`'s images require the
   exact schema they were built for. After a successful upgrade the only way back to `main` is the pre-upgrade backup
   (or PITR, if WAL archiving was already on).
 - **No `rollback` the first time.** `main`'s `stack.mjs` records no releases, so the first `up` on this line records the
   first one and `rollback` has nothing to go back to. If the upgrade fails, check out the previous commit and run
-  `stack.mjs up` again (its images are rebuilt; the next point explains why the database still fits them).
+  `stack.mjs up` again (its images are rebuilt; the next point explains why the database still fits them). Only after a
+  *failed* upgrade: once the migrations went through, `main`'s `up` stops at `migrate` ("Can't locate revision
+  identified by '0026'") and leaves `api` and `web` stopped until the new release's `up` runs again (rehearsed
+  2026-10-23; no data is lost either way).
 - **All or nothing.** `alembic upgrade head` runs every pending migration in **one transaction** (`migrations/env.py`).
   If any step fails, notably `0021` finding rows that break an integrity rule, the whole upgrade is rolled back and the
-  database stays at `0018`; the new API does not start (the schema guard needs `0029`).
+  database stays at `0018`; the new API does not start (the schema guard needs `0026`).
 - **0021 needs clean data.** It never repairs rows silently. When it stops, the migrate log names the table and up to
   five offending ids; correct them on the live system (with the organizer: the right fix depends on what was meant),
   then rehearse again.
@@ -458,7 +483,7 @@ Application settings live in `.staging/staging.env`. `BACKUP_*` and `ALERT_*` ma
 | `CONGRESS_METRICS_TOKEN` | empty (generated by `init`) | Bearer token for `/api/metrics`; empty = endpoint disabled |
 | `CONGRESS_METRICS_ALLOW` | `private_ranges` (hosted template: `127.0.0.1/32`) | Client ranges Caddy lets reach `/api/metrics` |
 | `CONGRESS_SENTRY_DSN` | empty | Sentry/GlitchTip DSN; empty = off |
-| `CONGRESS_SECRET_BOX_KEY` | generated by `init` | Encrypts credentials stored in the database; `init --add-missing` adds it to an older install |
+| `CONGRESS_SECRET_BOX_KEY` | generated by `init` | Encrypts credentials stored in the database; `up` (or `init --add-missing`) adds it to an older install |
 | other `CONGRESS_*` API settings | empty = API default | Pool, SMS, sign-in, retention and upload limits: every one is listed with its default in `deploy/staging/.env.staging.example` |
 | `CONGRESS_STACK_PROJECT` | `congress-staging` | Compose project `stack.mjs` acts on |
 | `CONGRESS_OPS_ENV_FILE` | `/etc/congress/backup.env` | Separate file for `BACKUP_*`/`ALERT_*` |

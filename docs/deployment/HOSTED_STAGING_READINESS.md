@@ -107,7 +107,7 @@ The bucket was again a local stand-in, not a real provider. **Not exercised:** A
 
 ## 3. Environment variables and secrets
 
-The template is `deploy/hosted/.env.hosted.example`. On the server it becomes `.staging/staging.env`, which is git-ignored. The hosted template marks four secrets `<generate: …>` with the command that generates each: `POSTGRES_PASSWORD`, `CONGRESS_PLATFORM_ADMIN_TOKEN`, `CONGRESS_JWT_SECRET` and `CONGRESS_METRICS_TOKEN`. (`stack.mjs init` generates the same four, but from the *staging* template, `deploy/staging/.env.staging.example`, and only when `.staging/staging.env` does not exist yet.) `CONGRESS_SECRET_BOX_KEY` is not in the template; see below.
+The template is `deploy/hosted/.env.hosted.example`. On the server it becomes `.staging/staging.env`, which is git-ignored. The hosted template marks five secrets `<generate: …>` with the command that generates each: `POSTGRES_PASSWORD`, `CONGRESS_PLATFORM_ADMIN_TOKEN`, `CONGRESS_JWT_SECRET`, `CONGRESS_SECRET_BOX_KEY` and `CONGRESS_METRICS_TOKEN`. (`stack.mjs init` generates the same five, but from the *staging* template, `deploy/staging/.env.staging.example`, and only when `.staging/staging.env` does not exist yet.) On a server set up before the secret-box key existed, `stack.mjs up` adds it; see below.
 
 | Variable | Value on a real server |
 |---|---|
@@ -135,7 +135,7 @@ The full list with defaults is in `STAGING_OPERATIONS.md` → *Operations settin
 
 - Introducing it needs no migration: a key saved before still opens with the JWT secret, and it is encrypted again with the new key the next time the SMS settings are saved in the platform console (any change, for example the line number). Save them once before you rotate the JWT secret.
 - Keep `CONGRESS_SECRET_BOX_KEY` with the other secrets and in the backup of `.staging/staging.env`: without it the stored API key cannot be read, and the console asks for it again.
-- The staging/hosted Compose file does not pass this variable to the API yet; until it does (`CONGRESS_SECRET_BOX_KEY: ${CONGRESS_SECRET_BOX_KEY:-}` in the `x-backend` environment, plus a line in the `.env` examples), the JWT-derived key is used.
+- The staging/hosted Compose file passes it to the API, and both `.env` templates list it. An existing server without it gets one from `stack.mjs up` (or `stack.mjs init --add-missing`); nothing that is set is replaced.
 
 ## 4. VPS sizing (measured, not guessed)
 
@@ -177,7 +177,7 @@ The full list with defaults is in `STAGING_OPERATIONS.md` → *Operations settin
 7. Put `/etc/congress/backup.env` in place (off-host store, `BACKUP_ENCRYPTION_KEY`, optionally `BACKUP_WAL=on`, `ALERT_TELEGRAM_*`). With `BACKUP_WAL=on` run `stack.mjs up` again: it creates the pgBackRest stanza and takes the first full base backup.
 8. Run `stack.mjs scheduled-backup` once by hand. Confirm it with `stack.mjs backups --offsite`, then `stack.mjs restore-verify <name> --from-offsite`. With WAL: `stack.mjs pitr-restore --to latest`.
 9. Enable the timers: `sudo node scripts/staging/stack.mjs install-timers --user congress` (try `--dry-run` first). Confirm a Telegram message arrives for a deliberate problem and a recovery message after it.
-10. **Updates:** `scheduled-backup` first, then `git pull` the reviewed commit, `stack.mjs up` (records the release), `check`. If the new release misbehaves: `stack.mjs rollback` (works only when its migrations are all `backward_compatible`; otherwise restore the pre-update backup or `pitr-restore` to just before it).
+10. **Updates:** `scheduled-backup` first, then `git pull` the reviewed commit, `stack.mjs up` (records the release; on an older `.staging/staging.env` it adds `CONGRESS_SECRET_BOX_KEY` first), `check`. The first update from `main` has a few one-time steps: `STAGING_OPERATIONS.md` → *Upgrading an existing install*. If the new release misbehaves: `stack.mjs rollback` (works only when its migrations are all `backward_compatible`; otherwise restore the pre-update backup or `pitr-restore` to just before it).
 11. **Before congress day:** follow `STAGING_OPERATIONS.md` → *Before congress day* (`event-mode on`, verified off-host restore, PITR drill, alert test).
 
 ## 7. Backup and recovery
