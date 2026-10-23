@@ -38,7 +38,7 @@ export function BoothIndex({ slug, locale, booths }: { slug: string; locale: Pub
 
   if (directory.status === "loading") {
     return (
-      <div aria-hidden="true" className="space-y-px overflow-hidden rounded-2xl border border-border-default bg-border-subtle">
+      <div aria-hidden="true" className="space-y-px overflow-hidden rounded-card border border-border-default bg-border-subtle">
         {[0, 1, 2].map((i) => (
           <div key={i} className="flex items-center gap-6 bg-surface-panel px-5 py-6 sm:px-7">
             <div className="skeleton h-8 w-20" />
@@ -53,55 +53,54 @@ export function BoothIndex({ slug, locale, booths }: { slug: string; locale: Pub
   }
 
   if (directory.status === "unavailable") {
-    return <p className="max-w-2xl text-base leading-relaxed text-text-secondary">{c.exhibitionFallback}</p>;
+    return <p className="text-body-sm text-text-secondary">{c.exhibitionUnavailable}</p>;
   }
 
   if (directory.booths.length === 0) {
     return (
-      <div className="flex items-center gap-4 rounded-2xl border border-dashed border-border-strong bg-surface-panel px-6 py-8 text-text-secondary">
+      <div className="flex items-center gap-4 rounded-card border border-dashed border-border-strong bg-surface-panel px-6 py-8 text-text-secondary">
         <Icon name="booth" size={24} className="text-text-muted" />
-        <p className="text-base">{c.exhibitionEmpty}</p>
+        <p className="text-body">{c.exhibitionEmpty}</p>
       </div>
     );
   }
 
   return (
     <div className="space-y-4">
-      <p className="font-mono text-xs text-text-muted tabular">{c.exhibitionCount(num(directory.booths.length, locale), directory.booths.length)}</p>
-      <ul className="overflow-hidden rounded-2xl border border-border-default bg-surface-panel shadow-soft divide-y divide-border-subtle">
+      <p className="text-caption text-text-muted tabular">{c.exhibitionCount(num(directory.booths.length, locale), directory.booths.length)}</p>
+      <ul className="overflow-hidden rounded-card border border-border-default bg-surface-panel shadow-soft divide-y divide-border-subtle">
         {directory.booths.map((b) => {
-          const latinCode = LATIN_CODE.test(b.location);
+          // A short Latin stand code ("A12") is set large as a placard; anything longer reads as text and wraps.
+          const code = LATIN_CODE.test(b.location) && b.location.length <= 8;
           return (
             <li key={b.id}>
               <Link
                 to={`/e/${encodeURIComponent(slug)}/booths/${b.id}`}
-                className="pub-index-row grid grid-cols-[minmax(4.5rem,auto)_minmax(0,1fr)_auto] items-center gap-4 px-5 py-5 sm:grid-cols-[8rem_minmax(0,1fr)_auto] sm:gap-8 sm:px-7 sm:py-6 focus-visible:outline-offset-[-2px]"
+                className="pub-booth-row grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-1.5 px-4 py-4 sm:grid-cols-[11rem_minmax(0,1fr)_auto] sm:gap-x-8 sm:px-7 sm:py-6 focus-visible:outline-offset-[-2px]"
               >
-                <span className="min-w-0">
-                  <span className="block text-[11px] font-semibold text-text-muted">{c.stand}</span>
+                <span className="col-start-1 row-start-1 flex min-w-0 items-baseline gap-2 sm:flex-col sm:items-start sm:gap-0.5">
+                  <span className="shrink-0 text-caption font-semibold text-text-muted">{c.stand}</span>
                   <span
-                    className={`block truncate text-event-accent ${
-                      latinCode ? "font-mono text-lg sm:text-2xl font-medium tracking-[-0.03em]" : "text-base sm:text-xl font-bold"
+                    className={`min-w-0 text-event-accent break-words ${
+                      code ? "font-mono text-body-sm font-medium sm:text-title" : "text-body-sm font-semibold sm:text-body sm:leading-snug"
                     }`}
                   >
-                    {b.location || "—"}
+                    <Bidi text={b.location || "—"} />
                   </span>
                 </span>
-                <span className="min-w-0 space-y-1">
-                  <span className="block text-base sm:text-lg font-semibold tracking-[-0.015em] text-text-primary break-words"><Bidi text={b.name} /></span>
-                  {b.description && <span className="block text-sm text-text-secondary line-clamp-2 sm:line-clamp-1"><Bidi text={b.description} /></span>}
+                <span className="col-start-1 row-start-2 min-w-0 space-y-1 sm:col-start-2 sm:row-start-1">
+                  <span className="block text-body font-semibold text-text-primary break-words sm:text-title-sm"><Bidi text={b.name} /></span>
+                  {b.description && <span className="block text-body-sm text-text-secondary line-clamp-2 sm:line-clamp-1"><Bidi text={b.description} /></span>}
                   {/^https?:\/\//i.test(b.brochure_url) && (
-                    <span className="inline-flex items-center gap-1.5 pt-0.5 text-xs font-medium text-text-muted">
+                    <span className="inline-flex items-center gap-1.5 pt-0.5 text-caption font-medium text-text-muted">
                       <Icon name="file" size={14} />
                       {c.brochure}
                     </span>
                   )}
                 </span>
-                <span className="flex items-center gap-3">
-                  <span className="sr-only lg:not-sr-only lg:text-sm lg:font-semibold lg:text-event-accent">{c.viewBooth}</span>
-                  <span className="pub-index-arrow grid size-10 place-items-center rounded-full border border-border-default text-text-secondary">
-                    <Icon name="arrow-up-right" size={18} />
-                  </span>
+                <span className="col-start-2 row-span-2 row-start-1 flex items-center gap-3 sm:col-start-3 sm:row-span-1">
+                  <span className="sr-only lg:not-sr-only lg:text-body-sm lg:font-semibold lg:text-event-accent">{c.viewBooth}</span>
+                  <Icon name="chevron-right" size={20} className="text-text-muted" />
                 </span>
               </Link>
             </li>

@@ -1,75 +1,60 @@
-import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import type { PublicSession } from "../../api/client";
-import { formatLocalizedNumber, type AttendeeLocale } from "../../lib/i18n";
+import { daysBetween, zonedDayKey } from "../../lib/congressPhase";
+import type { AttendeeLocale } from "../../lib/i18n";
+import { nowAndNext } from "../../lib/programExplorer";
 import { Badge } from "../ui/Badge";
 import { Icon } from "../ui/Icon";
+import { attendeeCopy } from "../../copy/attendee";
+import { n } from "./attendeeCopy";
+import { useNow } from "./useNow";
+import { formatClock, formatDayLabel } from "./zonedFormat";
 
 /** Sessions shown for one day on the home module; the full program lives on the details page. */
 const UPCOMING_LIMIT = 4;
-const DAY_MS = 86_400_000;
 
-/** "Now" for live-session badges, refreshed every minute. */
-function useNow(): number {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const timer = window.setInterval(() => setNow(Date.now()), 60_000);
-    return () => window.clearInterval(timer);
-  }, []);
-  return now;
+const iconButton =
+  "press grid size-11 shrink-0 place-items-center rounded-xl border transition-colors cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring";
+
+interface SessionRowProps {
+  session: PublicSession;
+  locale: AttendeeLocale;
+  now: number;
+  timeZone?: string;
+  /** Speakers and description (the full program); the home shows the compact row. */
+  detailed: boolean;
+  starred?: boolean;
+  onToggleStar?: () => void;
+  onCalendar?: () => void;
 }
 
-/** Local calendar day of a timestamp, as a grouping key. */
-function dayKey(value: string | number): string {
-  const d = new Date(value);
-  return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
-}
-
-function dayLabel(iso: string, locale: AttendeeLocale): string {
-  return new Intl.DateTimeFormat(locale === "fa" ? "fa-IR-u-ca-persian" : "en-GB", {
-    weekday: "long",
-    day: "numeric",
-    month: "long",
-  }).format(new Date(iso));
-}
-
-function clock(iso: string, locale: AttendeeLocale): string {
-  return new Intl.DateTimeFormat(locale === "fa" ? "fa-IR" : "en-GB", { hour: "2-digit", minute: "2-digit" }).format(new Date(iso));
-}
-
-/** Sessions grouped by local calendar day, in the API's order (by start time). */
-function groupByDay(sessions: readonly PublicSession[]): { key: string; sessions: PublicSession[] }[] {
-  const groups: { key: string; sessions: PublicSession[] }[] = [];
-  for (const session of sessions) {
-    const key = dayKey(session.starts_at);
-    const group = groups.find((g) => g.key === key);
-    if (group) group.sessions.push(session);
-    else groups.push({ key, sessions: [session] });
-  }
-  return groups;
-}
-
-function SessionItem({ session, locale, now, detailed }: { session: PublicSession; locale: AttendeeLocale; now: number; detailed: boolean }) {
-  const fa = locale === "fa";
-  const live = Date.parse(session.starts_at) <= now && now <= Date.parse(session.ends_at);
+export function SessionRow({ session, locale, now, timeZone, detailed, starred = false, onToggleStar, onCalendar }: SessionRowProps) {
+  const c = attendeeCopy[locale].program;
+  const start = Date.parse(session.starts_at);
+  const end = Date.parse(session.ends_at);
+  const live = start <= now && now < end;
   // Ended sessions recede (muted text, still AA) so the next one stands out.
-  const ended = Date.parse(session.ends_at) < now;
+  const ended = end <= now;
+  const actions = onToggleStar || onCalendar;
   return (
-    <li className="grid grid-cols-[4.25rem_minmax(0,1fr)] gap-x-4 py-4 sm:grid-cols-[5.5rem_minmax(0,1fr)]">
-      <p className="flex flex-col pt-0.5 text-sm tabular">
-        <span className={`font-semibold ${ended ? "text-text-muted" : "text-text-primary"}`}>{clock(session.starts_at, locale)}</span>
+    <li
+      className={`relative grid gap-x-3 py-4 sm:gap-x-5 ${actions ? "grid-cols-[4rem_minmax(0,1fr)_auto] sm:grid-cols-[5.5rem_minmax(0,1fr)_auto]" : "grid-cols-[4.25rem_minmax(0,1fr)] sm:grid-cols-[5.5rem_minmax(0,1fr)]"} ${live ? "bg-event-accent/[0.05]" : ""}`}
+    >
+      {starred && <span aria-hidden="true" className="absolute inset-y-3 -start-px w-[3px] rounded-e-full bg-[image:var(--grad-aiteb)]" />}
+      <p className="flex flex-col ps-1 pt-0.5 text-sm tabular">
+        <span className={`font-semibold ${ended ? "text-text-muted" : "text-text-primary"}`}>{formatClock(session.starts_at, locale, timeZone)}</span>
         <span className="text-xs text-text-muted">
-          <span className="sr-only">{fa ? "تا" : "until"} </span>
-          {clock(session.ends_at, locale)}
+          <span className="sr-only">{c.until} </span>
+          {formatClock(session.ends_at, locale, timeZone)}
         </span>
-        {ended && <span className="sr-only">{fa ? "پایان‌یافته" : "Ended"}</span>}
+        {ended && <span className="sr-only">{c.ended}</span>}
       </p>
       <div className="min-w-0 space-y-1.5">
         {(live || session.track) && (
           <div className="flex flex-wrap items-center gap-1.5">
             {live && (
               <Badge variant="success" size="sm" dot>
-                {fa ? "در حال برگزاری" : "Now"}
+                {c.live}
               </Badge>
             )}
             {session.track && (
@@ -79,7 +64,7 @@ function SessionItem({ session, locale, now, detailed }: { session: PublicSessio
             )}
           </div>
         )}
-        <p dir="auto" className={`text-[15px] font-semibold leading-snug tracking-[-0.01em] break-words ${ended ? "text-text-muted" : "text-text-primary"}`}>
+        <p dir="auto" className={`text-body font-semibold leading-snug tracking-[-0.01em] break-words ${ended ? "text-text-muted" : "text-text-primary"}`}>
           {session.title}
         </p>
         {(session.hall_name || (detailed && session.speakers)) && (
@@ -104,65 +89,90 @@ function SessionItem({ session, locale, now, detailed }: { session: PublicSessio
           </p>
         )}
       </div>
+      {actions && (
+        <div className="flex flex-col gap-1.5 sm:flex-row">
+          {onToggleStar && (
+            <button
+              type="button"
+              aria-pressed={starred}
+              aria-label={starred ? c.agendaRemove(session.title) : c.agendaAdd(session.title)}
+              onClick={onToggleStar}
+              className={`${iconButton} ${starred ? "border-event-accent/30 bg-event-accent-soft text-event-accent" : "border-border-default bg-surface-panel text-ink-400 hover:border-border-strong hover:text-text-primary"}`}
+            >
+              <Icon name="star" size={19} fill={starred ? "currentColor" : "none"} />
+            </button>
+          )}
+          {onCalendar && (
+            <button
+              type="button"
+              aria-label={c.addToCalendar(session.title)}
+              onClick={onCalendar}
+              className={`${iconButton} border-border-default bg-surface-panel text-ink-400 hover:border-border-strong hover:text-text-primary`}
+            >
+              <Icon name="calendar" size={18} />
+            </button>
+          )}
+        </div>
+      )}
     </li>
   );
 }
 
-function ScheduleEmpty({ locale }: { locale: AttendeeLocale }) {
+export function ScheduleEmpty({ locale }: { locale: AttendeeLocale }) {
   return (
     <p className="flex items-center gap-2.5 rounded-2xl border border-dashed border-border-strong p-5 text-sm text-text-secondary">
       <Icon name="calendar" size={18} className="shrink-0 text-ink-400" />
-      {locale === "fa" ? "برنامه جلسات هنوز اعلام نشده است." : "The session program has not been announced yet."}
+      {attendeeCopy[locale].program.empty}
     </p>
+  );
+}
+
+function FullProgramLink({ to, count, locale }: { to: string; count: number; locale: AttendeeLocale }) {
+  return (
+    <Link
+      to={to}
+      className="group inline-flex min-h-12 items-center gap-1.5 self-start rounded text-sm font-semibold text-action-primary underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
+    >
+      {attendeeCopy[locale].home.fullProgram} ({attendeeCopy[locale].program.sessionCount(n(count, locale))})
+      <Icon name="arrow-right" size={16} className="transition-transform group-hover:translate-x-0.5 rtl:group-hover:-translate-x-0.5" />
+    </Link>
   );
 }
 
 interface UpcomingSessionsProps {
   sessions: readonly PublicSession[];
   locale: AttendeeLocale;
+  timeZone?: string;
   /** The full program (details page). */
   fullScheduleTo: string;
 }
 
-/** Home module: today's sessions, or the next day that has any, with a link to the full program. */
-export function UpcomingSessions({ sessions, locale, fullScheduleTo }: UpcomingSessionsProps) {
-  const now = useNow();
-  const fa = locale === "fa";
+/** Home module: today's sessions, or the next day that has any (venue calendar), with a link to the full program. */
+export function UpcomingSessions({ sessions, locale, timeZone, fullScheduleTo }: UpcomingSessionsProps) {
+  const now = useNow(60_000);
+  const c = attendeeCopy[locale].program;
   if (sessions.length === 0) return <ScheduleEmpty locale={locale} />;
 
-  const fullLink = (
-    <Link
-      to={fullScheduleTo}
-      className="group inline-flex min-h-11 items-center gap-1.5 self-start rounded text-sm font-semibold text-action-primary underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
-    >
-      {fa ? `برنامه کامل (${formatLocalizedNumber(sessions.length, locale)} جلسه)` : `Full program (${sessions.length} session${sessions.length === 1 ? "" : "s"})`}
-      <Icon name="arrow-right" size={16} className="transition-transform group-hover:translate-x-0.5 rtl:group-hover:-translate-x-0.5" />
-    </Link>
-  );
-
-  const remaining = sessions.filter((s) => Date.parse(s.ends_at) >= now);
+  const fullLink = <FullProgramLink to={fullScheduleTo} count={sessions.length} locale={locale} />;
+  const remaining = sessions.filter((s) => Date.parse(s.ends_at) >= now).sort((a, b) => Date.parse(a.starts_at) - Date.parse(b.starts_at));
   if (remaining.length === 0) {
     return (
       <div className="flex flex-col gap-3">
         <p className="flex items-center gap-2.5 rounded-2xl border border-border-default bg-surface-panel-subtle p-4 text-sm text-text-secondary">
           <Icon name="check-circle" size={18} className="shrink-0 text-ink-400" />
-          {fa ? "همه جلسات این همایش برگزار شده‌اند." : "All sessions of this congress have taken place."}
+          {c.allDone}
         </p>
         {fullLink}
       </div>
     );
   }
 
-  const key = dayKey(remaining[0].starts_at);
-  const day = remaining.filter((s) => dayKey(s.starts_at) === key);
+  const key = zonedDayKey(remaining[0].starts_at, timeZone);
+  const day = remaining.filter((s) => zonedDayKey(s.starts_at, timeZone) === key);
   const shown = day.slice(0, UPCOMING_LIMIT);
   const more = day.length - shown.length;
-  const label =
-    key === dayKey(now)
-      ? fa ? "امروز" : "Today"
-      : key === dayKey(now + DAY_MS)
-        ? fa ? "فردا" : "Tomorrow"
-        : fa ? "روز بعدی برنامه" : "Next program day";
+  const offset = daysBetween(zonedDayKey(now, timeZone), key);
+  const label = offset === 0 ? c.today : offset === 1 ? c.tomorrow : c.nextDay;
 
   return (
     <div className="flex flex-col gap-2">
@@ -170,16 +180,16 @@ export function UpcomingSessions({ sessions, locale, fullScheduleTo }: UpcomingS
         <Icon name="calendar" size={15} className="text-event-accent" />
         <span className="text-text-primary">{label}</span>
         <span aria-hidden="true">·</span>
-        <span>{dayLabel(remaining[0].starts_at, locale)}</span>
+        <span>{formatDayLabel(remaining[0].starts_at, locale, timeZone)}</span>
       </p>
       <ol className="divide-y divide-border-subtle border-b border-border-subtle">
         {shown.map((s) => (
-          <SessionItem key={s.id} session={s} locale={locale} now={now} detailed={false} />
+          <SessionRow key={s.id} session={s} locale={locale} now={now} timeZone={timeZone} detailed={false} />
         ))}
       </ol>
       {more > 0 && (
         <p className="text-xs text-text-muted">
-          {fa ? `و ${formatLocalizedNumber(more, locale)} جلسه دیگر در همین روز` : `and ${more} more session${more === 1 ? "" : "s"} that day`}
+          {c.moreThatDay(n(more, locale))}
         </p>
       )}
       {fullLink}
@@ -187,34 +197,59 @@ export function UpcomingSessions({ sessions, locale, fullScheduleTo }: UpcomingS
   );
 }
 
-/** The complete program grouped by day: time range, title, track, hall, speakers and description. */
-export function FullSchedule({ sessions, locale }: { sessions: readonly PublicSession[]; locale: AttendeeLocale }) {
-  const now = useNow();
-  const fa = locale === "fa";
+/** Home module during the congress: what runs now and what starts next. */
+export function NowNextSessions({ sessions, locale, timeZone, fullScheduleTo }: UpcomingSessionsProps) {
+  const now = useNow(30_000);
+  const c = attendeeCopy[locale].home;
   if (sessions.length === 0) return <ScheduleEmpty locale={locale} />;
-  const groups = groupByDay(sessions);
+  const { live, next } = nowAndNext(sessions, now);
+  const nextOtherDay = next && zonedDayKey(next.starts_at, timeZone) !== zonedDayKey(now, timeZone);
+
+  const line = (session: PublicSession, showDay = false) => (
+    <>
+      <span dir="auto" className="block text-base font-semibold leading-snug text-white break-words">{session.title}</span>
+      <span className="mt-1 block text-xs text-ink-300">
+        {showDay && <>{formatDayLabel(session.starts_at, locale, timeZone, "short")} · </>}
+        <span className="tabular">
+          {formatClock(session.starts_at, locale, timeZone)}–{formatClock(session.ends_at, locale, timeZone)}
+        </span>
+        {session.hall_name && (
+          <>
+            {" · "}
+            <bdi>{session.hall_name}</bdi>
+          </>
+        )}
+      </span>
+    </>
+  );
+
   return (
-    <div className="space-y-10">
-      {groups.map((group, i) => (
-        <section key={group.key} aria-label={dayLabel(group.sessions[0].starts_at, locale)} className="space-y-2">
-          <h3 className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-            {groups.length > 1 && (
-              <span className="text-xs font-semibold text-event-accent">
-                {fa ? `روز ${formatLocalizedNumber(i + 1, locale)}` : `Day ${i + 1}`}
-              </span>
-            )}
-            <span className="text-base font-semibold tracking-[-0.01em] text-text-primary">{dayLabel(group.sessions[0].starts_at, locale)}</span>
-            <span className="text-xs text-text-muted">
-              {fa ? `${formatLocalizedNumber(group.sessions.length, locale)} جلسه` : `${group.sessions.length} session${group.sessions.length === 1 ? "" : "s"}`}
-            </span>
-          </h3>
-          <ol className="divide-y divide-border-default border-y border-border-default">
-            {group.sessions.map((s) => (
-              <SessionItem key={s.id} session={s} locale={locale} now={now} detailed />
-            ))}
-          </ol>
-        </section>
-      ))}
+    <div className="flex flex-col gap-3">
+      <div className="grid gap-px overflow-hidden rounded-2xl bg-white/10 text-white shadow-lift sm:grid-cols-2">
+        <div className="space-y-3 bg-surface-ink p-5">
+          <p className="flex items-center gap-2 text-xs font-semibold text-status-success-on-ink">
+            <span aria-hidden="true" className="size-2 rounded-full bg-status-success-on-ink motion-safe:animate-pulse" />
+            {c.nowTitle}
+          </p>
+          {live.length > 0 ? (
+            <ul className="space-y-3">
+              {live.map((s) => (
+                <li key={s.id}>{line(s)}</li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-sm text-ink-300">{c.nothingNow}</p>
+          )}
+        </div>
+        <div className="space-y-3 bg-surface-ink p-5">
+          <p className="flex items-center gap-2 text-xs font-semibold text-ink-300">
+            <Icon name="clock" size={14} />
+            {c.nextTitle}
+          </p>
+          {next ? line(next, Boolean(nextOtherDay)) : <p className="text-sm text-ink-300">{c.noMoreToday}</p>}
+        </div>
+      </div>
+      <FullProgramLink to={fullScheduleTo} count={sessions.length} locale={locale} />
     </div>
   );
 }

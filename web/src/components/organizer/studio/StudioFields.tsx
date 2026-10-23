@@ -1,5 +1,6 @@
-import { useId, useState, type ReactNode } from "react";
-import type { LocalizedText, PageLocale } from "../../../lib/pageDocument";
+import { useId, useState, type PointerEvent, type ReactNode } from "react";
+import { focusPosition } from "../../../lib/heroImage";
+import type { LocalizedText, PageImage, PageLocale } from "../../../lib/pageDocument";
 import { Button } from "../../ui/Button";
 import { Icon, type IconName } from "../../ui/Icon";
 import { useStudio } from "./studioContext";
@@ -56,7 +57,7 @@ export function LocalizedField({
             <span
               key={l}
               title={value[l].trim() ? copy.languages[l] : copy.missing(copy.languages[l])}
-              className={`rounded px-1.5 py-0.5 font-mono text-[10px] font-semibold uppercase ${
+              className={`rounded px-1.5 py-0.5 font-mono text-caption font-semibold uppercase ${
                 value[l].trim() ? "bg-aiteb-lavender text-aiteb-indigo" : "bg-surface-panel-subtle text-text-muted line-through decoration-text-muted/60"
               }`}
             >
@@ -123,11 +124,12 @@ export function ImageField({
   value: string | null;
   onChange: (next: string | null) => void;
   hint?: ReactNode;
-  aspect?: "wide" | "square" | "logo";
+  aspect?: "wide" | "square" | "portrait" | "logo";
 }) {
   const { copy, images, pickImage } = useStudio();
   const image = value ? images[value] : undefined;
-  const frame = aspect === "logo" ? "h-20" : aspect === "square" ? "aspect-square w-28" : "aspect-[16/9]";
+  const frame =
+    aspect === "logo" ? "h-20" : aspect === "square" ? "aspect-square w-28" : aspect === "portrait" ? "aspect-[4/5] w-24" : "aspect-[16/9]";
   return (
     <div className="space-y-1.5">
       <p className="ui-label">{label}</p>
@@ -163,7 +165,7 @@ export function ImageField({
             </Button>
           )}
           {image && (
-            <span className="font-mono text-[11px] text-text-muted tabular" dir="ltr">
+            <span className="font-mono text-caption text-text-muted tabular" dir="ltr">
               {image.width}×{image.height}
             </span>
           )}
@@ -171,6 +173,113 @@ export function ImageField({
       </div>
       {hint && <p className="text-xs leading-relaxed text-text-muted">{hint}</p>}
     </div>
+  );
+}
+
+/**
+ * Where a cropped image is anchored: click or drag on the whole image (keyboard: the two sliders), with
+ * live crops at a wide-screen and a phone proportion. Values are percentages (CSS object-position).
+ */
+export function FocalPointField({
+  label,
+  hint,
+  image,
+  x,
+  y,
+  onChange,
+  phone = true,
+}: {
+  label: string;
+  hint?: ReactNode;
+  image: PageImage;
+  x: number;
+  y: number;
+  onChange: (x: number, y: number) => void;
+  /** Show the phone crop (false when phones get an image of their own). */
+  phone?: boolean;
+}) {
+  const { copy } = useStudio();
+  const b = copy.brand;
+  const id = useId();
+  const position = focusPosition(x, y);
+  const pick = (event: PointerEvent<HTMLDivElement>) => {
+    const box = event.currentTarget.getBoundingClientRect();
+    if (!box.width || !box.height) return;
+    const percent = (offset: number, size: number) => Math.min(100, Math.max(0, Math.round((offset / size) * 100)));
+    onChange(percent(event.clientX - box.left, box.width), percent(event.clientY - box.top, box.height));
+  };
+  const slider = (axis: "x" | "y") => (
+    <label className="flex items-center gap-3 text-xs font-medium text-text-secondary">
+      <span className="w-16 shrink-0">{axis === "x" ? b.focalX : b.focalY}</span>
+      <input
+        type="range"
+        min={0}
+        max={100}
+        step={1}
+        value={axis === "x" ? x : y}
+        onChange={(e) => (axis === "x" ? onChange(Number(e.target.value), y) : onChange(x, Number(e.target.value)))}
+        className="min-w-0 flex-1 accent-aiteb-indigo"
+        aria-describedby={`${id}-hint`}
+      />
+      <output className="w-10 shrink-0 text-end font-mono tabular" dir="ltr">
+        {axis === "x" ? x : y}%
+      </output>
+    </label>
+  );
+  return (
+    <fieldset className="space-y-3">
+      <legend className="ui-label">{label}</legend>
+      {image.url ? (
+        <div
+          aria-hidden="true"
+          data-testid="focal-picker"
+          className="relative mx-auto w-full max-w-[20rem] cursor-crosshair touch-none overflow-hidden rounded-xl border border-border-default"
+          onPointerDown={(e) => {
+            e.currentTarget.setPointerCapture(e.pointerId);
+            pick(e);
+          }}
+          onPointerMove={(e) => {
+            if (e.currentTarget.hasPointerCapture(e.pointerId)) pick(e);
+          }}
+        >
+          <img src={image.url} alt="" draggable={false} width={image.width} height={image.height} className="block h-auto w-full select-none" />
+          <span
+            className="pointer-events-none absolute size-7 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white shadow-[0_0_0_2px_rgb(0_0_0/0.45),0_4px_12px_rgb(0_0_0/0.35)]"
+            style={{ left: `${x}%`, top: `${y}%` }}
+          >
+            <span className="absolute inset-[9px] rounded-full bg-white" />
+          </span>
+        </div>
+      ) : (
+        <span className="block aspect-[16/9] w-full max-w-[20rem] animate-pulse rounded-xl bg-surface-panel-subtle" />
+      )}
+      <div className="space-y-1.5">
+        {slider("x")}
+        {slider("y")}
+      </div>
+      {image.url && (
+        <div className="flex items-end gap-3">
+          <figure className="w-44 min-w-0 space-y-1">
+            <img src={image.url} alt="" className="aspect-[16/10] w-full rounded-lg object-cover ring-1 ring-border-default" style={{ objectPosition: position }} />
+            <figcaption className="text-caption text-text-muted">{b.previewWide}</figcaption>
+          </figure>
+          {phone && (
+            <figure className="w-12 shrink-0 space-y-1">
+              <img src={image.url} alt="" className="aspect-[9/19] w-full rounded-lg object-cover ring-1 ring-border-default" style={{ objectPosition: position }} />
+              <figcaption className="text-caption text-text-muted">{b.previewPhone}</figcaption>
+            </figure>
+          )}
+        </div>
+      )}
+      <div className="flex items-start justify-between gap-3">
+        <p id={`${id}-hint`} className="text-xs leading-relaxed text-text-muted">
+          {hint}
+        </p>
+        <Button type="button" variant="ghost" size="sm" disabled={x === 50 && y === 50} onClick={() => onChange(50, 50)}>
+          {b.focalReset}
+        </Button>
+      </div>
+    </fieldset>
   );
 }
 
@@ -234,7 +343,7 @@ export function ItemList<T>({
         {items.map((item, i) => (
           <li key={keys[i]} className="rounded-2xl border border-border-default bg-surface-panel p-4 shadow-soft">
             <div className="mb-3 flex items-center gap-2">
-              <span className="font-mono text-[11px] font-semibold text-aiteb-indigo tabular">{String(i + 1).padStart(2, "0")}</span>
+              <span className="font-mono text-caption font-semibold text-aiteb-indigo tabular">{String(i + 1).padStart(2, "0")}</span>
               <span className="min-w-0 flex-1 truncate text-sm font-semibold text-text-primary">{summary(item, i) || copy.untitled}</span>
               <IconButton icon="arrow-up" label={copy.moveUp} disabled={i === 0} onClick={() => move(i, i - 1)} />
               <IconButton icon="arrow-down" label={copy.moveDown} disabled={i === items.length - 1} onClick={() => move(i, i + 1)} />

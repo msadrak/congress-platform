@@ -1,0 +1,136 @@
+/*
+ * Shared shell of the on-site operator tools (scanner, reception desk, booth panel): verdict banner colours and
+ * sizes. Tokens come from src/index.css. Lives in the `components` layer so Tailwind utilities on the same element
+ * still win. Transitions stay ≤ 150 ms so a verdict never delays the next scan.
+ */
+@layer components {
+
+.op-verdict {
+  /* Darker fields than the status solids so white text clears AA in bright halls. */
+  --op-admit: #087a52;
+  --op-admit-deep: #055c3d;
+  --op-exit: #3a3570;
+  --op-reject-deep: #a8103d;
+  --op-on-amber: #07061a;
+
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 1.5rem 1.25rem;
+  text-align: center;
+  color: #fff;
+  animation: op-verdict-in 110ms ease-out both;
+}
+
+/* Fills the positioned stage (scanner takeover); overflow on short stages falls off the bottom, never the title. */
+.op-verdict--stage {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  justify-content: center;
+  justify-content: safe center;
+  overflow-y: auto;
+}
+
+/* Inside a desk card or the booth capture sheet. */
+.op-verdict--inline {
+  border-radius: 16px;
+}
+
+.op-verdict--admitted {
+  background: linear-gradient(180deg, var(--op-admit), var(--op-admit-deep));
+}
+/* Provisional: amber, striped and dashed, so it never reads as the server's "admitted" by colour alone. */
+.op-verdict--admitted-offline {
+  color: var(--op-on-amber);
+  background:
+    repeating-linear-gradient(135deg, rgb(7 6 26 / 0.07) 0 12px, transparent 12px 24px),
+    var(--status-warning-solid);
+  outline: 4px dashed rgb(7 6 26 / 0.45);
+  outline-offset: -10px;
+}
+.op-verdict--exit {
+  background: var(--op-exit);
+}
+.op-verdict--duplicate {
+  background:
+    repeating-linear-gradient(135deg, rgb(0 0 0 / 0.14) 0 14px, transparent 14px 28px),
+    var(--op-reject-deep);
+}
+.op-verdict--rejected {
+  background: var(--status-danger-solid);
+}
+.op-verdict--info {
+  background: var(--action-primary);
+}
+
+.op-verdict-icon {
+  display: grid;
+  place-items: center;
+  inline-size: 3.5rem;
+  block-size: 3.5rem;
+  border-radius: 999px;
+  border: 3px solid rgb(255 255 255 / 0.55);
+  background: rgb(255 255 255 / 0.14);
+}
+.op-verdict--admitted-offline .op-verdict-icon {
+  border-color: rgb(7 6 26 / 0.55);
+  background: rgb(255 255 255 / 0.25);
+}
+
+/* Readable at arm's length: ≥ 44 px on phones, ≥ 64 px from 1024 px wide. */
+.op-verdict-title {
+  font-size: 2.75rem;
+  font-weight: 700;
+  line-height: 1.08;
+  text-wrap: balance;
+}
+.op-verdict-name {
+  font-size: 1.75rem;
+  font-weight: 600;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+.op-verdict-reason {
+  padding: 0.5rem 1rem;
+  border-radius: 12px;
+  background: rgb(0 0 0 / 0.22);
+  font-size: 1.125rem;
+  font-weight: 700;
+  line-height: 1.35;
+  text-wrap: balance;
+}
+.op-verdict--admitted-offline .op-verdict-reason {
+  background: rgb(255 255 255 / 0.35);
+}
+
+@media (min-width: 640px) {
+  .op-verdict-icon {
+    inline-size: 5rem;
+    block-size: 5rem;
+  }
+}
+@media (min-width: 1024px) {
+  .op-verdict-title {
+    font-size: 4rem;
+  }
+  .op-verdict-name {
+    font-size: 2.5rem;
+  }
+  .op-verdict-reason {
+    font-size: 1.5rem;
+  }
+}
+
+@keyframes op-verdict-in {
+  from { opacity: 0.4; transform: scale(1.015); }
+  to { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .op-verdict {
+    animation: none;
+  }
+}
+
+}

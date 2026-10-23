@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from app.schema_guard import assert_schema_current, expected_revision
 from tests.conftest import TEST_URL
 from tests.helpers import bearer, provision_organizer, publish_page
+from tests.migration_chain import expected_head
 from tests.test_booths import BOOTH_PAYLOAD
 from tests.test_events import EVENT
 from tests.test_page_media import image_bytes, upload
@@ -74,16 +75,57 @@ async def test_booth_head_only_for_booths_of_published_congresses(client: AsyncC
     assert "noindex" in (await client.get(f"/api/public/seo/e/{EVENT['slug']}/booths/not-a-uuid")).text
 
 
+TEMPLATE_ACTION = '{{env "HOME"}}'
+
+
+def _no_template_delimiters(head: str) -> None:
+    # Caddy executes the included head as a template: organizer text must never form {{ … }}.
+    assert "{" not in head and "}" not in head, head
+    assert "&#123;&#123;env &quot;HOME&quot;&#125;&#125;" in head, head
+
+
+async def test_heads_never_carry_template_delimiters_from_event_name_or_description(client: AsyncClient) -> None:
+    organizer = await provision_organizer(client, "Acme Congress Co")
+    event = {**EVENT, "name": f"Congress {TEMPLATE_ACTION}", "description": "{{ .Req.Host }} {{"}
+    event_id = (await client.post("/api/events", json=event, headers=bearer(organizer))).json()["id"]
+    state = (await client.get(f"/api/events/{event_id}/page", headers=bearer(organizer))).json()
+    document = copy.deepcopy(state["draft"])
+    document["hero"]["title"] = {"en": "", "fa": ""}
+    document["hero"]["subtitle"] = {"en": "", "fa": ""}
+    await client.put(f"/api/events/{event_id}/page", json={"revision": state["draft_revision"], "document": document}, headers=bearer(organizer))
+    await publish_page(client, organizer, event_id)
+
+    _no_template_delimiters((await client.get(f"/api/public/seo/e/{EVENT['slug']}")).text)
+
+
+async def test_heads_never_carry_template_delimiters_from_seo_title_or_booth_name(client: AsyncClient) -> None:
+    organizer = await provision_organizer(client, "Acme Congress Co")
+    event_id = await create_event(client, organizer)
+    state = (await client.get(f"/api/events/{event_id}/page", headers=bearer(organizer))).json()
+    document = copy.deepcopy(state["draft"])
+    document["primary_locale"] = "en"
+    document["seo"]["title"] = {"en": f"Spring {TEMPLATE_ACTION}", "fa": ""}
+    document["seo"]["description"] = {"en": "}} {{ {{", "fa": ""}
+    await client.put(f"/api/events/{event_id}/page", json={"revision": state["draft_revision"], "document": document}, headers=bearer(organizer))
+    await publish_page(client, organizer, event_id)
+    booth = {**BOOTH_PAYLOAD, "name": f"Booth {TEMPLATE_ACTION}", "description": "{{ {{"}
+    booth_id = (await client.post(f"/api/events/{event_id}/booths", json=booth, headers=bearer(organizer))).json()["id"]
+
+    _no_template_delimiters((await client.get(f"/api/public/seo/e/{EVENT['slug']}")).text)
+    _no_template_delimiters((await client.get(f"/api/public/seo/e/{EVENT['slug']}/booths/{booth_id}")).text)
+
+
 async def test_schema_guard_accepts_head_and_refuses_anything_else(tmp_path: Path) -> None:
     engine = create_async_engine(TEST_URL)
     try:
         await assert_schema_current(engine)  # the session fixture migrated to head
     finally:
         await engine.dispose()
-    assert expected_revision() == "0018"
+    head = expected_head()  # from the migration files, so merges that add a migration need no edit here
+    assert expected_revision() == head
     missing = create_async_engine(TEST_URL.rsplit("/", 1)[0] + "/postgres")
     try:
-        with pytest.raises(RuntimeError, match="requires 0018"):
+        with pytest.raises(RuntimeError, match=f"requires {head}"):
             await assert_schema_current(missing)
     finally:
         await missing.dispose()

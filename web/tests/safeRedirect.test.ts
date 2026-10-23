@@ -22,6 +22,15 @@ test("drops query and fragment from an allowed path", () => {
   assert.equal(safeNextPath("/c/spring/my-profile?x=1#top", FALLBACK), "/c/spring/my-profile");
 });
 
+test("keeps only a well-formed standee code on a booth page", () => {
+  const booth = "/e/spring/booths/3f2c9a7e-1111-4222-8333-444455556666";
+  assert.equal(safeNextPath(`${booth}?b=k7m2q9xa4d`, FALLBACK), `${booth}?b=k7m2q9xa4d`);
+  assert.equal(safeNextPath(`${booth}?b=k7m2q9xa4d&next=//evil#x`, FALLBACK), `${booth}?b=k7m2q9xa4d`);
+  assert.equal(safeNextPath(`${booth}?b=short`, FALLBACK), booth);
+  assert.equal(safeNextPath(`${booth}?b=%3Cscript%3E12345`, FALLBACK), booth);
+  assert.equal(safeNextPath("/c/spring/my-profile?b=k7m2q9xa4d", FALLBACK), "/c/spring/my-profile");
+});
+
 test("rejects external, protocol-relative, scheme and backslash destinations", () => {
   for (const unsafe of [
     "https://evil.example/c/spring/my-ticket",

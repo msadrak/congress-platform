@@ -2,8 +2,13 @@
 /**
  * Congress Platform staging operations (Windows PowerShell, macOS and Linux alike):
  *
- *   node scripts/staging/stack.mjs init               generate .staging/staging.env (never overwrites)
- *   node scripts/staging/stack.mjs up                 build images, migrate, start, wait until healthy
+ *   node scripts/staging/stack.mjs init [--add-missing]  generate .staging/staging.env (never overwrites; --add-missing adds
+ *                                                     generated secrets an older file lacks, e.g. CONGRESS_SECRET_BOX_KEY)
+ *   node scripts/staging/stack.mjs up                 build images (tagged with the commit too), migrate, start, wait until
+ *                                                     healthy; keeps the last 5 releases' images for rollback. On an older
+ *                                                     env file it first adds what init --add-missing adds (upgrades)
+ *   node scripts/staging/stack.mjs releases           deployed releases (newest first) and the current one
+ *   node scripts/staging/stack.mjs rollback [<sha>]   run the previous (or the given) release's images again; no migration
  *   node scripts/staging/stack.mjs status             containers, health, URLs
  *   node scripts/staging/stack.mjs logs [service]     last 200 log lines (all services or one)
  *   node scripts/staging/stack.mjs stop | start       stop / start containers (data untouched)
@@ -14,12 +19,25 @@
  *   node scripts/staging/stack.mjs cdn <status|check|sync|parspack|origin|only|off>
  *                                                     a CDN (ParsPack) in front: trusted ranges, real visitor address, origin protocol
  *   node scripts/staging/stack.mjs backup             timestamped database + media backup in .staging/backups
- *   node scripts/staging/stack.mjs backups            list backups
- *   node scripts/staging/stack.mjs restore-verify <name> [--keep]
+ *   node scripts/staging/stack.mjs backups [--offsite] list backups (local, or the encrypted off-host copies)
+ *   node scripts/staging/stack.mjs restore-verify <name> [--keep] [--from-offsite]
  *                                                     restore a backup into a NEW disposable project and verify it
- *   node scripts/staging/stack.mjs scheduled-backup   backup + consistency check + off-host copy + retention;
+ *                                                     (--from-offsite: download and decrypt the off-host copy first)
+ *   node scripts/staging/stack.mjs scheduled-backup   backup + consistency check + encrypted off-host copy + retention;
  *                                                     writes .staging/backups/last-backup.json, exit 1 on failure
- *   node scripts/staging/stack.mjs check              operator health check (exit 0 ok, 1 warning, 2 critical)
+ *   node scripts/staging/stack.mjs base-backup [full|diff|incr]
+ *                                                     pgBackRest base backup (BACKUP_WAL=on; full weekly, diff otherwise)
+ *   node scripts/staging/stack.mjs pitr-restore --to <time|latest> [--keep]
+ *                                                     point-in-time recovery drill into a NEW disposable project
+ *   node scripts/staging/stack.mjs install-timers [--user <name>] [--dry-run] | uninstall-timers [--dry-run]
+ *                                                     systemd timers for backups, base backups and the health check
+ *   node scripts/staging/stack.mjs event-mode on|off|status [--dry-run]
+ *                                                     hourly backups during a live congress (systemd drop-in)
+ *   node scripts/staging/stack.mjs check              operator health check (exit 0 ok, 1 warning, 2 critical): containers,
+ *                                                     readiness, errors, disk, backups, WAL, SMS delivery, certificate,
+ *                                                     clock; Telegram alert/recovery message when ALERT_TELEGRAM_* is set,
+ *                                                     ALERT_HEARTBEAT_URL pinged when nothing is critical
+ *   node scripts/staging/stack.mjs metrics            the API's Prometheus metrics, read inside the API container
  *   node scripts/staging/stack.mjs organizer list | create <name> | rotate <id> | revoke <id>
  *                                                     platform administration from inside the API container
  *   node scripts/staging/stack.mjs sms-code <mobile>  newest SMS sign-in code (CONGRESS_SMS_PROVIDER=console only)
@@ -28,12 +46,17 @@
  *
  * Data lives on the host under CONGRESS_PERSISTENT_DATA_ROOT (not Docker named volumes).
  * `down -v` no longer wipes production data; restore-verify uses a disposable folder under .staging/restores/.
+ *
+ * Off-host backup, alert and point-in-time-recovery settings (BACKUP_*, ALERT_*) may live in a separate root/congress
+ * file, /etc/congress/backup.env (CONGRESS_OPS_ENV_FILE), read here and by the systemd units.
+ * CONGRESS_STACK_PROJECT runs a second stack (a drill) from the same checkout under another Compose project name.
  */
 import { createHash, randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import https from 'node:https';
+import tls from 'node:tls';
 import { isIP } from 'node:net';
-import { homedir, networkInterfaces } from 'node:os';
+import { homedir, hostname, networkInterfaces, userInfo } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { run } from '../lib/process.mjs';
@@ -42,19 +65,47 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const STATE = join(root, '.staging');
 const ENV_FILE = join(STATE, 'staging.env');
 const BACKUPS = join(STATE, 'backups');
+const RELEASES = join(STATE, 'releases.json');
 const COMPOSE_FILE = join(root, 'deploy/staging/compose.yaml');
-const PROJECT = 'congress-staging';
+const COMPOSE_WAL_FILE = join(root, 'deploy/staging/compose.wal.yaml');
+const PROJECT = process.env.CONGRESS_STACK_PROJECT?.trim() || 'congress-staging';
+const OPS_ENV_FILE = process.env.CONGRESS_OPS_ENV_FILE || '/etc/congress/backup.env';
+const OPS_KEY = /^(BACKUP|ALERT)_/;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function composeEnvFile(override) {
   if (!override || !Object.keys(override).length) return ENV_FILE;
-  const map = { ...readEnv(), ...override };
+  const map = { ...parseEnvFile(ENV_FILE), ...override };
   const body = Object.entries(map).map(([k, v]) => `${k}=${v}`).join('\n') + '\n';
   const tmp = join(STATE, `.compose-env-${process.pid}-${randomBytes(3).toString('hex')}.tmp`);
   writeFileSync(tmp, body, { mode: 0o600 });
   return tmp;
 }
-export const compose = (project, args, opts = {}) =>
-  run('docker', ['compose', '-p', project, '--env-file', composeEnvFile(opts.envOverride), '-f', COMPOSE_FILE, ...args], opts);
+
+/**
+ * docker compose for a project. With BACKUP_WAL=on the main project (and a point-in-time drill, `wal: true`) also
+ * gets deploy/staging/compose.wal.yaml, with the pgBackRest settings passed as environment of the compose process
+ * (never on a command line). Only the main project archives WAL; a drill's database never writes to the bucket.
+ */
+export function compose(project, args, opts = {}) {
+  const settings = existsSync(ENV_FILE) ? { ...readEnv(), ...opts.envOverride } : {};
+  const wal = (opts.wal ?? project === PROJECT) && walEnabled(settings);
+  if (wal && args.includes('up')) {
+    const problems = walProblems(settings);
+    if (problems.length) throw new Error(`BACKUP_WAL=on but:\n  - ${problems.join('\n  - ')}\n(settings: ${ENV_FILE} or ${OPS_ENV_FILE})`);
+  }
+  const files = wal ? [COMPOSE_FILE, COMPOSE_WAL_FILE] : [COMPOSE_FILE];
+  // The override also goes into Compose's own environment: a variable exported in the shell wins over --env-file,
+  // so an exported CONGRESS_PERSISTENT_DATA_ROOT (as `init` documents) would otherwise point a restore drill's
+  // database at the live data directory.
+  const env = { ...(wal ? walComposeEnv(settings, { archive: project === PROJECT }) : {}), ...opts.envOverride, ...opts.env };
+  const envFile = composeEnvFile(opts.envOverride);
+  try {
+    return run('docker', ['compose', '-p', project, '--env-file', envFile, ...files.flatMap((f) => ['-f', f]), ...args], { ...opts, env: Object.keys(env).length ? env : undefined });
+  } finally {
+    if (envFile !== ENV_FILE) rmSync(envFile, { force: true });
+  }
+}
 
 /** Host directory for PostgreSQL, media and Caddy state (DrGibi ~/drgibi-persistent-data). */
 export function persistentDataRoot(env = readEnv()) {
@@ -71,38 +122,119 @@ export function persistentPaths(env = readEnv()) {
     caddyConfig: join(root, 'data/caddy/config'),
   };
 }
+export const parseEnvText = (text) => Object.fromEntries(
+  text
+    .split(/\r?\n/)
+    .filter((l) => l && !l.startsWith('#') && l.includes('='))
+    .map((l) => [l.slice(0, l.indexOf('=')), l.slice(l.indexOf('=') + 1)]),
+);
+const parseEnvFile = (file) => parseEnvText(readFileSync(file, 'utf8'));
+
+function opsEnvFile() {
+  try {
+    return Object.fromEntries(Object.entries(parseEnvFile(OPS_ENV_FILE)).filter(([k]) => OPS_KEY.test(k)));
+  } catch {
+    return {}; // absent or not readable by this user
+  }
+}
+
 export const readEnv = () => ({
-  ...Object.fromEntries(
-    readFileSync(ENV_FILE, 'utf8')
-      .split(/\r?\n/)
-      .filter((l) => l && !l.startsWith('#') && l.includes('='))
-      .map((l) => [l.slice(0, l.indexOf('=')), l.slice(l.indexOf('=') + 1)]),
-  ),
-  // Backup settings may also come from the scheduler's environment (e.g. a separate secrets file), so the
+  ...parseEnvFile(ENV_FILE),
+  // Backup and alert settings may also come from a separate secrets file or the scheduler's environment, so the
   // off-host credentials need not live next to the application secrets.
-  ...Object.fromEntries(Object.entries(process.env).filter(([k]) => k.startsWith('BACKUP_'))),
+  ...opsEnvFile(),
+  ...Object.fromEntries(Object.entries(process.env).filter(([k]) => OPS_KEY.test(k))),
 });
-export const psql = (project, sql) =>
-  compose(project, ['exec', '-T', 'db', 'psql', '-U', 'congress', '-d', 'congress', '-At', '-v', 'ON_ERROR_STOP=1', '-c', sql]).stdout.trim();
+export const psql = (project, sql, opts = {}) =>
+  compose(project, ['exec', '-T', 'db', 'psql', '-U', 'congress', '-d', 'congress', '-At', '-v', 'ON_ERROR_STOP=1', '-c', sql], opts).stdout.trim();
 const say = (s) => console.log(s);
 
 function requireEnv() {
   if (!existsSync(ENV_FILE)) throw new Error(`Missing ${ENV_FILE}. Run: node scripts/staging/stack.mjs init`);
 }
 
-function init() {
-  mkdirSync(STATE, { recursive: true });
-  if (existsSync(ENV_FILE)) return say(`${ENV_FILE} already exists; left unchanged.`);
-  const template = readFileSync(join(root, 'deploy/staging/.env.staging.example'), 'utf8');
-  const values = {
+/** Secrets `init` generates for a new install (one call = one fresh set). */
+export function freshSecrets() {
+  const jwt = randomBytes(32).toString('hex');
+  let box;
+  do box = randomBytes(32).toString('hex'); while (box === jwt);
+  return {
     POSTGRES_PASSWORD: randomBytes(24).toString('hex'),
     CONGRESS_PLATFORM_ADMIN_TOKEN: randomBytes(32).toString('base64url'),
-    CONGRESS_JWT_SECRET: randomBytes(32).toString('hex'),
-    CONGRESS_PERSISTENT_DATA_ROOT: join(homedir(), 'congress-persistent-data'),
+    CONGRESS_JWT_SECRET: jwt,
+    CONGRESS_SECRET_BOX_KEY: box,
+    CONGRESS_METRICS_TOKEN: randomBytes(32).toString('base64url'),
   };
-  const env = template.replace(/^(POSTGRES_PASSWORD|CONGRESS_PLATFORM_ADMIN_TOKEN|CONGRESS_JWT_SECRET|CONGRESS_PERSISTENT_DATA_ROOT)=.*$/gm, (_, k) => `${k}=${values[k]}`);
-  writeFileSync(ENV_FILE, env, { mode: 0o600 });
+}
+
+/** The template with every generated value filled in (the KEY=... line replaced, the rest kept). */
+export function fillTemplate(template, values) {
+  return Object.entries(values).reduce((text, [key, value]) => text.replace(new RegExp(`^${key}=.*$`, 'm'), () => `${key}=${value}`), template);
+}
+
+/**
+ * For an existing .staging/staging.env: secrets that can be added safely (missing or blank) and problems that need a
+ * person. Nothing that is set is ever replaced. Only the secret-box key may be added later without side effects
+ * (values sealed before keep opening; app/secret_box.py). A missing database password, JWT secret or admin token on
+ * an existing install is not generated: a new one would lock out the database or every session.
+ */
+export function missingSecrets(env) {
+  const blank = (k) => !String(env[k] ?? '').trim();
+  const add = {};
+  if (blank('CONGRESS_SECRET_BOX_KEY')) {
+    let box;
+    do box = randomBytes(32).toString('hex'); while (box === env.CONGRESS_JWT_SECRET);
+    add.CONGRESS_SECRET_BOX_KEY = box;
+  }
+  const problems = ['POSTGRES_PASSWORD', 'CONGRESS_PLATFORM_ADMIN_TOKEN', 'CONGRESS_JWT_SECRET'].filter(blank)
+    .map((k) => `${k} is not set; set it by hand (a generated one would not match the existing database or sessions)`);
+  if (!blank('CONGRESS_SECRET_BOX_KEY') && env.CONGRESS_SECRET_BOX_KEY === env.CONGRESS_JWT_SECRET) {
+    problems.push('CONGRESS_SECRET_BOX_KEY equals CONGRESS_JWT_SECRET; the API refuses to start. Remove the line and run: stack.mjs init --add-missing');
+  }
+  return { add, problems };
+}
+
+/** Docker containers (any project) whose mounts include `dir`, as "name (status)". */
+function containersUsing(dir) {
+  const ids = run('docker', ['ps', '-aq'], { allowFail: true }).stdout.split(/\s+/).filter(Boolean);
+  if (!ids.length) return [];
+  const out = run('docker', ['inspect', '--format', '{{.Name}}|{{.State.Status}}|{{range .Mounts}}{{.Source}};{{end}}', ...ids], { allowFail: true }).stdout;
+  return out.split('\n').filter(Boolean).flatMap((line) => {
+    const [name, state, mounts] = line.split('|');
+    // Docker Desktop may report host paths under /host_mnt.
+    return mounts.split(';').some((m) => m && (m === dir || m.endsWith(dir) || m.startsWith(`${dir}/`))) ? [`${name.replace(/^\//, '')} (${state})`] : [];
+  });
+}
+
+/** Warnings when the data folder already holds a database or another stack's containers use it. */
+export function dataDirWarnings(paths, users = containersUsing(paths.postgres)) {
+  const warnings = [];
+  const pgEntries = existsSync(paths.postgres) ? readdirSync(paths.postgres) : [];
+  if (pgEntries.length) warnings.push(`${paths.postgres} already holds a PostgreSQL data directory: this stack would start on that database (with its own password), not an empty one.`);
+  if (users.length) warnings.push(`containers already use it: ${users.join(', ')}. Two PostgreSQL servers on one data directory corrupt it.`);
+  return warnings;
+}
+
+function init(args = []) {
+  mkdirSync(STATE, { recursive: true });
+  if (existsSync(ENV_FILE)) {
+    const { add, problems } = missingSecrets(parseEnvFile(ENV_FILE));
+    for (const p of problems) say(`  PROBLEM: ${p}`);
+    if (!Object.keys(add).length) return say(`${ENV_FILE} already exists and has every generated secret; left unchanged.`);
+    if (!args.includes('--add-missing')) {
+      return say(`${ENV_FILE} already exists; left unchanged. Missing: ${Object.keys(add).join(', ')}. Add ${Object.keys(add).length > 1 ? 'them' : 'it'} (nothing set is replaced): node scripts/staging/stack.mjs init --add-missing`);
+    }
+    setEnvValues(add);
+    return say(`Added ${Object.keys(add).join(', ')} to ${ENV_FILE} (values not printed). Apply with: node scripts/staging/stack.mjs start`);
+  }
+  const template = readFileSync(join(root, 'deploy/staging/.env.staging.example'), 'utf8');
+  // CONGRESS_PERSISTENT_DATA_ROOT set while running init chooses the folder (a second stack, a drill, a server path).
+  const dataRoot = process.env.CONGRESS_PERSISTENT_DATA_ROOT?.trim() || join(homedir(), 'congress-persistent-data');
+  writeFileSync(ENV_FILE, fillTemplate(template, { ...freshSecrets(), CONGRESS_PERSISTENT_DATA_ROOT: dataRoot }), { mode: 0o600 });
   say(`Generated ${ENV_FILE} with fresh secrets (git-ignored). The admin token is in that file; it is not printed.`);
+  for (const w of dataDirWarnings(persistentPaths({ CONGRESS_PERSISTENT_DATA_ROOT: dataRoot }))) {
+    say(`  WARNING: ${w}\n  Choose another folder: set CONGRESS_PERSISTENT_DATA_ROOT in ${ENV_FILE} before \`up\`.`);
+  }
 }
 
 async function waitHttp(url, ms = 120000) {
@@ -157,6 +289,9 @@ export function buildProxyArgs(env = process.env) {
   return pairs.flatMap(([k, v]) => ['--build-arg', `${k}=${v}`, '--build-arg', `${k.toLowerCase()}=${v}`]);
 }
 
+/** The web image's build argument naming its release (the same id as the image's release tag). */
+export const appBuildEnv = (release) => ({ CONGRESS_APP_BUILD: release });
+
 /** Slow SSH tunnels need longer daemon RPC timeouts and one image at a time. */
 export function buildComposeEnv(env = process.env) {
   const out = {
@@ -178,19 +313,145 @@ function ensurePersistentHostDirs() {
   });
 }
 
+/**
+ * `up` on an install whose .staging/staging.env predates a generated secret (an upgrade from an older release): adds
+ * what `init --add-missing` would add, so the upgrade needs no extra command, and stops on what needs a person.
+ * Nothing that is set is ever replaced.
+ */
+export function completeEnvForUp(env, { write = setEnvValues, log = say } = {}) {
+  const { add, problems } = missingSecrets(env);
+  // A template copied by hand (deploy/hosted/.env.hosted.example) with a <...> placeholder left in.
+  const placeholders = Object.entries(env).filter(([, v]) => /<[^<>]+>/.test(v)).map(([k]) => k);
+  if (placeholders.length) problems.push(`still a <...> placeholder: ${placeholders.join(', ')} (fill in the real value)`);
+  if (problems.length) throw new Error(`${ENV_FILE} needs attention before \`up\`:\n  - ${problems.join('\n  - ')}`);
+  const keys = Object.keys(add);
+  if (!keys.length) return [];
+  write(add);
+  log(`Added ${keys.join(', ')} to ${ENV_FILE} (generated, not printed; nothing that was set is replaced). Include the updated file in your copy of the server's secrets.`);
+  return keys;
+}
+
+/** Settings an upgrade cannot fill in itself but that break a scheduled job afterwards (printed by `up`). */
+export function upgradeWarnings(env) {
+  // Releases before the encrypted off-host copies uploaded plain files; now scheduled-backup refuses without the key.
+  if (!offsiteConfigured(env)) return [];
+  return encryptionProblems(env).map((p) => `${p}. Until it is set, scheduled-backup fails and check reports it as critical. Keep the key in a password manager off this server, and consider a new BACKUP_S3_PREFIX for the encrypted copies.`);
+}
+
 async function up() {
   requireEnv();
+  completeEnvForUp(parseEnvFile(ENV_FILE));
+  for (const w of upgradeWarnings(readEnv())) say(`  WARNING: ${w}`);
   cdnPreflight();
   ensurePersistentHostDirs();
-  compose(PROJECT, ['build', ...buildProxyArgs()], { env: buildComposeEnv() });
+  const release = releaseId();
+  // CONGRESS_APP_BUILD (compose.yaml → web build argument): the bundle knows which release it is.
+  compose(PROJECT, ['build', ...buildProxyArgs()], { env: { ...buildComposeEnv(), ...appBuildEnv(release) } });
+  tagRelease(release);
   // `up --wait` returns once every service is healthy (migrate must have exited 0 for api to start).
   const r = compose(PROJECT, ['up', '-d', '--wait', '--wait-timeout', '300'], { allowFail: true });
   if (r.status !== 0) {
     say(r.stderr);
     say(compose(PROJECT, ['logs', '--tail', '80', 'migrate', 'api'], { allowFail: true }).stdout);
-    throw new Error('Stack did not become healthy (see logs above).');
+    throw new Error(`Stack did not become healthy (see logs above). The previous release can be started again with: node scripts/staging/stack.mjs rollback`);
   }
-  say(`migrations: ${psql(PROJECT, 'select version_num from alembic_version')}`);
+  const revision = psql(PROJECT, 'select version_num from alembic_version');
+  say(`migrations: ${revision}`);
+  recordRelease(release, revision);
+  if (walEnabled(readEnv())) walInit();
+  await status();
+}
+
+// ───────────────────────────── Releases and rollback ─────────────────────────────
+// Every `up` tags the images it built with the commit (congress-platform/api:<sha>, …/web:<sha>) beside the alias the
+// services run (CONGRESS_IMAGE_TAG, e.g. staging/hosted). The last RELEASE_KEEP releases are kept; `rollback` points
+// the alias at an older release's images and restarts api + web without running migrations, so the older API must
+// accept the database as it is (app/schema_guard.py: same revision, or ahead only by backward-compatible migrations).
+
+const IMAGES = ['congress-platform/api', 'congress-platform/web'];
+export const RELEASE_KEEP = 5;
+const imageAlias = () => readEnv().CONGRESS_IMAGE_TAG || 'staging';
+const imageId = (ref) => run('docker', ['image', 'inspect', '--format', '{{.Id}}', ref]).stdout.trim();
+
+/** The commit being deployed (short SHA); uncommitted or untracked files (they are in the build context) get a unique -dirty-<time> suffix; no git: a timestamp. */
+export function releaseId(cwd = root) {
+  const sha = run('git', ['rev-parse', '--short', 'HEAD'], { cwd, allowFail: true });
+  if (sha.status !== 0) return `build-${stamp()}`;
+  const dirty = run('git', ['status', '--porcelain'], { cwd, allowFail: true }).stdout.trim();
+  return dirty ? `${sha.stdout.trim()}-dirty-${stamp()}` : sha.stdout.trim();
+}
+
+export function readReleases(file = RELEASES) {
+  try {
+    return JSON.parse(readFileSync(file, 'utf8'));
+  } catch {
+    return { current: null, history: [] };
+  }
+}
+
+/** Newest first, one entry per release id, at most `keep`; also returns the ids whose images may be removed. */
+export function nextReleases(state, entry, keep = RELEASE_KEEP) {
+  const history = [entry, ...state.history.filter((r) => r.id !== entry.id)];
+  return { state: { current: entry.id, history: history.slice(0, keep) }, expired: history.slice(keep).map((r) => r.id) };
+}
+
+/** The release `rollback` goes to: the given id (or unique prefix), else the one deployed before the current. */
+export function rollbackTarget(state, wanted) {
+  if (!wanted) {
+    const target = state.history[state.history.findIndex((r) => r.id === state.current) + 1];
+    if (!target) throw new Error('No earlier release is kept to roll back to (see: stack.mjs releases).');
+    return target;
+  }
+  const matches = state.history.filter((r) => r.id === wanted || r.id.startsWith(wanted));
+  if (matches.length !== 1) {
+    throw new Error(matches.length
+      ? `${wanted} matches several releases: ${matches.map((r) => r.id).join(', ')}`
+      : `Release ${wanted} is not among the kept releases: ${state.history.map((r) => r.id).join(', ') || 'none'}`);
+  }
+  if (matches[0].id === state.current) throw new Error(`${matches[0].id} is already the current release.`);
+  return matches[0];
+}
+
+function tagRelease(id) {
+  const alias = imageAlias();
+  for (const image of IMAGES) run('docker', ['tag', `${image}:${alias}`, `${image}:${id}`]);
+}
+
+function recordRelease(id, revision) {
+  const entry = { id, at: new Date().toISOString(), alembic_revision: revision, images: Object.fromEntries(IMAGES.map((i) => [i, imageId(`${i}:${id}`)])) };
+  const { state, expired } = nextReleases(readReleases(), entry);
+  // Removes only these tags; layers still used by a kept release stay.
+  for (const old of expired) for (const image of IMAGES) run('docker', ['image', 'rm', `${image}:${old}`], { allowFail: true });
+  writeFileSync(RELEASES, JSON.stringify(state, null, 2));
+  say(`release ${id} (${IMAGES.map((i) => `${i}:${id}`).join(', ')}); ${state.history.length} kept for rollback`);
+}
+
+function listReleases() {
+  const s = readReleases();
+  if (!s.history.length) return say('No releases recorded yet (`up` records them).');
+  for (const r of s.history) say(`  ${r.id === s.current ? '*' : ' '} ${r.id.padEnd(32)} ${r.at}  schema ${r.alembic_revision}`);
+}
+
+async function rollback(wanted) {
+  requireEnv();
+  const state = readReleases();
+  const target = rollbackTarget(state, wanted);
+  const alias = imageAlias();
+  for (const image of IMAGES) {
+    if (run('docker', ['image', 'inspect', `${image}:${target.id}`], { allowFail: true }).status !== 0) throw new Error(`Image ${image}:${target.id} no longer exists; cannot roll back to it.`);
+  }
+  const before = Object.fromEntries(IMAGES.map((i) => [i, imageId(`${i}:${alias}`)]));
+  say(`Switching ${state.current ?? "(unrecorded)"} -> ${target.id} (built for schema ${target.alembic_revision}; the database is at ${psql(PROJECT, 'select version_num from alembic_version')})`);
+  for (const image of IMAGES) run('docker', ['tag', `${image}:${target.id}`, `${image}:${alias}`]);
+  const restart = () => compose(PROJECT, ['up', '-d', '--no-deps', '--wait', '--wait-timeout', '180', 'api', 'web'], { allowFail: true });
+  if (restart().status !== 0) {
+    say(compose(PROJECT, ['logs', '--tail', '40', 'api'], { allowFail: true }).stdout);
+    for (const image of IMAGES) run('docker', ['tag', before[image], `${image}:${alias}`]);
+    restart();
+    throw new Error(`Rollback to ${target.id} failed (API log above; the schema guard refuses a database it cannot run on). The images that ran before were started again.`);
+  }
+  writeFileSync(RELEASES, JSON.stringify({ ...state, current: target.id }, null, 2));
+  say(`Now running ${target.id}.${state.current ? ` Back to the newer release: node scripts/staging/stack.mjs rollback ${state.current}` : ''}`);
   await status();
 }
 
@@ -479,6 +740,35 @@ function exportCa() {
 
 const stamp = () => new Date().toISOString().replace(/[-:]/g, '').replace(/\..+/, '').replace('T', '-');
 
+/**
+ * What a backup records about the database, as one JSON object, computed in the snapshot pg_dump exports: row counts
+ * of every table (so tables added later are covered without editing this list), published pages and slugs, and every
+ * media file the database references (any `storage_key` column: page images, program files, future uploads).
+ */
+export const SNAPSHOT_FACTS_SQL = `select json_build_object(
+  'alembic_revision', (select version_num from alembic_version),
+  'counts', (select coalesce(json_object_agg(table_name, (xpath('/row/c/text()', query_to_xml(format('select count(*) as c from %I.%I', table_schema, table_name), false, true, '')))[1]::text::bigint order by table_name), '{}')
+             from information_schema.tables where table_schema = 'public' and table_type = 'BASE TABLE'),
+  'published_pages', (select count(*) from event_pages where published is not null),
+  'published_slugs', (select coalesce(json_agg(e.slug order by e.slug), '[]') from events e join event_pages p on p.event_id = e.id where p.published is not null),
+  'media_keys', (select coalesce(json_agg(k order by k), '[]') from (
+      select unnest(string_to_array((xpath('/row/k/text()', query_to_xml(format('select string_agg(%I, chr(10)) as k from %I.%I', column_name, table_schema, table_name), false, true, '')))[1]::text, chr(10))) as k
+      from information_schema.columns where table_schema = 'public' and column_name = 'storage_key') keys)
+)`;
+
+/**
+ * One psql session inside the db container: a REPEATABLE READ transaction exports its snapshot, pg_dump dumps exactly
+ * that snapshot, and the facts above are read from it too. Counts and dump therefore always agree, even while
+ * attendees register or scan during an event-mode backup.
+ */
+export const SNAPSHOT_BACKUP_SCRIPT = `begin isolation level repeatable read read only;
+select pg_export_snapshot() as snap \\gset
+\\setenv CONGRESS_SNAPSHOT :snap
+\\! pg_dump -U congress -d congress -Fc --snapshot="$CONGRESS_SNAPSHOT" -f /tmp/backup.dump
+${SNAPSHOT_FACTS_SQL};
+commit;
+`;
+
 /** Database (pg_dump custom format) + media tarball + manifest with counts and checksums. */
 export function backup(project = PROJECT) {
   requireEnv();
@@ -486,7 +776,7 @@ export function backup(project = PROJECT) {
   const dir = join(BACKUPS, name);
   mkdirSync(dir, { recursive: true });
   // Dump inside the container, then copy out (binary-safe on every host OS).
-  compose(project, ['exec', '-T', 'db', 'sh', '-c', 'pg_dump -U congress -d congress -Fc -f /tmp/backup.dump']);
+  const facts = JSON.parse(compose(project, ['exec', '-T', 'db', 'psql', '-X', '-q', '-At', '-v', 'ON_ERROR_STOP=1', '-U', 'congress', '-d', 'congress'], { input: SNAPSHOT_BACKUP_SCRIPT }).stdout.trim().split('\n').at(-1));
   const dbId = compose(project, ['ps', '-q', 'db']).stdout.trim();
   run('docker', ['cp', `${dbId}:/tmp/backup.dump`, join(dir, 'db.dump')]);
   compose(project, ['exec', '-T', 'db', 'rm', '-f', '/tmp/backup.dump']);
@@ -494,45 +784,49 @@ export function backup(project = PROJECT) {
   const helper = `${project}-backup-${randomBytes(3).toString('hex')}`;
   const { media } = persistentPaths(readEnv());
   run('docker', ['run', '-d', '--name', helper, '--network', 'none', '-v', `${media}:/data:ro`, 'postgres:16-alpine', 'sleep', '600']);
+  let mediaSums;
   try {
     run('docker', ['exec', helper, 'tar', 'czf', '/tmp/media.tar.gz', '-C', '/data', '.']);
     run('docker', ['cp', `${helper}:/tmp/media.tar.gz`, join(dir, 'media.tar.gz')]);
-    var mediaSums = run('docker', ['exec', helper, 'sh', '-c', 'cd /data && find . -type f -exec sha256sum {} + | sort -k2']).stdout.trim();
+    mediaSums = run('docker', ['exec', helper, 'sh', '-c', 'cd /data && find . -type f -exec sha256sum {} + | sort -k2']).stdout.trim();
   } finally {
     run('docker', ['rm', '-f', helper], { allowFail: true });
   }
-  // Consistency: every image the database knows must be in the media archive (the dump is taken first,
-  // so only a deletion during the backup window could break this; such a backup is reported as failed).
-  const keys = psql(project, "select coalesce(string_agg(storage_key, ','), '') from media_assets").split(',').filter(Boolean);
+  // Consistency: every file the database references must be in the media archive (the dump is taken first, so only
+  // a deletion during the backup window could break this; such a backup is reported as failed).
   const archived = new Set((mediaSums ? mediaSums.split('\n') : []).map((l) => l.split(/\s+/)[1].replace(/^\.\//, '')));
-  const missingMedia = keys.filter((k) => !archived.has(k));
-  const counts = Object.fromEntries(
-    ['organizers', 'events', 'users', 'tickets', 'entity_qrs', 'booths', 'leads', 'checkins', 'desk_operators', 'scanner_devices', 'media_assets'].map((t) => [t, Number(psql(project, `select count(*) from ${t}`))]),
-  );
-  counts.published_pages = Number(psql(project, 'select count(*) from event_pages where published is not null'));
+  const missingMedia = missingMediaKeys(facts.media_keys, archived);
+  const counts = { ...facts.counts, published_pages: facts.published_pages };
   const manifest = {
     name,
     created_at: new Date().toISOString(),
-    alembic_revision: psql(project, 'select version_num from alembic_version'),
+    alembic_revision: facts.alembic_revision,
     counts,
-    published_slugs: psql(project, "select coalesce(string_agg(e.slug, ',' order by e.slug), '') from events e join event_pages p on p.event_id = e.id where p.published is not null").split(',').filter(Boolean),
+    published_slugs: facts.published_slugs,
     files: Object.fromEntries(['db.dump', 'media.tar.gz'].map((f) => [f, createHash('sha256').update(readFileSync(join(dir, f))).digest('hex')])),
     media_sha256: mediaSums ? mediaSums.split('\n').map((l) => l.split(/\s+/)) : [],
+    media_referenced: facts.media_keys.length,
     missing_media: missingMedia,
   };
   writeFileSync(join(dir, 'manifest.json'), JSON.stringify(manifest, null, 2));
   say(`Backup ${name}: ${dir}`);
-  say(`  db.dump ${readFileSync(join(dir, 'db.dump')).length} bytes, media.tar.gz ${readFileSync(join(dir, 'media.tar.gz')).length} bytes, ${manifest.media_sha256.length} media files`);
+  say(`  db.dump ${readFileSync(join(dir, 'db.dump')).length} bytes, media.tar.gz ${readFileSync(join(dir, 'media.tar.gz')).length} bytes, ${manifest.media_sha256.length} media files (${facts.media_keys.length} referenced by the database)`);
   say(`  counts ${JSON.stringify(counts)}`);
-  if (missingMedia.length) throw new Error(`Backup ${name} is inconsistent: ${missingMedia.length} database images missing from the media archive`);
+  if (missingMedia.length) throw new Error(`Backup ${name} is inconsistent: ${missingMedia.length} files the database references (images, program files) are missing from the media archive`);
   return { name, dir, manifest };
 }
+
+/** Storage keys the database references that the media archive lacks. */
+export const missingMediaKeys = (keys, archived) => keys.filter((k) => !archived.has(String(k).replace(/^\.?\//, '')));
 
 // ── Off-host copy (any S3-compatible store via rclone) and retention ─────────────────────────────────
 
 const BACKUP_NAME = /^staging-\d{8}-\d{6}$/;
 
-/** Keep the newest N backups plus the newest per ISO week (W) and per month (M); everything else is old. */
+/**
+ * Keep the newest N backups, the newest of each of the last N days (so hourly event-day backups never push out the
+ * dailies), and the newest per ISO week (W) and per month (M); everything else is old.
+ */
 export function selectExpired(names, { daily = 7, weekly = 4, monthly = 6 } = {}) {
   const sorted = names.filter((n) => BACKUP_NAME.test(n)).sort().reverse();
   const keep = new Set(sorted.slice(0, daily));
@@ -545,14 +839,38 @@ export function selectExpired(names, { daily = 7, weekly = 4, monthly = 6 } = {}
     }
   };
   const date = (name) => new Date(`${name.slice(8, 12)}-${name.slice(12, 14)}-${name.slice(14, 16)}T00:00:00Z`);
+  take((n) => n.slice(8, 16), daily);
   take((n) => { const d = date(n); const day = (d.getUTCDay() + 6) % 7; d.setUTCDate(d.getUTCDate() - day); return d.toISOString().slice(0, 10); }, weekly);
   take((n) => n.slice(8, 14), monthly);
   return sorted.filter((n) => !keep.has(n));
 }
 
+// Encryption: every file is encrypted on this host before upload, with an rclone `crypt` remote layered over the S3
+// remote (XSalsa20-Poly1305, key derived from BACKUP_ENCRYPTION_KEY with scrypt). rclone is already the upload tool,
+// so encryption adds no new binary or key format, and `rclone cryptcheck` still proves every uploaded file matches
+// the local one. File and folder names stay readable (backup timestamps); contents are encrypted and authenticated.
+// The same passphrase encrypts the pgBackRest WAL archive (aes-256-cbc). Keep a copy of it off the server: without it
+// no off-host copy can be restored.
+export const prefixOf = (env) => (env.BACKUP_S3_PREFIX || 'congress').replace(/^\/+|\/+$/g, '');
+export const offsiteConfigured = (env) => Boolean(env.BACKUP_S3_ENDPOINT && env.BACKUP_S3_BUCKET);
+
+export function encryptionProblems(env) {
+  const key = env.BACKUP_ENCRYPTION_KEY || '';
+  if (!key) return ['BACKUP_ENCRYPTION_KEY is not set: off-host copies are always encrypted (generate one: openssl rand -base64 48)'];
+  if (key.length < 32) return ['BACKUP_ENCRYPTION_KEY must be at least 32 characters'];
+  return [];
+}
+
+let obscured;
+/** rclone wants its crypt passwords "obscured"; done by rclone itself, the key passed on stdin. */
+function obscuredKey(env) {
+  obscured ??= run('docker', ['run', '--rm', '-i', env.BACKUP_RCLONE_IMAGE || 'rclone/rclone:1.68', 'obscure', '-'], { input: env.BACKUP_ENCRYPTION_KEY }).stdout.trim();
+  return obscured;
+}
+
 // Credentials travel as environment variables of the docker client process (`-e NAME` without a value),
 // so they never appear on a command line, in an error message or in the status file.
-function rcloneEnv(env) {
+export function rcloneEnv(env, password = '') {
   return {
     RCLONE_CONFIG_OFFSITE_TYPE: 's3',
     RCLONE_CONFIG_OFFSITE_PROVIDER: env.BACKUP_S3_PROVIDER || 'Other',
@@ -562,11 +880,21 @@ function rcloneEnv(env) {
     RCLONE_CONFIG_OFFSITE_SECRET_ACCESS_KEY: env.BACKUP_S3_SECRET_ACCESS_KEY,
     RCLONE_CONFIG_OFFSITE_FORCE_PATH_STYLE: 'true',
     RCLONE_S3_NO_CHECK_BUCKET: 'true',
+    // `secure:` = the encrypted view of s3://<bucket>/<prefix>; everything off-host goes through it.
+    RCLONE_CONFIG_SECURE_TYPE: 'crypt',
+    RCLONE_CONFIG_SECURE_REMOTE: `offsite:${env.BACKUP_S3_BUCKET}/${prefixOf(env)}`,
+    RCLONE_CONFIG_SECURE_PASSWORD: password,
+    RCLONE_CONFIG_SECURE_FILENAME_ENCRYPTION: 'off',
+    RCLONE_CONFIG_SECURE_DIRECTORY_NAME_ENCRYPTION: 'false',
+    // Self-hosted S3 with its own certificate authority (or a local drill): BACKUP_S3_VERIFY_TLS=off.
+    ...((env.BACKUP_S3_VERIFY_TLS || 'on') === 'off' ? { RCLONE_NO_CHECK_CERTIFICATE: 'true' } : {}),
   };
 }
-const rclone = (env, args) => {
-  const vars = rcloneEnv(env);
-  const r = run('docker', ['run', '--rm', ...(env.BACKUP_RCLONE_NETWORK ? ['--network', env.BACKUP_RCLONE_NETWORK] : []), ...Object.keys(vars).flatMap((k) => ['-e', k]), '-v', `${BACKUPS}:/backups:ro`, env.BACKUP_RCLONE_IMAGE || 'rclone/rclone:1.68', ...args], { env: vars, allowFail: true });
+const rclone = (env, args, { mount = `${BACKUPS}:/backups:ro` } = {}) => {
+  const problems = encryptionProblems(env);
+  if (problems.length) throw new Error(`off-host copy refused: ${problems[0]}`);
+  const vars = rcloneEnv(env, obscuredKey(env));
+  const r = run('docker', ['run', '--rm', ...(env.BACKUP_RCLONE_NETWORK ? ['--network', env.BACKUP_RCLONE_NETWORK] : []), ...Object.keys(vars).flatMap((k) => ['-e', k]), '-v', mount, env.BACKUP_RCLONE_IMAGE || 'rclone/rclone:1.68', ...args], { env: vars, allowFail: true });
   if (r.status !== 0) {
     const reason = (r.stderr || '').split(/\r?\n/).filter((l) => /ERROR|Failed|error/.test(l)).slice(-1)[0] ?? `exit ${r.status}`;
     throw new Error(`off-host ${args[0]} failed: ${reason.replace(env.BACKUP_S3_SECRET_ACCESS_KEY || '\u0000', '***').slice(0, 300)}`);
@@ -574,19 +902,26 @@ const rclone = (env, args) => {
   return r;
 };
 
-/** Copies one backup off the host and proves the remote copy matches byte-for-byte. */
+/** Copies one backup off the host, encrypted, and proves every remote file decrypts to the local bytes. */
 function offsite(env, name) {
-  const remote = `offsite:${env.BACKUP_S3_BUCKET}/${(env.BACKUP_S3_PREFIX || 'congress').replace(/\/$/, '')}/${name}`;
-  rclone(env, ['copy', '--checksum', `/backups/${name}`, remote]);
-  rclone(env, ['check', '--one-way', `/backups/${name}`, remote]);
-  return remote;
+  rclone(env, ['copy', `/backups/${name}`, `secure:${name}`]);
+  rclone(env, ['cryptcheck', '--one-way', `/backups/${name}`, `secure:${name}`]);
+  return `offsite:${env.BACKUP_S3_BUCKET}/${prefixOf(env)}/${name} (encrypted)`;
 }
 
+/** Downloads and decrypts one off-host backup into `dir/<name>`. */
+function fetchOffsite(env, name, dir) {
+  if (!BACKUP_NAME.test(name)) throw new Error(`Not a backup name: ${name}`);
+  mkdirSync(dir, { recursive: true });
+  rclone(env, ['copy', `secure:${name}`, `/restore/${name}`], { mount: `${dir}:/restore` });
+  return join(dir, name);
+}
+
+const remoteBackups = (env) => rclone(env, ['lsf', '--dirs-only', 'secure:']).stdout.split(/\r?\n/).map((l) => l.replace(/\/$/, '')).filter((n) => BACKUP_NAME.test(n)).sort();
+
 function pruneRemote(env) {
-  const base = `offsite:${env.BACKUP_S3_BUCKET}/${(env.BACKUP_S3_PREFIX || 'congress').replace(/\/$/, '')}`;
-  const names = rclone(env, ['lsf', '--dirs-only', base]).stdout.split(/\r?\n/).map((l) => l.replace(/\/$/, '')).filter(Boolean);
-  const expired = selectExpired(names, retention(env));
-  for (const name of expired) rclone(env, ['purge', `${base}/${name}`]);
+  const expired = selectExpired(remoteBackups(env), retention(env));
+  for (const name of expired) rclone(env, ['purge', `secure:${name}`]);
   return expired;
 }
 
@@ -606,7 +941,7 @@ export function scheduledBackup() {
   try {
     const { name } = backup();
     status.name = name;
-    if (env.BACKUP_S3_ENDPOINT && env.BACKUP_S3_BUCKET) {
+    if (offsiteConfigured(env)) {
       status.offsite = offsite(env, name);
       status.pruned_remote = pruneRemote(env);
     }
@@ -621,6 +956,429 @@ export function scheduledBackup() {
   say(JSON.stringify(status, null, 2));
   if (!status.ok) throw new Error(`Scheduled backup FAILED: ${status.error}`);
   return status;
+}
+
+// ── Point-in-time recovery: continuous WAL archiving with pgBackRest (BACKUP_WAL=on) ────────────────────
+// The nightly dump bounds data loss to a day. With BACKUP_WAL=on the database (image deploy/db, overlay
+// deploy/staging/compose.wal.yaml) also ships every WAL segment to s3://<bucket>/<prefix>/pgbackrest, encrypted, at the
+// latest BACKUP_WAL_ARCHIVE_TIMEOUT (60) seconds after it was written; with a daily base backup any moment since the
+// oldest kept full backup can be restored. Media files are not in WAL: they come from the newest scheduled backup.
+
+export const walEnabled = (env) => (env.BACKUP_WAL || 'off') === 'on';
+
+export function walProblems(env) {
+  const problems = [];
+  if (!/^https:\/\//.test(env.BACKUP_S3_ENDPOINT || '')) problems.push('BACKUP_S3_ENDPOINT must be an https:// URL (pgBackRest speaks only TLS to S3)');
+  for (const k of ['BACKUP_S3_BUCKET', 'BACKUP_S3_ACCESS_KEY_ID', 'BACKUP_S3_SECRET_ACCESS_KEY']) if (!env[k]) problems.push(`${k} is not set`);
+  return [...problems, ...encryptionProblems(env)];
+}
+
+/** PGBACKREST_* values for compose.wal.yaml, derived from the BACKUP_* settings. */
+export function walComposeEnv(env, { archive = true } = {}) {
+  const out = { CONGRESS_DB_ARCHIVE_MODE: archive ? 'on' : 'off' };
+  // Tuning read by compose.wal.yaml; passed on because it may live in the ops file rather than staging.env.
+  for (const k of ['BACKUP_WAL_ARCHIVE_TIMEOUT', 'BACKUP_WAL_RETENTION_FULL', 'BACKUP_WAL_QUEUE_MAX']) if (env[k]) out[k] = env[k];
+  if (walProblems(env).length) return out;
+  const url = new URL(env.BACKUP_S3_ENDPOINT);
+  return {
+    ...out,
+    PGBACKREST_REPO1_S3_ENDPOINT: url.hostname,
+    PGBACKREST_REPO1_STORAGE_PORT: url.port || '443',
+    PGBACKREST_REPO1_STORAGE_VERIFY_TLS: (env.BACKUP_S3_VERIFY_TLS || 'on') === 'off' ? 'n' : 'y',
+    PGBACKREST_REPO1_S3_BUCKET: env.BACKUP_S3_BUCKET,
+    PGBACKREST_REPO1_S3_REGION: env.BACKUP_S3_REGION || 'us-east-1',
+    PGBACKREST_REPO1_S3_KEY: env.BACKUP_S3_ACCESS_KEY_ID,
+    PGBACKREST_REPO1_S3_KEY_SECRET: env.BACKUP_S3_SECRET_ACCESS_KEY,
+    PGBACKREST_REPO1_CIPHER_PASS: env.BACKUP_ENCRYPTION_KEY,
+    PGBACKREST_REPO1_PATH: `/${prefixOf(env)}/pgbackrest`,
+  };
+}
+
+const pgbackrest = (project, args, opts = {}) => compose(project, ['exec', '-T', '-u', 'postgres', 'db', 'pgbackrest', ...args], opts);
+const walInfo = (project = PROJECT, opts = {}) => JSON.parse(pgbackrest(project, ['info', '--output=json'], opts).stdout)[0] ?? {};
+
+/** Full when no full backup is younger than `fullDays`, differential otherwise. */
+export function chooseBackupType(backups = [], now = Date.now(), fullDays = 7) {
+  const fulls = backups.filter((b) => b.type === 'full').map((b) => b.timestamp.stop * 1000);
+  return !fulls.length || now - Math.max(...fulls) > fullDays * 86_400_000 ? 'full' : 'diff';
+}
+
+/** After `up`: the repository exists (idempotent), archiving works end to end, and there is a base backup. */
+function walInit() {
+  say('WAL archiving (BACKUP_WAL=on): checking the pgBackRest repository ...');
+  pgbackrest(PROJECT, ['stanza-create']);
+  // Forces a WAL switch and waits until that segment is in the bucket.
+  pgbackrest(PROJECT, ['check']);
+  if (!(walInfo().backup ?? []).length) {
+    say('  no base backup yet: taking the first full backup');
+    baseBackup('full');
+  }
+  say('  WAL archiving OK');
+}
+
+export function baseBackup(requested) {
+  requireEnv();
+  const env = readEnv();
+  if (!walEnabled(env)) throw new Error('base-backup needs BACKUP_WAL=on (see docs/deployment/STAGING_OPERATIONS.md, Point-in-time recovery).');
+  if (requested && !['full', 'diff', 'incr'].includes(requested)) throw new Error('usage: base-backup [full|diff|incr]');
+  const status = { at: new Date().toISOString(), ok: false, type: null, label: null, wal: null, error: null };
+  try {
+    status.type = requested || chooseBackupType(walInfo().backup, Date.now(), Number(env.BACKUP_WAL_FULL_DAYS || 7));
+    pgbackrest(PROJECT, ['backup', `--type=${status.type}`]);
+    const info = walInfo();
+    status.label = info.backup?.at(-1)?.label ?? null;
+    status.wal = info.archive?.[0] ? `${info.archive[0].min} .. ${info.archive[0].max}` : null;
+    status.ok = true;
+  } catch (e) {
+    status.error = String(e.message).split('\n').filter(Boolean).slice(-1)[0].replace(env.BACKUP_S3_SECRET_ACCESS_KEY || '\u0000', '***').slice(0, 300);
+  }
+  mkdirSync(BACKUPS, { recursive: true });
+  writeFileSync(join(BACKUPS, 'last-base-backup.json'), JSON.stringify(status, null, 2));
+  say(JSON.stringify(status, null, 2));
+  if (!status.ok) throw new Error(`Base backup FAILED: ${status.error}`);
+  return status;
+}
+
+/** pgBackRest's --target syntax for an ISO-8601 (or any Date-parsable) time. */
+export function pgbackrestTime(input) {
+  const ms = Date.parse(input ?? '');
+  if (Number.isNaN(ms)) throw new Error('usage: pitr-restore --to <time> | --to latest, e.g. --to 2026-10-22T09:41:00Z (UTC unless an offset is given)');
+  return new Date(ms).toISOString().replace('T', ' ').replace('Z', '+00');
+}
+
+const NEWEST = [['organizers', 'created_at'], ['events', 'created_at'], ['users', 'created_at'], ['tickets', 'created_at'], ['checkins', 'synced_at'], ['sms_messages', 'created_at']];
+
+/**
+ * Point-in-time recovery drill: restore the database as it was at `target` into a brand-new Compose project (own data
+ * folder under .staging/restores/, no published ports, archive_mode off so it never writes to the bucket), start the
+ * normal migrate + api path on it and report what it holds. The live stack is not touched.
+ */
+export async function pitrRestore(target, { keep = false } = {}) {
+  requireEnv();
+  const env = readEnv();
+  if (!walEnabled(env)) throw new Error('pitr-restore needs BACKUP_WAL=on (continuous WAL archiving).');
+  const problems = walProblems(env);
+  if (problems.length) throw new Error(`pitr-restore: ${problems.join('; ')}`);
+  const latest = target === 'latest';
+  const when = latest ? 'latest' : pgbackrestTime(target);
+  const project = `congress-pitr-${randomBytes(3).toString('hex')}`;
+  const restoreRoot = join(STATE, 'restores', project);
+  const opts = { envOverride: { CONGRESS_PERSISTENT_DATA_ROOT: restoreRoot, ...DRILL_API_ENV }, wal: true };
+  mkdirSync(join(restoreRoot, 'data/postgres'), { recursive: true });
+  mkdirSync(join(restoreRoot, 'data/media'), { recursive: true });
+  const checks = [];
+  const check = (label, ok, detail = '') => { checks.push({ label, ok }); say(`  ${ok ? 'PASS' : 'FAIL'} ${label}${detail ? ` — ${detail}` : ''}`); };
+  say(`Restoring the database as it was at ${latest ? 'the end of the WAL archive' : when} into disposable project ${project} (archiving off)`);
+  const started = Date.now();
+  const dbLog = () => say(compose(project, ['logs', '--tail', '30', 'db'], { ...opts, allowFail: true }).stdout);
+  try {
+    // `latest`: everything in the archive (pgBackRest's default recovery type); otherwise stop just before `when`.
+    const recovery = latest ? '' : ' --type=time "--target=$1" --target-action=promote';
+    compose(project, ['run', '--rm', '--no-deps', '-T', '--entrypoint', 'sh', 'db', '-c',
+      `set -e; chown postgres:postgres "$PGDATA"; chmod 700 "$PGDATA"; exec su-exec postgres pgbackrest restore${recovery}`,
+      'pitr', when], opts);
+    check('pgBackRest restored the base backup', true);
+    if (compose(project, ['up', '-d', '--wait', '--wait-timeout', '300', 'db'], { ...opts, allowFail: true }).status !== 0) {
+      dbLog();
+      throw new Error('The recovered database did not start (log above). "recovery ended before configured recovery target was reached" means nothing was committed after the target and archived yet: choose an earlier time, or --to latest.');
+    }
+    let state = '';
+    for (const end = Date.now() + 900_000; Date.now() < end && state !== 'f';) {
+      state = compose(project, ['exec', '-T', 'db', 'psql', '-U', 'congress', '-d', 'congress', '-At', '-c', 'select pg_is_in_recovery()'], { ...opts, allowFail: true }).stdout.trim();
+      if (state !== 'f') await sleep(2000);
+    }
+    if (state !== 'f') dbLog();
+    check(`WAL replayed up to ${latest ? 'the end of the archive' : 'the target'} and the database was promoted`, state === 'f', `${Math.round((Date.now() - started) / 1000)} s`);
+    if (state !== 'f') throw new Error('Recovery did not finish (database log above). Is the target time covered by the archive? See `pgbackrest info`.');
+    compose(project, ['up', '-d', '--wait', '--wait-timeout', '180', 'api'], opts);
+    const revision = psql(project, 'select version_num from alembic_version', opts);
+    const ready = compose(project, ['exec', '-T', 'api', 'python', '-c', "import urllib.request;print(urllib.request.urlopen('http://127.0.0.1:8000/api/ready',timeout=5).status)"], { ...opts, allowFail: true }).stdout.trim();
+    check('migrate + API (schema guard) accepted the recovered database', ready === '200', `schema ${revision}`);
+    const limit = latest ? Infinity : Date.parse(target) + 1000;
+    for (const [table, column] of NEWEST) {
+      const newest = psql(project, `select coalesce(max(${column})::text, '') from ${table}`, opts);
+      const count = psql(project, `select count(*) from ${table}`, opts);
+      check(latest ? `${table} recovered` : `${table}: nothing newer than the target`, !newest || Date.parse(newest.replace(' ', 'T').replace(/([+-]\d\d)$/, '$1:00')) <= limit, `${count} rows, newest ${newest || '-'}`);
+    }
+  } finally {
+    if (keep) say(`Kept ${project} (data: ${restoreRoot}). Inspect: docker compose -p ${project} exec db psql -U congress congress; remove: docker compose -p ${project} down, then delete that folder.`);
+    else if (/^congress-pitr-[0-9a-f]{6}$/.test(project)) {
+      compose(project, ['down', '--remove-orphans'], { ...opts, allowFail: true });
+      removeRestoreRoot(restoreRoot);
+    }
+  }
+  const failed = checks.filter((c) => !c.ok).length;
+  say(`pitr-restore: ${checks.length - failed}/${checks.length} checks passed (recovered to ${when} in ${Math.round((Date.now() - started) / 1000)} s)`);
+  if (failed) throw new Error('Point-in-time recovery drill failed');
+  return checks;
+}
+
+/** check: archiving on and succeeding, queue short, base backup fresh. */
+function walHealth(env, note) {
+  if (!walEnabled(env)) return;
+  const sql = "select current_setting('archive_mode'), archived_count, coalesce(last_archived_time::text, ''), failed_count, coalesce(last_failed_time::text, ''), "
+    + "(select count(*) from pg_ls_archive_statusdir() where name like '%.ready'), extract(epoch from now() - coalesce(last_archived_time, now()))::int from pg_stat_archiver";
+  const r = compose(PROJECT, ['exec', '-T', 'db', 'psql', '-U', 'congress', '-d', 'congress', '-At', '-F', '|', '-c', sql], { allowFail: true });
+  if (r.status !== 0) return note('CRITICAL', 'WAL archiving: could not read pg_stat_archiver');
+  const [mode, archived, lastOk, failed, lastFail, ready, ageS] = r.stdout.trim().split('|');
+  if (mode !== 'on') note('CRITICAL', `BACKUP_WAL=on but archive_mode is ${mode}: the database runs without the WAL overlay (restart it with stack.mjs start)`);
+  else if (Number(failed) > 0 && (!lastOk || lastFail > lastOk)) note('CRITICAL', `WAL archiving is failing (last failure ${lastFail}; see: stack.mjs logs db)`);
+  else if (Number(ready) > 10) note('WARNING', `WAL archiving is behind: ${ready} segments waiting`);
+  else note('OK', `WAL archiving: ${archived} segments archived, last ${lastOk ? `${Math.round(Number(ageS) / 60)} min ago` : 'never'}, ${ready} waiting`);
+  const file = join(BACKUPS, 'last-base-backup.json');
+  const maxAge = Number(env.BACKUP_WAL_MAX_AGE_HOURS || 26);
+  if (!existsSync(file)) return note('WARNING', 'no base backup recorded yet (stack.mjs base-backup)');
+  const last = JSON.parse(readFileSync(file, 'utf8'));
+  const ageH = (Date.now() - Date.parse(last.at)) / 3_600_000;
+  if (!last.ok) note('CRITICAL', `last base backup FAILED at ${last.at}: ${last.error}`);
+  else if (ageH > maxAge) note('CRITICAL', `last successful base backup is ${ageH.toFixed(1)} h old (limit ${maxAge} h)`);
+  else note('OK', `last base backup ${last.label} (${last.type}), ${ageH.toFixed(1)} h ago`);
+}
+
+// ── systemd timers and event-day mode ────────────────────────────────────────────────────────────
+// The unit files in deploy/hosted/systemd are templates for /opt/congress-platform, user `congress` and /usr/bin/node;
+// install-timers writes them with this checkout's path, the operating user and this Node, then enables the timers.
+
+const UNIT_DIR = join(root, 'deploy/hosted/systemd');
+const systemdDir = () => process.env.CONGRESS_SYSTEMD_DIR || '/etc/systemd/system';
+const EVENT_DROPIN = 'congress-backup.timer.d/event-mode.conf';
+export const EVENT_MODE_CONF = `# Written by \`stack.mjs event-mode on\`: hourly backups during a live congress. Remove: stack.mjs event-mode off
+[Timer]
+OnCalendar=
+OnCalendar=*-*-* *:05:00
+RandomizedDelaySec=2m
+`;
+
+export function renderUnit(text, { root: dir, user, node }) {
+  return text.replaceAll('/opt/congress-platform', dir).replace(/^User=.*$/m, `User=${user}`).replaceAll('/usr/bin/node', node);
+}
+
+/** The files to write and the systemctl calls, in order (printed by --dry-run, executed otherwise). */
+export function timerPlan({ dir, user, node, wal, units, target = '/etc/systemd/system' }) {
+  const names = Object.keys(units).filter((n) => wal || !n.startsWith('congress-basebackup'));
+  const timers = names.filter((n) => n.endsWith('.timer'));
+  return [
+    ...names.map((n) => ({ write: join(target, n), content: renderUnit(units[n], { root: dir, user, node }) })),
+    { run: ['systemctl', 'daemon-reload'] },
+    { run: ['systemctl', 'enable', '--now', ...timers] },
+  ];
+}
+
+function executePlan(plan, dryRun) {
+  for (const step of plan) {
+    if (step.write) {
+      say(`${dryRun ? 'would write' : 'write'} ${step.write}`);
+      if (dryRun) say(step.content.replace(/^/gm, '    '));
+      else { mkdirSync(dirname(step.write), { recursive: true }); writeFileSync(step.write, step.content, { mode: 0o644 }); }
+    } else if (step.remove) {
+      say(`${dryRun ? 'would remove' : 'remove'} ${step.remove}`);
+      if (!dryRun) rmSync(step.remove, { recursive: true, force: true });
+    } else {
+      say(`${dryRun ? 'would run' : 'run'} ${step.run.join(' ')}`);
+      if (!dryRun) run(step.run[0], step.run.slice(1), { allowFail: Boolean(step.allowFail) });
+    }
+  }
+}
+
+function requireRoot(dryRun) {
+  if (!dryRun && process.getuid?.() !== 0) throw new Error('Writing systemd units needs root: run with sudo (or add --dry-run to see what would happen).');
+}
+
+function installTimers(args) {
+  const dryRun = args.includes('--dry-run');
+  const userAt = args.indexOf('--user');
+  const user = userAt >= 0 ? args[userAt + 1] : process.env.SUDO_USER || userInfo().username;
+  if (!user || !/^[a-z_][a-z0-9_-]*$/i.test(user)) throw new Error('usage: install-timers [--user <name>] [--dry-run]');
+  requireEnv();
+  requireRoot(dryRun);
+  if (user !== 'root' && !run('id', ['-nG', user], { allowFail: true }).stdout.split(/\s+/).includes('docker')) {
+    say(`Note: ${user} is not in the docker group; the timers would fail. Add it: usermod -aG docker ${user}`);
+  }
+  const units = Object.fromEntries(readdirSync(UNIT_DIR).filter((n) => /\.(service|timer)$/.test(n)).map((n) => [n, readFileSync(join(UNIT_DIR, n), 'utf8')]));
+  executePlan(timerPlan({ dir: root, user, node: process.execPath, wal: walEnabled(readEnv()), units, target: systemdDir() }), dryRun);
+  if (!dryRun) say(run('systemctl', ['list-timers', 'congress-*', '--no-pager'], { allowFail: true }).stdout);
+}
+
+function uninstallTimers(args) {
+  const dryRun = args.includes('--dry-run');
+  requireRoot(dryRun);
+  const names = readdirSync(UNIT_DIR).filter((n) => /\.(service|timer)$/.test(n));
+  executePlan([
+    { run: ['systemctl', 'disable', '--now', ...names.filter((n) => n.endsWith('.timer'))], allowFail: true },
+    ...names.map((n) => ({ remove: join(systemdDir(), n) })),
+    { remove: join(systemdDir(), 'congress-backup.timer.d') },
+    { run: ['systemctl', 'daemon-reload'] },
+  ], dryRun);
+}
+
+const eventModeOn = () => existsSync(join(systemdDir(), EVENT_DROPIN));
+
+function eventMode(args) {
+  const [action = 'status'] = args;
+  const dryRun = args.includes('--dry-run');
+  const file = join(systemdDir(), EVENT_DROPIN);
+  if (action === 'status') return say(`event mode: ${eventModeOn() ? 'ON (hourly backups)' : 'off (nightly backups)'}\n${run('systemctl', ['list-timers', 'congress-backup.timer', '--no-pager'], { allowFail: true }).stdout}`);
+  if (!['on', 'off'].includes(action)) throw new Error('usage: event-mode on | off | status [--dry-run]');
+  requireRoot(dryRun);
+  executePlan([
+    action === 'on' ? { write: file, content: EVENT_MODE_CONF } : { remove: dirname(file) },
+    { run: ['systemctl', 'daemon-reload'] },
+    { run: ['systemctl', 'restart', 'congress-backup.timer'] },
+  ], dryRun);
+  if (action === 'on' && !dryRun) say('Hourly backups on; `check` now expects a backup younger than BACKUP_EVENT_MAX_AGE_HOURS (2). Run `stack.mjs scheduled-backup` once now.');
+}
+
+// ── Alert delivery (Telegram) ────────────────────────────────────────────────────────────────────
+
+const ALERT_STATE = join(STATE, 'alert-state.json');
+
+/** The problems, with numbers blanked, so "23 of 400" and "24 of 410" are the same alert. */
+export const alertFingerprint = (findings) => findings.filter((f) => f.level === 'WARNING' || f.level === 'CRITICAL')
+  .map((f) => `${f.level}:${f.text.replace(/\d+(\.\d+)?/g, '#')}`).sort().join('\n');
+
+/** Send on a new or changed problem, again every `repeatHours` while it lasts, and once when it is resolved. */
+export function alertDecision(previous, level, findings, now = Date.now(), repeatHours = 6) {
+  const fingerprint = alertFingerprint(findings);
+  const prev = previous ?? { level: 0, fingerprint: '', sent_at: null };
+  if (level === 0) return prev.level > 0 ? { kind: 'recovery', state: { level: 0, fingerprint: '', sent_at: new Date(now).toISOString() } } : { kind: null, state: prev };
+  const stale = !prev.sent_at || now - Date.parse(prev.sent_at) >= repeatHours * 3_600_000;
+  if (prev.level === level && prev.fingerprint === fingerprint && !stale) return { kind: null, state: prev };
+  return { kind: prev.level > 0 && prev.fingerprint === fingerprint ? 'reminder' : 'alert', state: { level, fingerprint, sent_at: new Date(now).toISOString() } };
+}
+
+export function alertText(kind, level, findings, env) {
+  const where = env.CONGRESS_PUBLIC_ORIGIN || hostname();
+  if (kind === 'recovery') return `[RECOVERED] Congress Platform ${where}: all checks OK again.`;
+  const lines = findings.filter((f) => f.level === 'WARNING' || f.level === 'CRITICAL').map((f) => `- ${f.level}: ${f.text}`);
+  return [`[${['OK', 'WARNING', 'CRITICAL'][level]}]${kind === 'reminder' ? ' (still)' : ''} Congress Platform ${where}`, ...lines, '', `On the server: node scripts/staging/stack.mjs check`].join('\n');
+}
+
+async function deliverAlert(env, level, findings) {
+  const token = env.ALERT_TELEGRAM_BOT_TOKEN;
+  const chat = env.ALERT_TELEGRAM_CHAT_ID;
+  if (!token || !chat) return;
+  let previous = null;
+  try { previous = JSON.parse(readFileSync(ALERT_STATE, 'utf8')); } catch { /* first run */ }
+  const { kind, state } = alertDecision(previous, level, findings, Date.now(), Number(env.ALERT_REPEAT_HOURS || 6));
+  if (!kind) return;
+  // ALERT_TELEGRAM_API: a relay with the same API where api.telegram.org is not reachable from the server.
+  const base = (env.ALERT_TELEGRAM_API || 'https://api.telegram.org').replace(/\/$/, '');
+  try {
+    const r = await fetch(`${base}/bot${token}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: chat, text: alertText(kind, level, findings, env), disable_web_page_preview: true }),
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    mkdirSync(STATE, { recursive: true });
+    writeFileSync(ALERT_STATE, JSON.stringify(state, null, 2));
+    say(`  alert   Telegram ${kind} sent`);
+  } catch (e) {
+    // Not recorded as sent, so the next check tries again.
+    say(`  WARNING Telegram ${kind} could not be sent: ${String(e.message).replace(token, '***').slice(0, 200)}`);
+  }
+}
+
+// ── SMS delivery, certificate, clock and heartbeat (parts of `check`) ────────────────────────────────
+
+/** Read inside the API container with its own admin token (never through the proxy): outbox health and SMS mode. */
+const SMS_HEALTH_SCRIPT = `
+import json, os, urllib.request
+def get(path):
+    req = urllib.request.Request("http://127.0.0.1:8000" + path, headers={"X-Admin-Token": os.environ["CONGRESS_PLATFORM_ADMIN_TOKEN"]})
+    return json.load(urllib.request.urlopen(req, timeout=10))
+print(json.dumps({"outbox": get("/api/platform/sms/outbox"), "sms": get("/api/platform/sms")}))`;
+
+/**
+ * Findings from /api/platform/sms/outbox and /api/platform/sms: delivery impossible (not configured, test mode in
+ * production), queued messages waiting too long, failed or unconfirmed messages nobody has handled, platform caps
+ * reached or close, and cap refusals logged in the last 15 minutes.
+ */
+export function smsFindings({ outbox, sms }, env = {}, { now = Date.now(), capRefusals = 0 } = {}) {
+  const findings = [];
+  const note = (level, text) => findings.push({ level, text });
+  const production = env.CONGRESS_ENVIRONMENT === 'production';
+  if (sms.effective === 'unconfigured') note('CRITICAL', 'SMS is not configured (no sms.ir key or line): sign-in codes and ticket confirmations cannot be sent (platform console → SMS)');
+  else if (sms.effective === 'console') note(production ? 'CRITICAL' : 'INFO', 'SMS test mode (console): nothing is sent to phones');
+  const counts = outbox.counts ?? {};
+  const oldest = outbox.oldest_pending_at ? Date.parse(outbox.oldest_pending_at) : NaN;
+  const lagMin = Number.isNaN(oldest) ? 0 : Math.max(0, (now - oldest) / 60_000);
+  const warnMin = Number(env.ALERT_SMS_LAG_MINUTES || 10);
+  const critMin = Number(env.ALERT_SMS_LAG_CRITICAL_MINUTES || 30);
+  const lagText = `SMS outbox: ${counts.pending ?? 0} queued, oldest waiting ${lagMin.toFixed(1)} min`;
+  note(lagMin > critMin ? 'CRITICAL' : lagMin > warnMin ? 'WARNING' : 'OK', lagMin > warnMin ? `${lagText} (limit ${lagMin > critMin ? critMin : warnMin} min): confirmations are not going out` : lagText);
+  const failed = Number(counts.failed ?? 0);
+  const unknown = Number(counts.unknown ?? 0);
+  if (failed + unknown > Number(env.ALERT_SMS_FAILED_MAX || 0)) {
+    note('WARNING', `${failed} failed and ${unknown} unconfirmed SMS wait for a decision (organizer → SMS log: retry or resolve)`);
+  }
+  for (const [name, sent, cap] of [['hourly', outbox.sent_last_hour, outbox.hourly_cap], ['daily', outbox.sent_last_day, outbox.daily_cap]]) {
+    if (!cap) continue;
+    if (sent >= cap) note('CRITICAL', `SMS ${name} cap reached (${sent} of ${cap}): sign-in codes are refused and confirmations wait`);
+    else if (sent >= cap * 0.8) note('WARNING', `SMS ${name} cap at ${sent} of ${cap}`);
+    else note('OK', `SMS ${name}: ${sent} of ${cap} sent`);
+  }
+  if (capRefusals) note('WARNING', `SMS cap refused sends ${capRefusals} times in the last 15 min`);
+  return findings;
+}
+
+/** Days left on a certificate: WARNING under ALERT_CERT_WARN_DAYS (14), CRITICAL under 3 days or expired. */
+export function certFinding(validTo, label, now = Date.now(), warnDays = 14) {
+  const days = (Date.parse(validTo) - now) / 86_400_000;
+  if (Number.isNaN(days)) return { level: 'WARNING', text: `${label}: could not read the certificate's expiry` };
+  const level = days < 3 ? 'CRITICAL' : days < warnDays ? 'WARNING' : 'OK';
+  return { level, text: `${label} certificate ${days < 0 ? 'EXPIRED' : 'expires'} ${new Date(validTo).toISOString().slice(0, 10)} (${Math.floor(days)} days)${level === 'OK' ? '' : ': is Caddy renewing it? (stack.mjs logs web)'}` };
+}
+
+/** Which certificate `check` watches: the CDN's (what visitors see), Caddy's public one, or none (local CA). */
+export function certTarget(env) {
+  const origin = env.CONGRESS_PUBLIC_ORIGIN || '';
+  let url;
+  try { url = new URL(origin); } catch { return null; }
+  if (url.protocol !== 'https:') return null;
+  if ((env.CONGRESS_CDN || 'off') === 'on') return { host: url.hostname, port: Number(url.port || 443), servername: url.hostname, label: 'CDN (public)' };
+  if (!(env.CONGRESS_TLS || '').includes('@')) return null; // Caddy's local CA: short-lived, renewed by Caddy itself
+  return { host: '127.0.0.1', port: Number(env.CONGRESS_HTTPS_PORT || 443), servername: url.hostname, label: `ACME (${url.hostname})` };
+}
+
+function peerCertificateExpiry({ host, port, servername }) {
+  return new Promise((done) => {
+    const socket = tls.connect({ host, port, servername, rejectUnauthorized: false, timeout: 10000 }, () => {
+      const cert = socket.getPeerCertificate();
+      socket.end();
+      done(cert?.valid_to ?? null);
+    });
+    socket.on('timeout', () => socket.destroy(new Error('timeout')));
+    socket.on('error', () => done(null));
+  });
+}
+
+/** Linux hosts: is the clock synchronised (NTP)? Scan times, code lifetimes and token expiry rely on it. */
+function clockFinding() {
+  if (process.platform !== 'linux') return null;
+  const r = run('timedatectl', ['show', '-p', 'NTPSynchronized', '--value'], { allowFail: true });
+  if (r.status !== 0) return null;
+  return r.stdout.trim() === 'yes'
+    ? { level: 'OK', text: 'system clock synchronised (NTP)' }
+    : { level: 'WARNING', text: 'system clock is NOT synchronised (timedatectl): enable NTP (timedatectl set-ntp true)' };
+}
+
+/**
+ * Dead man's switch: after a check that found nothing critical, request ALERT_HEARTBEAT_URL (e.g. a healthchecks.io
+ * or Uptime Kuma push URL). When the server, Docker or the timer dies, the pings stop and that service alerts.
+ */
+async function pingHeartbeat(env, level) {
+  const url = env.ALERT_HEARTBEAT_URL?.trim();
+  if (!url || level >= 2) return;
+  let host = 'the heartbeat URL';
+  try { host = new URL(url).host; } catch { /* reported below */ }
+  try {
+    const r = await fetch(url, { signal: AbortSignal.timeout(10000) });
+    say(r.ok ? `  heartbeat sent to ${host}` : `  WARNING heartbeat to ${host} answered ${r.status}`);
+  } catch (e) {
+    say(`  WARNING heartbeat to ${host} failed: ${String(e.message).slice(0, 120)}`);
+  }
 }
 
 // ── Operator health check ────────────────────────────────────────────────────────────────────────
@@ -652,8 +1410,26 @@ export async function healthCheck() {
   const errors = logs.filter((l) => /"status":5\d\d/.test(l)).length;
   const total = logs.filter((l) => /"status":\d{3}/.test(l)).length;
   note(errors > 20 || (total > 50 && errors / total > 0.05) ? 'WARNING' : 'OK', `HTTP 5xx in the last 15 min: ${errors} of ${total} requests`);
-  const apiErrors = compose(PROJECT, ['logs', '--since', '15m', '--no-log-prefix', 'api'], { allowFail: true }).stdout.split(/\r?\n/).filter((l) => /Traceback|ERROR/.test(l)).length;
+  const apiLog = compose(PROJECT, ['logs', '--since', '15m', '--no-log-prefix', 'api'], { allowFail: true }).stdout.split(/\r?\n/);
+  const apiErrors = apiLog.filter((l) => /Traceback|ERROR/.test(l)).length;
   note(apiErrors ? 'WARNING' : 'OK', `API error lines in the last 15 min: ${apiErrors}`);
+  // SMS delivery: the outbox and the platform caps, read inside the API container.
+  const sms = compose(PROJECT, ['exec', '-T', 'api', 'python', '-c', SMS_HEALTH_SCRIPT], { allowFail: true });
+  let smsHealth = null;
+  try { smsHealth = JSON.parse(sms.stdout.trim().split('\n').at(-1)); } catch { /* reported below */ }
+  if (!smsHealth) note('WARNING', 'could not read SMS delivery health from the API (/api/platform/sms/outbox)');
+  else {
+    const capRefusals = apiLog.filter((l) => l.includes('SMS platform cap reached')).length;
+    for (const f of smsFindings(smsHealth, env, { capRefusals })) note(f.level, f.text);
+  }
+  const target = certTarget(env);
+  if (target) {
+    const validTo = await peerCertificateExpiry(target);
+    const f = validTo ? certFinding(validTo, target.label, Date.now(), Number(env.ALERT_CERT_WARN_DAYS || 14)) : { level: 'WARNING', text: `${target.label}: no certificate answered on ${target.host}:${target.port}` };
+    note(f.level, f.text);
+  }
+  const clock = clockFinding();
+  if (clock) note(clock.level, clock.text);
   // Disk: the filesystem holding Docker volumes, plus each persistent volume.
   const probe = `${PROJECT}-check-${randomBytes(3).toString('hex')}`;
   const { postgres, media } = persistentPaths();
@@ -664,9 +1440,9 @@ export async function healthCheck() {
     note(used >= 90 ? 'CRITICAL' : used >= 80 ? 'WARNING' : 'OK', `docker volume disk ${used}% used (${Math.round(availK / 1048576)} GiB free of ${Math.round(sizeK / 1048576)} GiB)`);
     for (const line of du.slice(1)) { const [k, path] = line.split(/\s+/); note('INFO', `${path.replace('/v/', 'volume ')}: ${Math.round(Number(k) / 1024)} MiB`); }
   } else note('WARNING', 'could not measure volume disk usage');
-  // Backups: freshness and last result.
+  // Backups: freshness and last result (event mode: hourly backups, so a much shorter limit).
   const statusFile = join(BACKUPS, 'last-backup.json');
-  const maxAge = Number(env.BACKUP_MAX_AGE_HOURS || 26);
+  const maxAge = eventModeOn() ? Number(env.BACKUP_EVENT_MAX_AGE_HOURS || 2) : Number(env.BACKUP_MAX_AGE_HOURS || 26);
   if (!existsSync(statusFile)) note('WARNING', 'no scheduled backup has run yet');
   else {
     const last = JSON.parse(readFileSync(statusFile, 'utf8'));
@@ -675,9 +1451,37 @@ export async function healthCheck() {
     else if (ageH > maxAge) note('CRITICAL', `last successful backup is ${ageH.toFixed(1)} h old (limit ${maxAge} h)`);
     else note('OK', `last backup ${last.name}, ${ageH.toFixed(1)} h ago, off-host: ${last.offsite}`);
   }
+  walHealth(env, note);
   const level = findings.some((f) => f.level === 'CRITICAL') ? 2 : findings.some((f) => f.level === 'WARNING') ? 1 : 0;
   say(`check: ${['OK', 'WARNING', 'CRITICAL'][level]}`);
+  await deliverAlert(env, level, findings);
+  await pingHeartbeat(env, level);
   return level;
+}
+
+/** `check` for schedulers: a check that cannot even run is itself critical, and alerted on. */
+async function checkCommand() {
+  try {
+    return await healthCheck();
+  } catch (e) {
+    const text = `the health check itself failed: ${String(e.message).split('\n')[0].slice(0, 200)}`;
+    say(`  CRITICAL ${text}\ncheck: CRITICAL`);
+    if (existsSync(ENV_FILE)) await deliverAlert(readEnv(), 2, [{ level: 'CRITICAL', text }]);
+    return 2;
+  }
+}
+
+/** The API's Prometheus metrics, fetched inside the API container with its own token (no scraper needed). */
+function metricsCommand() {
+  requireEnv();
+  const script = `
+import os, sys, urllib.request, urllib.error
+token = os.environ.get("CONGRESS_METRICS_TOKEN", "")
+if not token:
+    print("CONGRESS_METRICS_TOKEN is not set: /api/metrics is disabled", file=sys.stderr); sys.exit(1)
+req = urllib.request.Request("http://127.0.0.1:8000/api/metrics", headers={"Authorization": "Bearer " + token})
+print(urllib.request.urlopen(req, timeout=10).read().decode())`;
+  return compose(PROJECT, ['exec', '-T', 'api', 'python', '-c', script]).stdout;
 }
 
 // ── Platform administration (never through the public proxy) ───────────────────────────────────
@@ -750,7 +1554,15 @@ for t in (out if isinstance(out, list) else [out]):
   return compose(PROJECT, ['exec', '-T', 'api', 'python', '-c', script, path, method], { input }).stdout;
 }
 
-function listBackups() {
+function listBackups(args = []) {
+  if (args.includes('--offsite')) {
+    requireEnv();
+    const env = readEnv();
+    if (!offsiteConfigured(env)) throw new Error('No off-host store configured (BACKUP_S3_*).');
+    const names = remoteBackups(env);
+    for (const name of names) say(`  ${name}  (encrypted, offsite:${env.BACKUP_S3_BUCKET}/${prefixOf(env)}/${name})`);
+    return say(names.length ? `${names.length} off-host backups. Verify one: stack.mjs restore-verify <name> --from-offsite` : 'No off-host backups.');
+  }
   if (!existsSync(BACKUPS)) return say('No backups yet.');
   for (const name of readdirSync(BACKUPS).sort()) {
     const m = join(BACKUPS, name, 'manifest.json');
@@ -764,16 +1576,41 @@ function listBackups() {
  * Restore a backup into a brand-new, separately named Compose project (its own host data directory under
  * .staging/restores/, no published ports), run the normal migrate + api services against it, and compare.
  */
-export async function restoreVerify(name, { keep = false } = {}) {
+export async function restoreVerify(name, { keep = false, fromOffsite = false } = {}) {
   requireEnv();
-  const dir = join(BACKUPS, name);
+  if (!name) throw new Error('usage: restore-verify <backup name> [--keep] [--from-offsite]');
+  if (!fromOffsite) return verifyRestore(name, join(BACKUPS, name), { keep });
+  // The off-host copy itself: downloaded and decrypted into a throw-away folder, then the same checksums and checks.
+  const fetched = join(STATE, 'restores', `offsite-${randomBytes(3).toString('hex')}`);
+  try {
+    say(`Downloading and decrypting ${name} from the off-host copy ...`);
+    return await verifyRestore(name, fetchOffsite(readEnv(), name, fetched), { keep });
+  } finally {
+    rmSync(fetched, { recursive: true, force: true });
+  }
+}
+
+/**
+ * A drill's API (restore-verify, pitr-restore) runs on a copy of real data with the real settings: it must never
+ * send the copy's queued SMS to attendees again, nor purge anything while it is being compared.
+ */
+export const DRILL_API_ENV = { CONGRESS_SMS_OUTBOX_ENABLED: 'false', CONGRESS_RETENTION_ENABLED: 'false' };
+
+/** Deletes a disposable restore folder; PostgreSQL's files in it belong to the container's postgres user. */
+function removeRestoreRoot(dir) {
+  if (!existsSync(dir)) return;
+  run('docker', ['run', '--rm', '--network', 'none', '-v', `${dir}:/r`, 'postgres:16-alpine', 'sh', '-c', 'rm -rf /r/* /r/.[!.]*'], { allowFail: true });
+  rmSync(dir, { recursive: true, force: true });
+}
+
+async function verifyRestore(name, dir, { keep }) {
   const manifest = JSON.parse(readFileSync(join(dir, 'manifest.json'), 'utf8'));
   for (const [f, sum] of Object.entries(manifest.files)) {
     if (createHash('sha256').update(readFileSync(join(dir, f))).digest('hex') !== sum) throw new Error(`${f} checksum mismatch`);
   }
   const project = `congress-restore-${randomBytes(3).toString('hex')}`;
   const restoreRoot = join(STATE, 'restores', project);
-  const envOverride = { CONGRESS_PERSISTENT_DATA_ROOT: restoreRoot };
+  const envOverride = { CONGRESS_PERSISTENT_DATA_ROOT: restoreRoot, ...DRILL_API_ENV };
   mkdirSync(restoreRoot, { recursive: true });
   run(join(root, 'scripts/staging/fix-persistent-permissions.sh'), [], {
     allowFail: true,
@@ -799,13 +1636,14 @@ export async function restoreVerify(name, { keep = false } = {}) {
     } finally {
       run('docker', ['rm', '-f', helper], { allowFail: true });
     }
-    // Normal startup path: migrate (no-op at the same revision) then the API with the schema guard.
-    compose(project, ['up', '-d', '--wait', '--wait-timeout', '180', 'api'], { envOverride });
-    check('migrate service accepted the restored schema', psql(project, 'select version_num from alembic_version') === manifest.alembic_revision, manifest.alembic_revision);
+    // Counted before the API starts, so nothing it does on startup can change them.
     for (const [table, expected] of Object.entries(manifest.counts)) {
-      const got = Number(psql(project, table === 'published_pages' ? 'select count(*) from event_pages where published is not null' : `select count(*) from ${table}`));
+      const got = Number(psql(project, table === 'published_pages' ? 'select count(*) from event_pages where published is not null' : `select count(*) from "${table.replace(/"/g, '""')}"`, { envOverride }));
       check(`${table} rows`, got === expected, `${got}/${expected}`);
     }
+    // Normal startup path: migrate (no-op at the same revision) then the API with the schema guard.
+    compose(project, ['up', '-d', '--wait', '--wait-timeout', '180', 'api'], { envOverride });
+    check('migrate service accepted the restored schema', psql(project, 'select version_num from alembic_version', { envOverride }) === manifest.alembic_revision, manifest.alembic_revision);
     // Through the restored API: published pages and every published image, byte-for-byte.
     const probe = `
 import hashlib, json, sys, urllib.request
@@ -824,7 +1662,7 @@ print(json.dumps(out))`;
     if (keep) say(`Kept ${project} (data: ${restoreRoot}; remove with compose down and delete that folder)`);
     else if (/^congress-restore-[0-9a-f]{6}$/.test(project)) {
       compose(project, ['down', '--remove-orphans'], { allowFail: true, envOverride });
-      rmSync(restoreRoot, { recursive: true, force: true });
+      removeRestoreRoot(restoreRoot);
     }
   }
   const failed = checks.filter((c) => !c.ok).length;
@@ -837,7 +1675,7 @@ async function main() {
   const [cmd = 'status', ...rest] = process.argv.slice(2);
   if (rest.includes('-v') || rest.includes('--volumes')) throw new Error('Refusing: this tool never removes staging volumes.');
   switch (cmd) {
-    case 'init': return init();
+    case 'init': return init(rest);
     case 'up': return up();
     case 'status': return status();
     case 'logs': return say(compose(PROJECT, ['logs', '--tail', '200', ...rest]).stdout);
@@ -847,11 +1685,22 @@ async function main() {
     case 'ca': return exportCa();
     case 'lan': return lan(rest[0]);
     case 'cdn': return cdn(rest);
+    case 'releases': return listReleases();
+    case 'rollback': return rollback(rest.find((a) => !a.startsWith('-')));
     case 'backup': return backup();
-    case 'backups': return listBackups();
-    case 'restore-verify': return restoreVerify(rest[0], { keep: rest.includes('--keep') });
+    case 'backups': return listBackups(rest);
+    case 'restore-verify': return restoreVerify(rest.find((a) => !a.startsWith('-')), { keep: rest.includes('--keep'), fromOffsite: rest.includes('--from-offsite') });
     case 'scheduled-backup': return scheduledBackup();
-    case 'check': process.exitCode = await healthCheck(); return;
+    case 'base-backup': return baseBackup(rest[0]);
+    case 'pitr-restore': {
+      const at = rest.indexOf('--to');
+      return pitrRestore(at >= 0 ? rest[at + 1] : undefined, { keep: rest.includes('--keep') });
+    }
+    case 'install-timers': return installTimers(rest);
+    case 'uninstall-timers': return uninstallTimers(rest);
+    case 'event-mode': return eventMode(rest);
+    case 'check': process.exitCode = await checkCommand(); return;
+    case 'metrics': return say(metricsCommand());
     case 'organizer': return organizerAdmin(rest);
     case 'sms-code': return say(smsCode(rest[0]));
     case 'sms-template': return say(smsTemplateAdmin(rest));

@@ -1,15 +1,19 @@
 import { expect, test } from '@playwright/test';
 import type { BrowserContext, Page } from '@playwright/test';
+import { expectScannerOnline, gateScreen, manualScan, pickMenuItem, storedScans, wireManifest } from './scannerFixtures';
 
 /**
  * Scanner synchronization and capacity regressions.
  *
  * Synthetic, intercepted /api/ responses: not FastAPI/PostgreSQL. The real-backend scanner journey is
- * scripts/integration/congress-e2e.mjs and e2e/scanner-real-api.spec.ts.
+ * scripts/integration/congress-e2e.mjs and the live suite (web/e2e-live/scanner.spec.ts).
  *
  * Every assertion reads resulting state: the records in the scanner's IndexedDB and what the fake
  * server received (including how many batch requests were in flight at once). Timer-driven cases pause
  * Playwright's fake clock, so the 5 s sync timer fires only when the test advances time.
+ *
+ * The single-scan endpoint (POST /scan, the online path) is unreachable unless a test turns it on, so
+ * scans take the local-decision-and-queue path that the synchronization cases are about.
  */
 
 const POINT_ID = 'sync-cap-point';
@@ -41,17 +45,6 @@ const manifestFor = (policy: Policy, maxCapacity: number | null, admitted: numbe
   tickets: [1, 2, 3, 4, 5].map((n) => ticket(n, admitted.includes(n))),
 });
 
-interface StoredScan { scan_id: string; qr_secret: string; status: string; sync_state: string; synced: boolean; rejection_reason: string | null }
-
-const storedScans = (page: Page) => page.evaluate(() => new Promise<StoredScan[]>((resolve) => {
-  const req = indexedDB.open('congress_scanner_db', 2);
-  req.onsuccess = () => {
-    const all = req.result.transaction('queued_scans', 'readonly').objectStore('queued_scans').getAll();
-    all.onsuccess = () => resolve(all.result as StoredScan[]);
-    all.onerror = () => resolve([]);
-  };
-  req.onerror = () => resolve([]);
-}));
 const scanOf = async (page: Page, n: number) => (await storedScans(page)).filter((s) => s.qr_secret === code(n));
 const outcomes = async (page: Page) =>
   Object.fromEntries((await storedScans(page)).map((s) => [s.qr_secret, s.rejection_reason ?? s.status]));
@@ -60,6 +53,7 @@ interface FakeServer {
   state: {
     manifest: Manifest; batches: string[][]; inFlight: number; maxInFlight: number;
     mode: 'ok' | 'revoked' | 'error'; admitted: Set<string>; hold: Promise<void> | null;
+    scanMode: 'ok' | 'down'; singleScans: string[];
   };
   install: (page: Page) => Promise<void>;
   holdBatches: () => void;
@@ -76,10 +70,28 @@ function fakeServer(): FakeServer {
     mode: 'ok',
     admitted: new Set<string>(),
     hold: null,
+    scanMode: 'down',
+    singleScans: [],
   };
   let release = () => {};
   const install = async (page: Page) => {
-    await page.route('**/api/checkin-points/*/manifest', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(state.manifest) }));
+    await page.route('**/api/checkin-points/*/manifest*', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(wireManifest(state.manifest)) }));
+    // Server-side rules, as the backend applies them: single admission per ticket, and the room cap.
+    const decide = (s: { scan_id: string; qr_secret: string }) => {
+      for (const t of state.manifest.tickets) if (t.is_admitted) state.admitted.add(t.qr_secret);
+      const cap = state.manifest.checkin_point.policy_type === 'CAPACITY_CAPPED' ? state.manifest.checkin_point.max_capacity : null;
+      const reject = (reason: string) => ({ scan_id: s.scan_id, qr_secret: s.qr_secret, status: 'REJECTED', rejection_reason: reason, clock_skew: false });
+      if (state.admitted.has(s.qr_secret)) return reject('ALREADY_ADMITTED');
+      if (cap !== null && state.admitted.size >= cap) return reject('CAPACITY_REACHED');
+      state.admitted.add(s.qr_secret);
+      return { scan_id: s.scan_id, qr_secret: s.qr_secret, status: 'ADMITTED', attendee_name: 'Attendee', ticket_tier_name: 'General', clock_skew: false };
+    };
+    await page.route('**/api/checkin-points/*/scan', (route) => {
+      if (state.scanMode === 'down') return route.abort('internetdisconnected');
+      const posted = route.request().postDataJSON() as { scan_id: string; qr_secret: string };
+      state.singleScans.push(posted.scan_id);
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(decide(posted)) });
+    });
     await page.route('**/api/checkin-points/*/scans/batch', async (route) => {
       const posted = route.request().postDataJSON() as { scans: Array<{ scan_id: string; qr_secret: string }> };
       state.batches.push(posted.scans.map((s) => s.scan_id));
@@ -89,17 +101,7 @@ function fakeServer(): FakeServer {
       state.inFlight -= 1;
       if (state.mode === 'revoked') return route.fulfill({ status: 401, contentType: 'application/json', body: JSON.stringify(REVOKED) });
       if (state.mode === 'error') return route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ detail: 'unavailable' }) });
-      for (const t of state.manifest.tickets) if (t.is_admitted) state.admitted.add(t.qr_secret);
-      // Server-side rules, as the backend applies them: single admission per ticket, and the room cap.
-      const cap = state.manifest.checkin_point.policy_type === 'CAPACITY_CAPPED' ? state.manifest.checkin_point.max_capacity : null;
-      const results = posted.scans.map((s) => {
-        const reject = (reason: string) => ({ scan_id: s.scan_id, qr_secret: s.qr_secret, status: 'REJECTED', rejection_reason: reason });
-        if (state.admitted.has(s.qr_secret)) return reject('ALREADY_ADMITTED');
-        if (cap !== null && state.admitted.size >= cap) return reject('CAPACITY_REACHED');
-        state.admitted.add(s.qr_secret);
-        return { scan_id: s.scan_id, qr_secret: s.qr_secret, status: 'ADMITTED', attendee_name: 'Attendee', ticket_tier_name: 'General' };
-      });
-      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ results }) });
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ results: posted.scans.map(decide) }) });
     });
   };
   const holdBatches = () => {
@@ -113,16 +115,12 @@ async function openScanner(page: Page, server: FakeServer, { fakeClock = false }
   if (fakeClock) await page.clock.install();
   await server.install(page);
   await page.goto(`/scan/${POINT_ID}?token=${TOKEN}`);
-  await expect(page.getByText('Sync Gate')).toBeVisible();
-  await expect(page.getByText(/Manifest synced/)).toBeVisible();
+  await expectScannerOnline(page, 'Sync Gate');
   // From here on page timers (the 5 s sync timer included) only fire when the test advances time.
   if (fakeClock) await page.clock.pauseAt(Date.now() + 1000);
 }
 
-const manual = async (page: Page, n: number) => {
-  await page.getByPlaceholder("Paste the badge's QR code").fill(code(n));
-  await page.getByRole('button', { name: 'Check Ticket' }).click();
-};
+const manual = (page: Page, n: number) => manualScan(page, code(n));
 /** A USB/Bluetooth HID reader: a burst of keystrokes ending in Enter, outside any input field. */
 const hid = async (page: Page, n: number) => {
   await page.evaluate(() => { if (document.activeElement instanceof HTMLElement) document.activeElement.blur(); });
@@ -141,7 +139,7 @@ test.describe('scanner synchronization', () => {
     await openScanner(page, server, { fakeClock: true });
     server.state.mode = 'revoked';
     await manual(page, 1);
-    await expect(page.getByText(/device deauthorized/i)).toBeVisible();
+    await expect(gateScreen(page, 'revoked')).toBeVisible();
     expect(server.state.batches).toHaveLength(1);
 
     for (let i = 0; i < 3; i++) await timerTick(page);
@@ -201,7 +199,7 @@ test.describe('scanner synchronization', () => {
     server.state.mode = 'ok';
     await timerTick(page);
     await expect.poll(async () => (await scanOf(page, 1))[0]?.sync_state).toBe('CONFIRMED');
-    await expect(page.getByText(/device deauthorized/i)).toHaveCount(0);
+    await expect(gateScreen(page, 'revoked')).toHaveCount(0);
   });
 
   test('revocation with queued offline scans keeps every record unsynced and stops retrying', async ({ context, page }) => {
@@ -214,7 +212,7 @@ test.describe('scanner synchronization', () => {
 
     server.state.mode = 'revoked';
     await context.setOffline(false);
-    await expect(page.getByText(/device deauthorized/i)).toBeVisible();
+    await expect(gateScreen(page, 'revoked')).toBeVisible();
     for (let i = 0; i < 3; i++) await timerTick(page);
 
     expect(server.state.batches).toHaveLength(1);
@@ -252,27 +250,31 @@ test.describe('scanner synchronization', () => {
 });
 
 test.describe('scanner capacity', () => {
-  test('a HID reader sees capacity used after its listener was registered (manifest refresh, earlier scans)', async ({ page }) => {
+  test('a HID reader sees admissions from a manifest refresh made after its listener was registered', async ({ page }) => {
     const server = fakeServer();
-    server.state.manifest = manifestFor('CAPACITY_CAPPED', 2);
     await openScanner(page, server);
     // Another gate admitted ticket 1; the refreshed manifest says so.
-    server.state.manifest = manifestFor('CAPACITY_CAPPED', 2, [1]);
-    await page.getByRole('button', { name: /Refresh Cache/i }).click();
-    await expect(page.getByText(/Manifest synced/)).toBeVisible();
+    server.state.manifest = manifestFor('SINGLE_USE', null, [1]);
+    await pickMenuItem(page, 'Refresh list');
+    // The item is enabled again once the refresh (fetch, cache, rebuild) has finished.
+    await page.getByRole('button', { name: 'Menu' }).click();
+    await expect(page.getByRole('menuitem', { name: 'Refresh list' })).not.toHaveAttribute('aria-disabled', 'true');
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('menu')).toHaveCount(0);
 
     // Hold the server's answers so every record below shows the scanner's own local decision.
     server.holdBatches();
-    await hid(page, 2);
+    await hid(page, 1);
     await expect.poll(async () => (await storedScans(page)).length).toBe(1);
-    await hid(page, 3);
+    await hid(page, 2);
     await expect.poll(async () => (await storedScans(page)).length).toBe(2);
-    expect(await outcomes(page)).toEqual({ [code(2)]: 'ADMITTED', [code(3)]: 'CAPACITY_REACHED' });
+    expect(await outcomes(page)).toEqual({ [code(1)]: 'ALREADY_ADMITTED', [code(2)]: 'ADMITTED' });
   });
 
-  test('rapid HID bursts and camera reads share one capacity count with manual entry', async ({ page }) => {
+  test('online, manual entry, HID bursts and camera reads are all decided by the server against one room count', async ({ page }) => {
     const server = fakeServer();
     server.state.manifest = manifestFor('CAPACITY_CAPPED', 3);
+    server.state.scanMode = 'ok';
     // A camera whose detector reads the queued badges one by one.
     await page.addInitScript(() => {
       const queue: string[] = [];
@@ -291,12 +293,14 @@ test.describe('scanner capacity', () => {
       };
     });
     await openScanner(page, server);
-    await page.getByRole('button', { name: /camera/i }).first().click();
-    server.holdBatches(); // records below keep the scanner's own local decisions
+    await page.getByRole('button', { name: 'Turn on camera' }).click();
 
     await manual(page, 1);
+    await expect.poll(async () => (await storedScans(page)).length).toBe(1);
     await hid(page, 2);
-    await hid(page, 3); // fills the gate
+    await expect.poll(async () => (await storedScans(page)).length).toBe(2);
+    await hid(page, 3); // fills the room
+    await expect.poll(async () => (await storedScans(page)).length).toBe(3);
     await page.evaluate((c) => {
       const win: Window & { __presentBadge?: (c: string) => void } = window;
       win.__presentBadge?.(c);
@@ -312,9 +316,13 @@ test.describe('scanner capacity', () => {
       [code(4)]: 'CAPACITY_REACHED',
       [code(5)]: 'CAPACITY_REACHED',
     });
+    // Each verdict came from the server and nothing is left to upload.
+    expect(server.state.singleScans).toHaveLength(5);
+    expect(server.state.batches).toHaveLength(0);
+    expect((await storedScans(page)).every((s) => s.synced)).toBe(true);
   });
 
-  test('offline capacity is enforced across scans and survives an offline reload', async ({ context, page }) => {
+  test('offline, a capacity-capped gate fails closed, also after an offline reload', async ({ context, page }) => {
     const server = fakeServer();
     server.state.manifest = manifestFor('CAPACITY_CAPPED', 2);
     await openScanner(page, server);
@@ -322,17 +330,17 @@ test.describe('scanner capacity', () => {
     await page.evaluate(() => navigator.serviceWorker.ready.then(() => undefined));
     await goOffline(context, page);
 
+    // A disconnected gate cannot know the room's count across gates: nobody is admitted automatically.
     await hid(page, 1);
     await hid(page, 2);
-    await hid(page, 3);
-    await expect.poll(async () => (await storedScans(page)).length).toBe(3);
-    expect(await outcomes(page)).toEqual({ [code(1)]: 'ADMITTED', [code(2)]: 'ADMITTED', [code(3)]: 'CAPACITY_REACHED' });
+    await expect.poll(async () => (await storedScans(page)).length).toBe(2);
+    expect(await outcomes(page)).toEqual({ [code(1)]: 'CAPACITY_UNAVAILABLE_OFFLINE', [code(2)]: 'CAPACITY_UNAVAILABLE_OFFLINE' });
 
     await page.reload({ waitUntil: 'domcontentloaded' });
     await expect(page.getByText('Sync Gate')).toBeVisible({ timeout: 10000 });
-    await hid(page, 4);
-    await expect.poll(async () => (await storedScans(page)).length).toBe(4);
-    expect((await outcomes(page))[code(4)]).toBe('CAPACITY_REACHED');
+    await hid(page, 3);
+    await expect.poll(async () => (await storedScans(page)).length).toBe(3);
+    expect((await outcomes(page))[code(3)]).toBe('CAPACITY_UNAVAILABLE_OFFLINE');
     expect((await storedScans(page)).every((s) => !s.synced)).toBe(true);
   });
 });

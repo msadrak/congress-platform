@@ -7,5 +7,9 @@ After=docker.service
 Type=oneshot
 User=congress
 WorkingDirectory=/opt/congress-platform
+# Alert delivery (ALERT_TELEGRAM_*) and backup settings, readable by root/congress only. `check` itself sends the
+# Telegram message on warning/critical (repeats deduplicated) and a recovery message once it is OK again.
+EnvironmentFile=-/etc/congress/backup.env
 ExecStart=/usr/bin/node scripts/staging/stack.mjs check
-# Hook alerting here, e.g. OnFailure=congress-alert@%n.service sending mail/Telegram/webhook.
+# Exit 1 (warning) and 2 (critical) are results that were already alerted on, not unit failures.
+SuccessExitStatus=1 2

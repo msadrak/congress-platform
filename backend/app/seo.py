@@ -1,6 +1,6 @@
 """Server-rendered <head> metadata for public congress URLs, for crawlers and link previews that do not run
-JavaScript. Only published Page Studio content is used; everything is HTML-escaped. Unknown or unpublished
-pages get the platform defaults plus `noindex`, indistinguishable from each other."""
+JavaScript. Only published Page Studio content is used; everything is HTML-escaped, braces included (see `e`).
+Unknown or unpublished pages get the platform defaults plus `noindex`, indistinguishable from each other."""
 
 import re
 from html import escape
@@ -30,8 +30,13 @@ def _clip(text: str, limit: int) -> str:
     return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
 
 
+_TEMPLATE_DELIMITERS = str.maketrans({"{": "&#123;", "}": "&#125;"})
+
+
 def e(value: str) -> str:
-    return escape(value, quote=True)
+    """HTML-escaped, and with braces as character references: the web server includes this head into the
+    page shell through its template engine, which would execute organizer text such as `{{env "HOME"}}`."""
+    return escape(value, quote=True).translate(_TEMPLATE_DELIMITERS)
 
 
 def render_head(

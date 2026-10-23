@@ -15,7 +15,10 @@ RUN --mount=type=cache,target=/root/.npm \
     npm ci --no-audit --no-fund
 COPY web/ ./
 COPY deploy/web/make-seo-shell.mjs /tools/make-seo-shell.mjs
-RUN npm run build && node /tools/make-seo-shell.mjs dist
+# The build id the scanner shows and reports (e.g. --build-arg CONGRESS_APP_BUILD=$(git rev-parse --short=10 HEAD));
+# without it the build time is used (the image has no .git).
+ARG CONGRESS_APP_BUILD=""
+RUN CONGRESS_APP_BUILD=${CONGRESS_APP_BUILD} npm run build && node /tools/make-seo-shell.mjs dist
 
 # Same image (same digest) as caddy:2-alpine on Docker Hub; mirror.gcr.io answers 403 through the bastion.
 FROM public.ecr.aws/docker/library/caddy:2-alpine

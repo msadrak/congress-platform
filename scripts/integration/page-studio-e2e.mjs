@@ -14,7 +14,8 @@
  * --internal network without a published port, named volumes for its data and for the media root,
  * generated secrets, API in CONGRESS_ENVIRONMENT=staging published on 127.0.0.1 and the web preview on
  * 127.0.0.1, both on free ports picked per run. Everything is removed at the
- * end unless --keep. Requires Docker, the backend image used by congress-e2e.mjs, postgres:16, Edge and
+ * end unless --keep. Requires Docker, the backend image used by congress-e2e.mjs, postgres:16, Edge (or the
+ * browser named by CONGRESS_BROWSER_CHANNEL, e.g. chromium or chrome) and
  * the backend virtualenv (to draw the synthetic artwork).
  */
 import { randomBytes } from 'node:crypto';
@@ -23,13 +24,15 @@ import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { backendImage, syncBackendDependencies } from '../lib/backend-image.mjs';
 import { freePorts, run, startPreview, stopProcess } from '../lib/process.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const require = createRequire(resolve(root, 'web/package.json'));
 const { chromium } = require('playwright');
 const args = new Set(process.argv.slice(2));
-const IMAGE = process.env.CONGRESS_E2E_BACKEND_IMAGE ?? 'congress-t0-backend:2c0085137f';
+// The hashed test-runner image (built on first use) or CONGRESS_E2E_BACKEND_IMAGE: scripts/lib/backend-image.mjs.
+const IMAGE = backendImage();
 const NET = 'congress-studio-net', PG = 'congress-studio-pg', API = 'congress-studio-api';
 const VOL_PG = 'congress-studio-pgdata', VOL_MEDIA = 'congress-studio-media';
 const DB = 'congress_studio', PGU = 'congress_studio', PGPW = randomBytes(18).toString('hex');
@@ -113,7 +116,7 @@ try {
   docker('run', '-d', '--name', API, '-p', `127.0.0.1:${API_PORT}:8000`, '-v', `${VOL_MEDIA}:/data/media`, '--entrypoint', 'sleep', IMAGE, 'infinity');
   for (const d of ['app', 'migrations']) { docker('exec', API, 'rm', '-rf', `/app/${d}`); docker('cp', resolve(root, 'backend', d), `${API}:/app/${d}`); }
   for (const f of ['alembic.ini', 'pyproject.toml', 'uv.lock']) docker('cp', resolve(root, 'backend', f), `${API}:/app/${f}`);
-  docker('exec', '-e', 'UV_PROJECT_ENVIRONMENT=/app/.venv', '-w', '/app', API, 'uv', 'sync', '--frozen', '--no-dev', '--quiet');
+  syncBackendDependencies(API, ['--no-dev']);
   docker('network', 'connect', NET, API);
   docker('exec', ...env(), API, 'sh', '-c', 'cd /app && .venv/bin/alembic upgrade head');
   await startApi();
@@ -123,7 +126,7 @@ try {
   if (!args.has('--skip-build') || !existsSync(resolve(root, 'web/dist'))) sh('npm', ['run', 'build'], false, { cwd: resolve(root, 'web') });
   preview = startPreview({ port: WEB_PORT, apiOrigin: API_URL });
   await wait('web preview', async () => (await fetch(BASE)).ok);
-  browser = await chromium.launch({ channel: 'msedge' });
+  browser = await chromium.launch({ channel: process.env.CONGRESS_BROWSER_CHANNEL ?? 'msedge' });
   const contextFor = async (viewport, locale = 'en') => {
     const ctx = await browser.newContext({ viewport, deviceScaleFactor: 1, serviceWorkers: 'block', reducedMotion: 'reduce' });
     await ctx.addInitScript((l) => localStorage.setItem('congress_attendee_locale', l), locale);

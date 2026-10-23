@@ -1,12 +1,30 @@
+import { execSync } from 'node:child_process'
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vite'
 import { VitePWA } from 'vite-plugin-pwa'
+import { webManifest } from './pwa-manifest.ts'
 
 // Overridable so disposable stacks (scripts/integration/*) can point a preview at their own API port.
 const apiOrigin = process.env.CONGRESS_API_ORIGIN ?? 'http://127.0.0.1:8000'
 
+// The build id gate devices show and report (heartbeat), so staff can see that every scanner runs the same
+// build: CONGRESS_APP_BUILD (e.g. the commit, passed by the image build), else the checkout's short commit, else
+// the build time.
+function appBuild(): string {
+  const given = process.env.CONGRESS_APP_BUILD?.trim()
+  if (given) return given.slice(0, 24)
+  try {
+    return execSync('git rev-parse --short=10 HEAD', { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim()
+  } catch {
+    return new Date().toISOString().slice(0, 16).replace(/[-:T]/g, '')
+  }
+}
+
 export default defineConfig({
+  define: {
+    __APP_BUILD__: JSON.stringify(appBuild()),
+  },
   plugins: [
     react(),
     tailwindcss(),
@@ -28,38 +46,8 @@ export default defineConfig({
         // Skip waiting is NOT set — we use prompt registration so the operator
         // controls when to apply updates (preserving in-flight scan state)
       },
-      manifest: {
-        // One manifest serves every portal (passes, booths, desk, scanner): name the platform, not the scanner.
-        name: 'AI Teb Congress',
-        short_name: 'Congress',
-        description: 'AI Teb congress platform: digital passes, offline gate scanning, reception and exhibitor lead capture',
-        theme_color: '#0E0C2B',
-        background_color: '#0E0C2B',
-        display: 'standalone',
-        orientation: 'portrait',
-        start_url: '/',
-        scope: '/',
-        icons: [
-          {
-            src: '/pwa-192x192.png',
-            sizes: '192x192',
-            type: 'image/png',
-            purpose: 'any',
-          },
-          {
-            src: '/pwa-512x512.png',
-            sizes: '512x512',
-            type: 'image/png',
-            purpose: 'any',
-          },
-          {
-            src: '/pwa-maskable-512x512.png',
-            sizes: '512x512',
-            type: 'image/png',
-            purpose: 'maskable',
-          },
-        ],
-      },
+      // Defined in pwa-manifest.ts so a unit test can pin it.
+      manifest: webManifest,
       devOptions: {
         enabled: false,
       },

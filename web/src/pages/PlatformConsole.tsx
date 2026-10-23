@@ -1,14 +1,34 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
-import { Link, NavLink, Outlet } from "react-router-dom";
-import { PLATFORM_TOKEN_STORAGE, createApiClient, type PlatformStatusOut } from "../api/client";
-import { useAttendeeLocale } from "../lib/i18n";
+import { Link, Outlet, useLocation } from "react-router-dom";
+import { PLATFORM_TOKEN_STORAGE, createApiClient, isNetworkFailure, type PlatformStatusOut } from "../api/client";
+import { commonCopy } from "../copy/common";
+import { platformCopy } from "../copy/platform";
+import { useLocale } from "../lib/i18n";
+import { usePageTitle } from "../hooks/usePageTitle";
 import { Badge } from "../components/ui/Badge";
-import { Button } from "../components/ui/Button";
+import { Button, IconButton } from "../components/ui/Button";
+import { Field } from "../components/ui/Field";
+import { CodeInput } from "../components/ui/Input";
 import { Icon, type IconName } from "../components/ui/Icon";
-import { FormAlert } from "../components/organizer/WorkspaceUi";
-import type { PlatformClient, PlatformOutletContext } from "./platformContext";
+import { LanguageToggle } from "../components/ui/LanguageToggle";
+import { Notice } from "../components/ui/Notice";
+import { ErrorState, LoadingState } from "../components/ui/StateBlock";
+import { SMS_TAB, platformSection, type PlatformClient, type PlatformOutletContext, type PlatformSection } from "./platformContext";
 
-type GateProblem = "rejected" | "blocked" | "throttled" | "network" | null;
+type GateProblem = "rejected" | "blocked" | "throttled" | "network" | "server" | null;
+
+const ENVIRONMENTS = ["production", "staging", "development", "test"] as const;
+
+const TABS: readonly { section: PlatformSection; to: string; icon: IconName }[] = [
+  { section: "status", to: "/platform", icon: "activity" },
+  { section: "sms", to: SMS_TAB, icon: "mail" },
+  { section: "signIn", to: "/platform/sign-in", icon: "lock" },
+  { section: "organizers", to: "/platform/organizers", icon: "users" },
+];
+
+/** Same look as `TabNav`; the Status and SMS tabs share a path, so the current tab is worked out here. */
+const TAB_LINK =
+  "relative inline-flex min-h-11 items-center gap-2 px-3 text-body-sm font-semibold whitespace-nowrap text-text-muted transition-colors hover:text-text-primary aria-[current=page]:text-text-primary after:absolute after:inset-x-3 after:bottom-0 after:h-0.5 after:rounded-full aria-[current=page]:after:bg-action-primary";
 
 function readToken(): string | null {
   try {
@@ -18,20 +38,29 @@ function readToken(): string | null {
   }
 }
 
+/** Why a status request failed; null when it worked. */
+function gateProblem(response: Response): Exclude<GateProblem, null> {
+  if (isNetworkFailure(response)) return "network";
+  if (response.status === 401) return "rejected";
+  if (response.status === 404) return "blocked";
+  if (response.status === 429) return "throttled";
+  return "server";
+}
+
 /**
- * The platform console: settings that belong to the whole platform, not to one organizer (SMS gateway and
- * wording, sign-in rules, organizer accounts). Unlocked with the platform admin token, kept for this tab only.
- * In hosted deployments the edge only lets these requests through from allowed networks (CONGRESS_ADMIN_ALLOW).
+ * Platform admin: settings for the whole platform, not one organizer (SMS gateway and wording, sign-in rules,
+ * organizer accounts). Unlocked with the platform admin token, kept for this tab only. Hosted deployments only
+ * let these requests through from allowed networks (CONGRESS_ADMIN_ALLOW). No install prompt here (UX T6).
  */
 export default function PlatformConsole() {
-  const { locale, setLocale, isRtl, dir } = useAttendeeLocale();
+  const { locale, setLocale, dir } = useLocale();
+  const copy = platformCopy[locale];
   const [token, setToken] = useState<string | null>(readToken);
   const [input, setInput] = useState("");
   const [status, setStatus] = useState<PlatformStatusOut | null>(null);
   const [problem, setProblem] = useState<GateProblem>(null);
   const [checking, setChecking] = useState(false);
-
-  const client = useMemo(() => (token ? createApiClient({ kind: "platform", token }) : null), [token]);
+  const [attempt, setAttempt] = useState(0);
 
   const signOut = useCallback((reason: GateProblem = null) => {
     try {
@@ -44,9 +73,17 @@ export default function PlatformConsole() {
     setProblem(reason);
   }, []);
 
-  const checkResponse = useCallback((code: number) => {
-    if (code === 401) signOut("rejected");
-  }, [signOut]);
+  // Any 401 on the console's client means the token no longer works: back to the gate.
+  const client = useMemo(
+    () => (token ? createApiClient({ kind: "platform", token }, { networkErrors: "result", onUnauthorized: () => signOut("rejected") }) : null),
+    [token, signOut],
+  );
+
+  const { pathname, search } = useLocation();
+  const section = platformSection(pathname, search);
+  const unlocked = Boolean(client && status);
+  // The layout names the tab: a section's own effect would run before this one and be overwritten.
+  usePageTitle(unlocked ? copy.tabs[section] : copy.portal, unlocked ? copy.portal : null);
 
   /** Null when the token works; otherwise why not. */
   const loadStatus = useCallback(async (candidate: PlatformClient): Promise<GateProblem> => {
@@ -56,28 +93,27 @@ export default function PlatformConsole() {
       setProblem(null);
       return null;
     }
-    const reason: GateProblem =
-      response.status === 401 ? "rejected" : response.status === 404 ? "blocked" : response.status === 429 ? "throttled" : "network";
-    setProblem(reason);
-    return reason;
+    return gateProblem(response);
   }, []);
 
+  // A token kept from earlier in this tab: check it. A refusal signs out; no connection offers a retry.
   useEffect(() => {
     if (!client || status) return;
     let active = true;
     setChecking(true);
     loadStatus(client)
       .then((reason) => {
-        if (active && reason) signOut(reason);
+        if (!active || !reason) return;
+        if (reason === "rejected" || reason === "blocked") signOut(reason);
+        else setProblem(reason);
       })
-      .catch(() => active && setProblem("network"))
       .finally(() => active && setChecking(false));
     return () => {
       active = false;
     };
-    // Only when the token changes.
+    // Only when the token changes or on retry.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [client]);
+  }, [client, attempt]);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -85,7 +121,8 @@ export default function PlatformConsole() {
     if (!candidate || checking) return;
     setChecking(true);
     try {
-      const reason = await loadStatus(createApiClient({ kind: "platform", token: candidate }));
+      const reason = await loadStatus(createApiClient({ kind: "platform", token: candidate }, { networkErrors: "result", onUnauthorized: null }));
+      setProblem(reason);
       if (!reason) {
         try {
           sessionStorage.setItem(PLATFORM_TOKEN_STORAGE, candidate);
@@ -95,75 +132,40 @@ export default function PlatformConsole() {
         setToken(candidate);
         setInput("");
       }
-    } catch {
-      setProblem("network");
     } finally {
       setChecking(false);
     }
   };
 
-  const problemText: Record<Exclude<GateProblem, null>, string> = {
-    rejected: isRtl ? "توکن مدیر سامانه پذیرفته نشد." : "The platform admin token was not accepted.",
-    blocked: isRtl
-      ? "سرور درخواست‌های مدیریتی را از نشانی شبکه شما نمی‌پذیرد (CONGRESS_ADMIN_ALLOW). از شبکه مجاز یا خود سرور وارد شوید."
-      : "The server does not accept platform requests from your network address (CONGRESS_ADMIN_ALLOW). Use an allowed network or the server itself.",
-    throttled: isRtl ? "تلاش‌های ناموفق زیاد بود؛ کمی بعد دوباره تلاش کنید." : "Too many failed attempts; try again later.",
-    network: isRtl ? "اتصال به سرور برقرار نشد." : "Could not reach the server.",
-  };
-  const languageButton = (
-    <button
-      type="button"
-      onClick={() => setLocale(locale === "fa" ? "en" : "fa")}
-      className="inline-flex min-h-11 items-center gap-1.5 rounded-full border border-border-default bg-surface-panel px-3.5 text-xs font-semibold text-text-secondary hover:text-text-primary focus-visible:outline-2 focus-visible:outline-focus-ring cursor-pointer"
-    >
-      <Icon name="globe" size={16} />
-      <span lang={locale === "fa" ? "en" : "fa"}>{locale === "fa" ? "English" : "فارسی"}</span>
-    </button>
-  );
+  const problemText = (reason: Exclude<GateProblem, null>) =>
+    reason === "network" ? commonCopy[locale].network : reason === "server" ? commonCopy[locale].generic : copy.gate[reason];
+  const languageToggle = <LanguageToggle locale={locale} onChange={setLocale} />;
 
-  if (!client || !status) {
+  if (!client) {
     return (
       <div dir={dir} lang={locale} className="min-h-dvh bg-surface-page font-sans text-text-primary">
-        <div className="mx-auto flex min-h-dvh max-w-md flex-col px-5 py-6">
+        <div className="mx-auto flex min-h-dvh max-w-md flex-col px-4 py-6 sm:px-5">
           <div className="flex items-center justify-between">
-            <Link to="/" className="inline-flex min-h-11 items-center gap-2 text-sm font-semibold text-text-secondary hover:text-text-primary">
+            <Link to="/" className="inline-flex min-h-11 items-center gap-2 text-body-sm font-semibold text-text-secondary hover:text-text-primary">
               <Icon name="arrow-left" size={18} />
-              {isRtl ? "صفحه اصلی" : "Platform home"}
+              {copy.home}
             </Link>
-            {languageButton}
+            {languageToggle}
           </div>
           <main className="flex flex-1 flex-col justify-center gap-6">
-            <div className="space-y-3">
-              <span className="grid size-12 place-items-center rounded-2xl bg-aiteb-lavender text-aiteb-indigo">
+            <div className="flex items-center gap-3">
+              <span className="grid size-12 place-items-center rounded-control bg-aiteb-lavender text-aiteb-indigo">
                 <Icon name="shield" size={24} />
               </span>
-              <h1 className="text-[1.75rem] font-semibold tracking-[-0.03em]">{isRtl ? "پنل مدیریت سامانه" : "Platform console"}</h1>
-              <p className="text-sm leading-relaxed text-text-secondary">
-                {isRtl
-                  ? "تنظیمات کل سامانه: درگاه پیامک و متن‌ها، قواعد ورود و حساب برگزارکنندگان."
-                  : "Settings for the whole platform: the SMS gateway and wording, sign-in rules and organizer accounts."}
-              </p>
+              <h1 className="text-title font-bold tracking-tight">{copy.portal}</h1>
             </div>
             <form onSubmit={submit} className="space-y-4">
-              <div>
-                <label htmlFor="platform-token" className="ui-label">{isRtl ? "توکن مدیر سامانه" : "Platform admin token"}</label>
-                <input
-                  id="platform-token"
-                  type="password"
-                  dir="ltr"
-                  autoComplete="off"
-                  spellCheck={false}
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  className="ui-input min-h-12 font-mono"
-                />
-                <p className="mt-1.5 text-xs text-text-muted">
-                  {isRtl ? "همان CONGRESS_PLATFORM_ADMIN_TOKEN سرور؛ فقط برای همین تب نگه داشته می‌شود." : "The server's CONGRESS_PLATFORM_ADMIN_TOKEN; kept for this tab only."}
-                </p>
-              </div>
-              {problem && <FormAlert>{problemText[problem]}</FormAlert>}
-              <Button type="submit" variant="primary" size="lg" isFullWidth disabled={checking || !input.trim()} aria-busy={checking}>
-                {checking ? (isRtl ? "در حال بررسی…" : "Checking…") : isRtl ? "ورود به پنل" : "Open the console"}
+              <Field label={copy.gate.token}>
+                <CodeInput id="platform-token" type="password" value={input} onChange={(e) => setInput(e.target.value)} />
+              </Field>
+              {problem && <Notice tone="danger">{problemText(problem)}</Notice>}
+              <Button type="submit" variant="primary" size="lg" isFullWidth loading={checking} disabled={!input.trim()}>
+                {copy.gate.submit}
               </Button>
             </form>
           </main>
@@ -172,61 +174,77 @@ export default function PlatformConsole() {
     );
   }
 
-  const nav: [string, string, IconName, boolean][] = [
-    ["/platform", isRtl ? "پیامک" : "SMS", "mail", true],
-    ["/platform/sign-in", isRtl ? "قواعد ورود" : "Sign-in", "lock", false],
-    ["/platform/organizers", isRtl ? "برگزارکنندگان" : "Organizers", "users", false],
-  ];
-  const context: PlatformOutletContext = {
-    client,
-    status,
-    refreshStatus: async () => {
-      await loadStatus(client);
-    },
-    checkResponse,
-    locale,
-    isRtl,
-  };
+  const environment = status && (ENVIRONMENTS as readonly string[]).includes(status.environment)
+    ? copy.environment[status.environment as (typeof ENVIRONMENTS)[number]]
+    : copy.environment.unknown;
+  // On a phone sign-out is an icon, so the header stays one row.
+  const signOutButton = (
+    <>
+      <Button type="button" variant="ghost" size="sm" icon="logout" onClick={() => signOut()} className="max-sm:hidden">
+        {copy.signOut}
+      </Button>
+      <IconButton icon="logout" label={copy.signOut} variant="ghost" onClick={() => signOut()} className="sm:hidden" />
+    </>
+  );
+
+  const context: PlatformOutletContext | null = status
+    ? {
+        client,
+        status,
+        refreshStatus: async () => {
+          await loadStatus(client);
+        },
+        locale,
+      }
+    : null;
 
   return (
     <div dir={dir} lang={locale} className="min-h-dvh bg-surface-page font-sans text-text-primary">
       <header className="border-b border-border-default bg-surface-panel">
-        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-6">
-          <div className="flex items-center gap-3">
-            <span className="grid size-9 place-items-center rounded-xl bg-aiteb-lavender text-aiteb-indigo">
+        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-x-3 gap-y-1 px-4 py-2 sm:px-6">
+          <div className="flex min-h-11 items-center gap-2.5">
+            <span className="grid size-9 place-items-center rounded-control bg-aiteb-lavender text-aiteb-indigo max-sm:hidden">
               <Icon name="shield" size={18} />
             </span>
-            <span className="font-semibold">{isRtl ? "پنل مدیریت سامانه" : "Platform console"}</span>
-            <Badge variant={status.environment === "production" ? "danger" : "neutral"} size="sm">{status.environment}</Badge>
+            <span className="font-bold">{copy.portal}</span>
+            {status && (
+              <Badge variant={status.environment === "production" ? "danger" : "neutral"} size="sm" data-testid="platform-environment">
+                {environment}
+              </Badge>
+            )}
           </div>
-          <div className="flex items-center gap-2">
-            {languageButton}
-            <Button type="button" variant="ghost" size="sm" onClick={() => signOut()}>
-              <Icon name="logout" size={16} />
-              {isRtl ? "خروج" : "Sign out"}
-            </Button>
+          <div className="flex items-center gap-1">
+            {languageToggle}
+            {signOutButton}
           </div>
         </div>
-        <nav aria-label={isRtl ? "بخش‌های پنل" : "Console sections"} className="mx-auto flex max-w-6xl gap-1 overflow-x-auto px-2 sm:px-4">
-          {nav.map(([to, label, icon, end]) => (
-            <NavLink
-              key={to}
-              to={to}
-              end={end}
-              className={({ isActive }) =>
-                `inline-flex min-h-11 items-center gap-2 border-b-2 px-3 text-sm font-semibold whitespace-nowrap ${
-                  isActive ? "border-action-primary text-text-primary" : "border-transparent text-text-secondary hover:text-text-primary"
-                }`
-              }
-            >
-              <Icon name={icon} size={16} />
-              {label}
-            </NavLink>
-          ))}
-        </nav>
+        {status && (
+          <nav aria-label={copy.sections} className="mx-auto max-w-6xl px-1 sm:px-3">
+            <ul className="-mb-px flex overflow-x-auto [scrollbar-width:none] max-sm:pe-6 max-sm:[mask-image:linear-gradient(to_right,black_calc(100%-1.5rem),transparent)] max-sm:rtl:[mask-image:linear-gradient(to_left,black_calc(100%-1.5rem),transparent)]">
+              {TABS.map((tab) => (
+                <li key={tab.section} className="shrink-0">
+                  <Link to={tab.to} aria-current={section === tab.section ? "page" : undefined} className={TAB_LINK}>
+                    <Icon name={tab.icon} size={18} className="max-sm:hidden" />
+                    {copy.tabs[tab.section]}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </nav>
+        )}
       </header>
       <main className="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-8">
-        <Outlet context={context} />
+        {context ? (
+          <Outlet context={context} />
+        ) : problem ? (
+          <ErrorState headingLevel={1} title={copy.gate.loadFailed} body={problemText(problem)} offline={problem === "network"} onRetry={() => {
+              setProblem(null);
+              setAttempt((n) => n + 1);
+            }}
+          />
+        ) : (
+          <LoadingState />
+        )}
       </main>
     </div>
   );

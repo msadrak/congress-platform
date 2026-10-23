@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { asciiDigits, formatMobile, mobileSearchDigits, normalizeIranMobile, telHref } from "../src/lib/mobile.ts";
+import { asciiDigits, extractOtpCode, formatMobile, mobileSearchDigits, normalizeIranMobile, telHref } from "../src/lib/mobile.ts";
 
 test("every common spelling of a mobile number normalizes to 09xxxxxxxxx (same rules as the API)", () => {
   for (const raw of [
@@ -40,4 +40,15 @@ test("display and link helpers", () => {
   assert.equal(formatMobile("09121234567", "fa"), "۰۹۱۲ ۱۲۳ ۴۵۶۷");
   assert.equal(telHref("09121234567"), "tel:+989121234567");
   assert.equal(telHref("09121234567", "sms"), "sms:+989121234567");
+});
+
+test("a sign-in code is found in pasted or autofilled text", () => {
+  assert.equal(extractOtpCode("482913", 6), "482913");
+  assert.equal(extractOtpCode(" ۴۸۲ ۹۱۳ ", 6), "482913");
+  assert.equal(extractOtpCode("٤٨٢٩١٣", 6), "482913");
+  assert.equal(extractOtpCode("کد ورود شما: ۴۸۲۹۱۳\nاعتبار: ۲ دقیقه", 6), "482913");
+  assert.equal(extractOtpCode("Your code is 482913. Valid for 2 minutes.", 6), "482913");
+  assert.equal(extractOtpCode("12345678", 6), "123456");
+  assert.equal(extractOtpCode("48-29", 6), "4829");
+  assert.equal(extractOtpCode("no digits", 6), "");
 });

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Product-reality probe (diagnostic, disposable): `node scripts/integration/reality-probe.mjs`.
- * Requires Docker, the local backend image used by congress-e2e.mjs, postgres:16, a built `web/dist` and Edge. Fresh PostgreSQL in a private Docker network with a
+ * Requires Docker, the local backend image used by congress-e2e.mjs, postgres:16, a built `web/dist` and Edge (or the browser named by CONGRESS_BROWSER_CHANNEL). Fresh PostgreSQL in a private Docker network with a
  * named volume, API published on 127.0.0.1 (from the existing local backend image), production web build
  * served by `vite preview` on 127.0.0.1 — both on free ports picked per run. No seed data. Everything is removed at the end.
  */
@@ -9,12 +9,14 @@ import { randomBytes } from 'node:crypto';
 import { createRequire } from 'node:module';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { backendImage, syncBackendDependencies } from '../lib/backend-image.mjs';
 import { freePorts, run, startPreview, stopProcess } from '../lib/process.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const require = createRequire(resolve(root, 'web/package.json'));
 const { chromium } = require('playwright');
-const IMAGE = process.env.CONGRESS_E2E_BACKEND_IMAGE ?? 'congress-t0-backend:2c0085137f';
+// The hashed test-runner image (built on first use) or CONGRESS_E2E_BACKEND_IMAGE: scripts/lib/backend-image.mjs.
+const IMAGE = backendImage();
 const NET = 'congress-reality-net', PG = 'congress-reality-pg', API = 'congress-reality-api', VOL = 'congress-reality-pgdata';
 const DB = 'congress_reality', PGU = 'congress_reality', PGPW = randomBytes(18).toString('hex');
 const ADMIN = randomBytes(24).toString('hex'), JWTS = randomBytes(32).toString('hex');
@@ -83,7 +85,7 @@ try {
   docker('network', 'connect', NET, API);
   for (const d of ['app', 'migrations']) { docker('exec', API, 'rm', '-rf', `/app/${d}`); docker('cp', resolve(root, 'backend', d), `${API}:/app/${d}`); }
   for (const f of ['alembic.ini', 'pyproject.toml', 'uv.lock']) docker('cp', resolve(root, 'backend', f), `${API}:/app/${f}`);
-  docker('exec', '-e', 'UV_PROJECT_ENVIRONMENT=/app/.venv', '-w', '/app', API, 'uv', 'sync', '--frozen', '--no-dev', '--quiet');
+  syncBackendDependencies(API, ['--no-dev']);
   docker('exec', ...env(), API, 'sh', '-c', 'cd /app && .venv/bin/alembic upgrade head');
   await startUvicorn();
   if (docker('port', PG).stdout.trim()) throw new Error('PostgreSQL publishes a port');
@@ -97,7 +99,7 @@ try {
 
   preview = startPreview({ port: WEB_PORT, apiOrigin: API_URL });
   await wait('preview', async () => (await fetch(BASE)).ok);
-  browser = await chromium.launch({ channel: 'msedge' });
+  browser = await chromium.launch({ channel: process.env.CONGRESS_BROWSER_CHANNEL ?? 'msedge' });
   const page = async (vw = { width: 1280, height: 900 }) => { const c = await browser.newContext({ viewport: vw, serviceWorkers: 'block' }); await c.addInitScript(() => localStorage.setItem('congress_attendee_locale', 'en')); return c.newPage(); };
 
   // ── Organizer onboarding ──

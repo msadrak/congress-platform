@@ -1,6 +1,10 @@
 import createClient from "openapi-fetch";
 import type { components, paths } from "./schema";
+import type { AttendeeLocale } from "../lib/i18n";
+import { commonCopy } from "../copy/common.ts";
+import { errorMessages, networkErrorMessage } from "../lib/errorMessages.ts";
 
+export type ErrorResponse = components["schemas"]["ErrorResponse"];
 export type EventOut = components["schemas"]["EventOut"];
 export type EventCreate = components["schemas"]["EventCreate"];
 export type EventUpdate = components["schemas"]["EventUpdate"];
@@ -24,6 +28,13 @@ export type SmsCheckOut = components["schemas"]["SmsCheckOut"];
 export type SignInOut = components["schemas"]["SignInOut"];
 export type OrganizerOut = components["schemas"]["OrganizerOut"];
 export type OrganizerProvisioned = components["schemas"]["OrganizerProvisioned"];
+export type OrganizerSessionOut = components["schemas"]["OrganizerSessionOut"];
+export type OrganizerRole = OrganizerSessionOut["role"];
+export type MemberOut = components["schemas"]["MemberOut"];
+export type MemberCreate = components["schemas"]["MemberCreate"];
+export type MemberLoginOut = components["schemas"]["MemberLoginOut"];
+export type AuditEventOut = components["schemas"]["AuditEventOut"];
+export type ActivityPage = components["schemas"]["ActivityPage"];
 export type CheckInPointOut = components["schemas"]["CheckInPointOut"];
 export type CheckInPointCreate = components["schemas"]["CheckInPointCreate"];
 export type CheckInPointUpdate = components["schemas"]["CheckInPointUpdate"];
@@ -45,6 +56,8 @@ export type AttendanceAnalyticsResponse = components["schemas"]["AttendanceAnaly
 export type GateMetric = components["schemas"]["GateMetric"];
 export type CateringMetric = components["schemas"]["CateringMetric"];
 export type HourlyScanCount = components["schemas"]["HourlyScanCount"];
+export type TierRegistration = components["schemas"]["TierRegistration"];
+export type TicketStatusCount = components["schemas"]["TicketStatusCount"];
 export type BoothOut = components["schemas"]["BoothOut"];
 export type BoothCreate = components["schemas"]["BoothCreate"];
 export type BoothUpdate = components["schemas"]["BoothUpdate"];
@@ -81,6 +94,19 @@ export type EventSessionImportRow = components["schemas"]["EventSessionImportRow
 export type EventSessionImportOut = components["schemas"]["EventSessionImportOut"];
 export type PublicVenuePlace = components["schemas"]["PublicVenuePlace"];
 export type PublicSession = components["schemas"]["PublicSession"];
+export type ParticipantOut = components["schemas"]["ParticipantOut"];
+export type ParticipantDetail = components["schemas"]["ParticipantDetail"];
+export type ParticipantPage = components["schemas"]["ParticipantPage"];
+export type ParticipantUpdate = components["schemas"]["ParticipantUpdate"];
+export type ParticipantCancel = components["schemas"]["ParticipantCancel"];
+export type ParticipantTransfer = components["schemas"]["ParticipantTransfer"];
+export type DeskAdmitOut = components["schemas"]["DeskAdmitOut"];
+export type BadgePrintOut = components["schemas"]["BadgePrintOut"];
+export type PublicProgramFile = components["schemas"]["PublicProgramFile"];
+export type ProgramFileOut = components["schemas"]["ProgramFileOut"];
+export type ProgramFileUpdate = components["schemas"]["ProgramFileUpdate"];
+export type PublicEventSummary = components["schemas"]["PublicEventSummary"];
+export type PublicEventList = components["schemas"]["PublicEventList"];
 export const ORGANIZER_KEY_STORAGE = "congress_organizer_api_key";
 export const ATTENDEE_TOKEN_STORAGE = "congress_attendee_token";
 /** Tab-scoped (sessionStorage): the most powerful credential is never kept across browser sessions. */
@@ -99,6 +125,42 @@ export type ApiAuthority =
 export interface ApiClientOptions {
   readonly baseUrl?: string;
   readonly fetch?: (request: Request) => Promise<Response>;
+  /**
+   * Who hears a 401 for this client's credential. Omitted: the handler registered for the authority's
+   * kind (`registerUnauthorizedHandler`), looked up when the response arrives. `null`: nobody, the
+   * caller decides (My Tickets keeping its labelled offline pass, see lib/attendeeSession.ts).
+   */
+  readonly onUnauthorized?: ((token: string) => void) | null;
+  /**
+   * "result": a failed fetch (offline, DNS, connection reset) resolves to a synthetic 503 that
+   * `isNetworkFailure` recognises, instead of rejecting. The default "throw" keeps native errors,
+   * which the scanner's offline logic relies on.
+   */
+  readonly networkErrors?: "throw" | "result";
+}
+
+type CredentialKind = Exclude<ApiAuthority["kind"], "anonymous">;
+const unauthorizedHandlers: Partial<Record<CredentialKind, (token: string) => void>> = {};
+
+/**
+ * Registers the session owner that invalidates a credential of `kind` on a 401 (attendee session:
+ * reject the token; organizer layout: its key gate's sign-out). The handler receives the exact token
+ * that was sent and must ignore it when it is no longer the stored one. Returns the unregister function.
+ */
+export function registerUnauthorizedHandler(kind: CredentialKind, handler: (token: string) => void): () => void {
+  unauthorizedHandlers[kind] = handler;
+  return () => {
+    if (unauthorizedHandlers[kind] === handler) delete unauthorizedHandlers[kind];
+  };
+}
+
+const NETWORK_FAILURE_HEADER = "X-Congress-Network-Failure";
+/** The code of the synthetic network-failure body; the server never sends it. */
+export const NETWORK_FAILURE_CODE = "NETWORK_UNREACHABLE";
+
+/** True for the synthetic response of a `networkErrors: "result"` client when no response arrived. */
+export function isNetworkFailure(response: Response): boolean {
+  return response.headers.get(NETWORK_FAILURE_HEADER) === "1";
 }
 
 export class ApiContextError extends Error {
@@ -160,6 +222,19 @@ export function createApiClient(authority: ApiAuthority | null, options: ApiClie
         request.headers.delete("Authorization");
         request.headers.set("X-Admin-Token", context.token);
       } else request.headers.set("Authorization", `Bearer ${context.token}`);
+    },
+    onResponse({ response }) {
+      if (response.status !== 401 || context.kind === "anonymous" || isNetworkFailure(response)) return;
+      const handler = options.onUnauthorized === undefined ? unauthorizedHandlers[context.kind] : options.onUnauthorized;
+      handler?.(context.token);
+    },
+    onError({ error }) {
+      // An aborted request was cancelled on purpose; it is not a network failure.
+      if (options.networkErrors !== "result" || (error instanceof Error && error.name === "AbortError")) return;
+      return Response.json(
+        { detail: "Could not reach the server.", code: NETWORK_FAILURE_CODE },
+        { status: 503, headers: { [NETWORK_FAILURE_HEADER]: "1" } },
+      );
     },
   });
   return client;
@@ -236,6 +311,8 @@ export function unwrapApiResponse<T>(result: { data?: T; error?: unknown; respon
   return result.data;
 }
 
+const UNEXPECTED_ERROR = "An unexpected error occurred.";
+
 export function formatApiError(err: unknown): string {
   if (typeof err === "object" && err !== null) {
     const e = err as { detail?: unknown; message?: string };
@@ -250,5 +327,110 @@ export function formatApiError(err: unknown): string {
     }
     if (e.message) return e.message;
   }
-  return "An unexpected error occurred.";
+  return UNEXPECTED_ERROR;
+}
+
+/** The stable error code of an error body or ApiResponseError (backend/app/errors.py), if it has one. */
+export function apiErrorCode(error: unknown): string | undefined {
+  const body = error instanceof ApiResponseError ? error.body : error;
+  if (typeof body !== "object" || body === null || !("code" in body)) return undefined;
+  return typeof body.code === "string" && body.code.length > 0 ? body.code : undefined;
+}
+
+/**
+ * The English text an error carries (the server's `detail`, a validation list, or a thrown Error's message), or
+ * `undefined` when it carries none. It is a diagnostic for logs and support: only English readers are shown it
+ * (see `localizedApiError`), and no decision may depend on its wording.
+ */
+export function apiErrorDiagnostic(error: unknown): string | undefined {
+  const body = error instanceof ApiResponseError ? error.body : error;
+  if (typeof body !== "object" || body === null) return undefined;
+  const text = formatApiError(body);
+  return text === "" || text === UNEXPECTED_ERROR ? undefined : text;
+}
+
+/** What a browser's fetch rejects with, as a TypeError, when no response arrived (wording differs per engine). */
+const FETCH_FAILURE_MESSAGE =
+  /failed to fetch|fetch failed|networkerror|load failed|network request failed|network connection was lost|internet connection appears to be offline/i;
+
+function isFetchFailure(error: unknown): boolean {
+  return error instanceof TypeError && FETCH_FAILURE_MESSAGE.test(error.message);
+}
+
+interface StatusMessages {
+  /** By exact status. */
+  readonly exact: Readonly<Record<number, string>>;
+  /** Any other 5xx. */
+  readonly server: string;
+  /** No status known, or one without a sentence of its own. */
+  readonly other: string;
+}
+
+/** A sentence per kind of failure, for errors that carry no code this build knows. Never names a field or a record. */
+const statusMessages: Record<AttendeeLocale, StatusMessages> = {
+  fa: {
+    exact: {
+      400: "درخواست معتبر نبود. اطلاعات واردشده را بررسی کنید و دوباره تلاش کنید.",
+      401: commonCopy.fa.sessionEnded,
+      403: "اجازهٔ انجام این کار را ندارید.",
+      404: "مورد درخواستی پیدا نشد.",
+      409: "این کار با وضعیت فعلی در تعارض است. صفحه را به‌روز کنید و دوباره تلاش کنید.",
+      413: "حجم اطلاعات یا فایل ارسالی بیشتر از حد مجاز است.",
+      415: "این نوع فایل پشتیبانی نمی‌شود.",
+      422: "برخی از اطلاعات واردشده معتبر نیست. آن‌ها را بررسی و اصلاح کنید.",
+      429: "تعداد درخواست‌ها زیاد است. کمی صبر کنید و دوباره تلاش کنید.",
+    },
+    server: "در سرور خطایی رخ داد. کمی بعد دوباره تلاش کنید.",
+    other: commonCopy.fa.generic,
+  },
+  en: {
+    exact: {
+      400: "The request was not valid. Check the details and try again.",
+      401: commonCopy.en.sessionEnded,
+      403: "You do not have permission to do this.",
+      404: "What you asked for was not found.",
+      409: "This conflicts with the current state. Refresh the page and try again.",
+      413: "What you sent is too large.",
+      415: "This type of file is not supported.",
+      422: "Some of the details you entered are not valid. Check them and try again.",
+      429: "Too many requests. Wait a moment and try again.",
+    },
+    server: "Something went wrong on the server. Try again in a little while.",
+    other: commonCopy.en.generic,
+  },
+};
+
+/** The generic sentence for an HTTP status (any 5xx shares one); the neutral one when the status is unknown. */
+export function genericApiErrorMessage(status: number | undefined, locale: AttendeeLocale): string {
+  const messages = statusMessages[locale];
+  if (status === undefined) return messages.other;
+  const exact = Object.hasOwn(messages.exact, status) ? messages.exact[status] : undefined;
+  if (exact !== undefined) return exact;
+  return status >= 500 && status < 600 ? messages.server : messages.other;
+}
+
+/**
+ * The status an error stands for: the caller's (they hold the Response), an `ApiResponseError`'s own, or 422 for
+ * a validation body. A bare error body from `result.error` carries no status otherwise.
+ */
+function apiErrorStatus(error: unknown, status: number | undefined): number | undefined {
+  if (status !== undefined) return status;
+  if (error instanceof ApiResponseError) return error.status;
+  const body = typeof error === "object" && error !== null ? error : undefined;
+  return body !== undefined && "detail" in body && Array.isArray(body.detail) ? 422 : undefined;
+}
+
+/**
+ * The error in the reader's language. A code this build knows gets its message from `errorMessages`; an
+ * unreachable server gets the network message. Anything else is a localized generic sentence chosen by HTTP
+ * status: Persian readers never see the server's English `detail`, English readers see it when there is one.
+ * Pass `status` (`result.response.status`) when you only have the bare `result.error` body.
+ */
+export function localizedApiError(error: unknown, locale: AttendeeLocale, status?: number): string {
+  const code = apiErrorCode(error);
+  if (code === NETWORK_FAILURE_CODE || isFetchFailure(error)) return networkErrorMessage[locale];
+  const messages = errorMessages[locale];
+  if (code !== undefined && Object.hasOwn(messages, code)) return messages[code];
+  const english = locale === "en" ? apiErrorDiagnostic(error) : undefined;
+  return english ?? genericApiErrorMessage(apiErrorStatus(error, status), locale);
 }

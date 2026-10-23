@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
+import { gateScreen, unpairFromMenu, wireManifest } from './scannerFixtures';
 
 // Shipping /scan/:pointId page + synthetic, intercepted /api/ responses: not FastAPI/PostgreSQL E2E.
 // Offline reload, queue and reconciliation behavior stays covered by scanner-offline.spec.ts.
@@ -26,10 +27,14 @@ async function fixture(page: Page, options: Options = {}) {
     const path = new URL(request.url()).pathname;
     requests.push({ method: request.method(), path, auth: request.headers().authorization, body: request.postDataJSON() });
     const json = (status: number, body: unknown) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
-    if (path.endsWith('/manifest')) return options.manifestStatus ? json(options.manifestStatus, { detail: 'Scanner device token has been revoked' }) : json(200, MANIFEST);
+    if (path.endsWith('/manifest')) return options.manifestStatus ? json(options.manifestStatus, { detail: 'Scanner device token has been revoked' }) : json(200, wireManifest(MANIFEST));
     if (path.endsWith('/scans/batch')) {
       const posted = request.postDataJSON() as { scans: { scan_id: string; qr_secret: string }[] };
       return json(200, { results: posted.scans.map(s => ({ scan_id: s.scan_id, qr_secret: s.qr_secret, status: 'ADMITTED', attendee_name: 'Alice', ticket_tier_name: 'General' })) });
+    }
+    if (path.endsWith('/scan')) {
+      const posted = request.postDataJSON() as { scan_id: string; qr_secret: string };
+      return json(200, { scan_id: posted.scan_id, qr_secret: posted.qr_secret, status: 'ADMITTED', attendee_name: 'Alice', ticket_tier_name: 'General', clock_skew: false });
     }
     if (path.endsWith('/devices/self/revoke')) return options.revokeStatus ? json(options.revokeStatus, { detail: 'Server error' }) : json(200, { is_revoked: true });
     return json(404, { detail: 'Not found' });
@@ -38,7 +43,8 @@ async function fixture(page: Page, options: Options = {}) {
 }
 
 async function seedHumanSessions(page: Page) {
-  await page.goto('/');
+  // A same-origin static file, not the app: the home page would load its public congress list (an API request) mid-seed.
+  await page.goto('/favicon.png');
   await page.evaluate(({ userToken, organizerKey, deskToken }) => {
     localStorage.setItem('congress_attendee_token', userToken);
     sessionStorage.setItem('congress_organizer_api_key', organizerKey);
@@ -48,7 +54,7 @@ async function seedHumanSessions(page: Page) {
 
 async function injectScan(page: Page, scanId: string) {
   await page.evaluate(({ pointId, scanId }) => new Promise<void>((resolve, reject) => {
-    const open = indexedDB.open('congress_scanner_db', 2);
+    const open = indexedDB.open('congress_scanner_db');
     open.onerror = () => reject(open.error);
     open.onsuccess = () => {
       const db = open.result;
@@ -61,7 +67,7 @@ async function injectScan(page: Page, scanId: string) {
 }
 
 const scanCount = (page: Page) => page.evaluate(() => new Promise<number>(resolve => {
-  const open = indexedDB.open('congress_scanner_db', 2);
+  const open = indexedDB.open('congress_scanner_db');
   open.onerror = () => resolve(-1);
   open.onsuccess = () => {
     const count = open.result.transaction('queued_scans', 'readonly').objectStore('queued_scans').count();
@@ -85,28 +91,27 @@ async function pair(page: Page) {
   await expect(page.getByText('Authority Gate')).toBeVisible();
 }
 
-async function unpair(page: Page) {
-  await page.getByRole('button', { name: /Unpair This Scanner/i }).click();
-  await page.getByRole('button', { name: /Confirm Unpair/i }).click();
-}
+const unpair = unpairFromMenu;
 
-test('manifest, batch and self-revoke send only the scanner token, with unchanged payloads and URL', async ({ page }) => {
+test('manifest, batch and self-revoke send only the scanner token, with the device verdict and unchanged URL', async ({ page }) => {
   const requests = await fixture(page);
   await seedHumanSessions(page);
   requests.length = 0;
   await pair(page);
   await injectScan(page, 'authority-scan-001');
   await unpair(page);
-  await expect(page.getByText(/Server revocation confirmed/i)).toBeVisible({ timeout: 15000 });
+  await expect(page.getByRole('heading', { name: /^(Unpaired|اتصال قطع شد)$/ })).toBeVisible({ timeout: 15000 });
   const paths = requests.map(r => `${r.method} ${r.path.replace(POINT_ID, ':point')}`);
   expect(paths).toEqual(expect.arrayContaining(['GET /api/checkin-points/:point/manifest', 'POST /api/checkin-points/:point/scans/batch', 'POST /api/checkin-points/:point/devices/self/revoke']));
   expect(requests.every(r => r.auth === bearer(SCANNER_TOKEN))).toBe(true);
   const batch = requests.find(r => r.path.endsWith('/scans/batch'));
-  expect(batch?.body).toEqual({ scans: [{ scan_id: 'authority-scan-001', qr_secret: 'ticket-a-001', scanned_at: '2027-01-01T10:00:00.000Z' }] });
+  expect(batch?.body).toEqual({
+    scans: [{ scan_id: 'authority-scan-001', qr_secret: 'ticket-a-001', scanned_at: '2027-01-01T10:00:00.000Z', direction: 'IN', client_verdict: 'PROVISIONAL', client_rejection_reason: null }],
+  });
   expect(page.url()).toContain(`/scan/${POINT_ID}`);
-  // Revocation confirmed: the device token is gone, the scan history stays on the device.
+  // Revocation confirmed: the device token is gone, and so is the uploaded scan history.
   expect(await storedScannerToken(page)).toBeNull();
-  expect(await scanCount(page)).toBe(1);
+  expect(await scanCount(page)).toBe(0);
 });
 
 test('without a scanner credential no request is sent and human sessions are never attached', async ({ page }) => {
@@ -114,7 +119,8 @@ test('without a scanner credential no request is sent and human sessions are nev
   await seedHumanSessions(page);
   requests.length = 0;
   await page.goto(`/scan/${POINT_ID}`);
-  await expect(page.getByText(/Pair this scanner with a valid device token/i)).toBeVisible();
+  await expect(gateScreen(page, 'unpaired')).toBeVisible();
+  await expect(page.getByRole('button', { name: /^(Scan pairing QR code|اسکن کد QR اتصال)$/ })).toBeVisible();
   // A queued scan makes the background sync try to send; with no device credential it must not.
   await injectScan(page, 'authority-scan-003');
   await page.waitForTimeout(6500);
@@ -127,7 +133,7 @@ test('a revoked device (401) blocks admissions and never retries with another cr
   await seedHumanSessions(page);
   requests.length = 0;
   await page.goto(`/scan/${POINT_ID}?token=${SCANNER_TOKEN}`);
-  await expect(page.getByText(/revoked/i).first()).toBeVisible();
+  await expect(gateScreen(page, 'revoked')).toBeVisible();
   expect(requests.length).toBeGreaterThan(0);
   expect(requests.every(r => r.auth === bearer(SCANNER_TOKEN))).toBe(true);
   expect(await storedScannerToken(page)).toBe(SCANNER_TOKEN);
@@ -140,7 +146,9 @@ test('failed self-revoke keeps the credential and the scan records and sends onl
   await pair(page);
   await injectScan(page, 'authority-scan-002');
   await unpair(page);
-  await expect(page.getByText(/server revocation was not confirmed \(HTTP 500\)/i)).toBeVisible({ timeout: 15000 });
+  await expect(gateScreen(page, 'suspended')).toBeVisible({ timeout: 15000 });
+  // The status code is for supervisors: folded under the technical details.
+  await expect(gateScreen(page, 'suspended')).toContainText('HTTP 500');
   expect(await storedScannerToken(page)).toBe(SCANNER_TOKEN);
   expect(await scanCount(page)).toBe(1);
   const revoke = requests.filter(r => r.path.endsWith('/devices/self/revoke'));

@@ -36,7 +36,7 @@ export function SectionEditor({ section, onChange, eventDescription }: { section
             rows={7}
             maxLength={8000}
             onChange={(body) => onChange({ ...section, body })}
-            emptyNote={eventDescription ? copy.eventValueNote(lang === "fa" ? "توضیحات" : "description") : copy.defaultNote}
+            emptyNote={eventDescription ? copy.eventValueNote(copy.eventDescription) : copy.defaultNote}
             hint={copy.markdownHint}
           />
         </>

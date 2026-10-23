@@ -1,5 +1,14 @@
 # 06 — Deployment Architecture & Pilot Infrastructure Specification
 
+> **SUPERSEDED (2026-10-23).** This document describes a bare-metal Nginx + systemd layout the project did not adopt. The platform runs as one Docker Compose stack behind Caddy. Current documents:
+> - [`docs/deployment/STAGING_OPERATIONS.md`](../deployment/STAGING_OPERATIONS.md): services, releases and rollback, backups, point-in-time recovery, monitoring, alerts, operations settings;
+> - [`docs/deployment/HOSTED_STAGING_READINESS.md`](../deployment/HOSTED_STAGING_READINESS.md): hosted deployment procedure, sizing, DNS and firewall;
+> - [`docs/deployment/CDN.md`](../deployment/CDN.md) and [`PROXY-QUICK-START.md`](../deployment/PROXY-QUICK-START.md): CDN in front, servers without direct internet.
+>
+> In particular, the `--workers 4` unit and the `alembic downgrade -1` rollback below are wrong today: rollback is `stack.mjs rollback` (images only, never a downgrade; see `docs/CODING_STANDARDS.md` §2.D).
+>
+> **API workers:** `CONGRESS_API_WORKERS` (default 1) uvicorn processes in the one API container. Rate limits and SMS caps are counted in PostgreSQL (`backend/app/rate_limit.py`, table `rate_limit_counters`), the retention job takes an advisory lock, the SMS outbox claims rows with `FOR UPDATE SKIP LOCKED`, and metrics are summed over workers, so extra workers are safe; the database pool, SMS concurrency limit, settings cache and test-mode SMS outbox stay per worker ([`docs/deployment/STAGING_OPERATIONS.md`](../deployment/STAGING_OPERATIONS.md) → Scaling). 1 and 4 workers were load-tested on a laptop only (`scripts/load/README.md`); scale the VM first and re-run the load scripts on it.
+
 **Evaluation Date:** 2026-10-10  
 **Target Release:** Browser-Based SaaS & Web Scanner Station (Pilot Tier)  
 **Classification:** VERIFIED  

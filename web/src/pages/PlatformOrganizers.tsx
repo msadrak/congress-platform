@@ -1,84 +1,105 @@
-import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { formatApiError, type OrganizerOut, type OrganizerProvisioned } from "../api/client";
-import { Badge } from "../components/ui/Badge";
+import { useEffect, useState, type FormEvent } from "react";
+import { localizedApiError, type OrganizerOut, type OrganizerProvisioned } from "../api/client";
+import { commonCopy } from "../copy/common";
+import { formatDate } from "../lib/format";
+import { useMutation } from "../hooks/useMutation";
 import { Button } from "../components/ui/Button";
 import { ConfirmDialog } from "../components/ui/ConfirmDialog";
-import { Icon } from "../components/ui/Icon";
-import { EmptyState, Field, FormAlert, SectionHeader } from "../components/organizer/WorkspaceUi";
+import { Field } from "../components/ui/Field";
+import { TextInput } from "../components/ui/Input";
+import { Notice } from "../components/ui/Notice";
+import { PageHeader } from "../components/ui/PageHeader";
+import { RowActions } from "../components/ui/RowActions";
+import { EmptyState, ErrorState, LoadingState } from "../components/ui/StateBlock";
+import { StatusChip } from "../components/ui/StatusChip";
 import { usePlatform } from "./platformContext";
+import { PlatformOrganizerMembers } from "./PlatformOrganizerMembers";
 
-type Pending = { action: "rotate" | "revoke"; organizer: OrganizerOut } | null;
-
-/** Organizer accounts (tenants): create, rotate a key, revoke. Keys are shown once, at creation or rotation. */
+/** Organizer accounts (tenants): add one, rotate its key, remove or restore access, manage members. Keys are shown once. */
 export default function PlatformOrganizers() {
-  const { client, checkResponse, locale, isRtl } = usePlatform();
+  const { client, locale, copy } = usePlatform();
+  const c = copy.organizers;
   const [organizers, setOrganizers] = useState<OrganizerOut[] | null>(null);
+  /** The list could not be (re)loaded. */
+  const [loadError, setLoadError] = useState<string | null>(null);
+  /** An action (create, rotate, revoke) failed. */
   const [error, setError] = useState<string | null>(null);
   const [name, setName] = useState("");
-  const [creating, setCreating] = useState(false);
+  // Each request ends its own busy state whatever happens (useMutation).
+  const createRequest = useMutation(locale);
+  const actionRequest = useMutation(locale);
   const [issued, setIssued] = useState<OrganizerProvisioned | null>(null);
   const [copied, setCopied] = useState(false);
-  const [pending, setPending] = useState<Pending>(null);
+  /** The organizer whose key rotation (or reinstatement) waits for confirmation. */
+  const [rotating, setRotating] = useState<OrganizerOut | null>(null);
+  // Kept after closing, so the dialog's exit animation still shows whose members it listed.
+  const [membersFor, setMembersFor] = useState<{ organizer: OrganizerOut; open: boolean } | null>(null);
+  const shownError = error ?? createRequest.error ?? actionRequest.error;
 
-  const load = useCallback(async () => {
-    const { data, error: err, response } = await client.GET("/api/organizers");
-    checkResponse(response.status);
-    if (data) setOrganizers(data);
-    else setError(err ? formatApiError(err) : isRtl ? "فهرست بارگذاری نشد." : "The list could not be loaded.");
-  }, [client, checkResponse, isRtl]);
+  const [reloads, setReloads] = useState(0);
+  const load = () => setReloads((n) => n + 1);
 
   useEffect(() => {
     let active = true;
-    client.GET("/api/organizers").then(({ data, error: err, response }) => {
-      checkResponse(response.status);
-      if (!active) return;
-      if (data) setOrganizers(data);
-      else setError(err ? formatApiError(err) : "—");
-    });
+    client
+      .GET("/api/organizers")
+      .then(({ data, error: err, response }) => {
+        if (!active) return;
+        if (data) {
+          setOrganizers(data);
+          setLoadError(null);
+        } else setLoadError(localizedApiError(err, locale, response.status));
+      })
+      .catch(() => active && setLoadError(commonCopy[locale].network));
     return () => {
       active = false;
     };
-  }, [client, checkResponse]);
+  }, [client, locale, reloads]);
+
+  const clearMessages = () => {
+    setError(null);
+    createRequest.setError(null);
+    actionRequest.setError(null);
+  };
+
+  const showKey = (key: OrganizerProvisioned) => {
+    setIssued(key);
+    setCopied(false);
+  };
 
   const create = async (e: FormEvent) => {
     e.preventDefault();
-    if (!name.trim() || creating) return;
-    setCreating(true);
-    setError(null);
-    const { data, error: err, response } = await client.POST("/api/organizers", { body: { name: name.trim() } });
-    checkResponse(response.status);
-    setCreating(false);
-    if (data) {
-      setIssued(data);
-      setCopied(false);
-      setName("");
-      void load();
-    } else {
-      setError(err ? formatApiError(err) : isRtl ? "ساخته نشد." : "Not created.");
-    }
+    if (!name.trim() || createRequest.busy) return;
+    clearMessages();
+    const result = await createRequest.run(() => client.POST("/api/organizers", { body: { name: name.trim() } }));
+    if (!result.ok) return;
+    const { data, error: err, response } = result.value;
+    if (!data) return setError(localizedApiError(err, locale, response.status));
+    showKey(data);
+    setName("");
+    load();
   };
 
-  const confirm = async () => {
-    const target = pending;
-    setPending(null);
-    if (!target) return;
-    const path = { organizer_id: target.organizer.id };
-    if (target.action === "rotate") {
-      const { data, error: err, response } = await client.POST("/api/organizers/{organizer_id}/rotate-key", { params: { path } });
-      checkResponse(response.status);
-      if (data) {
-        setIssued(data);
-        setCopied(false);
-      } else setError(err ? formatApiError(err) : "—");
-    } else {
-      const { error: err, response } = await client.POST("/api/organizers/{organizer_id}/revoke", { params: { path } });
-      checkResponse(response.status);
-      if (err) setError(formatApiError(err));
-    }
-    void load();
+  /** Rotate (or, for a revoked organizer, reinstate with) a new key, or remove access. */
+  const act = async (action: "rotate" | "revoke", organizer: OrganizerOut) => {
+    clearMessages();
+    const path = { organizer_id: organizer.id };
+    const result = await actionRequest.run(async () => {
+      if (action === "rotate") {
+        const { data, error: err, response } = await client.POST("/api/organizers/{organizer_id}/rotate-key", { params: { path } });
+        if (data) showKey(data);
+        else setError(localizedApiError(err, locale, response.status));
+      } else {
+        const { error: err, response } = await client.POST("/api/organizers/{organizer_id}/revoke", { params: { path } });
+        if (!response.ok) setError(localizedApiError(err, locale, response.status));
+      }
+    });
+    // Refused because another action is in flight: that one reloads the list.
+    if (!result.ok && result.message === null) return;
+    load();
   };
 
-  const copy = async () => {
+  const copyKey = async () => {
     if (!issued) return;
     try {
       await navigator.clipboard.writeText(issued.api_key);
@@ -87,113 +108,114 @@ export default function PlatformOrganizers() {
       setCopied(false);
     }
   };
-  const date = (iso: string) => new Intl.DateTimeFormat(locale === "fa" ? "fa-IR-u-ca-persian" : "en-US", { dateStyle: "medium" }).format(new Date(iso));
+  const date = (iso: string) => formatDate(iso, "long", locale);
 
   return (
-    <div className="space-y-8">
-      <SectionHeader
-        eyebrow={isRtl ? "پنل مدیریت سامانه" : "Platform console"}
-        title={isRtl ? "برگزارکنندگان" : "Organizers"}
-        description={
-          isRtl
-            ? "هر برگزارکننده با کلید API خود وارد کنسول برگزارکننده می‌شود. کلید فقط یک‌بار نمایش داده می‌شود."
-            : "Each organizer signs in to the organizer console with their own API key. A key is shown only once."
-        }
-      />
+    <div className="space-y-6">
+      <PageHeader title={c.title} />
 
-      <form onSubmit={create} className="flex flex-wrap items-end gap-3 rounded-2xl border border-border-default bg-surface-panel p-5 shadow-soft">
-        <Field label={isRtl ? "نام برگزارکننده جدید" : "New organizer name"} className="min-w-0 flex-1">
-          <input type="text" value={name} maxLength={200} onChange={(e) => setName(e.target.value)} className="ui-input" />
+      <form onSubmit={create} className="flex flex-col gap-3 rounded-card border border-border-default bg-surface-panel p-4 shadow-soft sm:flex-row sm:items-end sm:p-5">
+        <Field label={c.newName} className="min-w-0 flex-1">
+          <TextInput value={name} maxLength={200} onChange={(e) => setName(e.target.value)} data-testid="new-organizer-name" />
         </Field>
-        <Button type="submit" variant="primary" size="md" disabled={creating || !name.trim()} aria-busy={creating}>
-          <Icon name="plus" size={16} />
-          {creating ? (isRtl ? "در حال ایجاد…" : "Creating…") : isRtl ? "ساخت و صدور کلید" : "Create and issue key"}
+        <Button type="submit" variant="primary" icon="plus" loading={createRequest.busy} disabled={!name.trim()}>
+          {c.create}
         </Button>
       </form>
 
       {issued && (
-        <div role="status" data-testid="issued-key" className="space-y-3 rounded-2xl border border-status-success-border bg-status-success-bg p-5 text-status-success-text">
-          <p className="text-sm font-bold">
-            {isRtl ? `کلید API برای «${issued.name}» — فقط همین یک‌بار نمایش داده می‌شود:` : `API key for “${issued.name}”, shown only this once:`}
-          </p>
-          <p dir="ltr" className="select-all break-all rounded-xl bg-surface-panel px-4 py-3 font-mono text-sm text-text-primary">{issued.api_key}</p>
-          <div className="flex flex-wrap gap-2">
-            <Button type="button" variant="ink" size="sm" onClick={() => void copy()}>
-              <Icon name={copied ? "check" : "copy"} size={15} />
-              {copied ? (isRtl ? "کپی شد" : "Copied") : isRtl ? "کپی کلید" : "Copy key"}
-            </Button>
-            <Button type="button" variant="ghost" size="sm" onClick={() => setIssued(null)}>
-              {isRtl ? "تحویل دادم، پنهان شود" : "Handed over, hide it"}
-            </Button>
-          </div>
+        <div data-testid="issued-key">
+          <Notice tone="success" title={c.issued(issued.name)}>
+            <p dir="ltr" className="mt-2 select-all break-all rounded-control bg-surface-panel px-4 py-3 font-mono text-body-sm text-text-primary">
+              {issued.api_key}
+            </p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Button type="button" variant="secondary" size="sm" icon={copied ? "check" : "copy"} onClick={() => void copyKey()}>
+                {copied ? commonCopy[locale].copied : c.copyKey}
+              </Button>
+              <Button type="button" variant="ghost" size="sm" onClick={() => setIssued(null)}>
+                {c.hideKey}
+              </Button>
+            </div>
+          </Notice>
         </div>
       )}
 
-      {error && <FormAlert>{error}</FormAlert>}
+      {shownError && <Notice tone="danger">{shownError}</Notice>}
 
       {organizers === null ? (
-        <div className="skeleton h-40" />
-      ) : organizers.length === 0 ? (
-        <EmptyState icon="users" title={isRtl ? "هنوز برگزارکننده‌ای ساخته نشده است." : "No organizer yet."} />
+        loadError ? (
+          <ErrorState title={c.loadFailed} body={loadError} onRetry={() => {
+                setLoadError(null);
+                load();
+              }} />
+        ) : (
+          <LoadingState />
+        )
       ) : (
-        <ul className="divide-y divide-border-subtle overflow-hidden rounded-2xl border border-border-default bg-surface-panel">
-          {organizers.map((o) => (
-            <li key={o.id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-5">
-              <div className="min-w-0">
-                <p className="font-semibold text-text-primary"><bdi>{o.name}</bdi></p>
-                <p className="text-xs text-text-muted">
-                  {isRtl ? "ساخته شده " : "Created "}{date(o.created_at)}
-                  {o.key_rotated_at && ` · ${isRtl ? "کلید تعویض شده " : "key rotated "}${date(o.key_rotated_at)}`}
-                </p>
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <Badge variant={o.revoked_at ? "danger" : "success"} size="sm" dot={!o.revoked_at}>
-                  {o.revoked_at ? (isRtl ? "لغو شده" : "Revoked") : isRtl ? "فعال" : "Active"}
-                </Badge>
-                <Button type="button" variant="secondary" size="sm" onClick={() => setPending({ action: "rotate", organizer: o })}>
-                  <Icon name="key" size={15} />
-                  {o.revoked_at ? (isRtl ? "فعال‌سازی با کلید جدید" : "Reinstate with a new key") : isRtl ? "تعویض کلید" : "Rotate key"}
-                </Button>
-                {!o.revoked_at && (
-                  <Button type="button" variant="danger" size="sm" onClick={() => setPending({ action: "revoke", organizer: o })}>
-                    {isRtl ? "لغو دسترسی" : "Revoke"}
-                  </Button>
-                )}
-              </div>
-            </li>
-          ))}
-        </ul>
+        <>
+          {loadError && <Notice tone="danger">{loadError}</Notice>}
+          {organizers.length === 0 ? (
+            <EmptyState icon="users" title={c.empty} />
+          ) : (
+            <ul data-testid="organizer-list" className="divide-y divide-border-subtle rounded-card border border-border-default bg-surface-panel">
+              {organizers.map((o) => (
+                <li key={o.id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-5">
+                  <div className="min-w-0 space-y-1">
+                    <p className="flex flex-wrap items-center gap-2 font-semibold text-text-primary">
+                      <bdi>{o.name}</bdi>
+                      <StatusChip status={o.revoked_at ? "accessRemoved" : "active"} size="sm" />
+                    </p>
+                    <p className="text-caption text-text-muted">
+                      {c.created(date(o.created_at))}
+                      {o.key_rotated_at && ` · ${c.rotated(date(o.key_rotated_at))}`}
+                    </p>
+                  </div>
+                  <RowActions
+                    visible={1}
+                    menuLabel={c.moreFor(o.name)}
+                    actions={[
+                      { label: c.members, icon: "users", onSelect: () => setMembersFor({ organizer: o, open: true }) },
+                      { label: o.revoked_at ? c.reinstate : c.rotate, icon: "key", disabled: actionRequest.busy, onSelect: () => setRotating(o) },
+                      ...(o.revoked_at
+                        ? []
+                        : [
+                            {
+                              label: c.revoke,
+                              disabled: actionRequest.busy,
+                              onSelect: () => void act("revoke", o),
+                              destructive: { title: c.revokeTitle(o.name), description: c.revokeBody, confirmLabel: c.revoke },
+                            },
+                          ]),
+                    ]}
+                  />
+                </li>
+              ))}
+            </ul>
+          )}
+        </>
+      )}
+
+      {membersFor && (
+        <PlatformOrganizerMembers
+          key={membersFor.organizer.id}
+          organizer={membersFor.organizer}
+          isOpen={membersFor.open}
+          onClose={() => setMembersFor({ ...membersFor, open: false })}
+        />
       )}
 
       <ConfirmDialog
-        isOpen={pending !== null}
-        tone={pending?.action === "revoke" ? "danger" : "default"}
-        title={
-          pending?.action === "revoke"
-            ? isRtl ? "لغو دسترسی برگزارکننده؟" : "Revoke this organizer?"
-            : pending?.organizer.revoked_at
-              ? isRtl ? "دسترسی برگزارکننده بازگردانده شود؟" : "Reinstate this organizer?"
-              : isRtl ? "صدور کلید جدید؟" : "Issue a new key?"
-        }
-        description={
-          pending
-            ? pending.action === "revoke"
-              ? isRtl ? `کلید «${pending.organizer.name}» دیگر کار نمی‌کند؛ اطلاعات همایش‌ها حفظ می‌شود.` : `“${pending.organizer.name}” can no longer sign in; their congresses are kept.`
-              : pending.organizer.revoked_at
-                ? isRtl ? `«${pending.organizer.name}» با کلیدی جدید که فقط یک‌بار نمایش داده می‌شود دوباره می‌تواند وارد شود.` : `“${pending.organizer.name}” can sign in again with a new key, shown once.`
-                : isRtl ? `کلید فعلی «${pending.organizer.name}» بلافاصله از کار می‌افتد و کلید جدید یک‌بار نمایش داده می‌شود.` : `The current key of “${pending.organizer.name}” stops working immediately; the new key is shown once.`
-            : ""
-        }
-        confirmLabel={
-          pending?.action === "revoke"
-            ? isRtl ? "لغو دسترسی" : "Revoke"
-            : pending?.organizer.revoked_at
-              ? isRtl ? "بازگرداندن دسترسی" : "Reinstate"
-              : isRtl ? "صدور کلید جدید" : "Issue new key"
-        }
-        cancelLabel={isRtl ? "انصراف" : "Cancel"}
-        onCancel={() => setPending(null)}
-        onConfirm={() => void confirm()}
+        isOpen={rotating !== null}
+        title={rotating?.revoked_at ? c.reinstateTitle : c.rotateTitle}
+        description={rotating ? (rotating.revoked_at ? c.reinstateBody(rotating.name) : c.rotateBody(rotating.name)) : undefined}
+        confirmLabel={rotating?.revoked_at ? c.reinstateAction : c.rotateAction}
+        onCancel={() => setRotating(null)}
+        onConfirm={() => {
+          const target = rotating;
+          setRotating(null);
+          if (target) void act("rotate", target);
+        }}
       />
     </div>
   );

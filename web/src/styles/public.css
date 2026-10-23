@@ -1,5 +1,5 @@
 /*
- * Public congress experience + platform landing ("Crossing Arcs").
+ * Public congress pages: the hero scrim and title, the content sheet, the pass stubs and the exhibition rows.
  * Portal-only presentation; tokens come from src/index.css. Lives in the `components` layer so
  * Tailwind utilities on the same element still win.
  */
@@ -25,55 +25,53 @@
   }
 }
 
-/* Over a photograph the scrim is denser and never fully opens, so white text and the status chips keep
-   AA contrast whatever the organizer uploads. */
+/* Over a photograph the scrim never fully opens behind the text, so white text and the status chips keep
+   AA contrast whatever the organizer uploads; the far side stays open so the photograph is seen. */
 .pub-hero-scrim--cover {
   background:
-    linear-gradient(90deg, rgb(14 12 43 / 0.9) 0%, rgb(14 12 43 / 0.7) 38%, rgb(14 12 43 / 0.22) 72%, rgb(14 12 43 / 0.08) 100%),
-    linear-gradient(0deg, rgb(14 12 43 / 0.95) 0%, rgb(14 12 43 / 0.62) 38%, rgb(14 12 43 / 0) 78%);
+    linear-gradient(90deg, rgb(14 12 43 / 0.88) 0%, rgb(14 12 43 / 0.66) 38%, rgb(14 12 43 / 0.14) 70%, rgb(14 12 43 / 0) 100%),
+    linear-gradient(0deg, rgb(14 12 43 / 0.94) 0%, rgb(14 12 43 / 0.78) 32%, rgb(14 12 43 / 0.35) 52%, rgb(14 12 43 / 0) 72%);
 }
 [dir="rtl"] .pub-hero-scrim--cover {
   background:
-    linear-gradient(270deg, rgb(14 12 43 / 0.9) 0%, rgb(14 12 43 / 0.7) 38%, rgb(14 12 43 / 0.22) 72%, rgb(14 12 43 / 0.08) 100%),
-    linear-gradient(0deg, rgb(14 12 43 / 0.95) 0%, rgb(14 12 43 / 0.62) 38%, rgb(14 12 43 / 0) 78%);
+    linear-gradient(270deg, rgb(14 12 43 / 0.88) 0%, rgb(14 12 43 / 0.66) 38%, rgb(14 12 43 / 0.14) 70%, rgb(14 12 43 / 0) 100%),
+    linear-gradient(0deg, rgb(14 12 43 / 0.94) 0%, rgb(14 12 43 / 0.78) 32%, rgb(14 12 43 / 0.35) 52%, rgb(14 12 43 / 0) 72%);
 }
+/* Phones: the text starts below an open band (--pub-cover-band, set by the hero), so the top of the
+   photograph shows clearly and the scrim turns dense exactly where the text begins. */
 @media (max-width: 47.99rem) {
   .pub-hero-scrim--cover,
   [dir="rtl"] .pub-hero-scrim--cover {
-    background: linear-gradient(0deg, rgb(14 12 43 / 0.97) 0%, rgb(14 12 43 / 0.86) 55%, rgb(14 12 43 / 0.45) 100%);
+    background: linear-gradient(
+      180deg,
+      rgb(14 12 43 / 0.08) 0,
+      rgb(14 12 43 / 0.2) calc(var(--pub-cover-band, 34svh) - 5rem),
+      rgb(14 12 43 / 0.9) calc(var(--pub-cover-band, 34svh) + 1rem),
+      rgb(14 12 43 / 0.96) 100%
+    );
   }
-}
-
-/* The meridian grid fades out toward the reading side so it never fights the title. */
-.pub-hero-grid {
-  -webkit-mask-image: linear-gradient(90deg, transparent 10%, #000 70%);
-  mask-image: linear-gradient(90deg, transparent 10%, #000 70%);
-}
-[dir="rtl"] .pub-hero-grid {
-  -webkit-mask-image: linear-gradient(270deg, transparent 10%, #000 70%);
-  mask-image: linear-gradient(270deg, transparent 10%, #000 70%);
 }
 
 /* Congress title: Latin gets tight display tracking, Persian keeps its natural joins and taller lines. */
 .pub-display {
   font-family: var(--font-display);
-  font-weight: 680;
+  font-weight: 700;
   letter-spacing: -0.035em;
   line-height: 0.98;
   text-wrap: balance;
 }
 [dir="rtl"] .pub-display {
-  font-weight: 760;
+  font-weight: 700;
   letter-spacing: 0;
   line-height: 1.28;
 }
 /* The congress name follows its own script, not the page language. */
 .pub-display bdi[dir="ltr"] {
-  font-weight: 680;
+  font-weight: 700;
   letter-spacing: -0.035em;
 }
 .pub-display bdi[dir="rtl"] {
-  font-weight: 760;
+  font-weight: 700;
   letter-spacing: 0;
 }
 .pub-display:has(> bdi[dir="rtl"]) {
@@ -102,27 +100,6 @@
     border-start-start-radius: 36px;
     margin-block-start: -2rem;
   }
-}
-
-/* Numbered section index: mono numeral with a short brand stroke. */
-.pub-index {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.75rem;
-  font-family: var(--font-mono);
-  font-size: 0.8125rem;
-  font-weight: 500;
-  color: var(--event-accent);
-  font-variant-numeric: tabular-nums;
-}
-.pub-index::after {
-  content: "";
-  inline-size: 2.5rem;
-  block-size: 1px;
-  background: var(--grad-aiteb);
-}
-[dir="rtl"] .pub-index::after {
-  background: linear-gradient(270deg, var(--aiteb-orchid), var(--aiteb-violet));
 }
 
 /* ── Pass stub ────────────────────────────────────────────────────────── */
@@ -229,11 +206,11 @@
 
 /* ── Exhibition index ─────────────────────────────────────────────────── */
 
-.pub-index-row {
+.pub-booth-row {
   position: relative;
   transition: background-color 200ms ease;
 }
-.pub-index-row::before {
+.pub-booth-row::before {
   content: "";
   position: absolute;
   inset-block: 0;
@@ -244,50 +221,12 @@
   transform-origin: center;
   transition: transform 260ms var(--ease-arc);
 }
-.pub-index-row:hover,
-.pub-index-row:focus-visible {
+.pub-booth-row:hover,
+.pub-booth-row:focus-visible {
   background: var(--event-accent-soft);
 }
-.pub-index-row:hover::before,
-.pub-index-row:focus-visible::before {
+.pub-booth-row:hover::before,
+.pub-booth-row:focus-visible::before {
   transform: scaleY(1);
-}
-.pub-index-row .pub-index-arrow {
-  transition: transform 260ms var(--ease-arc), background-color 200ms ease, color 200ms ease;
-}
-.pub-index-row:hover .pub-index-arrow {
-  transform: translate(2px, -2px);
-  background: var(--event-accent);
-  color: #fff;
-}
-[dir="rtl"] .pub-index-row:hover .pub-index-arrow {
-  transform: translate(-2px, -2px);
-}
-
-/* ── Booth placard ────────────────────────────────────────────────────── */
-
-.pub-placard-code {
-  font-family: var(--font-mono);
-  font-weight: 500;
-  letter-spacing: -0.04em;
-  line-height: 0.95;
-}
-[dir="rtl"] .pub-placard-code {
-  font-family: var(--font-display);
-  font-weight: 760;
-  letter-spacing: 0;
-  line-height: 1.2;
-}
-
-/* ── Landing ─────────────────────────────────────────────────────────── */
-
-.pub-landing-glow {
-  background:
-    radial-gradient(60% 55% at 85% 10%, rgb(255 151 255 / 0.16), transparent 70%),
-    radial-gradient(50% 60% at 10% 0%, rgb(61 53 223 / 0.1), transparent 70%);
-}
-.pub-landing-grid {
-  -webkit-mask-image: radial-gradient(80% 70% at 60% 30%, #000 30%, transparent 85%);
-  mask-image: radial-gradient(80% 70% at 60% 30%, #000 30%, transparent 85%);
 }
 }

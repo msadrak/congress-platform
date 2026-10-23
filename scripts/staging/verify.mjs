@@ -1,34 +1,54 @@
 #!/usr/bin/env node
 /**
- * End-to-end verification of the running local staging stack (deploy/staging, project congress-staging):
+ * End-to-end verification of a running local staging stack (deploy/staging):
  *
- *   node scripts/staging/verify.mjs [--fresh]
+ *   node scripts/staging/verify.mjs [--fresh] [--rebuild] [--evidence-dir <dir>]
  *
+ *   --fresh               also check that the database holds no accounts or demo data (a just-created stack)
+ *   --rebuild             also run the disruptive steps: rebuild the API image and re-create its container, then
+ *                         stop and start the whole stack. Off by default: verify never rebuilds or stops a stack
+ *                         it did not start unless asked.
+ *   --evidence-dir <dir>  where screenshots and JSON results go [.staging/evidence/<project>, ignored by git]
+ *
+ * The Compose project is CONGRESS_STACK_PROJECT (default congress-staging), the same variable stack.mjs reads.
  * Uses only synthetic records created here. Steps: empty-database check (--fresh), HTTPS with the local CA,
- * proxy/cache/security headers, every portal through Caddy, the full congress journey (organizer, Page
- * Studio publish, registration, reception, scanner incl. offline, exhibitor leads, analytics/CSV,
- * cross-tenant), the real-API scanner spec, server-rendered metadata without JavaScript, media surviving an
- * API image rebuild, data surviving stop/start, and backup + restore into a separate disposable project.
- * Evidence: docs/deployment/staging-evidence/.
+ * proxy/cache/security headers, every portal through Caddy (its page title from the UI's copy modules,
+ * web/src/copy), the live-suite journeys (web/e2e-live: organizer + Page Studio publish, attendee registration and
+ * pass, reception desk, exhibitor leads, member roles), the live scanner spec (pairing, hashed manifest, admission,
+ * offline queue, unpairing), server-rendered metadata without JavaScript, media surviving an API image rebuild and
+ * data surviving stop/start (--rebuild), and backup + restore into a separate disposable project.
+ *
+ * The browser is Edge unless CONGRESS_BROWSER_CHANNEL says otherwise (`chrome`, or `chromium` after
+ * `npx playwright install chromium`), here and in the live specs. Needs `npm ci` in web/ and
+ * CONGRESS_SMS_PROVIDER=console (sign-in codes are read back from the console outbox).
  */
 import { createHash, randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import https from 'node:https';
 import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { runJourney } from '../integration/journey.mjs';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { parseArgs } from 'node:util';
 import { run } from '../lib/process.mjs';
 import { backup, compose, persistentPaths, psql, readEnv, restoreVerify, smsCode } from './stack.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
-const require = createRequire(resolve(root, 'web/package.json'));
+const WEB = resolve(root, 'web');
+const require = createRequire(resolve(WEB, 'package.json'));
 const { chromium } = require('playwright');
-const PROJECT = 'congress-staging';
+const { values: args } = parseArgs({
+  options: {
+    fresh: { type: 'boolean', default: false },
+    rebuild: { type: 'boolean', default: false },
+    'evidence-dir': { type: 'string' },
+  },
+});
+const PROJECT = process.env.CONGRESS_STACK_PROJECT?.trim() || 'congress-staging';
 const env = readEnv();
 const HTTPS_BASE = env.CONGRESS_PUBLIC_ORIGIN;
 const HTTP_BASE = `http://localhost:${env.CONGRESS_HTTP_PORT || 18080}`;
-const SHOTS = resolve(root, 'docs/deployment/staging-evidence');
+// Evidence stays out of the repository by default (.staging/ is ignored); --evidence-dir puts it elsewhere.
+const SHOTS = resolve(args['evidence-dir'] ?? join(root, '.staging/evidence', PROJECT));
 const RUN = Date.now().toString(36).slice(-5);
 // Synthetic attendee number in the unassigned 0900 range, unique per run.
 const ATTENDEE_MOBILE = `0900999${String(parseInt(RUN, 36) % 10000).padStart(4, '0')}`;
@@ -68,20 +88,91 @@ const api = async (method, path, { key, admin, body, raw, type } = {}) => {
   const r = await fetch(HTTP_BASE + path, { method, headers, body: raw ?? (body !== undefined ? JSON.stringify(body) : undefined) });
   const text = await r.text();
   let json = null; try { json = JSON.parse(text); } catch { /* not json */ }
-  return { status: r.status, json, text };
+  return { status: r.status, json, text, headers: r.headers };
 };
 
 // SMS sign-in on the staging stack: requires CONGRESS_SMS_PROVIDER=console (nothing is sent; the code is read
 // inside the API container by `stack.mjs sms-code`).
 const otpSignIn = async (number, full_name) => {
-  eq((await api('POST', '/api/auth/otp/request', { body: { mobile: number } })).status, 202, 'otp request');
+  const request = () => api('POST', '/api/auth/otp/request', { body: { mobile: number } });
+  let sent = await request();
+  // The same number again within the resend cooldown (60 s by default; step 12 signs in soon after step 08): wait
+  // out its Retry-After (the limiter counts in buckets, so it may take one more round). A longer block, such as an
+  // hourly budget, fails here.
+  const retryAfter = () => Number(sent.headers.get('retry-after'));
+  for (let round = 0; round < 4 && sent.status === 429 && retryAfter() > 0 && retryAfter() <= 120; round++) {
+    await new Promise((ok) => setTimeout(ok, retryAfter() * 1000 + 1000));
+    sent = await request();
+  }
+  eq(sent.status, 202, `otp request${sent.json?.code ? ` (${sent.json.code}, Retry-After ${retryAfter()} s)` : ''}`);
   const verified = (await api('POST', '/api/auth/otp/verify', { body: { mobile: number, code: smsCode(number) } })).json;
   if (verified.status === 'signed_in') return verified;
   return (await api('POST', '/api/auth/otp/complete', { body: { signup_token: verified.signup_token, full_name, organization: '', title: '' } })).json;
 };
 const sha = (buf) => createHash('sha256').update(buf).digest('hex');
 
-const fresh = process.argv.includes('--fresh');
+const fresh = args.fresh;
+const skip = (name, reason) => {
+  results.push({ ok: true, skipped: true, name, note: reason });
+  console.log(`SKIP ${name} — ${reason}`);
+};
+/** The single Alembic head of this checkout, from backend/migrations/versions (the revision nothing builds on). */
+function alembicHead(dir = join(root, 'backend/migrations/versions')) {
+  const chain = Object.fromEntries(readdirSync(dir).filter((n) => n.endsWith('.py')).map((n) => {
+    const text = readFileSync(join(dir, n), 'utf8');
+    const value = (name) => text.match(new RegExp(`^${name}(?::[^=]*)? = (?:['"]([^'"]+)['"]|None)`, 'm'));
+    const revision = value('revision')?.[1];
+    if (!revision) throw new Error(`${n}: no revision`);
+    return [revision, value('down_revision')?.[1] ?? null];
+  }));
+  const parents = new Set(Object.values(chain));
+  const heads = Object.keys(chain).filter((r) => !parents.has(r));
+  if (heads.length !== 1) throw new Error(`expected one Alembic head in ${dir}, found ${heads.join(', ') || 'none'}`);
+  return heads[0];
+}
+
+/**
+ * The UI's own words (web/src/copy/<name>.ts, loaded through Vite's module runner), so the portal checks follow a
+ * change of wording instead of going stale. Returns { <name>: <module exports> }.
+ */
+async function loadCopy(names) {
+  const { runnerImport } = await import(pathToFileURL(require.resolve('vite')).href);
+  const load = async (name) => [name, (await runnerImport(join(WEB, `src/copy/${name}.ts`), { configFile: false, root: WEB, logLevel: 'silent' })).module];
+  return Object.fromEntries(await Promise.all(names.map(load)));
+}
+
+const LIVE_SPECS = join(WEB, 'e2e-live');
+const SCANNER_SPEC = 'scanner.spec.ts';
+/**
+ * Runs web/e2e-live specs (the per-persona journeys CI runs on a disposable stack, scripts/integration/live-e2e.mjs)
+ * against this stack. The browser uses the localhost HTTP listener, a secure context for the service worker and
+ * the offline steps (the test browser does not trust the local CA). Every spec provisions its own organizer with
+ * the platform admin token and reads sign-in codes from the console SMS outbox. Playwright's JSON report goes to
+ * <evidence>/<report>.json; returns "N passed".
+ */
+function liveSpecs(report, specs) {
+  const file = join(SHOTS, `${report}.json`);
+  const r = run('npx', ['playwright', 'test', '-c', 'playwright.live.config.ts', '--retries=0', '--reporter=list,json', ...specs.map((s) => `e2e-live/${s}`)], {
+    cwd: WEB, allowFail: true,
+    env: { LIVE_E2E_BASE_URL: HTTP_BASE, LIVE_E2E_API_URL: HTTP_BASE, LIVE_E2E_ADMIN_TOKEN: env.CONGRESS_PLATFORM_ADMIN_TOKEN, PLAYWRIGHT_JSON_OUTPUT_FILE: file, CONGRESS_BROWSER_CHANNEL: process.env.CONGRESS_BROWSER_CHANNEL ?? 'msedge', CI: '', FORCE_COLOR: '0', NO_COLOR: '1' },
+  });
+  writeFileSync(join(SHOTS, `${report}.log`), `${r.stdout ?? ''}${r.stderr ?? ''}`);
+  let json = null;
+  try { json = JSON.parse(readFileSync(file, 'utf8')); } catch { /* no report: the run did not start */ }
+  const failed = [];
+  const walk = (suite) => {
+    for (const spec of suite.specs ?? []) if (!spec.ok) failed.push(spec.title);
+    for (const child of suite.suites ?? []) walk(child);
+  };
+  for (const suite of json?.suites ?? []) walk(suite);
+  const { expected = 0, unexpected = 0, flaky = 0, skipped = 0 } = json?.stats ?? {};
+  if (r.status !== 0 || !json || unexpected || flaky || failed.length || !expected) {
+    const why = failed.length ? `failed: ${failed.join(' | ')}` : (r.stdout || r.stderr || '').trim().split('\n').slice(-6).join(' ');
+    throw new Error(`${why.slice(0, 400)} (log: ${join(SHOTS, `${report}.log`)})`);
+  }
+  return `${expected} passed${skipped ? `, ${skipped} skipped` : ''} (${specs.join(', ')})`;
+}
+
 const S = {};
 let browser;
 try {
@@ -90,10 +181,11 @@ try {
     const by = Object.fromEntries(rows.map((r) => [r.Service, r]));
     for (const s of ['db', 'api', 'web']) eq(by[s]?.Health, 'healthy', `${s} health`);
     eq([by.migrate?.State, by.migrate?.ExitCode], ['exited', 0], 'migrate');
-    eq(q('select version_num from alembic_version'), '0014', 'schema');
+    const head = alembicHead();
+    eq(q('select version_num from alembic_version'), head, 'schema');
     const ports = rows.flatMap((r) => (r.Publishers ?? []).filter((p) => p.PublishedPort).map((p) => `${r.Service}:${p.URL}:${p.PublishedPort}`));
     assert(ports.every((p) => p.startsWith('web:127.0.0.1:')), `published ports ${ports}`);
-    return `alembic 0014; published only ${ports.join(', ')}`;
+    return `alembic ${head}; published only ${ports.join(', ')}`;
   });
 
   if (fresh) {
@@ -144,16 +236,36 @@ try {
 
   browser = await chromium.launch({ channel: process.env.CONGRESS_BROWSER_CHANNEL ?? 'msedge' });
   await check('05 every portal renders through the proxy (HTTPS), scanner runs in a secure context', async () => {
+    const copy = await loadCopy(['public', 'organizer', 'platform', 'desk', 'signIn', 'attendee', 'booth', 'operator']);
+    const fa = (module, name) => copy[module][name].fa;
+    const zero = '00000000-0000-0000-0000-000000000000';
+    const otpForm = (page) => page.getByTestId('otp-mobile-step');
+    // [path, path after client redirects, page title (the one h1), a second landmark or null]. Signed out and unpaired.
+    const routes = [
+      ['/', '/', fa('public', 'homeCopy').title, (page) => page.getByTestId('public-event-list')],
+      ['/organizer', '/organizer', fa('organizer', 'organizerCopy').signIn.title, otpForm],
+      ['/platform', '/platform', fa('platform', 'platformCopy').portal, (page) => page.locator('main form')],
+      ['/reception', '/reception', fa('desk', 'deskCopy').title, (page) => page.locator('main form')],
+      ['/sign-in', '/sign-in', fa('signIn', 'signInCopy').title, otpForm],
+      ['/my-tickets', '/me', fa('attendee', 'attendeeCopy').me.title, otpForm],
+      [`/booth/${zero}`, `/booth/${zero}`, fa('booth', 'boothCopy').signInTitle, null],
+      [`/scan/${zero}`, `/scan/${zero}`, fa('operator', 'operatorCopy').gate.unpaired.title, null],
+    ];
     const ctx = await browser.newContext({ ignoreHTTPSErrors: true, viewport: { width: 1280, height: 900 }, reducedMotion: 'reduce' });
-    await ctx.addInitScript(() => localStorage.setItem('congress_attendee_locale', 'en'));
     const page = await ctx.newPage();
     const errors = [];
     page.on('pageerror', (e) => errors.push(e.message));
     page.on('console', (m) => { if (m.type() === 'error' && /Content Security Policy/.test(m.text())) errors.push(m.text()); });
-    const routes = [['/', /Congress Platform/], ['/organizer', /Organizer Authentication/], ['/reception', /reception|Reception/], ['/sign-in', /Sign in/i], ['/my-tickets', /pass|Sign in/i], ['/booth/00000000-0000-0000-0000-000000000000', /booth|Sign in/i], ['/scan/00000000-0000-0000-0000-000000000000', /scanner|Scanner|pair/i]];
-    for (const [path, text] of routes) {
+    for (const [path, landed, title, landmark] of routes) {
       await page.goto(HTTPS_BASE + path);
-      await page.getByText(text).first().waitFor({ timeout: 15000 });
+      try {
+        await page.getByRole('heading', { level: 1, name: title, exact: true }).waitFor({ timeout: 15000 });
+        if (landmark) await landmark(page).first().waitFor({ timeout: 15000 });
+      } catch {
+        const h1 = await page.locator('h1').allInnerTexts().catch(() => []);
+        throw new Error(`${path}: expected the page title «${title}»${landmark ? ' and its landmark' : ''}, found h1 ${JSON.stringify(h1)}`);
+      }
+      eq(new URL(page.url()).pathname, landed, `${path} lands on`);
     }
     const secure = await page.evaluate(() => ({ secure: window.isSecureContext, sw: 'serviceWorker' in navigator, media: Boolean(navigator.mediaDevices?.getUserMedia) }));
     eq(secure, { secure: true, sw: true, media: true }, 'scanner secure context');
@@ -163,24 +275,13 @@ try {
     return `${routes.length} routes; isSecureContext, serviceWorker and getUserMedia available on HTTPS`;
   });
 
-  // The full congress journey (UI in a real browser) against the staging stack. Browsers use the
-  // localhost HTTP listener (a secure context) because the test browser does not trust the local CA;
-  // service-worker/offline steps need a trusted origin.
-  let journey = { failed: 1 };
-  await check('06 full congress journey on staging (organizer, Page Studio, registration, reception, scanner + offline, leads, analytics, isolation)', async () => {
-    journey = await runJourney({ root, BASE: HTTP_BASE, API_URL: HTTP_BASE, ADMIN_TOKEN: env.CONGRESS_PLATFORM_ADMIN_TOKEN, JWT_SECRET: env.CONGRESS_JWT_SECRET, SHOT_DIR: SHOTS, psql: (sql) => q(sql) });
-    writeFileSync(join(SHOTS, 'journey-last-run.json'), JSON.stringify(journey, null, 2));
-    assert(journey.failed === 0, `${journey.failed} journey checks failed`);
-    return `${journey.total - journey.failed}/${journey.total}`;
+  await check('06 live-suite journeys on staging (organizer + Page Studio publish, attendee registration and pass, reception desk, exhibitor leads, member roles)', async () => {
+    const specs = readdirSync(LIVE_SPECS).filter((n) => n.endsWith('.spec.ts') && n !== SCANNER_SPEC).sort();
+    return liveSpecs('live-journeys', specs);
   });
 
-  await check('07 real-API scanner spec (pairing, manifest, self-revocation) on staging', async () => {
-    const r = run('npx', ['playwright', 'test', 'e2e/scanner-real-api.spec.ts', '--retries=0'], {
-      cwd: resolve(root, 'web'), allowFail: true,
-      env: { PLAYWRIGHT_BASE_URL: HTTP_BASE, CONGRESS_API_BASE_URL: HTTP_BASE, CONGRESS_PLATFORM_ADMIN_TOKEN: env.CONGRESS_PLATFORM_ADMIN_TOKEN, CI: '', FORCE_COLOR: '0' },
-    });
-    assert(r.status === 0, (r.stdout || r.stderr).split('\n').slice(-8).join(' '));
-    return (r.stdout.match(/\d+ passed/) ?? ['?'])[0];
+  await check('07 live scanner spec on staging (pairing link, hashed manifest, admission, single-use, offline queue, unpairing)', async () => {
+    return liveSpecs('live-scanner', [SCANNER_SPEC]);
   });
 
   await check('08 Page Studio on staging: new organizer publishes a branded page; attendee gets a ticket', async () => {
@@ -243,14 +344,17 @@ try {
     await ctx.close();
   });
 
-  await check('11 media and data survive an API image rebuild and container re-creation', async () => {
+  const REBUILD_ONLY = 'needs --rebuild (rebuilds the API image and stops/starts the stack)';
+  if (!args.rebuild) skip('11 media and data survive an API image rebuild and container re-creation', REBUILD_ONLY);
+  else await check('11 media and data survive an API image rebuild and container re-creation', async () => {
     compose(PROJECT, ['build', 'api']);
     compose(PROJECT, ['up', '-d', '--no-deps', '--force-recreate', '--wait', 'api']);
     eq(sha((await httpsGet(`/api/public/media/${S.asset}`)).body), S.mediaSha, 'image bytes after rebuild');
     eq((await api('GET', `/api/public/events/${S.slug}`)).status, 200, 'page after rebuild');
   });
 
-  await check('12 stop and start the whole stack: event, attendee, ticket, publication and media intact', async () => {
+  if (!args.rebuild) skip('12 stop and start the whole stack: event, attendee, ticket, publication and media intact', REBUILD_ONLY);
+  else await check('12 stop and start the whole stack: event, attendee, ticket, publication and media intact', async () => {
     const before = q("select count(*)||'/'||(select count(*) from users)||'/'||(select count(*) from tickets)||'/'||(select count(*) from event_pages where published is not null)||'/'||(select count(*) from media_assets) from events");
     compose(PROJECT, ['stop']);
     compose(PROJECT, ['up', '-d', '--wait', '--wait-timeout', '300']);
@@ -284,6 +388,21 @@ try {
     }
     eq((await api('GET', `/api/public/events/${S.slug}`)).status, 200, 'staging still serves');
   });
+
+  await check('15 access logs keep pass-link codes and pairing tokens out (URL and Referer); request ids at the edge', async () => {
+    const code = `leakprobe${RUN}`;
+    const token = `leaktoken${RUN}`;
+    const pass = await fetch(`${HTTP_BASE}/t/${code}`, { headers: { Referer: `${HTTP_BASE}/t/${code}` } });
+    eq(pass.headers.get('referrer-policy'), 'no-referrer', '/t/<code> Referrer-Policy');
+    const scan = await fetch(`${HTTP_BASE}/scan/p1?token=${token}`, { headers: { Referer: `${HTTP_BASE}/scan/p1?token=${token}` } });
+    eq(scan.headers.get('referrer-policy'), 'no-referrer', '/scan/<point> Referrer-Policy');
+    const ready = await fetch(`${HTTP_BASE}/api/ready`, { headers: { Referer: `${HTTP_BASE}/t/${code}` } });
+    assert(/^[A-Za-z0-9._:-]{8,128}$/.test(ready.headers.get('x-request-id') ?? ''), 'no request id on an API answer');
+    const logs = compose(PROJECT, ['logs', '--since', '5m', '--no-color', 'web', 'api']).stdout;
+    assert(!logs.includes(code) && !logs.includes(token), 'a code or token reached a log');
+    assert(logs.includes(ready.headers.get('x-request-id')), 'the edge request id is not in the logs');
+    return 'Referer dropped, no-referrer on secret URLs, request id shared by edge and API';
+  });
 } catch (e) {
   results.push({ ok: false, name: 'run', error: e.message });
   console.log('ABORT', e.message);
@@ -291,6 +410,7 @@ try {
   if (browser) await browser.close().catch(() => undefined);
   writeFileSync(join(SHOTS, 'last-run.json'), JSON.stringify({ at: new Date().toISOString(), results }, null, 2));
   const failed = results.filter((r) => !r.ok).length;
-  console.log(`\n${results.length - failed}/${results.length} staging checks passed`);
+  const skipped = results.filter((r) => r.skipped).length;
+  console.log(`\n${results.length - failed - skipped}/${results.length - skipped} staging checks passed${skipped ? ` (${skipped} skipped)` : ''}; evidence in ${SHOTS}`);
   process.exit(failed ? 1 : 0);
 }

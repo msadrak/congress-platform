@@ -24,7 +24,8 @@ const DOC = {
 
 type Saved = { revision: number; document: typeof DOC };
 
-async function studioFixture(page: Page, { saveStatus = 200 }: { saveStatus?: number } = {}) {
+async function studioFixture(page: Page, { saveStatus = 200, conflictOnce = false }: { saveStatus?: number; conflictOnce?: boolean } = {}) {
+  let conflictPending = conflictOnce;
   const saves: Saved[] = [];
   let state = { event_id: EVENT.id, draft: DOC, draft_revision: 3, draft_updated_at: '2099-01-01T10:00:00Z', is_published: false, published_revision: null as number | null, published_at: null as string | null, has_unpublished_changes: true };
   await page.addInitScript((key) => {
@@ -43,7 +44,14 @@ async function studioFixture(page: Page, { saveStatus = 200 }: { saveStatus?: nu
     if (path === `/api/events/${EVENT.id}/page` && request.method() === 'PUT') {
       const body = JSON.parse(request.postData() ?? '{}') as Saved;
       saves.push(body);
-      if (saveStatus !== 200) return json(saveStatus, { detail: 'The page was changed elsewhere (now at revision 4).' });
+      if (conflictPending) {
+        // Another editor saved first: the server moves on to their version.
+        conflictPending = false;
+        state = { ...state, draft: { ...DOC, hero: { ...DOC.hero, subtitle: t('Other editor') }, sections: DOC.sections.slice(0, 3) }, draft_revision: state.draft_revision + 1 };
+        return json(409, { detail: `The page was changed elsewhere (now at revision ${state.draft_revision}).`, code: 'PAGE_DRAFT_STALE' });
+      }
+      if (body.revision !== state.draft_revision) return json(409, { detail: 'stale', code: 'PAGE_DRAFT_STALE' });
+      if (saveStatus !== 200) return json(saveStatus, { detail: 'The page was changed elsewhere (now at revision 4).', code: 'PAGE_DRAFT_STALE' });
       state = { ...state, draft: body.document, draft_revision: body.revision + 1 };
       return json(200, state);
     }
@@ -70,16 +78,70 @@ test('editing shows unsaved state, previews live in the frame, and saves the rev
   await expect(page.getByRole('button', { name: 'Save draft' })).toBeDisabled();
 });
 
-test('a save that lost a concurrent-edit race asks to reload instead of overwriting', async ({ page }) => {
-  await studioFixture(page, { saveStatus: 409 });
+test('a save that lost a concurrent-edit race summarises the other version and keeps mine only when asked', async ({ page }) => {
+  const saves = await studioFixture(page, { conflictOnce: true });
   await page.setViewportSize({ width: 1600, height: 1000 });
   await page.goto(`/organizer/events/${EVENT.id}/page`);
   await page.getByRole('tab', { name: 'Brand & hero' }).click();
   await page.getByLabel('Subtitle').fill('Late edit');
   await page.getByRole('button', { name: 'Save draft' }).click();
-  await expect(page.getByRole('alert').filter({ hasText: 'saved from another window' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Reload latest' })).toBeVisible();
+  const conflict = page.getByTestId('studio-conflict');
+  await expect(conflict).toContainText('This page was saved elsewhere.');
+  const diff = page.getByTestId('studio-conflict-diff');
+  await expect(diff).toContainText('has a different hero');
+  await expect(diff).toContainText('does not have: Exhibitors');
   await expect(page.getByRole('button', { name: 'Save draft' })).toBeDisabled();
+  expect(saves).toHaveLength(1);
+
+  await conflict.getByRole('button', { name: 'Keep my changes' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Your version was saved over the other one' })).toBeVisible();
+  await expect(conflict).toHaveCount(0);
+  expect(saves).toHaveLength(2);
+  // The overwrite is based on the other editor's revision and sends this editor's document.
+  expect(saves[1].revision).toBe(4);
+  expect(saves[1].document.hero.subtitle).toEqual({ fa: '', en: 'Late edit' });
+  expect(saves[1].document.sections).toHaveLength(4);
+});
+
+test('a stale save can load the latest version instead', async ({ page }) => {
+  const saves = await studioFixture(page, { conflictOnce: true });
+  await page.setViewportSize({ width: 1600, height: 1000 });
+  await page.goto(`/organizer/events/${EVENT.id}/page`);
+  await page.getByRole('tab', { name: 'Brand & hero' }).click();
+  await page.getByLabel('Subtitle').fill('Late edit');
+  await page.getByRole('button', { name: 'Save draft' }).click();
+  await page.getByTestId('studio-conflict').getByRole('button', { name: 'Load the latest' }).click();
+  await expect(page.getByTestId('studio-conflict')).toHaveCount(0);
+  await expect(page.getByLabel('Subtitle')).toHaveValue('Other editor');
+  await expect(page.getByTestId('save-state')).not.toHaveText('Unsaved changes');
+  expect(saves).toHaveLength(1);
+});
+
+test('leaving the studio with unsaved edits asks first', async ({ page }) => {
+  await studioFixture(page);
+  await page.setViewportSize({ width: 1600, height: 1000 });
+  await page.goto(`/organizer/events/${EVENT.id}/page`);
+  await page.getByRole('tab', { name: 'Brand & hero' }).click();
+  await page.getByLabel('Subtitle').fill('Unsaved words');
+  const nav = page.getByRole('navigation', { name: 'Congress sections' });
+  await nav.getByRole('link', { name: /Program/ }).click();
+  const guard = page.getByRole('dialog', { name: 'Leave with unsaved changes?' });
+  await guard.getByRole('button', { name: 'Stay and keep editing' }).click();
+  await expect(page).toHaveURL(/\/page$/);
+  await expect(page.getByLabel('Subtitle')).toHaveValue('Unsaved words');
+
+  await nav.getByRole('link', { name: /Program/ }).click();
+  await page.getByRole('dialog', { name: 'Leave with unsaved changes?' }).getByRole('button', { name: 'Leave without saving' }).click();
+  await expect(page).toHaveURL(/\/program$/);
+});
+
+test('a saved studio leaves without asking', async ({ page }) => {
+  await studioFixture(page);
+  await page.setViewportSize({ width: 1600, height: 1000 });
+  await page.goto(`/organizer/events/${EVENT.id}/page`);
+  await expect(page.getByTestId('page-studio')).toBeVisible();
+  await page.getByRole('navigation', { name: 'Congress sections' }).getByRole('link', { name: /Program/ }).click();
+  await expect(page).toHaveURL(/\/program$/);
 });
 
 test('blocks are added, reordered, hidden and removed; core sections can only be hidden', async ({ page }) => {
@@ -143,4 +205,40 @@ test('the public page follows the published document: order, hidden sections, la
   const accent = await page.evaluate(() => getComputedStyle(document.querySelector('[style*="--event-accent"]')!).getPropertyValue('--event-accent').trim());
   expect(accent.toUpperCase()).toBe('#8E1BA8');
   await expect(page).toHaveTitle('Custom Hero Title');
+});
+
+test('the studio has one filled button (Publish), one content-language switch and no section number', async ({ page }) => {
+  await studioFixture(page);
+  await page.setViewportSize({ width: 1600, height: 1000 });
+  await page.goto(`/organizer/events/${EVENT.id}/page`);
+  const studio = page.getByTestId('page-studio');
+  await expect(page.getByTestId('page-status')).toHaveText('Not published');
+  const filled = studio.locator('button.bg-action-primary, a.bg-action-primary');
+  await expect(filled).toHaveCount(1);
+  await expect(filled).toHaveText('Publish');
+  await expect(page.getByRole('radiogroup', { name: 'Content language' })).toHaveCount(1);
+  await expect(studio.getByRole('radio', { name: 'English' })).toHaveCount(1);
+  await expect(studio.getByText('06', { exact: true })).toHaveCount(0);
+  // Secondary page actions sit in the ⋯ menu.
+  await page.getByRole('tab', { name: 'Brand & hero' }).click();
+  await page.getByLabel('Subtitle').fill('Edited');
+  await page.getByRole('button', { name: 'More page actions' }).click();
+  await expect(page.getByRole('menuitem', { name: 'Discard unsaved changes' })).toBeVisible();
+});
+
+test('the preview switch shows the attendee panel, and the old panel page opens it', async ({ page }) => {
+  await studioFixture(page);
+  await page.addInitScript(() => localStorage.setItem('congress_attendee_locale', 'fa'));
+  await page.setViewportSize({ width: 1600, height: 1000 });
+  await page.goto(`/organizer/events/${EVENT.id}/page`);
+  const target = page.getByRole('radiogroup', { name: 'پیش‌نمایش' }).first();
+  await expect(target.getByRole('radio')).toHaveText(['صفحهٔ عمومی', 'پنل شرکت‌کننده']);
+  await target.getByRole('radio', { name: 'پنل شرکت‌کننده' }).click();
+  await expect(page.frameLocator('[data-testid=panel-preview-frame]').getByTestId('panel-preview')).toBeVisible();
+  await expect(page.getByTestId('page-preview-frame')).toHaveCount(0);
+
+  await page.goto(`/organizer/events/${EVENT.id}/panel`);
+  await expect(page).toHaveURL(/\/page\?preview=panel$/);
+  await expect(page.getByRole('radio', { name: 'پنل شرکت‌کننده' })).toHaveAttribute('aria-checked', 'true');
+  await expect(page.frameLocator('[data-testid=panel-preview-frame]').getByTestId('panel-preview')).toBeVisible();
 });

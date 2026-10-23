@@ -19,6 +19,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import SessionDep
+from app.errors import ApiError, error_responses
 from app.media import (
     ACCEPTED_UPLOAD_TYPES,
     RejectedImage,
@@ -31,9 +32,9 @@ from app.media import (
 from app.models import Event, EventPage, MediaAsset
 from app.page_document import PageDocument
 from app.page_render import organizer_media_url, render_page
-from app.routes.events import OwnedEventDep, new_event_page
+from app.routes.events import OwnedEventDep, WritableEventDep, new_event_page
 from app.routes.program import live_program
-from app.routes.public import PublicBoothSummary, PublicEvent, booth_directory, event_tiers
+from app.routes.public import PublicBoothSummary, PublicEvent, booth_directory, event_lifecycle, event_tiers
 
 router = APIRouter(tags=["page studio"])
 
@@ -113,9 +114,10 @@ async def _page(session: AsyncSession, event: Event, *, for_update: bool = False
     return page
 
 
-def _stale(page: EventPage) -> HTTPException:
-    return HTTPException(
+def _stale(page: EventPage) -> ApiError:
+    return ApiError(
         status.HTTP_409_CONFLICT,
+        "PAGE_DRAFT_STALE",
         f"The page was changed elsewhere (now at revision {page.draft_revision}). "
         "Reload the page studio before saving or publishing again.",
     )
@@ -145,8 +147,8 @@ async def get_page(event: OwnedEventDep, session: SessionDep) -> PageStateOut:
     return _state(page)
 
 
-@router.put("/api/events/{event_id}/page")
-async def save_page_draft(body: PageDraftUpdate, event: OwnedEventDep, session: SessionDep) -> PageStateOut:
+@router.put("/api/events/{event_id}/page", responses=error_responses(status.HTTP_409_CONFLICT))
+async def save_page_draft(body: PageDraftUpdate, event: WritableEventDep, session: SessionDep) -> PageStateOut:
     page = await _page(session, event, for_update=True)
     if body.revision != page.draft_revision:
         raise _stale(page)
@@ -159,8 +161,8 @@ async def save_page_draft(body: PageDraftUpdate, event: OwnedEventDep, session: 
     return _state(page)
 
 
-@router.post("/api/events/{event_id}/page/publish")
-async def publish_page(body: PageRevision, event: OwnedEventDep, session: SessionDep) -> PageStateOut:
+@router.post("/api/events/{event_id}/page/publish", responses=error_responses(status.HTTP_409_CONFLICT))
+async def publish_page(body: PageRevision, event: WritableEventDep, session: SessionDep) -> PageStateOut:
     """Replaces the public page with the draft at `revision`, in one transaction."""
     page = await _page(session, event, for_update=True)
     if body.revision != page.draft_revision:
@@ -177,9 +179,9 @@ async def publish_page(body: PageRevision, event: OwnedEventDep, session: Sessio
 
 
 @router.post("/api/events/{event_id}/page/unpublish")
-async def unpublish_page(event: OwnedEventDep, session: SessionDep) -> PageStateOut:
-    """Takes the public page (and the event's public booth pages) offline. The draft is kept; tickets,
-    reservations, check-in and reception are unaffected."""
+async def unpublish_page(event: WritableEventDep, session: SessionDep) -> PageStateOut:
+    """Takes the public page (and the event's public booth pages) offline. The draft is kept; issued tickets,
+    check-in and reception are unaffected, but attendees cannot reserve until the page is published again."""
     page = await _page(session, event, for_update=True)
     page.published = None
     page.published_revision = None
@@ -190,8 +192,8 @@ async def unpublish_page(event: OwnedEventDep, session: SessionDep) -> PageState
     return _state(page)
 
 
-@router.post("/api/events/{event_id}/page/discard")
-async def discard_page_draft(body: PageRevision, event: OwnedEventDep, session: SessionDep) -> PageStateOut:
+@router.post("/api/events/{event_id}/page/discard", responses=error_responses(status.HTTP_409_CONFLICT))
+async def discard_page_draft(body: PageRevision, event: WritableEventDep, session: SessionDep) -> PageStateOut:
     """Throws away unpublished edits: the draft becomes the published page again."""
     page = await _page(session, event, for_update=True)
     if body.revision != page.draft_revision:
@@ -225,6 +227,7 @@ async def preview_page(event: OwnedEventDep, session: SessionDep) -> PagePreview
         venue=venue,
         sessions=sessions,
         booths=await booth_directory(session, event.id),
+        **event_lifecycle(event),
     )
     await session.commit()
     return preview
@@ -281,7 +284,7 @@ async def list_media(event: OwnedEventDep, session: SessionDep) -> list[MediaAss
 )
 async def upload_media(
     request: Request,
-    event: OwnedEventDep,
+    event: WritableEventDep,
     session: SessionDep,
     content_type: Annotated[str | None, Header()] = None,
     content_length: Annotated[int | None, Header()] = None,
@@ -349,7 +352,7 @@ async def organizer_media_content(
 
 
 @router.delete("/api/events/{event_id}/media/{asset_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_media(asset_id: uuid.UUID, request: Request, event: OwnedEventDep, session: SessionDep) -> Response:
+async def delete_media(asset_id: uuid.UUID, request: Request, event: WritableEventDep, session: SessionDep) -> Response:
     page = await _page(session, event, for_update=True)
     asset = await _own_asset(session, event, asset_id)
     in_draft = asset.id in PageDocument.model_validate(page.draft).asset_ids()
@@ -372,11 +375,18 @@ async def delete_media(asset_id: uuid.UUID, request: Request, event: OwnedEventD
     tags=["public"],
 )
 async def public_media(asset_id: uuid.UUID, request: Request, session: SessionDep) -> FileResponse:
-    """Anonymous image access: only images the event's published page references."""
+    """Anonymous image access: only images the published page of an unarchived event references (an archived
+    event's public page is gone, like its schedule files)."""
     asset = await session.get(MediaAsset, asset_id)
     if asset is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Image not found")
     page = await session.get(EventPage, asset.event_id)
-    if page is None or page.published is None or str(asset.id) not in page.published_asset_ids:
+    archived_at = await session.scalar(select(Event.archived_at).where(Event.id == asset.event_id))
+    if (
+        page is None
+        or page.published is None
+        or archived_at is not None
+        or str(asset.id) not in page.published_asset_ids
+    ):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Image not found")
     return _file_response(request, asset, "public, max-age=3600")

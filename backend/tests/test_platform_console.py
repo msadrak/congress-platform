@@ -1,5 +1,6 @@
 """Platform console: SMS gateway and sign-in rules edited at run time, credentials write-only and encrypted."""
 
+import asyncio
 import json
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -13,12 +14,12 @@ from sqlalchemy import select
 
 from app.main import create_app
 from app.models import PlatformSetting, SmsMessage
-from app.platform_config import SMS_API_KEY
-from app.secret_box import seal
+from app.platform_config import SMS_API_KEY, reload_platform
+from app.secret_box import open_sealed, seal
 from app.sms.gateway import SmsGateway
 from app.sms.outbox import deliver_due
-from tests.conftest import ADMIN_TOKEN, _truncate_all, make_test_settings
-from tests.helpers import bearer, provision_organizer, sign_in
+from tests.conftest import ADMIN_TOKEN, TEST_JWT_SECRET, _truncate_all, make_test_settings
+from tests.helpers import bearer, provision_organizer, publish_page, sign_in
 from tests.test_ticket_tiers import create_event, tier
 
 ADMIN = {"X-Admin-Token": ADMIN_TOKEN}
@@ -61,6 +62,8 @@ async def test_status_starts_from_the_environment(client: AsyncClient) -> None:
         "mode": "console", "mode_source": "environment", "effective": "console",
         "api_key_set": False, "api_key_hint": None, "api_key_source": None, "api_key_unreadable": False,
         "line_number": None, "line_number_source": None, "console_allowed": True,
+        "hourly_cap": 2000, "daily_cap": 20000,
+        "caps_source": {"hourly_cap": "environment", "daily_cap": "environment"},
     }
     assert body["sign_in"]["otp_length"] == 6
     assert set(body["sign_in"]["sources"].values()) == {"environment"}
@@ -95,6 +98,7 @@ async def test_live_sms_settings_apply_without_a_restart_and_the_key_is_never_sh
 async def test_without_a_key_nothing_can_be_sent_and_confirmations_wait(app: FastAPI, client: AsyncClient) -> None:
     organizer = await provision_organizer(client, "Waiting Co")
     event_id = await create_event(client, organizer)
+    await publish_page(client, organizer, event_id)
     tier_id = (await client.post(f"/api/events/{event_id}/ticket-tiers", json=tier(), headers=bearer(organizer))).json()["id"]
     _, token = await sign_in(client, MOBILE)
 
@@ -167,6 +171,75 @@ async def test_sign_in_rules_apply_immediately_and_reset_to_the_environment(app:
     assert (reset.json()["otp_length"], reset.json()["otp_ttl_seconds"]) == (6, 120)
 
 
+async def test_venue_networks_and_their_budget_are_set_in_the_console(client: AsyncClient) -> None:
+    saved = await client.put(
+        "/api/platform/sign-in",
+        json={"otp_trusted_networks": ["10.0.0.0/8", " 192.0.2.7 ", "2001:db8::/48"],
+              "otp_sends_per_trusted_ip_per_hour": 500},
+        headers=ADMIN,
+    )
+    assert saved.status_code == 200, saved.text
+    body = saved.json()
+    assert body["otp_trusted_networks"] == ["10.0.0.0/8", "192.0.2.7/32", "2001:db8::/48"]
+    assert body["otp_sends_per_trusted_ip_per_hour"] == 500
+    assert body["sources"]["otp_trusted_networks"] == "console"
+
+    bad = await client.put("/api/platform/sign-in", json={"otp_trusted_networks": ["10.0.0.300"]}, headers=ADMIN)
+    assert bad.status_code == 422 and bad.json()["code"] == "TRUSTED_NETWORK_INVALID"
+
+    reset = await client.put("/api/platform/sign-in", json={"reset": ["otp_trusted_networks"]}, headers=ADMIN)
+    assert reset.json()["otp_trusted_networks"] == [] and reset.json()["sources"]["otp_trusted_networks"] == "environment"
+
+
+async def test_platform_sms_caps_are_set_in_the_console(app: FastAPI, client: AsyncClient) -> None:
+    saved = await client.put("/api/platform/sms", json={"hourly_cap": 3, "daily_cap": 10}, headers=ADMIN)
+    assert saved.status_code == 200, saved.text
+    assert (saved.json()["hourly_cap"], saved.json()["daily_cap"]) == (3, 10)
+    assert saved.json()["caps_source"] == {"hourly_cap": "console", "daily_cap": "console"}
+    config = gateway(app).config
+    assert config is not None and (config.hourly_cap, config.daily_cap) == (3, 10)
+    reset = await client.put("/api/platform/sms", json={"reset": ["hourly_cap"]}, headers=ADMIN)
+    assert (reset.json()["hourly_cap"], reset.json()["caps_source"]["hourly_cap"]) == (2000, "environment")
+
+
+async def test_the_console_shows_outbox_counts_without_message_text(app: FastAPI, client: AsyncClient) -> None:
+    organizer = await provision_organizer(client, "Outbox Co")
+    event_id = await create_event(client, organizer)
+    await publish_page(client, organizer, event_id)
+    tier_id = (await client.post(f"/api/events/{event_id}/ticket-tiers", json=tier(), headers=bearer(organizer))).json()["id"]
+    _, token = await sign_in(client, MOBILE)
+    reserved = await client.post(f"/api/events/{event_id}/tickets/reserve", json={"ticket_tier_id": tier_id},
+                                 headers={"Authorization": f"Bearer {token}"})
+    assert reserved.status_code == 201, reserved.text
+
+    outbox = await client.get("/api/platform/sms/outbox", headers=ADMIN)
+    assert outbox.status_code == 200, outbox.text
+    body = outbox.json()
+    assert body["counts"] == {"pending": 1, "sending": 0, "sent": 1, "failed": 0, "unknown": 0, "resolved": 0}
+    assert body["oldest_pending_at"] is not None
+    assert (body["sent_last_hour"], body["hourly_cap"], body["daily_cap"]) == (1, 2000, 20000)
+    assert MOBILE not in outbox.text and "عزیز" not in outbox.text
+
+    await deliver_due(app.state.sessionmaker, app.state.sms)
+    body = (await client.get("/api/platform/sms/outbox", headers=ADMIN)).json()
+    assert body["counts"]["sent"] == 2 and body["oldest_pending_at"] is None and body["sent_last_hour"] == 2
+
+
+async def test_a_change_saved_by_another_process_applies_within_seconds(media_root: Path) -> None:
+    await _truncate_all()
+    settings = make_test_settings(media_root).model_copy(update={"platform_settings_refresh_seconds": 0.05})
+    one, two = create_app(settings), create_app(settings)
+    async with one.router.lifespan_context(one), two.router.lifespan_context(two):
+        async with AsyncClient(transport=ASGITransport(app=one), base_url="http://test") as client:
+            saved = await client.put("/api/platform/sign-in", json={"otp_length": 8}, headers=ADMIN)
+            assert saved.status_code == 200
+        for _ in range(100):
+            if two.state.platform.sign_in.otp_length == 8:
+                break
+            await asyncio.sleep(0.05)
+        assert two.state.platform.sign_in.otp_length == 8
+
+
 @asynccontextmanager
 async def production_app(media_root: Path) -> AsyncIterator[AsyncClient]:
     await _truncate_all()
@@ -185,7 +258,61 @@ async def test_production_refuses_test_mode_and_fast_resends(media_root: Path) -
         assert status["sms"]["effective"] == "unconfigured" and status["sms"]["console_allowed"] is False
         assert (await client.put("/api/platform/sms", json={"mode": "console"}, headers=ADMIN)).status_code == 422
         assert (await client.put("/api/platform/sign-in", json={"otp_resend_cooldown_seconds": 5}, headers=ADMIN)).status_code == 422
+        short = await client.put("/api/platform/sign-in", json={"otp_length": 4}, headers=ADMIN)
+        assert short.status_code == 422 and short.json()["code"] == "OTP_LENGTH_TOO_SHORT"
         assert (await client.get("/api/platform/sms-outbox", params={"mobile": MOBILE}, headers=ADMIN)).status_code == 404
+
+
+SECRET_BOX_KEY = "7c2e9a4f1b8d3e6a0c5f2b9e4d7a1c8f3e6b0d5a"
+
+
+@asynccontextmanager
+async def secret_box_app(media_root: Path) -> AsyncIterator[tuple[FastAPI, AsyncClient]]:
+    await _truncate_all()
+    app = create_app(make_test_settings(media_root).model_copy(update={"secret_box_key": SECRET_BOX_KEY}))
+    async with app.router.lifespan_context(app):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as http:
+            yield app, http
+
+
+async def _stored_sealed_key(app: FastAPI) -> str:
+    async with app.state.sessionmaker() as session:
+        row = await session.get(PlatformSetting, SMS_API_KEY)
+    assert row is not None
+    return str(row.value["sealed"])
+
+
+async def test_a_dedicated_secret_box_key_seals_new_credentials(media_root: Path) -> None:
+    async with secret_box_app(media_root) as (app, client):
+        saved = await client.put("/api/platform/sms", json={"mode": "smsir", "api_key": KEY, "line_number": 30001234}, headers=ADMIN)
+
+        assert (saved.json()["effective"], saved.json()["api_key_hint"]) == ("smsir", "…1234")
+        sealed = await _stored_sealed_key(app)
+        assert open_sealed(sealed, SECRET_BOX_KEY) == KEY
+        assert open_sealed(sealed, TEST_JWT_SECRET) is None
+
+
+async def test_credentials_sealed_with_the_jwt_secret_still_open_and_are_resealed_on_the_next_save(
+    media_root: Path,
+) -> None:
+    async with secret_box_app(media_root) as (app, client):
+        async with app.state.sessionmaker() as session:
+            session.add(PlatformSetting(key=SMS_API_KEY, value={"sealed": seal(TEST_JWT_SECRET, KEY)}))
+            await session.commit()
+        async with app.state.sessionmaker() as session:
+            await reload_platform(app, session)
+
+        before = (await client.get("/api/platform/sms", headers=ADMIN)).json()
+        assert (before["api_key_set"], before["api_key_unreadable"], before["api_key_hint"]) == (True, False, "…1234")
+        assert open_sealed(await _stored_sealed_key(app), SECRET_BOX_KEY) is None
+
+        await client.put("/api/platform/sms", json={"line_number": 30001234}, headers=ADMIN)
+
+        resealed = await _stored_sealed_key(app)
+        assert open_sealed(resealed, SECRET_BOX_KEY) == KEY
+        assert open_sealed(resealed, TEST_JWT_SECRET) is None
+        after = (await client.get("/api/platform/sms", headers=ADMIN)).json()
+        assert (after["api_key_hint"], after["line_number"]) == ("…1234", 30001234)
 
 
 async def test_a_live_test_send_is_reported_as_real_and_a_network_failure_is_named(app: FastAPI, client: AsyncClient) -> None:

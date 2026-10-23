@@ -147,6 +147,63 @@ test("cache expiration enforces TTL policy and purges expired pass", () => {
   assert.equal(storage.getItem(`${CACHED_TICKETS_KEY_PREFIX}user-ttl-789`), null);
 });
 
+const DAY = 86_400_000;
+const NOW = Date.parse("2027-01-01T00:00:00Z");
+const endingIn = (days: number, id = "ticket-uuid-001"): AttendeeTicketDetail => ({
+  ...mockTicket,
+  id,
+  event_ends_at: new Date(NOW + days * DAY).toISOString(),
+});
+
+test("a saved pass stays until its congress ends, not for a fixed 7 days", () => {
+  const storage = new MockStorage();
+  const token = makeMockJwt("user-early-1");
+
+  // The attendee signs in two months before the congress; the home-screen icon must still open the pass at the gate.
+  saveOwnerScopedTickets(token, [endingIn(60)], NOW, undefined, storage);
+
+  assert.equal(loadOwnerScopedTickets(token, NOW + 30 * DAY, storage).status, "valid");
+  assert.equal(loadOwnerScopedTickets(token, NOW + 59 * DAY, storage).status, "valid");
+  assert.equal(loadOwnerScopedTickets(token, NOW + 61 * DAY, storage).status, "expired");
+  assert.equal(storage.getItem(`${CACHED_TICKETS_KEY_PREFIX}user-early-1`), null);
+});
+
+test("with several congresses the pass is kept until the last one ends", () => {
+  const storage = new MockStorage();
+  const token = makeMockJwt("user-two-2");
+
+  saveOwnerScopedTickets(token, [endingIn(10, "a"), endingIn(90, "b"), endingIn(40, "c")], NOW, undefined, storage);
+
+  assert.equal(loadOwnerScopedTickets(token, NOW + 89 * DAY, storage).status, "valid");
+  assert.equal(loadOwnerScopedTickets(token, NOW + 91 * DAY, storage).status, "expired");
+});
+
+test("a congress that is over, or has no usable end date, keeps the 7-day window and never less", () => {
+  const token = makeMockJwt("user-late-3");
+  const cases: Array<[string, AttendeeTicketDetail[]]> = [
+    ["already over", [endingIn(-30)]],
+    ["no end date", [mockTicket]],
+    ["unreadable end date", [{ ...mockTicket, event_ends_at: "soon" }]],
+    ["no passes", []],
+  ];
+  for (const [label, tickets] of cases) {
+    const storage = new MockStorage();
+    saveOwnerScopedTickets(token, tickets, NOW, undefined, storage);
+    assert.equal(loadOwnerScopedTickets(token, NOW + 6 * DAY, storage).status === "expired", false, `${label}: still there after 6 days`);
+    assert.equal(loadOwnerScopedTickets(token, NOW + 8 * DAY, storage).status, "expired", `${label}: gone after 8 days`);
+  }
+});
+
+test("an explicit lifetime still wins over the congress end", () => {
+  const storage = new MockStorage();
+  const token = makeMockJwt("user-ttl-4");
+
+  saveOwnerScopedTickets(token, [endingIn(60)], NOW, 3 * DAY, storage);
+
+  assert.equal(loadOwnerScopedTickets(token, NOW + 2 * DAY, storage).status, "valid");
+  assert.equal(loadOwnerScopedTickets(token, NOW + 4 * DAY, storage).status, "expired");
+});
+
 test("clearOwnerScopedTickets purges owner cache on logout", () => {
   const storage = new MockStorage();
   const token = makeMockJwt("user-logout-999");

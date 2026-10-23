@@ -5,6 +5,7 @@
 #   CONGRESS_HSTS          on  = Strict-Transport-Security (real domain with a public certificate)
 #   CONGRESS_ADMIN_ALLOW   client ranges that may reach /api/organizers and /api/platform through the proxy
 #                          (local staging: private_ranges; hosted: 127.0.0.1/32 = nobody, use stack.mjs)
+#   CONGRESS_METRICS_ALLOW client ranges that may reach /api/metrics (hosted: your Prometheus server's address)
 #   CONGRESS_DEFAULT_SNI   certificate name for clients that send no SNI, i.e. that connect to a bare IP
 #                          address (LAN access: the machine's IP, which must also be in CONGRESS_SITE_ADDRESS)
 # CDN in front (docs/deployment/CDN.md), all off by default:
@@ -26,15 +27,31 @@
 
 	header {
 		X-Content-Type-Options nosniff
-		Referrer-Policy strict-origin-when-cross-origin
 		Permissions-Policy "camera=(self), microphone=(), geolocation=(), payment=()"
 		?X-Frame-Options SAMEORIGIN
 		?Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; worker-src 'self'; manifest-src 'self'; frame-src 'self'; frame-ancestors 'self'; base-uri 'self'; form-action 'self'; object-src 'none'"
 		-Server
 	}
 	import /etc/caddy/options/hsts-{$CONGRESS_HSTS:off}.caddy
+	# SMS pass links (/t/<code>) and scanner pairing links (/scan/<point>?token=...) carry a credential in the page
+	# URL. Under strict-origin-when-cross-origin every same-origin request from such a page (API calls, images)
+	# would repeat that URL in its Referer header, so these pages send no Referer at all.
+	@secretUrl path /t/* /scan/*
+	header @secretUrl Referrer-Policy no-referrer
+	@ordinaryUrl not path /t/* /scan/*
+	header @ordinaryUrl Referrer-Policy strict-origin-when-cross-origin
 
-	log {
+	# Request id: a well-formed incoming X-Request-ID is kept (the same rule as app/observability.py), otherwise
+	# Caddy's own request uuid. The API receives it, the response carries it (also the 502 Caddy answers itself
+	# while the API is down) and the access log records it as request_id.
+	@requestId header_regexp X-Request-ID ^[A-Za-z0-9._:-]{8,128}$
+	vars @requestId request_id {http.request.header.X-Request-ID}
+	@noRequestId not header_regexp X-Request-ID ^[A-Za-z0-9._:-]{8,128}$
+	vars @noRequestId request_id {http.request.uuid}
+	header X-Request-ID {vars.request_id}
+	log_append request_id {vars.request_id}
+
+	log access {
 		output stdout
 		format filter {
 			wrap json
@@ -47,8 +64,26 @@
 			}
 			request>headers>Authorization delete
 			request>headers>X-Admin-Token delete
+			# The page a request came from: /t/<code> or /scan/<point>?token=... from older clients or other sites.
+			request>headers>Referer delete
 		}
 	}
+	# SMS short links (/t/<code>, ADR 0015) open an attendee's pass, so the code must not reach a log either. A field
+	# takes one filter, hence a second logger for /t/* with the whole path replaced; every request names its logger.
+	log short_links {
+		output stdout
+		format filter {
+			wrap json
+			request>uri regexp ^/t/.* /t/-
+			request>headers>Authorization delete
+			request>headers>X-Admin-Token delete
+			request>headers>Referer delete
+		}
+	}
+	@shortLink path /t/*
+	log_name @shortLink short_links
+	@notShortLink not path /t/*
+	log_name @notShortLink access
 
 	# With CONGRESS_CDN_ONLY=on, anyone but the CDN gets 403 here (before every other handler).
 	import /etc/caddy/options/cdn-gate-{$CONGRESS_CDN_ONLY:off}.caddy
@@ -64,6 +99,13 @@
 		}
 		respond @adminBlocked 404
 
+		# Prometheus metrics: only scrapers in CONGRESS_METRICS_ALLOW (the API also requires its bearer token).
+		@metricsBlocked {
+			path /api/metrics
+			not remote_ip {$CONGRESS_METRICS_ALLOW:private_ranges}
+		}
+		respond @metricsBlocked 404
+
 		request_body {
 			max_size 8MB
 		}
@@ -72,6 +114,9 @@
 			# one worked out above (the connecting address, or behind a trusted CDN the visitor's), never a list a
 			# visitor could have written.
 			header_up X-Forwarded-For {client_ip}
+			header_up X-Request-ID {vars.request_id}
+			# The API answers with the same id; the edge already set it (one header, not two).
+			header_down -X-Request-ID
 			# While the API restarts (deploys, rebuilds) hold requests briefly instead of failing them.
 			lb_try_duration 15s
 			lb_try_interval 250ms

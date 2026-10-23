@@ -40,6 +40,6 @@ EXPOSE 8000
 STOPSIGNAL SIGTERM
 HEALTHCHECK --interval=15s --timeout=5s --start-period=20s --retries=5 \
   CMD ["python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/api/ready', timeout=4).status == 200 else 1)"]
-# uvicorn is PID 1 (exec form): SIGTERM drains in-flight requests, then the process exits.
-CMD ["uvicorn", "app.main:create_app_from_env", "--factory", "--host", "0.0.0.0", "--port", "8000", \
-     "--proxy-headers", "--forwarded-allow-ips", "*", "--no-server-header", "--timeout-graceful-shutdown", "20"]
+# app.serve validates the settings and execs uvicorn with CONGRESS_API_WORKERS workers (default 1), so uvicorn is
+# PID 1: SIGTERM drains in-flight requests, then the process exits (app/serve.py has the full command line).
+CMD ["python", "-m", "app.serve"]

@@ -49,7 +49,7 @@ class SmsIrProvider:
         api_key: str,
         line_number: int,
         *,
-        timeout: float = 10.0,
+        timeout: float = 5.0,
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
         self._line_number = line_number

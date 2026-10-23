@@ -13,6 +13,7 @@ from alembic.script import ScriptDirectory
 from sqlalchemy.engine import make_url
 
 from tests.conftest import ADMIN_DSN, BACKEND_DIR, TEST_URL, _truncate_all, disposable_target_problem
+from tests.migration_chain import linear_chain
 
 
 async def verify_populated_expansion(url: str) -> None:
@@ -129,9 +130,12 @@ def test_desk_session_migration_has_one_linear_head() -> None:
     config = Config(str(BACKEND_DIR / "alembic.ini"))
     config.set_main_option("script_location", str(BACKEND_DIR / "migrations"))
     scripts = ScriptDirectory.from_config(config)
-    assert scripts.get_heads() == ["0018"]
-    revisions = list(scripts.walk_revisions())
-    assert [revision.revision for revision in revisions] == [f"{number:04d}" for number in range(18, 0, -1)]
+    # Expected head and order come from the files (tests/migration_chain.py), so re-chaining at merge time needs
+    # no edit here; the chain must still be one straight line from the head to 0001.
+    chain = linear_chain()
+    assert scripts.get_heads() == [chain[0]]
+    assert [revision.revision for revision in scripts.walk_revisions()] == chain
+    assert chain[-1] == "0001"
     desk_session = scripts.get_revision("0012")
     assert desk_session is not None and desk_session.down_revision == "0011"
     assert len(list(Path(BACKEND_DIR / "migrations" / "versions").glob("0012_*.py"))) == 1

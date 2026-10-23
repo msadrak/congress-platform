@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import jsQR from "jsqr";
+import { createRepeatFilter } from "../hooks/useHidScanner";
+import { cameraCopy } from "../copy/camera";
+import { useCopy } from "../copy/useCopy";
+import type { AttendeeLocale } from "../lib/i18n";
 import { Button } from "./ui/Button";
 import { Icon } from "./ui/Icon";
 import "../styles/qr-camera.css";
@@ -14,11 +18,32 @@ interface WindowWithBarcodeDetector extends Window {
 type CameraState = "off" | "starting" | "live" | "denied" | "unavailable";
 
 interface QrCameraInputProps {
-  /** Receives one decoded value per intentional start; the camera stops right after. */
+  /** Receives one decoded value per intentional start; the camera stops right after (unless `continuous`). */
   onDecode: (value: string) => void;
-  isRtl: boolean;
+  /** The words' language; the app's locale when left out. */
+  locale?: AttendeeLocale;
   /** Turning the camera off from outside (dialog closed, booth or session changed, submitting). */
   disabled?: boolean;
+  /**
+   * Start the camera on its own, but only when the browser already granted camera permission: the prompt
+   * itself still waits for the person to press the button.
+   */
+  autoStart?: boolean;
+  /**
+   * Keep the camera running after a decode and hand over every new code (a station scanning one badge after
+   * another). The same value is not handed over again until it has been out of view for 3 s.
+   */
+  continuous?: boolean;
+}
+
+/** True when the browser has already been allowed to use the camera (the API is missing or refuses on some browsers). */
+async function cameraPermissionGranted(): Promise<boolean> {
+  try {
+    const status = await navigator.permissions.query({ name: "camera" as PermissionName });
+    return status.state === "granted";
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -28,15 +53,19 @@ interface QrCameraInputProps {
  * stream that resolves late. Manual entry elsewhere stays available for every failure. Shared by
  * the exhibitor lead capture and attendee peer networking (both scan an attendee badge QR).
  */
-export function QrCameraInput({ onDecode, isRtl, disabled = false }: QrCameraInputProps) {
+export function QrCameraInput({ onDecode, locale, disabled = false, autoStart = false, continuous = false }: QrCameraInputProps) {
+  const c = useCopy(cameraCopy, locale);
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const runRef = useRef(0);
   const [state, setState] = useState<CameraState>("off");
   const onDecodeRef = useRef(onDecode);
+  const continuousRef = useRef(continuous);
+  const repeatRef = useRef(createRepeatFilter());
   useEffect(() => {
     onDecodeRef.current = onDecode;
-  }, [onDecode]);
+    continuousRef.current = continuous;
+  }, [onDecode, continuous]);
 
   // Releases the camera without touching React state (safe in effect cleanups).
   const release = useCallback(() => {
@@ -62,6 +91,7 @@ export function QrCameraInput({ onDecode, isRtl, disabled = false }: QrCameraInp
       return;
     }
     const run = ++runRef.current;
+    repeatRef.current.reset();
     setState("starting");
     let stream: MediaStream;
     try {
@@ -120,9 +150,13 @@ export function QrCameraInput({ onDecode, isRtl, disabled = false }: QrCameraInp
           }
           if (run !== runRef.current) return;
           if (value && value.trim()) {
-            stop();
-            onDecodeRef.current(value.trim());
-            return;
+            const code = value.trim();
+            if (!continuousRef.current) {
+              stop();
+              onDecodeRef.current(code);
+              return;
+            }
+            if (repeatRef.current.accept(code, performance.now())) onDecodeRef.current(code);
           }
         } catch {
           // A failed frame is skipped.
@@ -133,13 +167,29 @@ export function QrCameraInput({ onDecode, isRtl, disabled = false }: QrCameraInp
     requestAnimationFrame(() => void tick());
   };
 
+  // Runs on mount and whenever the camera is enabled again; a failure or denial leaves the button in place.
+  const startRef = useRef(start);
+  useEffect(() => {
+    startRef.current = start;
+  });
+  useEffect(() => {
+    if (!autoStart || disabled) return;
+    let cancelled = false;
+    void cameraPermissionGranted().then((granted) => {
+      if (granted && !cancelled) void startRef.current();
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [autoStart, disabled]);
+
   const view: CameraState = disabled && (state === "live" || state === "starting") ? "off" : state;
   const message: Record<CameraState, string> = {
     off: "",
-    starting: isRtl ? "در انتظار مجوز دوربین..." : "Waiting for camera permission...",
-    live: isRtl ? "کیوآر کارت شرکت‌کننده را مقابل دوربین بگیرید." : "Hold the attendee's badge QR in front of the camera.",
-    denied: isRtl ? "دسترسی به دوربین داده نشد. کد را دستی وارد کنید." : "Camera permission was denied. Enter the code manually.",
-    unavailable: isRtl ? "دوربین در دسترس نیست (یا اتصال امن نیست). کد را دستی وارد کنید." : "No usable camera (or the page is not secure). Enter the code manually.",
+    starting: c.starting,
+    live: c.live,
+    denied: c.denied,
+    unavailable: c.unavailable,
   };
 
   const active = view === "live" || view === "starting";
@@ -147,23 +197,23 @@ export function QrCameraInput({ onDecode, isRtl, disabled = false }: QrCameraInp
   const toggle = active ? (
     <Button type="button" variant="light" size="md" onClick={stop} className="min-w-[10rem]">
       <Icon name="x" size={16} />
-      <span>{isRtl ? "بستن دوربین" : "Stop camera"}</span>
+      <span>{c.turnOff}</span>
     </Button>
   ) : (
     <Button type="button" variant="light" size="md" disabled={disabled} onClick={() => void start()} className="min-w-[10rem]">
       <Icon name="camera" size={18} className="text-aiteb-indigo" />
-      <span>{isRtl ? "اسکن با دوربین" : "Scan with camera"}</span>
+      <span>{c.turnOn}</span>
     </Button>
   );
 
   return (
     <div className="space-y-2">
-      <div className="qr-viewfinder relative overflow-hidden rounded-2xl bg-surface-ink bg-meridian-ink">
+      <div className="qr-viewfinder relative overflow-hidden rounded-2xl bg-surface-ink">
         <video
           ref={videoRef}
           muted
           playsInline
-          aria-label={isRtl ? "پیش‌نمایش دوربین" : "Camera preview"}
+          aria-label={c.preview}
           className={`block aspect-[4/3] max-h-64 w-full bg-black object-cover ${view === "live" ? "" : "hidden"}`}
         />
         {view === "live" ? (
