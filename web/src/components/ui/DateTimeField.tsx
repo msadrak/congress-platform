@@ -39,21 +39,26 @@ const COPY = {
 } as const;
 
 const DAYS = Array.from({ length: 31 }, (_, i) => i + 1);
+/** `.ui-select` has no invalid look of its own yet (`.ui-input` does). */
+const SELECT_INVALID = "aria-invalid:border-status-danger-solid";
 
 function CalendarField({ withTime, label, value, onChange, locale, timeZone, hint, error, required, disabled, className = "" }: DateFieldProps & { withTime: boolean }) {
   const id = useId();
   const copy = COPY[locale];
   const [draft, setDraft] = useState<DateDraft>(() => dateDraft(value, locale));
   const [synced, setSynced] = useState({ value, locale });
+  // An impossible date or time is pointed out once a choice is made or the reader leaves the box, not mid-typing.
+  const [checked, setChecked] = useState(false);
   // A new value from the form (a reset, another record) or a language switch replaces what was typed.
   if (synced.value !== value || synced.locale !== locale) {
     setSynced({ value, locale });
     if (synced.locale !== locale || value !== draftValue(draft, locale, withTime)) setDraft(dateDraft(value, locale));
   }
 
-  const update = (patch: Partial<DateDraft>) => {
+  const update = (patch: Partial<DateDraft>, check: boolean) => {
     const next = { ...draft, ...patch };
     setDraft(next);
+    setChecked(check);
     const nextValue = draftValue(next, locale, withTime);
     if (nextValue !== value) onChange(nextValue);
   };
@@ -61,7 +66,7 @@ function CalendarField({ withTime, label, value, onChange, locale, timeZone, hin
   const complete = draft.year.length === 4 && draft.month > 0 && draft.day > 0 && (!withTime || draft.time !== "");
   const current = draftValue(draft, locale, withTime);
   const timeInvalid = withTime && draft.time !== "" && parseTimeOfDay(draft.time) === null;
-  const readout = current ? describeWallValue(current, locale, timeZone) : complete ? (timeInvalid ? copy.invalidTime : copy.invalidDate) : "";
+  const readout = current ? describeWallValue(current, locale, timeZone) : complete && checked ? (timeInvalid ? copy.invalidTime : copy.invalidDate) : "";
   const describedBy = [`${id}-readout`, hint ? `${id}-hint` : "", error ? `${id}-error` : ""].filter(Boolean).join(" ");
   const invalid = error ? true : undefined;
   const control = { "aria-describedby": describedBy, "aria-invalid": invalid, "aria-required": required || undefined };
@@ -81,9 +86,9 @@ function CalendarField({ withTime, label, value, onChange, locale, timeZone, hin
         <select
           {...control}
           aria-label={copy.day}
-          className="ui-select w-20"
+          className={`ui-select w-20 ${SELECT_INVALID}`}
           value={draft.day || ""}
-          onChange={(e) => update({ day: Number(e.target.value) })}
+          onChange={(e) => update({ day: Number(e.target.value) }, true)}
         >
           <option value="">{copy.day}</option>
           {DAYS.map((day) => (
@@ -95,9 +100,9 @@ function CalendarField({ withTime, label, value, onChange, locale, timeZone, hin
         <select
           {...control}
           aria-label={copy.month}
-          className="ui-select min-w-0 flex-1 basis-32"
+          className={`ui-select min-w-0 flex-1 basis-32 ${SELECT_INVALID}`}
           value={draft.month || ""}
-          onChange={(e) => update({ month: Number(e.target.value) })}
+          onChange={(e) => update({ month: Number(e.target.value) }, true)}
         >
           <option value="">{copy.month}</option>
           {months.map((name, index) => (
@@ -115,7 +120,8 @@ function CalendarField({ withTime, label, value, onChange, locale, timeZone, hin
           maxLength={4}
           placeholder={copy.year}
           value={localeDigits(draft.year, locale)}
-          onChange={(e) => update({ year: latinDigits(e.target.value).replace(/\D/g, "").slice(0, 4) })}
+          onChange={(e) => update({ year: latinDigits(e.target.value).replace(/\D/g, "").slice(0, 4) }, false)}
+          onBlur={() => setChecked(true)}
         />
         {withTime && (
           <input
@@ -128,10 +134,11 @@ function CalendarField({ withTime, label, value, onChange, locale, timeZone, hin
             maxLength={5}
             placeholder={localeDigits("08:30", locale)}
             value={localeDigits(draft.time, locale)}
-            onChange={(e) => update({ time: latinDigits(e.target.value).replace(/[^\d:]/g, "").slice(0, 5) })}
+            onChange={(e) => update({ time: latinDigits(e.target.value).replace(/[^\d:]/g, "").slice(0, 5) }, false)}
             onBlur={() => {
               const time = parseTimeOfDay(draft.time);
-              if (time && time !== draft.time) update({ time });
+              if (time && time !== draft.time) update({ time }, true);
+              else setChecked(true);
             }}
           />
         )}
