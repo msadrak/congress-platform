@@ -77,6 +77,11 @@ class Settings(BaseSettings):
     # Background delivery of queued SMS (ticket confirmations); the test suite drives it explicitly.
     sms_outbox_enabled: bool = True
     sms_outbox_poll_seconds: float = Field(default=5.0, gt=0, le=300)
+    # Data retention (app/retention.py): used/expired sign-in codes and the text of sent SMS are removed.
+    retention_enabled: bool = True
+    retention_interval_seconds: float = Field(default=3600.0, gt=0, le=86_400)
+    otp_retention_hours: int = Field(default=24, ge=1)
+    sms_body_retention_days: int = Field(default=30, ge=1)
 
     # ── Operations: logs, metrics, error reporting (app/logging_setup.py, app/observability.py) ──
     # json = one object per line (log shippers), text = human-readable. Unset: json in staging/production.

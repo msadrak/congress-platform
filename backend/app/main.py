@@ -18,6 +18,7 @@ from app.schema_guard import assert_schema_current
 from app.platform_config import apply_platform, environment_config, keep_loading_platform, reload_platform
 from app.sms import build_gateway
 from app.sms.outbox import run_outbox
+from app.retention import run_retention
 from app.routes import (
     access,
     analytics,
@@ -31,6 +32,7 @@ from app.routes import (
     network,
     organizers,
     pages,
+    participants,
     passes,
     platform,
     program,
@@ -64,8 +66,11 @@ def create_app(settings: Settings) -> FastAPI:
             if settings.sms_outbox_enabled
             else None
         )
+        retention = (
+            asyncio.create_task(run_retention(app.state.sessionmaker, settings)) if settings.retention_enabled else None
+        )
         yield
-        for task in (outbox, platform_loader):
+        for task in (outbox, retention, platform_loader):
             if task is not None:
                 task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
@@ -100,6 +105,7 @@ def create_app(settings: Settings) -> FastAPI:
     app.include_router(events.router)
     app.include_router(ticket_tiers.router)
     app.include_router(tickets.router)
+    app.include_router(participants.router)
     app.include_router(checkin.router)
     app.include_router(desk.router)
     app.include_router(analytics.router)

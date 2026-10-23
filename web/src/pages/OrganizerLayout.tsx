@@ -4,6 +4,7 @@ import { ORGANIZER_KEY_STORAGE, registerUnauthorizedHandler, type EventOut } fro
 import { formatLocalizedDate, useAttendeeLocale, type TranslationDictionary } from "../lib/i18n";
 import {
   EVENT_SETUP_SECTIONS,
+  eventOperationNumber,
   eventSectionFromPath,
   eventTimeStatus,
   eventWorkspacePath,
@@ -17,6 +18,7 @@ import { OrganizerKeyGate } from "../components/organizer/OrganizerKeyGate";
 import { usePageTitle } from "../hooks/usePageTitle";
 import { EventStatusBadge } from "../components/organizer/WorkspaceUi";
 import { eventAccentStyle } from "../lib/eventAccent";
+import { PARTICIPANTS_COPY } from "../lib/participants";
 import "../styles/organizer.css";
 
 export type ActiveEvent = Pick<EventOut, "id" | "name" | "slug" | "starts_at" | "ends_at">;
@@ -278,13 +280,14 @@ export default function OrganizerLayout() {
                 navItem(s.key, eventWorkspacePath(eventId, s.path), setupLabels[s.key], SECTION_ICONS[s.key], i + 1, section === s.key),
               )}
               <span className="org-nav-divider" aria-hidden="true" />
-              {navItem("analytics", eventWorkspacePath(eventId, "/analytics"), t.breadcrumbAnalytics, "chart", EVENT_SETUP_SECTIONS.length + 1, section === "analytics")}
+              {navItem("participants", eventWorkspacePath(eventId, "/participants"), PARTICIPANTS_COPY[locale].navLabel, "users", eventOperationNumber("participants"), section === "participants")}
+              {navItem("analytics", eventWorkspacePath(eventId, "/analytics"), t.breadcrumbAnalytics, "chart", eventOperationNumber("analytics"), section === "analytics")}
               {navItem(
                 "desk",
                 eventWorkspacePath(eventId, "/desk"),
                 t.breadcrumbDesk,
                 "id-card",
-                EVENT_SETUP_SECTIONS.length + 2,
+                eventOperationNumber("desk"),
                 isDesk,
                 isRtl ? "میز پذیرش با دسترسی مستقل اپراتور" : "Reception uses its own operator access",
               )}

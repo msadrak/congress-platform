@@ -261,12 +261,13 @@ export default function PlatformSms() {
       {templatesError && <FormAlert>{templatesError}</FormAlert>}
       {templatesOffline && <FormAlert>{networkErrorMessage[locale]}</FormAlert>}
       {templates?.map((template) => (
+        // TODO(gen:api): drop the `as string` casts once schema.d.ts lists the ticket_cancelled/ticket_reissued kinds.
         <SmsTemplateEditor
           key={template.kind}
           template={template}
-          sample={samples[template.kind]}
+          sample={samples[template.kind] ?? samples.ticket_confirmation}
           locale={locale}
-          title={template.kind === "otp" ? (isRtl ? "پیامک کد ورود (همه همایش‌ها)" : "Sign-in code SMS (every congress)") : isRtl ? "پیامک پیش‌فرض تأیید ثبت‌نام" : "Default ticket confirmation SMS"}
+          title={template.kind === "otp" ? (isRtl ? "پیامک کد ورود (همه همایش‌ها)" : "Sign-in code SMS (every congress)") : (template.kind as string) === "ticket_cancelled" ? (isRtl ? "پیامک پیش‌فرض لغو بلیت" : "Default ticket cancellation SMS") : (template.kind as string) === "ticket_reissued" ? (isRtl ? "پیامک پیش‌فرض صدور دوبارهٔ کارت ورود" : "Default pass reissue SMS") : isRtl ? "پیامک پیش‌فرض تأیید ثبت‌نام" : "Default ticket confirmation SMS"}
           customLabel={isRtl ? "متن سفارشی" : "Custom text"}
           defaultLabel={isRtl ? "متن داخلی سامانه" : "Built-in text"}
           resetDescription={isRtl ? "متن سفارشی حذف و متن داخلی سامانه استفاده می‌شود." : "The custom text is removed and the built-in text is used."}

@@ -156,5 +156,7 @@ async def resolve_pass_link(
             id=event.id, slug=event.slug, name=event.name, starts_at=event.starts_at, ends_at=event.ends_at,
             location=event.location,
         ),
-        attendee=LinkPassAttendee(full_name=user.full_name, organization=user.organization, title=user.title),
+        attendee=LinkPassAttendee(
+            full_name=ticket.attendee_full_name, organization=ticket.attendee_organization, title=ticket.attendee_title
+        ),
     )

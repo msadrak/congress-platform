@@ -16,9 +16,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import SmsTemplate
 
-SmsKind = Literal["otp", "ticket_confirmation"]
+SmsKind = Literal["otp", "ticket_confirmation", "ticket_cancelled", "ticket_reissued"]
 # Kinds an organizer may override for one event (sign-in codes are platform-wide: they belong to no event).
-EVENT_KINDS: tuple[SmsKind, ...] = ("ticket_confirmation",)
+EVENT_KINDS: tuple[SmsKind, ...] = ("ticket_confirmation", "ticket_cancelled", "ticket_reissued")
 MAX_BODY_LENGTH = 1000
 # Long names and event titles are shortened so one message never balloons into many SMS parts.
 MAX_VALUE_LENGTH = 60
@@ -45,6 +45,18 @@ KINDS: dict[SmsKind, KindSpec] = {
         placeholders=("name", "event", "tier", "location", "link"),
         required=(),
         default="{name} عزیز، ثبت‌نام شما در «{event}» تأیید شد.\nکارت ورود: {link}",
+    ),
+    # Ticket lifecycle (app/ticket_lifecycle.py). Placeholders are a subset of the confirmation's, so the
+    # organizer's preview and test send fill them with the same sample values.
+    "ticket_cancelled": KindSpec(
+        placeholders=("name", "event", "tier"),
+        required=(),
+        default="{name} عزیز، بلیت شما در «{event}» لغو شد و کارت ورود آن دیگر معتبر نیست.",
+    ),
+    "ticket_reissued": KindSpec(
+        placeholders=("name", "event", "tier", "location", "link"),
+        required=(),
+        default="{name} عزیز، کارت ورود شما در «{event}» دوباره صادر شد و کارت قبلی دیگر معتبر نیست.\nکارت ورود جدید: {link}",
     ),
 }
 

@@ -345,8 +345,10 @@ async def get_attendance_analytics(filters: FiltersDep, session: SessionDep) -> 
 
 
 def attendee_columns() -> tuple[Any, ...]:
-    """Attendee name, mobile, organization and title for the exports (from the account; needs the User join)."""
-    return (User.full_name, User.mobile, User.organization, User.title)
+    """Attendee name, mobile, organization and title for the exports: the name, organization and title come
+    from the ticket's registration snapshot (what the organizer edits), the mobile from the account (needs the
+    User join)."""
+    return (Ticket.attendee_full_name, User.mobile, Ticket.attendee_organization, Ticket.attendee_title)
 
 
 ATTENDEE_HEADERS = ["Attendee Name", "Attendee Mobile", "Organization", "Title"]

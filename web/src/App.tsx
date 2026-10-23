@@ -40,6 +40,7 @@ const OrganizerEvents = lazy(() => import("./pages/OrganizerEvents"));
 const OrganizerLayout = lazy(() => import("./pages/OrganizerLayout"));
 const OrganizerPagePreview = lazy(() => import("./pages/OrganizerPagePreview"));
 const OrganizerPageStudio = lazy(() => import("./pages/OrganizerPageStudio"));
+const OrganizerParticipants = lazy(() => import("./pages/OrganizerParticipants"));
 const OrganizerPanel = lazy(() => import("./pages/OrganizerPanel"));
 const OrganizerPanelFrame = lazy(() => import("./pages/OrganizerPanel").then((m) => ({ default: m.OrganizerPanelFrame })));
 const OrganizerProgram = lazy(() => import("./pages/OrganizerProgram"));
@@ -78,6 +79,7 @@ export default function App() {
             <Route path="panel" element={section(<OrganizerPanel />)} />
             <Route path="desk" element={section(<OrganizerDesk />)} />
             <Route path="sms" element={section(<OrganizerSms />)} />
+            <Route path="participants" element={section(<OrganizerParticipants />)} />
             <Route path="analytics" element={section(<OrganizerAnalytics />)} />
           </Route>
         </Route>
