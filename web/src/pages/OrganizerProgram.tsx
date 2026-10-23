@@ -9,6 +9,7 @@ import {
   type EventSessionOut,
   type VenuePlaceOut,
 } from "../api/client";
+import { eventTimeZone } from "../api/lifecycleTypes";
 import type { OrganizerOutletContext } from "./OrganizerLayout";
 import { formatLocalizedNumber } from "../lib/i18n";
 import { eventSectionNumber, eventWorkspacePath } from "../lib/organizerWorkspace";
@@ -18,6 +19,7 @@ import { ConfirmDialog } from "../components/ui/ConfirmDialog";
 import { Icon } from "../components/ui/Icon";
 import { EmptyState, FormAlert, Notice, SectionHeader } from "../components/organizer/WorkspaceUi";
 import { SessionFormDialog } from "../components/organizer/SessionFormDialog";
+import { ScheduleFilesManager } from "../components/organizer/ScheduleFilesManager";
 import { TimetableImport } from "../components/organizer/TimetableImport";
 import { sessionDateFormats, toDateTimeLocal } from "../components/organizer/sessionTime";
 
@@ -114,7 +116,7 @@ function OrganizerProgramContent() {
       </div>
     );
   }
-  if (loadError || !event || !client || !eventId) {
+  if (loadError || !event || !client || !eventId || !apiKey) {
     return <FormAlert>{loadError ?? (isRtl ? "برنامهٔ همایش بارگذاری نشد." : "The program could not be loaded.")}</FormAlert>;
   }
 
@@ -221,6 +223,7 @@ function OrganizerProgramContent() {
           halls={halls}
           templateDay={eventDay}
           fileBase={event.slug}
+          timeZone={eventTimeZone(event)}
           locale={locale}
           isRtl={isRtl}
           onImport={importTimetable}
@@ -319,6 +322,8 @@ function OrganizerProgramContent() {
           ))}
         </div>
       )}
+
+      <ScheduleFilesManager apiKey={apiKey} eventId={eventId} locale={locale} isRtl={isRtl} onStatus={rejected} />
 
       {editing && (
         <SessionFormDialog
