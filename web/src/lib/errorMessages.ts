@@ -12,6 +12,7 @@ export const errorMessages: Record<AttendeeLocale, Record<string, string>> = {
     TIER_CLOSED: "ثبت‌نام این رده توسط برگزارکننده بسته شده است.",
     TIER_SOLD_OUT: "ظرفیت این رده تکمیل شده است.",
     ALREADY_REGISTERED: "شما پیش‌تر برای این همایش کارت ورود دریافت کرده‌اید.",
+    ANALYTICS_RANGE_INVALID: "آغاز بازهٔ زمانی نباید پس از پایان آن باشد.",
   },
   en: {
     EVENT_NOT_FOUND: "This congress could not be found.",
@@ -19,6 +20,7 @@ export const errorMessages: Record<AttendeeLocale, Record<string, string>> = {
     TIER_CLOSED: "Registration for this pass has been closed by the organizer.",
     TIER_SOLD_OUT: "This pass is sold out.",
     ALREADY_REGISTERED: "You already hold a pass for this congress.",
+    ANALYTICS_RANGE_INVALID: "The start of the time range must not be after its end.",
   },
 };
 

@@ -34,7 +34,7 @@ test("unknown or missing codes fall back to the existing error text", () => {
 
 test("every code has a Persian and an English message", () => {
   assert.deepEqual(Object.keys(errorMessages.fa).sort(), Object.keys(errorMessages.en).sort());
-  for (const code of ["EVENT_NOT_FOUND", "TIER_NOT_FOUND", "TIER_CLOSED", "TIER_SOLD_OUT", "ALREADY_REGISTERED"]) {
+  for (const code of ["EVENT_NOT_FOUND", "TIER_NOT_FOUND", "TIER_CLOSED", "TIER_SOLD_OUT", "ALREADY_REGISTERED", "ANALYTICS_RANGE_INVALID"]) {
     assert.ok(errorMessages.fa[code]?.trim(), `fa ${code}`);
     assert.ok(errorMessages.en[code]?.trim(), `en ${code}`);
     assert.match(code, /^[A-Z][A-Z0-9_]*$/);
