@@ -56,7 +56,7 @@ async def test_directory_exposes_no_secrets_or_staff_data(client: AsyncClient) -
     entry = (await client.get(f"/api/public/events/{EVENT['slug']}/booths")).json()[0]
 
     assert set(entry) == {
-        "id", "name", "slug", "location", "description", "website_url", "brochure_url",
+        "id", "name", "slug", "location", "description", "website_url", "brochure_url", "logo_url",
     }
 
 
