@@ -1,7 +1,11 @@
 /**
- * "Add to home screen" for the pass page. Chromium browsers fire `beforeinstallprompt` once, early, often before
- * the pass page is open, so the event is kept here from app start (imported by main.tsx). Safari on iOS has no
- * such event: the hint shows instructions instead. Whether the attendee dismissed the hint is remembered.
+ * "Add to home screen" for the three installable surfaces: the attendee's pass, the gate scanner and the booth
+ * panel (`InstallHint` is the one component). Chromium browsers fire `beforeinstallprompt` once, early, often
+ * before the page is open, so the event is kept here from app start (imported by main.tsx). Safari on iOS has no
+ * such event: the hint shows the steps instead. Whether the person dismissed the hint is remembered per persona.
+ *
+ * Who is offered it, and where, is decided in one place (`installOffer`): never on the public pages, the
+ * organizer or platform consoles or the desk, never in the installed app, never after a dismissal.
  */
 
 interface BeforeInstallPromptEvent extends Event {
@@ -13,7 +17,14 @@ interface NavigatorWithStandalone extends Navigator {
   standalone?: boolean;
 }
 
+/** The attendee's key, unchanged from before the scanner and booth had a hint of their own. */
 export const INSTALL_HINT_DISMISSED_KEY = "congress_install_hint_dismissed";
+
+export type InstallPersona = "attendee" | "scanner" | "booth";
+
+export function installDismissedKey(persona: InstallPersona): string {
+  return persona === "attendee" ? INSTALL_HINT_DISMISSED_KEY : `${INSTALL_HINT_DISMISSED_KEY}_${persona}`;
+}
 
 let deferred: BeforeInstallPromptEvent | null = null;
 const listeners = new Set<() => void>();
@@ -76,4 +87,70 @@ export function isStandaloneDisplay(): boolean {
 /** iPhone / iPad Safari, where installation is a manual "Add to Home Screen" from the share sheet. */
 export function isIosDevice(userAgent: string, maxTouchPoints = 0): boolean {
   return /iPad|iPhone|iPod/.test(userAgent) || (/Macintosh/.test(userAgent) && maxTouchPoints > 1);
+}
+
+/**
+ * iOS browsers that can add a page to the home screen: Safari, and Chrome, Firefox or Edge from iOS 16.4. The
+ * in-app browsers of messengers and social apps are plain web views (no "Safari/" in their user agent) with no
+ * share sheet entry, so they are offered nothing.
+ */
+export function isIosInstallBrowser(userAgent: string, maxTouchPoints = 0): boolean {
+  if (!isIosDevice(userAgent, maxTouchPoints) || !/Safari\//.test(userAgent)) return false;
+  if (!/CriOS|FxiOS|EdgiOS|OPiOS/.test(userAgent)) return true;
+  const version = /OS (\d+)_(\d+)/.exec(userAgent);
+  if (!version) return false;
+  const major = Number(version[1]);
+  return major > 16 || (major === 16 && Number(version[2]) >= 4);
+}
+
+/** The pages each persona's row may appear on: the pass, the scanner, the booth panel (not its sign-in). */
+const INSTALL_PATHS: Record<InstallPersona, RegExp> = {
+  attendee: /^\/(?:c\/[^/]+\/my-ticket|t\/[^/]+)\/?$/,
+  scanner: /^\/scan(?:\/[^/]+)?\/?$/,
+  booth: /^\/booth\/[^/]+\/?$/,
+};
+
+export function installAllowedOnPath(persona: InstallPersona, pathname: string): boolean {
+  return INSTALL_PATHS[persona].test(pathname);
+}
+
+export interface InstallContext {
+  persona: InstallPersona;
+  pathname: string;
+  userAgent: string;
+  maxTouchPoints: number;
+  /** The browser fired `beforeinstallprompt` and has not been used yet. */
+  promptable: boolean;
+  standalone: boolean;
+  dismissed: boolean;
+  /** A touch phone: `(pointer: coarse)` and narrower than a tablet. */
+  phone: boolean;
+}
+
+/** `"prompt"`: offer the browser's own dialog. `"ios"`: show the share-sheet steps. `null`: offer nothing. */
+export type InstallOffer = "prompt" | "ios" | null;
+
+/**
+ * What the install row offers. The attendee's pass and the booth panel are for phones; the scanner is also
+ * offered on a tablet or in desktop Chrome, which can install it.
+ */
+export function installOffer(context: InstallContext): InstallOffer {
+  if (context.dismissed || context.standalone || !installAllowedOnPath(context.persona, context.pathname)) return null;
+  if (context.persona !== "scanner" && !context.phone) return null;
+  if (context.promptable) return "prompt";
+  return isIosInstallBrowser(context.userAgent, context.maxTouchPoints) ? "ios" : null;
+}
+
+const PHONE_QUERY = "(pointer: coarse) and (max-width: 767px)";
+
+/** `useSyncExternalStore` subscription for rotating or resizing between a phone and a larger screen. */
+export function subscribePhone(listener: () => void): () => void {
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") return () => undefined;
+  const query = window.matchMedia(PHONE_QUERY);
+  query.addEventListener("change", listener);
+  return () => query.removeEventListener("change", listener);
+}
+
+export function isPhone(): boolean {
+  return typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia(PHONE_QUERY).matches;
 }

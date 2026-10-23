@@ -47,7 +47,7 @@ test('exhibitor: booth and staff set up by the organizer, staff signs in, captur
     await page.getByRole('button', { name: 'افزودن غرفه جدید' }).first().click();
     const dialog = page.getByRole('dialog', { name: 'ثبت غرفه نمایشگاهی جدید' });
     await dialog.getByLabel('نام شرکت یا غرفه').fill(boothName);
-    await dialog.getByLabel('شناسه اینترنتی غرفه (Slug)').fill(boothSlug);
+    await dialog.getByLabel('نشانی صفحهٔ غرفه').fill(boothSlug);
     await dialog.getByRole('button', { name: 'ثبت غرفه نمایشگاهی' }).click();
     await expect(page.getByRole('status').filter({ hasText: boothName })).toBeVisible();
     await page.getByRole('button', { name: 'تخصیص نماینده غرفه' }).click();

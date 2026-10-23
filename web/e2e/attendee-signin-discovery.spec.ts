@@ -244,7 +244,7 @@ test.describe('direct attendee sign-in', () => {
     await expect(page.getByTestId('otp-rate-limit')).toHaveCount(0);
     await expect(page.getByTestId('otp-announcer')).toHaveText('You can try again now.');
     await send.click();
-    expect(requests.filter(r => r.path === '/api/auth/otp/request')).toHaveLength(2);
+    await expect.poll(() => requests.filter(r => r.path === '/api/auth/otp/request').length).toBe(2);
   });
 
   test('a 429 on the code locks checking but not changing the number', async ({ page }) => {

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import jsQR from "jsqr";
+import { createRepeatFilter } from "../hooks/useHidScanner";
 import { Button } from "./ui/Button";
 import { Icon } from "./ui/Icon";
 import "../styles/qr-camera.css";
@@ -14,11 +15,31 @@ interface WindowWithBarcodeDetector extends Window {
 type CameraState = "off" | "starting" | "live" | "denied" | "unavailable";
 
 interface QrCameraInputProps {
-  /** Receives one decoded value per intentional start; the camera stops right after. */
+  /** Receives one decoded value per intentional start; the camera stops right after (unless `continuous`). */
   onDecode: (value: string) => void;
   isRtl: boolean;
   /** Turning the camera off from outside (dialog closed, booth or session changed, submitting). */
   disabled?: boolean;
+  /**
+   * Start the camera on its own, but only when the browser already granted camera permission: the prompt
+   * itself still waits for the person to press the button.
+   */
+  autoStart?: boolean;
+  /**
+   * Keep the camera running after a decode and hand over every new code (a station scanning one badge after
+   * another). The same value is not handed over again until it has been out of view for 3 s.
+   */
+  continuous?: boolean;
+}
+
+/** True when the browser has already been allowed to use the camera (the API is missing or refuses on some browsers). */
+async function cameraPermissionGranted(): Promise<boolean> {
+  try {
+    const status = await navigator.permissions.query({ name: "camera" as PermissionName });
+    return status.state === "granted";
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -28,15 +49,18 @@ interface QrCameraInputProps {
  * stream that resolves late. Manual entry elsewhere stays available for every failure. Shared by
  * the exhibitor lead capture and attendee peer networking (both scan an attendee badge QR).
  */
-export function QrCameraInput({ onDecode, isRtl, disabled = false }: QrCameraInputProps) {
+export function QrCameraInput({ onDecode, isRtl, disabled = false, autoStart = false, continuous = false }: QrCameraInputProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const runRef = useRef(0);
   const [state, setState] = useState<CameraState>("off");
   const onDecodeRef = useRef(onDecode);
+  const continuousRef = useRef(continuous);
+  const repeatRef = useRef(createRepeatFilter());
   useEffect(() => {
     onDecodeRef.current = onDecode;
-  }, [onDecode]);
+    continuousRef.current = continuous;
+  }, [onDecode, continuous]);
 
   // Releases the camera without touching React state (safe in effect cleanups).
   const release = useCallback(() => {
@@ -62,6 +86,7 @@ export function QrCameraInput({ onDecode, isRtl, disabled = false }: QrCameraInp
       return;
     }
     const run = ++runRef.current;
+    repeatRef.current.reset();
     setState("starting");
     let stream: MediaStream;
     try {
@@ -120,9 +145,13 @@ export function QrCameraInput({ onDecode, isRtl, disabled = false }: QrCameraInp
           }
           if (run !== runRef.current) return;
           if (value && value.trim()) {
-            stop();
-            onDecodeRef.current(value.trim());
-            return;
+            const code = value.trim();
+            if (!continuousRef.current) {
+              stop();
+              onDecodeRef.current(code);
+              return;
+            }
+            if (repeatRef.current.accept(code, performance.now())) onDecodeRef.current(code);
           }
         } catch {
           // A failed frame is skipped.
@@ -132,6 +161,22 @@ export function QrCameraInput({ onDecode, isRtl, disabled = false }: QrCameraInp
     };
     requestAnimationFrame(() => void tick());
   };
+
+  // Runs on mount and whenever the camera is enabled again; a failure or denial leaves the button in place.
+  const startRef = useRef(start);
+  useEffect(() => {
+    startRef.current = start;
+  });
+  useEffect(() => {
+    if (!autoStart || disabled) return;
+    let cancelled = false;
+    void cameraPermissionGranted().then((granted) => {
+      if (granted && !cancelled) void startRef.current();
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [autoStart, disabled]);
 
   const view: CameraState = disabled && (state === "live" || state === "starting") ? "off" : state;
   const message: Record<CameraState, string> = {

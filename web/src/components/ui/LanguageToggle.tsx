@@ -1,6 +1,8 @@
 import { Icon } from "./Icon";
 import { uiCopy, type UiLocale } from "./uiCopy";
 
+const OTHER: Readonly<Record<UiLocale, UiLocale>> = { fa: "en", en: "fa" };
+
 /**
  * The one language switch: a globe and the other language's name, written in that language (`lang`), so it
  * reads «English» on Persian pages and «فارسی» on English ones. 44 px; `tone="ink"` on dark surfaces.
@@ -16,7 +18,7 @@ export function LanguageToggle({
   tone?: "default" | "ink";
   className?: string;
 }) {
-  const next: UiLocale = locale === "fa" ? "en" : "fa";
+  const next = OTHER[locale];
   return (
     <button
       type="button"

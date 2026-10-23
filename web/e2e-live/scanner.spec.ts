@@ -11,8 +11,7 @@ const qrHash = (eventId: string, secret: string) => createHash('sha256').update(
 /** Creates a check-in point and issues a pairing link through the organizer console; returns the link. */
 async function pairingLink(page: Page, eventId: string, gate: string, policy: 'SINGLE_USE' | 'MULTI_ENTRY'): Promise<URL> {
   await page.goto(`/organizer/events/${eventId}/check-in`);
-  // Structure-based: the check-in point wording is being renamed («نقطه ورود»), the form's shape is not.
-  await page.getByRole('main').getByRole('button', { name: /افزودن/ }).first().click();
+  await page.getByRole('main').getByRole('button', { name: /نقطهٔ ورود جدید/ }).first().click();
   const pointDialog = page.getByRole('dialog');
   await pointDialog.getByRole('textbox').first().fill(gate);
   // The policy select is the one offering this policy (the dialog also has required-point and session selects).
@@ -76,7 +75,7 @@ test('scanner: paired by link, hashed manifest, server-decided admission, single
     const serverScan = scanner.waitForResponse((r) => r.url().endsWith(`/api/checkin-points/${pointId}/scan`));
     await scan(scanner, rezaTicket.qr_secret);
     expect(await (await serverScan).json()).toMatchObject({ status: 'ADMITTED' });
-    await expect(verdict.getByRole('heading', { name: 'ورود مجاز و تایید شده' })).toBeVisible();
+    await expect(verdict.getByRole('heading', { name: 'مجاز', exact: true })).toBeVisible();
     await expect(verdict).toContainText(reza);
     await expect(log.getByRole('listitem').filter({ hasText: reza })).toContainText('تأیید سرور');
   });

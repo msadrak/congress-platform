@@ -43,7 +43,7 @@ KINDS: dict[SmsKind, KindSpec] = {
     "otp": KindSpec(
         placeholders=("code", "minutes"),
         required=("code",),
-        default="کد ورود شما به سامانه همایش: {code}\nاین کد تا {minutes} دقیقه معتبر است؛ آن را به کسی ندهید.",
+        default="کد ورود همایش: {code}\nتا {minutes} دقیقه معتبر است؛ آن را به کسی ندهید.",
     ),
     "ticket_confirmation": KindSpec(
         placeholders=("name", "event", "tier", "location", "link"),
@@ -55,32 +55,32 @@ KINDS: dict[SmsKind, KindSpec] = {
     "ticket_cancelled": KindSpec(
         placeholders=("name", "event", "tier"),
         required=(),
-        default="{name} عزیز، بلیت شما در «{event}» لغو شد و کارت ورود آن دیگر معتبر نیست.",
+        default="{name} عزیز، کارت ورود شما در «{event}» لغو شد.",
     ),
     "ticket_reissued": KindSpec(
         placeholders=("name", "event", "tier", "location", "link"),
         required=(),
-        default="{name} عزیز، کارت ورود شما در «{event}» دوباره صادر شد و کارت قبلی دیگر معتبر نیست.\nکارت ورود جدید: {link}",
+        default="{name} عزیز، کارت ورود تازهٔ شما در «{event}»:\n{link}\nکارت قبلی دیگر کار نمی‌کند.",
     ),
     # Booth staff invitation (app/routes/booths.py), platform-wide: {link} opens the booth portal.
     "staff_invite": KindSpec(
         placeholders=("name", "booth", "event", "link"),
         required=("link",),
-        default="{name} عزیز، شما نمایندهٔ غرفهٔ «{booth}» در «{event}» شدید.\nورود به پنل غرفه و ثبت لید: {link}",
+        default="{name} عزیز، شما نمایندهٔ غرفهٔ «{booth}» در «{event}» هستید.\nورود: {link}",
     ),
     # Organizer member invitation (app/routes/organizer_console.py, ADR 0016), platform-wide: {link} opens the
     # organizer console, where the member signs in with this number.
     "member_invite": KindSpec(
         placeholders=("name", "role", "organizer", "link"),
         required=("link",),
-        default="{name} عزیز، شما با نقش «{role}» به کنسول «{organizer}» اضافه شدید.\nورود با همین شماره: {link}",
+        default="{name} عزیز، شما با نقش «{role}» به پنل برگزارکنندهٔ «{organizer}» اضافه شدید.\nورود: {link}",
     ),
     # Reception desk operator invitation (app/routes/desk.py), platform-wide: {link} opens the congress's
     # reception station (/reception/<event id>), where the operator signs in with this number.
     "operator_invite": KindSpec(
         placeholders=("name", "event", "link"),
         required=("link",),
-        default="{name} عزیز، شما اپراتور میز پذیرش «{event}» شدید.\nورود با همین شماره: {link}",
+        default="{name} عزیز، شما اپراتور میز پذیرش «{event}» هستید.\nورود: {link}",
     ),
 }
 

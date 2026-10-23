@@ -3,14 +3,16 @@
  *
  * Architecture:
  * - registerType: 'prompt' — the user explicitly decides when to apply a new app version (an operator
- *   is never swapped to new code mid-shift). `AppUpdatePrompt` offers it on every surface.
+ *   is never swapped to new code mid-shift). `AppUpdatePrompt` offers it on the attendee and public screens;
+ *   the operator screens offer it from their own status pill and menu (`hooks/useAppUpdate.ts`).
  * - The Service Worker precaches the app shell (HTML, JS, CSS, SVG).
  * - Operational data (manifests, scans, conflicts) lives exclusively in IndexedDB
  *   and is NEVER touched by SW cache eviction or updates.
  * - API responses are NEVER cached by the Service Worker.
  * - Bearer tokens remain in sessionStorage/memory, never in Cache Storage.
  * - A launch from the home screen (`/?source=pwa`, the manifest's start_url) is turned into the device's
- *   own scanner point, or the plain home page, before the app renders (see `launchTarget.ts`).
+ *   own destination (its scanner point, the attendee's pass, the last booth or desk, or the plain home page)
+ *   before the app renders (see `launchTarget.ts`).
  */
 
 import { registerSW } from 'virtual:pwa-register';

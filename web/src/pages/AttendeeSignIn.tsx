@@ -25,6 +25,8 @@ const AUTO_CONTINUE_MS = 2000;
 type SessionCheck =
   | { status: "checking" }
   | { status: "none" }
+  // A token is stored but the server cannot confirm it (no network, or it is down): the destination takes over.
+  | { status: "unverified" }
   | { status: "valid"; user: UserOut };
 
 const COPY = {
@@ -113,15 +115,23 @@ export default function AttendeeSignIn() {
       .GET("/api/auth/me")
       .then(({ data, response }) => {
         if (!active || attendeeResponseState(token, response.status) === "changed") return;
-        setSession(data ? { status: "valid", user: data } : { status: "none" });
+        if (data) setSession({ status: "valid", user: data });
+        else setSession({ status: response.status >= 500 ? "unverified" : "none" });
       })
       .catch(() => {
-        if (active) setSession({ status: "none" });
+        if (active) setSession({ status: "unverified" });
       });
     return () => {
       active = false;
     };
   }, [token]);
+
+  // A stored session that cannot be checked right now (the phone is offline, e.g. the installed app opened at
+  // the gate) is not a signed-out one: carry on, and let the destination show the cached pass. A rejected
+  // token (401) is removed by the API client and never gets here.
+  useEffect(() => {
+    if (session.status === "unverified") navigate(destination, { replace: true });
+  }, [session.status, destination, navigate]);
 
   // A valid session continues by itself; touching or focusing the card stops the timer so it can be read.
   const [autoContinue, setAutoContinue] = useState(true);
@@ -264,7 +274,7 @@ export default function AttendeeSignIn() {
               </p>
             )}
 
-            {session.status === "checking" && (
+            {(session.status === "checking" || session.status === "unverified") && (
               <div role="status" aria-label={copy.title} className="space-y-4">
                 <div className="skeleton h-5 w-2/3" />
                 <div className="skeleton h-12" />

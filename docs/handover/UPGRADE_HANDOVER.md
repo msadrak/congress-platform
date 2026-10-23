@@ -65,10 +65,10 @@ from the numbers**. The coordinator sets each new migration's `down_revision` to
 merge time and updates the two head tests (`backend/tests/test_desk_session_migration.py` walk list,
 `backend/tests/test_staging_support.py` `expected_revision()` + `match="requires …"`).
 
-Current chain on `integration/upgrade` (head **0025**):
+Current chain on `integration/upgrade` (head **0026**):
 
 ```
-… 0018 → 0019 → 0020 → 0023 → 0024 → 0021 → 0022 → 0027 → 0028 → 0029 → 0030 → 0025
+… 0018 → 0019 → 0020 → 0023 → 0024 → 0021 → 0022 → 0027 → 0028 → 0029 → 0030 → 0025 → 0026
 ```
 
 Rollback rule (CODING_STANDARDS §2.D): only migrations marked `backward_compatible = True` let an older
@@ -100,6 +100,21 @@ image run on the newer schema (`stack.mjs rollback`). Unmarked ones need a resto
 | C5 analytics | `ws/c5-analytics` | SQL aggregation, event-timezone hourly buckets, shared filters, streamed CSVs, registrations CSV |
 | D3 docs | `ws/d3-docs` | AGENTS.md/GLOSSARY truth-up, ADR status notes, stale-spec banners, research moves, CI follow-ups |
 | B5a attendee shell | `ws/b5a-attendee-shell` | `/me`, four-tab panel + avatar + congress switcher, pass page (large QR, full-screen, states, self-cancel, install hint), glossary sweep. Merged and verified (unit 215, Playwright 284 passed / 1 skipped) |
+| B5d attendee pages | `ws/b5d-attendee-pages` | My Congress before/during/after, program filters + personal agenda, network rework, profile edit/consent/export/delete, booth `?b=` |
+| B6a organizer UI | `ws/b6a-organizer-ui` | Event settings/archive/delete, tier delete + sales windows, booth staff + standee QR, Page Studio leave guard + 409 choice, program times in event tz, role-aware UI, data router |
+| C1 gate rules | `ws/c1-gate-rules` | Single-use per day, IN/OUT occupancy, tier filter with any policy, requires-point, session attendance + CSV, device heartbeat + stale dashboard, point archive (migration 0025) |
+| C2 desk | `ws/c2-desk` | Badge QR lookup, admit at a point, badge prints + reprint flag, desk registration edit/cancel/reissue/transfer, operator invite/restore, archived points hidden (migration 0026) |
+| B6b exhibitor | `ws/b6b-exhibitor` | Exhibitor portal split, server-side lead search/paging, trash + undo, offline lead queue, removed/suspended/archived screens |
+| FIX-1…FIX-4 | `ws/fix1-auth-sms`, `ws/fix2-privacy`, `ws/fix3-exhibitor-network`, `ws/fix4-archive-robustness` | Auth/SMS abuse fixes; attendee logout + session version (migration 0030), export/deletion/retention; network/booth hardening; archived read-only + coded errors + streamed CSVs + PDF hardening |
+| D2 live e2e | `ws/d2-live-e2e` | Live-backend Playwright journeys for every persona + CI job |
+| DOCS-FIX | `ws/docsfix-runbook-adrs` | Event-day runbook, ADR notes + 6 new ADRs, docs truth-up |
+| OPS-FIX-A / B | `ws/opsfix-a-deploy`, `ws/opsfix-b-ci-load` | Compose passes every setting, SMS-failure alerts + external heartbeat, metrics, Caddy request id, backup consistency; CI on ws/**, SHA-pinned actions, `check.sh --full`, load harness, derived migration head tests |
+| WEB-FIX-1 / 2 | `ws/webfix1-public-attendee`, `ws/webfix2-console` | Registration-window states, booth/desk cards on /me, public congress list, event-tz times; platform members, readable activity labels, manager-only exports, `formatApiError` guard |
+| PERF-1 | `ws/perf1-reservations` | Reservations and walk-ins take the tier place last (50/s met), `CONGRESS_API_WORKERS`, retention advisory lock |
+| PWA-1, POLISH-2 (team2) | `ws/team2-pwa1-pwa-settings`, `ws/team2-polish2` | Manifest `orientation: any` + stable id, launch reopens the paired scanner; Persian number separators, Persian fallback for uncoded errors, `event_timezone` on passes |
+| PDF links | `ws/pdf-allow-links` | Schedule PDFs may contain ordinary links (http/https/mailto/tel/relative); unsafe schemes refused, strings decoded like a PDF reader |
+| UX foundations F1, F6, F7 | `ws/ux-f1`, `ws/ux-f6`, `ws/ux-f7` | F1 design tokens in `index.css` (radius scale in `@theme`, type and control-height tokens, 3:1 `--border-input`, one focus style, 48 px `.ui-*` controls) plus the cascade-layer order declared inline in `index.html` (production chunk CSS had let preflight beat component styles); F6 operator shell components, `ui/Toast`, `copy/operator.ts`; F7 booth `event_archived` and shorter default SMS texts |
+| UX foundations F2, F3, F4, F5 | `ws/ux-f2`, `ws/ux-f3`, `ws/ux-f4`, `ws/team2-ux-f5` | F2 one formatter set in `lib/format.ts` and the Jalali `DateField`/`DateTimeField` (its words in `copy/dateField.ts`); F3 copy modules (`src/copy/`, `useCopy`, `useLocale`), Persian UI terms in the dictionary and error messages, glossary allowlist and `copyGuard` ratchet (`tests/copy-baseline.json`; operator `dir` ternaries and `lib/format.ts` locale tags/separators are baselined), `<html lang="fa" dir="rtl">` by default; F4 shared ui primitives (`components/ui/*`, `uiCopy.ts`; `ConfirmDialog` needs `confirmLabel`); F5 (team2) home-screen launch target, offline sign-in, one `InstallHint` with `persona` (words in `copy/install.ts`), `useHidScanner`/`useWakeLock`/`useAppUpdate`, `QrCameraInput` `autoStart`/`continuous` |
 
 ### Client-reported issues
 | # | Issue | Status |
@@ -110,41 +125,18 @@ image run on the newer schema (`stack.mjs rollback`). Unmarked ones need a resto
 | 4 | Remove main-homepage link from the user panel | Done (W0) |
 | 5 | SMS "my ticket" links broken; Logout shown when signed out | Done (W0 + A4 short links) |
 
-## 5. In flight — stopped mid-task (WIP pushed, UNVERIFIED)
+## 5. In flight — UX implementation (UX-IMPL)
 
-Each branch below was stopped on request. Its last commit is
-`wip(<scope>): UNVERIFIED checkpoint — agent stopped mid-task by request`: work saved as-is, **not
-type-checked or tested after the last edits**. All branched from `823f52a`. Continue on the branch,
-make it green, then merge (re-chain migrations after **0029**).
-
-| Branch | Done (committed before the WIP) | Left to do |
-|---|---|---|
-| `ws/b5d-attendee-pages` | Pure helpers; program (day tabs, track/hall filters, search, personal agenda, per-session .ics); My Congress before/during/after state machine; network "my code / scan", notes after scan, searchable paged contacts + delete; profile edit, consents, language, data export, account deletion; one-tap booth save from standee `?b=` | WIP touched e2e specs and several attendee components (BoothDirectory, CongressDetailsView, CongressHero, CongressHomeView, PhaseBadge, attendeeCopy, congressTime) + new `attendee-home.spec.ts`. Finish spec updates (signin-discovery profile/scan tests), run full checks. Expect conflicts with B5a (`i18n.ts` glossary lines, `MyNetwork.tsx`, `CongressHomeView.tsx`) — B5a is merged first |
-| `ws/b6a-organizer-ui` | Data router (so pages can block navigation); `PAGE_DRAFT_STALE` code; event-clock helpers; event settings + archive + delete; tier sales windows + delete; booth staff list + printable standee QR | Page Studio leave-guard + 409 "keep mine / load latest" (WIP in studioCopy/pageDocument), program times in event timezone, removing redundant `onKeyRejected`, role-aware UI, tests |
-| `ws/b6b-exhibitor` | ExhibitorPortal split into Capture / Qualify / LeadList | WIP: server-side lead search + load more, delete with undo + trash, export include_deleted, removed-staff screen, offline lead queue (`leadQueue*.ts`, `useLeadQueue.ts`, `PendingSyncPanel.tsx` exist, unfinished), consent indicator, tests |
-| `ws/c1-gate-rules` | Nothing committed before the WIP | WIP: migration `0025_checkin_policies.py`, `routes/session_attendance.py`, edits in checkin/analytics/desk/participants/roles/models/main + head tests. Brief: single-use per DAY window (event tz) with server/client parity; IN/OUT occupancy; tier filter with any policy; `requires_point_id`; session-door points + attendance report/CSV; device heartbeat + stale dashboard; point archive. Needs scanner engine + UI work and all tests |
-| `ws/c2-desk` | Migration `0026` (`ticket_prints`, `desk_checkins`, expand only); QR lookup, admit at a point, badge prints, desk registration edits/cancel/reissue/transfer, operator invite + restore (backend) | WIP: ReceptionStation split into AttendeeCard / AttendeeSearch / DeskAuthGate / MintedDialog / WalkInForm (`deskTypes.ts`). Finish UI (badge print view, needs-reprint flag, admit, QR lookup), operator URL on `EventOperators.tsx`, resend pass outside the DB transaction, tests |
+A product-owner UX review (2026-10-23) produced `docs/ux-review/UX_PLAN.md` (decisions, phases, exclusive
+file lists) and five specs in `docs/ux-review/*/SPEC.md`. Status per package is on `WORKBOARD.md`.
+Phase 0 (foundations: tokens, Jalali dates/format, copy guards, PWA launch/offline, operator shell,
+backend flag + SMS defaults, ui primitives, organizer scaffold) → phase 1 (per-portal packages) → UX-Z.
 
 ## 6. Not started (remaining plan)
 
-1. **Accessibility pass (D1):** field `aria-describedby`, tab/switch semantics, route focus
-   management, VoiceOver/TalkBack check.
-2. **Jalali date picker** for organizer date inputs (CSV import already accepts Jalali).
-3. **PWA settings:** manifest `orientation: any`; installed scanner reopens its point (`start_url`);
-   captive-portal detection.
-4. **Test expansion (D2):** one Playwright journey per persona against a real backend; the
-   `scanner-real-api` spec in CI with a live API; hardware matrix by a person (iOS Safari, Android
-   Chrome, barcode guns, thermal printer).
-5. **Event-day rehearsal (D4):** load test re-run on staging (`scripts/load/`), full dress rehearsal on
-   real devices (≈ 3 gates, desk, booths, 20 people), updated runbook.
-6. **Ops drills on real infrastructure:** ACME, a real S3 provider, systemd timers on Linux, Sentry,
-   Telegram delivery/relay from Iran (only local drills were done).
-7. **Backup SMS provider adapter (B1 step 2.7):** blocked on choosing a provider.
-8. **Desk/scanner title & glossary leftovers:** GateScanner has no page title; a few `font-mono`
-   spots (OrganizerAnalytics, MobileOtpForm, AttendeeSignIn mobile display, PageSections program times).
-9. **Spread `WritableEventDep`** (archived events read-only) to booths, check-in points, operators,
-   SMS templates and participants (currently only B4's routes).
-10. **Remove the untyped-attendee-token allowance** (`LEGACY_UNTYPED_USER_TOKENS_UNTIL`) after 2026-12-08.
+See `WORKBOARD.md` (free and later rows). Human-only: staging deploy + dress rehearsal on real devices
+(HW-1), real-infrastructure ops drills (OPS-1), staging load re-run (LOAD-1), backup SMS provider
+choice (SMS-2), merging `integration/upgrade` into `main`.
 
 ## 7. Deploy notes (cumulative, for the product owner)
 
@@ -163,6 +155,9 @@ make it green, then merge (re-chain migrations after **0029**).
 | 0022 | shared rate-limit counters, outbox lease | no (could be marked) |
 | 0027 | lead soft delete | yes |
 | 0028 / 0029 | audit log / organizer members | yes |
+| 0030 | user session version (attendee logout everywhere) | yes |
+| 0025 | check-in policies, occupancy, session attendance, device heartbeat | yes |
+| 0026 | badge prints, desk check-ins | yes |
 
 **New environment variables (all optional unless noted):**
 `CONGRESS_SHORT_LINK_ORIGIN`, `CONGRESS_SECRET_BOX_KEY` (recommended; check compose passes it),
@@ -171,7 +166,11 @@ make it green, then merge (re-chain migrations after **0029**).
 `CONGRESS_OTP_TRUSTED_NETWORKS` (set to venue Wi-Fi), `CONGRESS_OTP_SENDS_PER_TRUSTED_IP_PER_HOUR`,
 `CONGRESS_SMS_HOURLY_CAP` / `CONGRESS_SMS_DAILY_CAP`, `CONGRESS_SMS_TEST_SENDS_PER_ORGANIZER_PER_DAY`,
 `CONGRESS_SMS_MAX_CONCURRENT_SENDS`, `CONGRESS_PLATFORM_SETTINGS_REFRESH_SECONDS`,
-`CONGRESS_SMSIR_TIMEOUT_SECONDS` (default now 5). **Staging/production refuse to start if
+`CONGRESS_SMSIR_TIMEOUT_SECONDS` (default now 5), `CONGRESS_API_WORKERS` (API workers per container;
+the API image now starts with `python -m app.serve`), `ALERT_HEARTBEAT_URL`, `ALERT_SMS_FAILED_MAX`,
+`ALERT_SMS_LAG_MINUTES` / `ALERT_SMS_LAG_CRITICAL_MINUTES`, `ALERT_CERT_WARN_DAYS`,
+`CONGRESS_AUDIT_RETENTION_DAYS`, `CONGRESS_SHORT_LINK_GRACE_DAYS`, `CONGRESS_SMS_NOTICES_PER_*`,
+`CONGRESS_SMS_OTP_RESERVE_PERCENT` (compose now passes every setting through). **Staging/production refuse to start if
 `CONGRESS_OTP_LENGTH` < 6.**
 
 **Caddy:** separate `short_links` logger (codes never logged); `/api/metrics` edge block.
@@ -185,6 +184,12 @@ make it green, then merge (re-chain migrations after **0029**).
 5. Rotating an organizer key logs out paired scanners, desk operators and member sessions.
 6. `/docs`, `/redoc`, `/openapi.json` are off in production.
 7. Attendee sessions issued before 2026-12-01 keep working until they expire.
+8. The web app manifest `start_url` is now `/?source=pwa` (same `id`, so existing installs stay one app);
+   the installed app opens the paired scanner point, else the pass when the phone holds one live or upcoming
+   congress, else /me, else the last booth or desk; all offline.
+9. Schedule PDFs with ordinary web links are accepted; javascript:/data:/file: links are refused.
+10. Errors without a known code show a Persian sentence in fa instead of the server's English text.
+11. SMS default texts are shorter (saved overrides untouched); booth API has `event_archived`.
 
 ## 8. Environment and tooling notes (important)
 

@@ -48,11 +48,11 @@ test('the SMS link opens the pass without signing in, and the code leaves the ad
 
   await expect(page).toHaveURL(/\/c\/alpha\/my-ticket$/);
   expect(page.url()).not.toContain(GOOD);
-  await expect(page.getByText('Opened from your SMS link')).toBeVisible();
+  await expect(page.getByText('Pass from your SMS link')).toBeVisible();
   await expect(page.getByText('Sara Fixture').first()).toBeVisible();
   await expect(page.getByText('Delegate pass')).toBeVisible();
   await expect(page.locator('main svg[viewBox^="0 0"]').first()).toBeVisible();
-  await expect(page.getByRole('link', { name: /Sign in for networking and profile/ })).toHaveAttribute(
+  await expect(page.getByRole('link', { name: /Sign in for networking/ })).toHaveAttribute(
     'href', '/c/alpha/sign-in?next=%2Fc%2Falpha%2Fmy-congress',
   );
   // The code travelled only in the request body, anonymously; no API URL carries it.
@@ -67,7 +67,7 @@ test('the SMS link opens the pass without signing in, and the code leaves the ad
   await fixture(page, { apiDown: true });
   await page.goto('/c/alpha/my-ticket');
   await expect(page.getByText('Sara Fixture').first()).toBeVisible();
-  await expect(page.getByText('Opened from your SMS link')).toBeVisible();
+  await expect(page.getByText('Pass from your SMS link')).toBeVisible();
 });
 
 test('an expired link shows a friendly page with a sign-in to that congress', async ({ page }) => {
@@ -76,13 +76,13 @@ test('an expired link shows a friendly page with a sign-in to that congress', as
 
   await page.goto(`/t/${GONE}`);
 
-  await expect(page.getByText('This link has expired or is no longer valid')).toBeVisible();
+  await expect(page.getByText('This link is no longer valid')).toBeVisible();
   const signIn = page.getByRole('link', { name: /Sign in to see your pass/ });
   await expect(signIn).toHaveAttribute('href', '/c/alpha/sign-in?next=%2Fc%2Falpha%2Fmy-ticket');
   expect(await page.locator('a[href="/"]').count()).toBe(0);
 
   await page.getByRole('button', { name: 'فارسی' }).click();
-  await expect(page.getByText('این پیوند منقضی شده یا دیگر معتبر نیست')).toBeVisible();
+  await expect(page.getByText('این پیوند دیگر معتبر نیست')).toBeVisible();
 });
 
 test('an unknown link offers the general sign-in; a pass is never invented', async ({ page }) => {
