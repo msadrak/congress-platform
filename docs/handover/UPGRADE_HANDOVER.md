@@ -39,6 +39,7 @@ with tests exists).
 | Payments | Out of scope (ADR 0007) |
 | Alerts | Telegram (via `ALERT_TELEGRAM_*`, optional relay) |
 | Backup SMS provider | **Not chosen yet** (needs a contract) |
+| Schedule PDFs | Ordinary links (http/https/mailto/tel/relative) are **allowed**; scripts, automatic actions, forms, embedded files and unsafe link schemes (javascript:, data:, file:, …) are refused; PDFs are served inline in a sandbox (decided 2026-10-23) |
 
 ## 3. How the work is organised
 

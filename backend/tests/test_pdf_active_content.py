@@ -27,8 +27,20 @@ REFUSED = {
     "hex-escaped JavaScript action": with_catalog(b"/OpenAction << /S /J#61vaScript /J#53 (app.alert(1)) >>"),
     "hex-escaped launch action": with_catalog(b"/OpenAction << /S /L#61unch /F (calc.exe) >>"),
     "additional actions": PDF.replace(b"/Type /Page /Parent 2 0 R", b"/Type /Page /Parent 2 0 R /AA << /O 7 0 R >>", 1),
-    "web link": PDF.replace(
-        b"/Type /Page /Parent 2 0 R", b"/Type /Page /Parent 2 0 R /Annots [<< /A << /S /URI /URI (http://x) >> >>]", 1
+    "javascript link": PDF.replace(
+        b"/Type /Page /Parent 2 0 R",
+        b"/Type /Page /Parent 2 0 R /Annots [<< /A << /S /URI /URI (javascript:app.alert\\(1\\)) >> >>]",
+        1,
+    ),
+    "hex-encoded data link": PDF.replace(
+        b"/Type /Page /Parent 2 0 R",
+        b"/Type /Page /Parent 2 0 R /Annots [<< /A << /S /URI /URI <646174613a746578742f68746d6c2c78> >> >>]",
+        1,
+    ),
+    "file link": PDF.replace(
+        b"/Type /Page /Parent 2 0 R",
+        b"/Type /Page /Parent 2 0 R /Annots [<< /A << /S /URI /URI (FILE:///etc/passwd) >> >>]",
+        1,
     ),
     "form submission": with_catalog(b"/AcroForm << /Fields [<< /A << /S /SubmitForm /F (http://x) >> >>] >>"),
     "automatic action by reference": with_catalog(b"/OpenAction 7 0 R"),
@@ -52,6 +64,18 @@ ACCEPTED = {
     "first view only": with_catalog(b"/OpenAction [3 0 R /Fit]"),
     "harmless object stream": with_object_stream(b"<< /Type /Page /Parent 2 0 R >>"),
     "names that only start like blocked ones": with_catalog(b"/JSON 1 /URIBase 2 /Launcher 3"),
+    "web link": PDF.replace(
+        b"/Type /Page /Parent 2 0 R",
+        b"/Type /Page /Parent 2 0 R /Annots [<< /A << /S /URI /URI (https://x.ir/a) >> >>]",
+        1,
+    ),
+    "e-mail, phone and relative links": PDF.replace(
+        b"/Type /Page /Parent 2 0 R",
+        b"/Type /Page /Parent 2 0 R /Annots [<< /A << /S /URI /URI (mailto:info@x.ir) >> >> "
+        b"<< /A << /S /URI /URI (tel:+982100000000) >> >> << /A << /S /URI /URI (program.html) >> >>]",
+        1,
+    ),
+    "web link inside an object stream": with_object_stream(b"<< /S /URI /URI (http://x.ir) >>"),
 }
 
 
