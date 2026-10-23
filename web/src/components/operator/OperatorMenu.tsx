@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { operatorCopy, type OperatorLocale } from "../../copy/operator";
+import { LOCALE_DIR } from "../../lib/i18n";
 import { Icon, type IconName } from "../ui/Icon";
 import { menuFocusIndex } from "./menuKeys";
 
@@ -153,7 +154,7 @@ export function OperatorMenu({ locale, items, header, version, tone = "light" }:
 
       {open &&
         createPortal(
-          <div dir={locale === "fa" ? "rtl" : "ltr"} lang={locale}>
+          <div dir={LOCALE_DIR[locale]} lang={locale}>
             {/* Scrim for the phone sheet; the popover needs none. */}
             <div aria-hidden="true" className="fixed inset-0 z-50 bg-ink-950/45 md:hidden" />
             <div

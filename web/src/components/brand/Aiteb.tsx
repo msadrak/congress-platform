@@ -1,4 +1,6 @@
 import { useId } from "react";
+import { commonCopy } from "../../copy/common";
+import { LOCALE_DIR } from "../../lib/i18n";
 
 export const AITEB_URL = "https://aiteb.ir/";
 /** Display name in every language: Latin even inside Persian copy, set in an LTR island there. */
@@ -20,11 +22,6 @@ export function AitebLogo({ variant = "full", className = "", alt = AITEB_NAME }
   return <img src="/brand/aiteb-logo.png" width={300} height={95} alt={alt} className={`object-contain ${className}`.trim()} draggable={false} />;
 }
 
-const CREDIT = {
-  fa: { lead: "طراحی و توسعه توسط", newTab: "(در زبانه جدید باز می‌شود)" },
-  en: { lead: "Designed & developed by", newTab: "(opens in a new tab)" },
-} as const;
-
 interface AitebAttributionProps {
   locale: "fa" | "en";
   /** `light` for pale surfaces, `dark` for ink surfaces. */
@@ -37,7 +34,7 @@ interface AitebAttributionProps {
  * each congress keeps its own identity.
  */
 export function AitebAttribution({ locale, tone = "light", className = "" }: AitebAttributionProps) {
-  const copy = CREDIT[locale];
+  const copy = commonCopy[locale];
   const toneClass =
     tone === "dark"
       ? "text-ink-300 hover:text-white focus-visible:outline-aiteb-orchid"
@@ -48,15 +45,15 @@ export function AitebAttribution({ locale, tone = "light", className = "" }: Ait
       target="_blank"
       rel="noopener noreferrer"
       lang={locale}
-      dir={locale === "fa" ? "rtl" : "ltr"}
-      aria-label={`${copy.lead} ${AITEB_NAME} ${copy.newTab}`}
+      dir={LOCALE_DIR[locale]}
+      aria-label={`${copy.creditLead} ${AITEB_NAME} ${copy.opensInNewTab}`}
       className={`group inline-flex items-center gap-2 text-xs font-medium transition-colors ${toneClass} ${className}`.trim()}
     >
       <span className="grid size-6 place-items-center rounded-full bg-white shadow-[0_0_0_1px_rgb(14_12_43/0.08)] transition-transform duration-300 group-hover:rotate-[18deg] motion-reduce:transition-none">
         <AitebLogo variant="mark" alt="" className="size-4" />
       </span>
       <span>
-        {copy.lead}{" "}
+        {copy.creditLead}{" "}
         <bdi dir="ltr" lang="en" className="font-bold text-current">
           {AITEB_NAME}
         </bdi>

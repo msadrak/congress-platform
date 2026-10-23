@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { operatorCopy, type OperatorGateKind, type OperatorLocale } from "../../copy/operator";
+import { LOCALE_DIR } from "../../lib/i18n";
 import { Icon, type IconName } from "../ui/Icon";
 
 export interface OperatorGateProps {
@@ -61,7 +62,7 @@ export function OperatorGate({ locale, kind, tone = "light", title, body, icon, 
 
   return (
     <div
-      dir={locale === "fa" ? "rtl" : "ltr"}
+      dir={LOCALE_DIR[locale]}
       lang={locale}
       data-gate={kind}
       className={`flex min-h-dvh flex-col items-center justify-center px-4 pt-safe pb-safe font-sans ${

@@ -16,6 +16,13 @@ const fa = {
   edit: "ویرایش",
   back: "بازگشت",
   retry: "تلاش دوباره",
+  /** The new-version offer (`components/AppUpdatePrompt.tsx`). */
+  updateReady: "نسخهٔ تازه آماده است.",
+  update: "به‌روزرسانی",
+  later: "بعداً",
+  /** The platform credit (`components/brand/Aiteb.tsx`). */
+  creditLead: "طراحی و توسعه توسط",
+  opensInNewTab: "(در زبانه جدید باز می‌شود)",
   loading: "در حال بارگذاری…",
   loadFailed: (thing: string) => `${thing} بارگذاری نشد.`,
   /** No response at all (offline, DNS, connection reset). */
@@ -67,6 +74,11 @@ const en: CopyShape<typeof fa> = {
   edit: "Edit",
   back: "Back",
   retry: "Try again",
+  updateReady: "A new version is ready.",
+  update: "Update",
+  later: "Later",
+  creditLead: "Designed & developed by",
+  opensInNewTab: "(opens in a new tab)",
   loading: "Loading…",
   loadFailed: (thing: string) => `Couldn't load ${thing}.`,
   network: "Could not reach the server. Check your connection and try again.",

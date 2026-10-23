@@ -74,7 +74,7 @@ export const errorMessages: Record<AttendeeLocale, Record<string, string>> = {
     SMS_TEST_MODE_NOT_ALLOWED: "حالت آزمایشی در محیط اصلی مجاز نیست.",
     SMS_TEMPLATE_INVALID: "متن پیامک درست نیست؛ جای‌نگهدارها را بررسی کنید.",
     TRUSTED_NETWORK_INVALID: "نشانی شبکه درست نیست؛ مثل 203.0.113.0/24 بنویسید.",
-    SMS_API_KEY_INVALID: "کلید کامل API را از پنل sms.ir وارد کنید.",
+    SMS_API_KEY_INVALID: "کلید sms.ir را کامل از پنل sms.ir وارد کنید.",
     OTP_COOLDOWN_TOO_SHORT: "در محیط اصلی فاصلهٔ درخواست کد تازه دست‌کم ۳۰ ثانیه است.",
     OTP_LENGTH_TOO_SHORT: "در این محیط کد ورود باید دست‌کم ۶ رقم باشد.",
     // Exhibitors and networking

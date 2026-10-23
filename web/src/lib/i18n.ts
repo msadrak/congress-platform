@@ -128,7 +128,9 @@ export interface AttendeeLocaleContext extends LocaleState {
  * screen; without one, the page on screen may name a default (a congress page speaks its congress's language),
  * and otherwise the app speaks Persian. `<html lang dir>` always follows the locale in use.
  */
-const DIRECTION = { fa: "rtl", en: "ltr" } as const;
+/** The writing direction of each locale. */
+export const LOCALE_DIR = { fa: "rtl", en: "ltr" } as const;
+const DIRECTION = LOCALE_DIR;
 const listeners = new Set<() => void>();
 /** A choice the browser refused to store (private mode, blocked site data): it holds until the page reloads. */
 let unsavedChoice: AttendeeLocale | null = null;

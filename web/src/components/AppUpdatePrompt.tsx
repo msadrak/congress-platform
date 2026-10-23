@@ -1,15 +1,11 @@
 import { useState } from "react";
 import { useLocation } from "react-router-dom";
 import { useAppUpdate } from "../hooks/useAppUpdate";
-import { useAttendeeLocale } from "../lib/i18n";
+import { commonCopy } from "../copy/common";
+import { useLocale } from "../lib/i18n";
 import { isOperatorRoute } from "../lib/launchTarget";
 import { Button } from "./ui/Button";
 import { Icon } from "./ui/Icon";
-
-const COPY = {
-  fa: { message: "نسخهٔ تازه آماده است.", update: "به‌روزرسانی", later: "بعداً" },
-  en: { message: "A new version is ready.", update: "Update", later: "Later" },
-} as const;
 
 /**
  * Offers a newly deployed version once its service worker is installed. Without it the waiting
@@ -21,10 +17,10 @@ const COPY = {
 export function AppUpdatePrompt() {
   const { waiting, apply } = useAppUpdate();
   const [dismissed, setDismissed] = useState(false);
-  const { locale, dir } = useAttendeeLocale();
+  const { locale, dir } = useLocale();
   const { pathname } = useLocation();
   if (!waiting || dismissed || isOperatorRoute(pathname)) return null;
-  const copy = COPY[locale];
+  const copy = commonCopy[locale];
 
   return (
     <div
@@ -33,7 +29,7 @@ export function AppUpdatePrompt() {
       className="fixed inset-x-3 top-[max(0.75rem,env(safe-area-inset-top))] z-[100] mx-auto flex max-w-md flex-wrap items-center gap-3 rounded-2xl border border-border-default bg-surface-panel p-3 ps-4 shadow-pop"
     >
       <Icon name="sync" size={18} className="shrink-0 text-event-accent" />
-      <p className="min-w-0 flex-1 basis-48 text-sm font-semibold text-text-primary">{copy.message}</p>
+      <p className="min-w-0 flex-1 basis-48 text-sm font-semibold text-text-primary">{copy.updateReady}</p>
       <div className="ms-auto flex gap-2">
         <Button type="button" variant="ghost" size="md" onClick={() => setDismissed(true)}>
           {copy.later}
