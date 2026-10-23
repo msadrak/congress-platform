@@ -23,6 +23,7 @@ from sqlalchemy.exc import IntegrityError
 from app.auth import OrganizerDep
 from app.db import SessionDep
 from app.errors import ApiError, error_responses
+from app.links import follow_event_end
 from app.media import resolve_storage_path
 from app.models import (
     Booth,
@@ -261,8 +262,9 @@ async def update_event(
         event.location = body.location
     if body.starts_at is not None:
         event.starts_at = body.starts_at
-    if body.ends_at is not None:
+    if body.ends_at is not None and body.ends_at != event.ends_at:
         event.ends_at = body.ends_at
+        await follow_event_end(session, event.id, body.ends_at)
     if body.timezone is not None:
         event.timezone = body.timezone
     if body.registration_enabled is not None:
