@@ -1,34 +1,29 @@
 import { useId, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import type { SmsTemplateOut, SmsTestOut } from "../../api/client";
-import { formatLocalizedNumber } from "../../lib/i18n";
+import { commonCopy } from "../../copy/common";
+import { organizerDataCopy } from "../../copy/organizerData";
+import { formatNumber } from "../../lib/format";
 import { normalizeIranMobile } from "../../lib/mobile";
 import { renderSms, smsSize, unknownPlaceholders } from "../../lib/smsText";
 import { Badge } from "../ui/Badge";
 import { Button } from "../ui/Button";
 import { ConfirmDialog } from "../ui/ConfirmDialog";
 import { Icon } from "../ui/Icon";
+import { TextInput } from "../ui/Input";
+import { Notice } from "../ui/Notice";
 import { Field, FormAlert } from "../organizer/WorkspaceUi";
 
-const PLACEHOLDER_LABELS: Record<string, { fa: string; en: string }> = {
-  code: { fa: "کد ورود", en: "Sign-in code" },
-  minutes: { fa: "دقیقه اعتبار", en: "Minutes valid" },
-  name: { fa: "نام شرکت‌کننده", en: "Attendee name" },
-  event: { fa: "نام همایش", en: "Congress name" },
-  tier: { fa: "رده بلیت", en: "Ticket tier" },
-  location: { fa: "محل برگزاری", en: "Venue" },
-  link: { fa: "لینک کارت ورود", en: "Pass link" },
-};
-
 type Outcome<T> = { data?: T; error?: string };
+type EditorCopy = (typeof organizerDataCopy)["fa" | "en"]["smsEditor"];
 
-/** What a failed send means for the person running the platform, from the gateway's error code. */
-function sendFailure(error: string, isRtl: boolean): string {
-  if (error === "NETWORK") return isRtl ? "سرور به sms.ir دسترسی ندارد (شبکه یا فایروال سرور را بررسی کنید)." : "The server cannot reach sms.ir (check the server's network or firewall).";
-  if (error === "TIMEOUT") return isRtl ? "sms.ir پاسخ نداد؛ شاید پیامک ارسال شده باشد." : "sms.ir did not answer in time; the message may or may not have been sent.";
-  if (error === "NOT_CONFIGURED") return isRtl ? "درگاه پیامک تنظیم نشده است (کلید API یا شماره خط)." : "The SMS gateway is not configured (API key or line number).";
-  if (error === "HTTP_401" || error === "HTTP_403") return isRtl ? "sms.ir کلید API را نپذیرفت." : "sms.ir did not accept the API key.";
-  if (error.startsWith("REJECTED")) return isRtl ? `sms.ir پیامک را رد کرد (${error}) — شماره خط، اعتبار یا محتوای پیامک را بررسی کنید.` : `sms.ir refused the message (${error}): check the line number, credit or wording.`;
-  return isRtl ? `ارسال انجام نشد (${error}).` : `Not sent (${error}).`;
+/** What a failed test send means for the person running the platform, from the gateway's error code. */
+function platformFailure(error: string, copy: EditorCopy["platform"]): string {
+  if (error === "NETWORK") return copy.network;
+  if (error === "TIMEOUT") return copy.timeout;
+  if (error === "NOT_CONFIGURED") return copy.notConfigured;
+  if (error === "HTTP_401" || error === "HTTP_403") return copy.keyRejected;
+  if (error.startsWith("REJECTED")) return copy.rejected(error);
+  return copy.other(error);
 }
 
 export interface SmsTemplateEditorProps {
@@ -41,6 +36,13 @@ export interface SmsTemplateEditorProps {
   resetDescription: string;
   savedMessage: string;
   note?: ReactNode;
+  /** One line under the test-send field (e.g. who may receive a test); replaces the default line. */
+  testHint?: string;
+  /**
+   * `platform` (default) names the gateway (sms.ir) and its error codes; `organizer` never shows gateway
+   * details, because only the platform admin can fix them.
+   */
+  audience?: "organizer" | "platform";
   onSave: (body: string) => Promise<Outcome<SmsTemplateOut>>;
   onReset: () => Promise<Outcome<SmsTemplateOut>>;
   onTest: (mobile: string, body: string) => Promise<Outcome<SmsTestOut>>;
@@ -54,9 +56,10 @@ export interface SmsTemplateEditorProps {
  * current (even unsaved) text. Used by the organizer's SMS page and the platform console.
  */
 export function SmsTemplateEditor(props: SmsTemplateEditorProps) {
-  const { template, sample, locale, title, customLabel, defaultLabel, resetDescription, savedMessage, note } = props;
-  const isRtl = locale === "fa";
-  const fmt = (n: number) => formatLocalizedNumber(n, locale);
+  const { template, sample, locale, title, customLabel, defaultLabel, resetDescription, savedMessage, note, testHint, audience = "platform" } = props;
+  const copy = organizerDataCopy[locale].smsEditor;
+  const common = commonCopy[locale];
+  const fmt = (n: number) => formatNumber(n, locale);
   const ids = { body: useId(), help: useId(), title: useId() };
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   // Caret position to restore right after an inserted placeholder renders (before the next keystroke).
@@ -102,14 +105,14 @@ export function SmsTemplateEditor(props: SmsTemplateEditorProps) {
     setBusy(true);
     setError(null);
     setNotice(null);
-    const outcome: Outcome<SmsTemplateOut> = await work().catch(() => ({ error: isRtl ? "اتصال به سرور برقرار نشد." : "Could not reach the server." }));
+    const outcome: Outcome<SmsTemplateOut> = await work().catch(() => ({ error: common.network }));
     setBusy(false);
     if (outcome.data) {
       setSaved(outcome.data);
       setDraft(outcome.data.body);
       setNotice(message);
     } else {
-      setError(outcome.error ?? (isRtl ? "انجام نشد؛ دوباره تلاش کنید." : "That did not work; please try again."));
+      setError(outcome.error ?? common.generic);
     }
   };
 
@@ -120,59 +123,67 @@ export function SmsTemplateEditor(props: SmsTemplateEditorProps) {
     setTestResult(null);
     const mobile = normalizeIranMobile(testMobile);
     if (!mobile) {
-      setTestError(isRtl ? "یک شماره موبایل معتبر وارد کنید؛ مثلاً ۰۹۱۲ ۳۴۵ ۶۷۸۹." : "Enter a valid Iranian mobile number, e.g. 0912 345 6789.");
+      setTestError(common.mobileInvalid);
       return;
     }
     if (!valid) {
-      setTestError(isRtl ? "ابتدا خطای متن پیامک را برطرف کنید." : "Fix the message text first.");
+      setTestError(copy.fixTextFirst);
       return;
     }
     setTesting(true);
-    const outcome: Outcome<SmsTestOut> = await props.onTest(mobile, draft).catch(() => ({ error: isRtl ? "اتصال به سرور برقرار نشد." : "Could not reach the server." }));
+    const outcome: Outcome<SmsTestOut> = await props.onTest(mobile, draft).catch(() => ({ error: common.network }));
     setTesting(false);
     if (outcome.data) {
       setTestResult(outcome.data);
       props.onTested?.();
     } else {
-      setTestError(outcome.error ?? (isRtl ? "ارسال انجام نشد." : "The test could not be sent."));
+      setTestError(outcome.error ?? copy.testNotSent);
     }
   };
 
+  const testSucceeded = testResult?.status === "sent";
+  const testOutcome = !testResult
+    ? null
+    : testSucceeded
+      ? testResult.test_mode
+        ? copy.testModeSent
+        : audience === "organizer"
+          ? copy.testSent
+          : copy.platform.testSent
+      : audience === "organizer"
+        ? copy.organizerFailure
+        : platformFailure(testResult.error ?? testResult.status, copy.platform);
+
   return (
-    <section aria-labelledby={ids.title} className="overflow-hidden rounded-2xl border border-border-default bg-surface-panel shadow-soft">
+    <section aria-labelledby={ids.title} className="overflow-hidden rounded-card border border-border-default bg-surface-panel shadow-soft">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border-subtle px-5 py-4 sm:px-6">
-        <h2 id={ids.title} className="text-base font-bold text-text-primary">{title}</h2>
+        <h2 id={ids.title} className="text-title-sm font-bold text-text-primary">{title}</h2>
         <Badge variant={saved.is_custom ? "brand" : "neutral"} size="sm">{saved.is_custom ? customLabel : defaultLabel}</Badge>
       </div>
 
       <div className="grid gap-6 p-5 sm:p-6 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
         <div className="space-y-4">
-          {notice && (
-            <p role="status" className="flex items-start gap-2.5 rounded-xl border border-status-success-border bg-status-success-bg px-3.5 py-3 text-sm text-status-success-text">
-              <Icon name="check-circle" size={18} className="mt-0.5 shrink-0" />
-              {notice}
-            </p>
-          )}
+          {notice && <Notice tone="success">{notice}</Notice>}
           <div>
-            <span className="ui-label">{isRtl ? "افزودن متغیر" : "Insert a placeholder"}</span>
-            <div className="flex flex-wrap gap-2" role="group" aria-label={isRtl ? "متغیرها" : "Placeholders"}>
+            <span className="ui-label">{copy.insertPlaceholder}</span>
+            <div className="flex flex-wrap gap-2" role="group" aria-label={copy.placeholders}>
               {saved.placeholders.map((name) => (
                 <button
                   key={name}
                   type="button"
                   onClick={() => insertPlaceholder(name)}
-                  className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-border-default bg-surface-panel-subtle px-2.5 text-xs font-semibold text-text-secondary hover:border-action-primary hover:text-action-primary focus-visible:outline-2 focus-visible:outline-focus-ring cursor-pointer"
+                  className="inline-flex min-h-11 cursor-pointer items-center gap-1.5 rounded-control border border-border-default bg-surface-panel-subtle px-3 text-caption font-semibold text-text-secondary hover:border-action-primary hover:text-action-primary focus-visible:outline-2 focus-visible:outline-focus-ring"
                 >
                   <Icon name="plus" size={13} />
-                  <span>{PLACEHOLDER_LABELS[name]?.[locale] ?? name}</span>
-                  <code dir="ltr" className="font-mono text-[11px] text-text-muted">{`{${name}}`}</code>
+                  <span>{labelOf(name, copy)}</span>
+                  <code dir="ltr" className="font-mono text-caption text-text-muted">{`{${name}}`}</code>
                 </button>
               ))}
             </div>
           </div>
 
           <div>
-            <label htmlFor={ids.body} className="ui-label">{isRtl ? "متن پیامک" : "Message text"}</label>
+            <label htmlFor={ids.body} className="ui-label">{copy.messageText}</label>
             <textarea
               ref={textareaRef}
               id={ids.body}
@@ -185,26 +196,24 @@ export function SmsTemplateEditor(props: SmsTemplateEditorProps) {
               aria-invalid={!valid}
               className="ui-input min-h-36 font-sans leading-relaxed"
             />
-            <p id={ids.help} className={`mt-1.5 text-xs ${size.parts > 1 ? "font-semibold text-status-warning-text" : "text-text-muted"}`} data-testid="sms-size">
-              {isRtl
-                ? `با مقادیر نمونه: ${fmt(size.characters)} نویسه · ${fmt(size.parts)} پیامک (${size.encoding === "unicode" ? "فارسی" : "لاتین"}، ${fmt(size.perPart)} نویسه در هر پیامک)`
-                : `With sample values: ${size.characters} characters · ${size.parts} SMS (${size.encoding === "unicode" ? "Persian/Unicode" : "Latin"}, ${size.perPart} per SMS)`}
+            <p id={ids.help} className={`mt-1.5 text-caption ${size.parts > 1 ? "font-semibold text-status-warning-text" : "text-text-muted"}`} data-testid="sms-size">
+              {copy.size(fmt(size.characters), fmt(size.parts))}
             </p>
             {unknown.length > 0 && (
-              <p role="alert" className="mt-1.5 text-xs font-medium text-status-danger-text">
-                {isRtl ? "متغیر ناشناخته: " : "Unknown placeholder: "}
+              <p role="alert" className="mt-1.5 text-caption font-medium text-status-danger-text">
+                {copy.unknownPlaceholder}
                 <bdi dir="ltr">{unknown.map((u) => `{${u}}`).join(", ")}</bdi>
               </p>
             )}
             {missing.length > 0 && (
-              <p role="alert" className="mt-1.5 text-xs font-medium text-status-danger-text">
-                {isRtl ? "این متغیر لازم است: " : "Required placeholder: "}
+              <p role="alert" className="mt-1.5 text-caption font-medium text-status-danger-text">
+                {copy.requiredPlaceholder}
                 <bdi dir="ltr">{missing.map((u) => `{${u}}`).join(", ")}</bdi>
               </p>
             )}
             {!draft.trim() && (
-              <p role="alert" className="mt-1.5 text-xs font-medium text-status-danger-text">
-                {isRtl ? "متن پیامک نمی‌تواند خالی باشد." : "The message cannot be empty."}
+              <p role="alert" className="mt-1.5 text-caption font-medium text-status-danger-text">
+                {copy.emptyBody}
               </p>
             )}
           </div>
@@ -212,91 +221,65 @@ export function SmsTemplateEditor(props: SmsTemplateEditorProps) {
           {error && <FormAlert>{error}</FormAlert>}
 
           <div className="flex flex-wrap items-center gap-2">
-            <Button type="button" variant="primary" size="md" disabled={!dirty || !valid || busy} aria-busy={busy} onClick={() => void apply(() => props.onSave(draft), savedMessage)}>
-              <Icon name="check" size={16} />
-              {busy ? (isRtl ? "در حال ذخیره…" : "Saving…") : isRtl ? "ذخیره متن" : "Save text"}
+            <Button type="button" variant="primary" icon="check" disabled={!dirty || !valid} loading={busy} onClick={() => void apply(() => props.onSave(draft), savedMessage)}>
+              {copy.saveText}
             </Button>
             {dirty && (
-              <Button type="button" variant="ghost" size="md" disabled={busy} onClick={() => setDraft(saved.body)}>
-                {isRtl ? "لغو تغییرات" : "Discard changes"}
+              <Button type="button" variant="ghost" disabled={busy} onClick={() => setDraft(saved.body)}>
+                {copy.discard}
               </Button>
             )}
             {saved.is_custom && (
-              <Button type="button" variant="secondary" size="md" disabled={busy} onClick={() => setConfirmReset(true)}>
-                <Icon name="sync" size={16} />
-                {isRtl ? "بازگشت به متن پیش‌فرض" : "Use the default text"}
+              <Button type="button" variant="secondary" icon="sync" disabled={busy} onClick={() => setConfirmReset(true)}>
+                {copy.useDefault}
               </Button>
             )}
           </div>
         </div>
 
         <div className="space-y-3">
-          <span className="ui-label">{isRtl ? "پیش‌نمایش با نمونه" : "Preview with sample values"}</span>
-          <div className="rounded-2xl bg-surface-panel-subtle p-4">
-            <p dir="auto" data-testid="sms-preview" className="whitespace-pre-wrap break-words rounded-2xl rounded-ss-sm bg-surface-panel p-3.5 text-sm leading-relaxed text-text-primary shadow-soft">
+          <span className="ui-label">{copy.preview}</span>
+          <div className="rounded-card bg-surface-panel-subtle p-4">
+            <p dir="auto" data-testid="sms-preview" className="whitespace-pre-wrap break-words rounded-card rounded-ss-sm bg-surface-panel p-3.5 text-body-sm leading-relaxed text-text-primary shadow-soft">
               {preview || "—"}
             </p>
           </div>
-          {note && <div className="text-xs leading-relaxed text-text-muted">{note}</div>}
+          {note && <div className="text-caption leading-relaxed text-text-muted">{note}</div>}
         </div>
       </div>
 
       <form onSubmit={sendTest} noValidate className="space-y-3 border-t border-border-subtle bg-surface-panel-subtle/60 px-5 py-4 sm:px-6">
         <div className="flex flex-wrap items-end gap-3">
-          <Field label={isRtl ? "ارسال آزمایشی به شماره" : "Send a test to"} className="min-w-0 flex-1 sm:max-w-xs">
-            <input
-              type="tel"
-              dir="ltr"
-              inputMode="tel"
-              autoComplete="off"
-              placeholder="09xx xxx xxxx"
-              value={testMobile}
-              onChange={(e) => setTestMobile(e.target.value)}
-              className="ui-input font-mono"
-            />
+          <Field label={copy.testTo} className="min-w-0 flex-1 sm:max-w-sm">
+            <TextInput type="tel" dir="ltr" inputMode="tel" autoComplete="off" placeholder="09xx xxx xxxx" value={testMobile} onChange={(e) => setTestMobile(e.target.value)} />
           </Field>
-          <Button type="submit" variant="secondary" size="md" disabled={testing} aria-busy={testing}>
-            <Icon name="phone" size={16} />
-            {testing ? (isRtl ? "در حال ارسال…" : "Sending…") : isRtl ? "ارسال پیامک آزمایشی" : "Send test SMS"}
+          <Button type="submit" variant="secondary" icon="phone" loading={testing}>
+            {copy.sendTest}
           </Button>
         </div>
-        <p className="text-xs text-text-muted">
-          {isRtl ? "متن فعلی (حتی ذخیره‌نشده) با مقادیر نمونه ارسال می‌شود." : "Sends the current text (even unsaved) with the sample values."}
-        </p>
+        <p className="text-caption text-text-muted">{testHint ?? copy.testUsesDraft}</p>
         {testError && <FormAlert>{testError}</FormAlert>}
-        {testResult && (
-          <p
-            role="status"
-            className={`flex items-start gap-2.5 rounded-xl border px-3.5 py-3 text-sm ${
-              testResult.status === "sent"
-                ? "border-status-success-border bg-status-success-bg text-status-success-text"
-                : "border-status-danger-border bg-status-danger-bg text-status-danger-text"
-            }`}
-          >
-            <Icon name={testResult.status === "sent" ? "check-circle" : "alert"} size={18} className="mt-0.5 shrink-0" />
-            <span>
-              {testResult.status === "sent"
-                ? testResult.test_mode
-                  ? isRtl ? "حالت آزمایشی: پیامک فقط ثبت شد و به گوشی ارسال نشد." : "Test mode: the message was only recorded; nothing was sent to the phone."
-                  : isRtl ? "پیامک آزمایشی از طریق sms.ir ارسال شد." : "Test message sent through sms.ir."
-                : sendFailure(testResult.error ?? testResult.status, isRtl)}
-            </span>
-          </p>
-        )}
+        {testOutcome && <Notice tone={testSucceeded ? "success" : "danger"}>{testOutcome}</Notice>}
       </form>
 
       <ConfirmDialog
         isOpen={confirmReset}
-        title={isRtl ? "بازگشت به متن پیش‌فرض؟" : "Use the default text?"}
+        title={copy.resetTitle}
         description={resetDescription}
-        confirmLabel={isRtl ? "بازگشت به پیش‌فرض" : "Use default"}
-        cancelLabel={isRtl ? "انصراف" : "Cancel"}
+        confirmLabel={copy.resetConfirm}
+        cancelLabel={common.cancel}
         onCancel={() => setConfirmReset(false)}
         onConfirm={() => {
           setConfirmReset(false);
-          void apply(props.onReset, isRtl ? "متن پیش‌فرض بازگردانده شد." : "Back to the default text.");
+          void apply(props.onReset, copy.resetDone);
         }}
       />
     </section>
   );
+}
+
+/** A placeholder's name for people; an unknown one shows as itself. */
+function labelOf(name: string, copy: EditorCopy): string {
+  const labels: Record<string, string> = copy.placeholderLabels;
+  return labels[name] ?? name;
 }
