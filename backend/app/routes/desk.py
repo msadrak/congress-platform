@@ -11,7 +11,8 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth import organizer_is_active, resolve_organizer_key
+from app.audit import Actor, set_actor
+from app.auth import authorize, organizer_accepts_token, organizer_is_active, resolve_organizer_principal
 from app.db import SessionDep, add_or_existing
 from app.errors import ApiError, error_responses
 from app.links import active_ticket_link, mint_ticket_link
@@ -249,13 +250,14 @@ async def authorized_desk_operator(
                 headers={"WWW-Authenticate": "Bearer"},
             )
 
-        if not await organizer_is_active(session, event.organizer_id):
+        if not await organizer_accepts_token(session, event.organizer_id, payload.get("iat")):
             raise HTTPException(
                 status.HTTP_401_UNAUTHORIZED,
                 "Front desk session is no longer valid",
                 headers={"WWW-Authenticate": "Bearer"},
             )
 
+        set_actor(request, Actor("desk_operator", str(operator.id), operator.operator_name, event.organizer_id))
         return AuthorizedDeskContext(
             event=event,
             operator=operator,
@@ -263,16 +265,17 @@ async def authorized_desk_operator(
             operator_name=operator.operator_name,
         )
 
-    # 2. Master Organizer API key fallback
-    token_organizer = await resolve_organizer_key(session, request, token)
-    if token_organizer is not None:
-        if token_organizer.id != event.organizer_id:
+    # 2. The organizer itself: its API key or a member session with a role that runs the desk (app.roles).
+    principal = await resolve_organizer_principal(session, request, token)
+    if principal is not None:
+        if principal.organizer.id != event.organizer_id:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Event not found")
+        authorize(request, principal)
         return AuthorizedDeskContext(
             event=event,
             operator=None,
             is_organizer_admin=True,
-            operator_name="مدیر ارشد سازمان (Organizer Admin)",
+            operator_name=principal.member.display_name if principal.member else "مدیر ارشد سازمان (Organizer Admin)",
         )
 
     raise HTTPException(

@@ -17,7 +17,7 @@ booth representatives created by an assignment had an unusable password. Walk-in
    6 digits from a CSPRNG, valid 120 s, single use, superseded by a newer code, limited to 5 guesses, and stored only
    as an HMAC (`otp_challenges`). A new number finishes with a short profile step. Desk operators use the same codes
    with purpose `desk`, which are only sent to active operators. Organizers keep their API key; scanners their device
-   tokens.
+   tokens. (Later, ADR 0016: organizer members sign in with purpose `organizer`, sent only to active members.)
 3. **Abuse limits**: one code per number and purpose per 60 s, 5 per number per hour, 100 per IP per hour (a venue puts
    many attendees behind one IP), and failed verifications are throttled per number and per IP. Answers never reveal
    whether a number has an account.

@@ -563,7 +563,7 @@ export function ReceptionStation({ eventId, organizer, locale, t, isRtl }: Recep
               </div>
             )}
 
-            <MobileOtpForm locale={locale} purpose="desk" verifyDesk={verifyDeskCode} verifyLabel={t.deskLoginButton} />
+            <MobileOtpForm locale={locale} purpose="desk" verifyCode={verifyDeskCode} verifyLabel={t.deskLoginButton} />
             {!standalone && (
               <div className="border-t border-border-subtle pt-4 text-center">
                 <Link to="/organizer" className={`inline-flex min-h-11 items-center gap-1.5 rounded-lg px-2 text-sm font-medium text-action-primary hover:underline ${focusRing}`}>

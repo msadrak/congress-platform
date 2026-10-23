@@ -127,15 +127,18 @@ function useKeyboardInset(enabled: boolean): number {
 
 export interface MobileOtpFormProps {
   locale: Locale;
-  /** signin: attendees and booth staff (accounts are created on first use). desk: front-desk operators. */
-  purpose?: "signin" | "desk";
+  /**
+   * signin: attendees and booth staff (accounts are created on first use). desk: front-desk operators.
+   * organizer: organizer console members. Codes for desk and organizer only reach registered numbers.
+   */
+  purpose?: "signin" | "desk" | "organizer";
   /** signin: receives the session after sign-in or sign-up. */
   onSignedIn?: (auth: AuthResponse) => void;
   /**
-   * desk: exchanges the code for a desk session; resolves to an error message to show, or null on success.
-   * A rejected promise is reported as a network error.
+   * desk and organizer: exchanges the code for a session; resolves to an error message to show, or null on
+   * success. A rejected promise is reported as a network error.
    */
-  verifyDesk?: (mobile: string, code: string) => Promise<string | null>;
+  verifyCode?: (mobile: string, code: string) => Promise<string | null>;
   /** Label of the final button on the code step (defaults to "Continue"). */
   verifyLabel?: string;
   /**
@@ -153,7 +156,7 @@ export interface MobileOtpFormProps {
  * A 429 locks only the throttled action until its Retry-After deadline, with a visible countdown.
  */
 export function MobileOtpForm({
-  locale, purpose = "signin", onSignedIn, verifyDesk, verifyLabel, onStepChange, stickySubmit = false,
+  locale, purpose = "signin", onSignedIn, verifyCode, verifyLabel, onStepChange, stickySubmit = false,
 }: MobileOtpFormProps) {
   const copy = COPY[locale];
   const number = (n: number) => new Intl.NumberFormat(locale === "fa" ? "fa-IR" : "en-US").format(n);
@@ -293,10 +296,10 @@ export function MobileOtpForm({
 
   const submitCode = (value: string) =>
     run(async () => {
-      if (purpose === "desk") {
-        const problem = verifyDesk ? await verifyDesk(mobile, value) : null;
+      if (purpose !== "signin") {
+        const problem = verifyCode ? await verifyCode(mobile, value) : null;
         if (!aliveRef.current) return;
-        if (!verifyDesk) setFormError(copyProblem("server"));
+        if (!verifyCode) setFormError(copyProblem("server"));
         else if (problem) setFormError({ kind: "text", text: problem });
         return;
       }

@@ -17,7 +17,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import Settings
 from app.models import OtpChallenge
 
-OtpPurpose = Literal["signin", "desk"]
+# signin: attendees and booth staff; desk: front-desk operators; organizer: organizer members (ADR 0016).
+OtpPurpose = Literal["signin", "desk", "organizer"]
 MAX_ATTEMPTS = 5
 
 
