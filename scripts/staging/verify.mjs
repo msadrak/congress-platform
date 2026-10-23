@@ -1,15 +1,22 @@
 #!/usr/bin/env node
 /**
- * End-to-end verification of the running local staging stack (deploy/staging, project congress-staging):
+ * End-to-end verification of a running local staging stack (deploy/staging):
  *
- *   node scripts/staging/verify.mjs [--fresh]
+ *   node scripts/staging/verify.mjs [--fresh] [--rebuild] [--evidence-dir <dir>]
  *
+ *   --fresh               also check that the database holds no accounts or demo data (a just-created stack)
+ *   --rebuild             also run the disruptive steps: rebuild the API image and re-create its container, then
+ *                         stop and start the whole stack. Off by default: verify never rebuilds or stops a stack
+ *                         it did not start unless asked.
+ *   --evidence-dir <dir>  where screenshots and JSON results go [.staging/evidence/<project>, ignored by git]
+ *
+ * The Compose project is CONGRESS_STACK_PROJECT (default congress-staging), the same variable stack.mjs reads.
  * Uses only synthetic records created here. Steps: empty-database check (--fresh), HTTPS with the local CA,
  * proxy/cache/security headers, every portal through Caddy, the full congress journey (organizer, Page
  * Studio publish, registration, reception, scanner incl. offline, exhibitor leads, analytics/CSV,
  * cross-tenant), the real-API scanner spec, server-rendered metadata without JavaScript, media surviving an
- * API image rebuild, data surviving stop/start, and backup + restore into a separate disposable project.
- * Evidence: docs/deployment/staging-evidence/.
+ * API image rebuild and data surviving stop/start (--rebuild), and backup + restore into a separate disposable
+ * project.
  */
 import { createHash, randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
@@ -17,6 +24,7 @@ import https from 'node:https';
 import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { parseArgs } from 'node:util';
 import { runJourney } from '../integration/journey.mjs';
 import { run } from '../lib/process.mjs';
 import { backup, compose, persistentPaths, psql, readEnv, restoreVerify, smsCode } from './stack.mjs';
@@ -24,11 +32,19 @@ import { backup, compose, persistentPaths, psql, readEnv, restoreVerify, smsCode
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const require = createRequire(resolve(root, 'web/package.json'));
 const { chromium } = require('playwright');
-const PROJECT = 'congress-staging';
+const { values: args } = parseArgs({
+  options: {
+    fresh: { type: 'boolean', default: false },
+    rebuild: { type: 'boolean', default: false },
+    'evidence-dir': { type: 'string' },
+  },
+});
+const PROJECT = process.env.CONGRESS_STACK_PROJECT?.trim() || 'congress-staging';
 const env = readEnv();
 const HTTPS_BASE = env.CONGRESS_PUBLIC_ORIGIN;
 const HTTP_BASE = `http://localhost:${env.CONGRESS_HTTP_PORT || 18080}`;
-const SHOTS = resolve(root, 'docs/deployment/staging-evidence');
+// Evidence stays out of the repository by default (.staging/ is ignored); --evidence-dir puts it elsewhere.
+const SHOTS = resolve(args['evidence-dir'] ?? join(root, '.staging/evidence', PROJECT));
 const RUN = Date.now().toString(36).slice(-5);
 // Synthetic attendee number in the unassigned 0900 range, unique per run.
 const ATTENDEE_MOBILE = `0900999${String(parseInt(RUN, 36) % 10000).padStart(4, '0')}`;
@@ -81,7 +97,11 @@ const otpSignIn = async (number, full_name) => {
 };
 const sha = (buf) => createHash('sha256').update(buf).digest('hex');
 
-const fresh = process.argv.includes('--fresh');
+const fresh = args.fresh;
+const skip = (name, reason) => {
+  results.push({ ok: true, skipped: true, name, note: reason });
+  console.log(`SKIP ${name} — ${reason}`);
+};
 const S = {};
 let browser;
 try {
@@ -243,14 +263,17 @@ try {
     await ctx.close();
   });
 
-  await check('11 media and data survive an API image rebuild and container re-creation', async () => {
+  const REBUILD_ONLY = 'needs --rebuild (rebuilds the API image and stops/starts the stack)';
+  if (!args.rebuild) skip('11 media and data survive an API image rebuild and container re-creation', REBUILD_ONLY);
+  else await check('11 media and data survive an API image rebuild and container re-creation', async () => {
     compose(PROJECT, ['build', 'api']);
     compose(PROJECT, ['up', '-d', '--no-deps', '--force-recreate', '--wait', 'api']);
     eq(sha((await httpsGet(`/api/public/media/${S.asset}`)).body), S.mediaSha, 'image bytes after rebuild');
     eq((await api('GET', `/api/public/events/${S.slug}`)).status, 200, 'page after rebuild');
   });
 
-  await check('12 stop and start the whole stack: event, attendee, ticket, publication and media intact', async () => {
+  if (!args.rebuild) skip('12 stop and start the whole stack: event, attendee, ticket, publication and media intact', REBUILD_ONLY);
+  else await check('12 stop and start the whole stack: event, attendee, ticket, publication and media intact', async () => {
     const before = q("select count(*)||'/'||(select count(*) from users)||'/'||(select count(*) from tickets)||'/'||(select count(*) from event_pages where published is not null)||'/'||(select count(*) from media_assets) from events");
     compose(PROJECT, ['stop']);
     compose(PROJECT, ['up', '-d', '--wait', '--wait-timeout', '300']);
@@ -291,6 +314,7 @@ try {
   if (browser) await browser.close().catch(() => undefined);
   writeFileSync(join(SHOTS, 'last-run.json'), JSON.stringify({ at: new Date().toISOString(), results }, null, 2));
   const failed = results.filter((r) => !r.ok).length;
-  console.log(`\n${results.length - failed}/${results.length} staging checks passed`);
+  const skipped = results.filter((r) => r.skipped).length;
+  console.log(`\n${results.length - failed - skipped}/${results.length - skipped} staging checks passed${skipped ? ` (${skipped} skipped)` : ''}; evidence in ${SHOTS}`);
   process.exit(failed ? 1 : 0);
 }
