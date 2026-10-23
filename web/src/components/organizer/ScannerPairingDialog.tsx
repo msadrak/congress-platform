@@ -117,7 +117,7 @@ export function ScannerPairingDialog({ point, apiKey, locale, isRtl, onClose }: 
         setDeviceName("");
         const now = new Date().toISOString();
         setDevices((prev) => [
-          { id: data.device_id, checkin_point_id: data.point_id, event_id: data.event_id, device_name: name, is_revoked: false, revoked_at: null, created_at: now, last_seen_at: null },
+          { id: data.device_id, checkin_point_id: data.point_id, event_id: data.event_id, device_name: name, is_revoked: false, revoked_at: null, created_at: now, last_seen_at: null, stale: false },
           ...prev.filter((d) => d.id !== data.device_id),
         ]);
       }
@@ -296,6 +296,24 @@ export function ScannerPairingDialog({ point, apiKey, locale, isRtl, onClose }: 
                         {formatDateTime(d.created_at, locale)}
                         {d.last_seen_at ? ` · ${isRtl ? "آخرین فعالیت: " : "last seen "}${formatDateTime(d.last_seen_at, locale)}` : ""}
                       </p>
+                      {(d.unsynced_count !== null && d.unsynced_count !== undefined) || d.app_version ? (
+                        <p className="text-[0.6875rem] text-text-muted" data-testid="device-report">
+                          {d.unsynced_count !== null && d.unsynced_count !== undefined
+                            ? isRtl
+                              ? `${formatLocalizedNumber(d.unsynced_count, locale)} اسکن همگام‌نشده`
+                              : `${d.unsynced_count} unsynced scan(s)`
+                            : ""}
+                          {d.app_version ? <> · <bdi dir="ltr">{d.app_version}</bdi></> : null}
+                        </p>
+                      ) : null}
+                      {d.stale && (
+                        <p className="flex items-center gap-1 text-[0.6875rem] font-semibold text-status-warning-text" role="status">
+                          <Icon name="alert" size={13} />
+                          {isRtl
+                            ? "بیش از ۱۰ دقیقه است که به سرور وصل نشده؛ اتصال اینترنت دستگاه را بررسی کنید."
+                            : "Not in touch for over 10 minutes: check the device's connection."}
+                        </p>
+                      )}
                     </div>
                     {d.is_revoked ? (
                       <Badge variant="neutral" size="sm">
