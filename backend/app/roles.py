@@ -44,9 +44,13 @@ ROUTE_ROLES: dict[tuple[str, str], Role] = {
     ("GET", "/api/events"): VIEWER,
     ("GET", E): VIEWER,
     ("PATCH", E): MANAGER,
+    ("POST", f"{E}/archive"): MANAGER,
+    # Deleting succeeds only for a congress without tickets or records (otherwise archive): a setup change.
+    ("DELETE", E): MANAGER,
     ("POST", f"{E}/ticket-tiers"): MANAGER,
     ("GET", f"{E}/ticket-tiers"): VIEWER,
     ("PATCH", f"{E}/ticket-tiers/{{tier_id}}"): MANAGER,
+    ("DELETE", f"{E}/ticket-tiers/{{tier_id}}"): MANAGER,
     # Participants (personal data: staff and up; changes and the export: managers).
     ("GET", f"{E}/participants"): STAFF,
     ("GET", f"{E}/participants/export-csv"): MANAGER,
@@ -88,6 +92,9 @@ ROUTE_ROLES: dict[tuple[str, str], Role] = {
     ("DELETE", f"{E}/booths/{{booth_id}}"): MANAGER,
     ("POST", f"{E}/booths/{{booth_id}}/staff"): MANAGER,
     ("GET", f"{E}/booths/{{booth_id}}/staff"): STAFF,
+    ("DELETE", f"{E}/booths/{{booth_id}}/staff/{{staff_id}}"): MANAGER,
+    # The standee QR address carries the booth QR secret, which the booth list already shows every role.
+    ("GET", f"{E}/booths/{{booth_id}}/standee"): VIEWER,
     # Public page and media.
     ("GET", f"{E}/page"): VIEWER,
     ("PUT", f"{E}/page"): MANAGER,
@@ -109,12 +116,19 @@ ROUTE_ROLES: dict[tuple[str, str], Role] = {
     ("POST", f"{E}/sessions/import"): MANAGER,
     ("PATCH", f"{E}/sessions/{{session_id}}"): MANAGER,
     ("DELETE", f"{E}/sessions/{{session_id}}"): MANAGER,
+    ("GET", f"{E}/program-files"): VIEWER,
+    ("POST", f"{E}/program-files"): MANAGER,
+    ("PATCH", f"{E}/program-files/{{file_id}}"): MANAGER,
+    ("DELETE", f"{E}/program-files/{{file_id}}"): MANAGER,
+    ("GET", f"{E}/program-files/{{file_id}}/content"): VIEWER,
     # SMS wording; the delivery log lists mobile numbers.
     ("GET", f"{E}/sms"): VIEWER,
     ("PUT", f"{E}/sms/templates/{{kind}}"): MANAGER,
     ("DELETE", f"{E}/sms/templates/{{kind}}"): MANAGER,
     ("POST", f"{E}/sms/test"): MANAGER,
     ("GET", f"{E}/sms/messages"): MANAGER,
+    ("POST", f"{E}/sms/messages/{{message_id}}/retry"): MANAGER,
+    ("POST", f"{E}/sms/messages/{{message_id}}/resolve"): MANAGER,
 }
 
 
