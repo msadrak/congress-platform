@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { createApiClient, type PublicBoothSummary } from "../../api/client";
+import { BoothLogo } from "../BoothLogo";
 import { Icon } from "../ui/Icon";
 import { Bidi } from "./Bidi";
 import { num, publicCopy, type PublicLocale } from "./copy";
@@ -88,15 +89,18 @@ export function BoothIndex({ slug, locale, booths }: { slug: string; locale: Pub
                     <Bidi text={b.location || "—"} />
                   </span>
                 </span>
-                <span className="col-start-1 row-start-2 min-w-0 space-y-1 sm:col-start-2 sm:row-start-1">
-                  <span className="block text-body font-semibold text-text-primary break-words sm:text-title-sm"><Bidi text={b.name} /></span>
-                  {b.description && <span className="block text-body-sm text-text-secondary line-clamp-2 sm:line-clamp-1"><Bidi text={b.description} /></span>}
-                  {/^https?:\/\//i.test(b.brochure_url) && (
-                    <span className="inline-flex items-center gap-1.5 pt-0.5 text-caption font-medium text-text-muted">
-                      <Icon name="file" size={14} />
-                      {c.brochure}
-                    </span>
-                  )}
+                <span className="col-start-1 row-start-2 flex min-w-0 items-start gap-3 sm:col-start-2 sm:row-start-1">
+                  <BoothLogo src={b.logo_url} alt={b.name} size="row" lazy />
+                  <span className="min-w-0 flex-1 space-y-1">
+                    <span className="block text-body font-semibold text-text-primary break-words sm:text-title-sm"><Bidi text={b.name} /></span>
+                    {b.description && <span className="block text-body-sm text-text-secondary line-clamp-2 sm:line-clamp-1"><Bidi text={b.description} /></span>}
+                    {/^https?:\/\//i.test(b.brochure_url) && (
+                      <span className="inline-flex items-center gap-1.5 pt-0.5 text-caption font-medium text-text-muted">
+                        <Icon name="file" size={14} />
+                        {c.brochure}
+                      </span>
+                    )}
+                  </span>
                 </span>
                 <span className="col-start-2 row-span-2 row-start-1 flex items-center gap-3 sm:col-start-3 sm:row-span-1">
                   <span className="sr-only lg:not-sr-only lg:text-body-sm lg:font-semibold lg:text-event-accent">{c.viewBooth}</span>
