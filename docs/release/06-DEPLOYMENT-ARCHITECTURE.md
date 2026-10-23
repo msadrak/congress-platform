@@ -7,7 +7,7 @@
 >
 > In particular, the `--workers 4` unit and the `alembic downgrade -1` rollback below are wrong today: rollback is `stack.mjs rollback` (images only, never a downgrade; see `docs/CODING_STANDARDS.md` §2.D).
 >
-> **One API process is the only tested configuration** (no `--workers N`, one API replica); scale the VM. Since ws/b1-sms-otp the rate limits and SMS caps are counted in PostgreSQL (`backend/app/rate_limit.py`, table `rate_limit_counters`) and shared by every process, so extra processes no longer multiply budgets. The parts that are still per process (metrics counters, SMS concurrency limit, settings cache, database pool, media on the host disk) are listed at the top of [`docs/deployment/STAGING_OPERATIONS.md`](../deployment/STAGING_OPERATIONS.md); several processes have not been load-tested.
+> **API workers:** `CONGRESS_API_WORKERS` (default 1) uvicorn processes in the one API container. Rate limits and SMS caps are counted in PostgreSQL (`backend/app/rate_limit.py`, table `rate_limit_counters`), the retention job takes an advisory lock, the SMS outbox claims rows with `FOR UPDATE SKIP LOCKED`, and metrics are summed over workers, so extra workers are safe; the database pool, SMS concurrency limit, settings cache and test-mode SMS outbox stay per worker ([`docs/deployment/STAGING_OPERATIONS.md`](../deployment/STAGING_OPERATIONS.md) → Scaling). 1 and 4 workers were load-tested on a laptop only (`scripts/load/README.md`); scale the VM first and re-run the load scripts on it.
 
 **Evaluation Date:** 2026-10-10  
 **Target Release:** Browser-Based SaaS & Web Scanner Station (Pilot Tier)  

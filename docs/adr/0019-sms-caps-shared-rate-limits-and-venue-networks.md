@@ -3,6 +3,13 @@
 **Status:** Accepted (2026-10-23). Implemented by the SMS/OTP workstream (B1, migration `0022`). Extends ADR 0012
 (point 3 and the outbox) and ADR 0013.
 
+**Status note (2026-10-23, PERF-1):** the API can now run several uvicorn workers (`CONGRESS_API_WORKERS`, default 1,
+`backend/app/serve.py`). The shared counters of this ADR are what makes that safe for rate limits and SMS caps; the
+retention job takes an advisory lock per pass, the outbox already claims with `FOR UPDATE SKIP LOCKED`, and metrics
+are summed over workers. Still per worker: the in-process shortcuts and memory fallback of point 1, the
+concurrent-send limit of point 4 (so `8 × workers` provider calls at most), the settings refresh of point 6 and the
+database pool (`docs/deployment/STAGING_OPERATIONS.md` → Scaling).
+
 ## Context
 Every sign-in is an SMS code, and every SMS costs money and reaches a real phone. The limits of ADR 0012 were counted
 in process memory: a restart or deploy reset them, a second API process doubled every budget, and nothing bounded the
@@ -55,8 +62,8 @@ were also sent while a database transaction was open, so a slow sms.ir held conn
   no venue exception.
 - Each limiter check is a database round trip; the table is small (expired rows are deleted) and indexed by
   `expires_at`.
-- The deployment still runs one API process; rate limits no longer require it (`docs/deployment/STAGING_OPERATIONS.md`
-  lists what is still per process).
+- The deployment runs one API process by default; rate limits no longer require it, and `CONGRESS_API_WORKERS` adds
+  more (`docs/deployment/STAGING_OPERATIONS.md` → Scaling lists what is still per process).
 - The staging/hosted Compose file passes none of the `CONGRESS_OTP_*` / `CONGRESS_SMS_*_CAP` variables to the API, so
   on that deployment these settings are made in the platform console.
 - Migration `0022` is not marked `backward_compatible` (it only adds a table and a nullable column, so it could be

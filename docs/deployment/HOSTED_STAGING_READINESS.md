@@ -150,7 +150,7 @@ The full list with defaults is in `STAGING_OPERATIONS.md` → *Operations settin
 - This leaves room for image builds on the server, which need Node and npm, and peak during `npm ci`/`vite build`. Building elsewhere and loading images reduces the need.
 - Add disk in proportion to uploads: ≤ 200 images per event, each ≤ 2400 px after re-encoding.
 - **Not measured:** load at real congress scale (hundreds of simultaneous gate scans). Run a load test before relying on 1 vCPU.
-- Scale up the VPS, not the process count: **one uvicorn process** is the only tested configuration. Rate limits are now shared in PostgreSQL, but the metrics counters, SMS concurrency limit, settings cache and database pool are per process (`STAGING_OPERATIONS.md`, top), and several processes have not been load-tested.
+- API processes: `CONGRESS_API_WORKERS` (default 1). One worker met the 50 reservations/s target with a wide margin on a laptop; more workers add CPU headroom on a VPS with spare vCPUs. Each worker has its own database pool (keep `workers × (pool + overflow)` below `max_connections`), SMS send slots and settings cache, and test-mode SMS needs one worker (`STAGING_OPERATIONS.md` → Scaling). Load-test the real server before raising it.
 - Disk: add room for 5 releases' images (rollback) and, with WAL, the local archive queue (up to `BACKUP_WAL_QUEUE_MAX`, 1 GiB).
 
 ## 5. DNS and firewall
