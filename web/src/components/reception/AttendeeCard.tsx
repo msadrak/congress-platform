@@ -3,7 +3,7 @@ import type { AttendeeDetailCard } from "../../api/client";
 import { commonCopy } from "../../copy/common";
 import { deskCopy } from "../../copy/desk";
 import type { VerdictTone } from "../../copy/operator";
-import { admitReasonText, badgeAffiliation, badgePrintState, DESK_TIME_ZONE } from "../../lib/deskBadge";
+import { admitReasonText, badgeAffiliation, badgePrintState } from "../../lib/deskBadge";
 import { codeFontClass, formatDate, formatMobile, formatNumber } from "../../lib/format";
 import type { AttendeeLocale } from "../../lib/i18n";
 import { VerdictBanner } from "../operator/VerdictBanner";
@@ -40,10 +40,12 @@ interface AttendeeCardProps {
   /** A one-line success notice (toast). */
   onNotice: (text: string) => void;
   locale: AttendeeLocale;
+  /** The congress's IANA zone: times on the card are shown on its clock. */
+  timeZone: string;
 }
 
 /** The selected attendee: name, status, print state, details, and the desk's actions in a bar pinned to the bottom. */
-export function AttendeeCard({ review, headingRef, eventName, printable, onRetry, onNext, onPrint, actions, offline, pointStorageKey, onNotice, locale }: AttendeeCardProps) {
+export function AttendeeCard({ review, headingRef, eventName, printable, onRetry, onNext, onPrint, actions, offline, pointStorageKey, onNotice, locale, timeZone }: AttendeeCardProps) {
   const c = deskCopy[locale];
   const common = commonCopy[locale];
   if (review.status === "idle") {
@@ -88,6 +90,7 @@ export function AttendeeCard({ review, headingRef, eventName, printable, onRetry
       pointStorageKey={pointStorageKey}
       onNotice={onNotice}
       locale={locale}
+      timeZone={timeZone}
     />
   );
 }
@@ -100,12 +103,12 @@ interface Verdict {
 }
 
 /** A clock time today, else day and time; always on the congress's clock. */
-function scanTime(iso: string, locale: AttendeeLocale): string {
-  const today = formatDate(Date.now(), "long", locale, DESK_TIME_ZONE) === formatDate(iso, "long", locale, DESK_TIME_ZONE);
-  return formatDate(iso, today ? "time" : "dayTime", locale, DESK_TIME_ZONE);
+function scanTime(iso: string, locale: AttendeeLocale, timeZone: string): string {
+  const today = formatDate(Date.now(), "long", locale, timeZone) === formatDate(iso, "long", locale, timeZone);
+  return formatDate(iso, today ? "time" : "dayTime", locale, timeZone);
 }
 
-function ReadyCard({ card, headingRef, eventName, printable, onNext, onPrint, actions, offline, pointStorageKey, onNotice, locale }: ReadyCardProps) {
+function ReadyCard({ card, headingRef, eventName, printable, onNext, onPrint, actions, offline, pointStorageKey, onNotice, locale, timeZone }: ReadyCardProps) {
   const c = deskCopy[locale];
   const active = card.status === "active";
   // Defensive defaults: a card from an older API has no print record.
@@ -221,7 +224,7 @@ function ReadyCard({ card, headingRef, eventName, printable, onNext, onPrint, ac
   if (card.organization) facts.push({ label: c.organization, value: card.organization });
   if (card.title) facts.push({ label: c.jobTitle, value: card.title });
   if (card.issued_by) facts.push({ label: c.issuedBy, value: card.issued_by });
-  facts.push({ label: c.registered, value: formatDate(card.created_at, "long", locale, DESK_TIME_ZONE) });
+  facts.push({ label: c.registered, value: formatDate(card.created_at, "long", locale, timeZone) });
 
   const affiliation = badgeAffiliation(card.title, card.organization);
   return (
@@ -271,7 +274,7 @@ function ReadyCard({ card, headingRef, eventName, printable, onNext, onPrint, ac
                 <ol className="divide-y divide-border-subtle" data-testid="scan-history">
                   {card.scan_history.map((scan, i) => (
                     <li key={`${scan.checkin_point_name}-${scan.scanned_at}-${i}`} className="flex items-center gap-3 py-2 text-body-sm">
-                      <span className="shrink-0 font-semibold tabular text-text-primary">{scanTime(scan.scanned_at, locale)}</span>
+                      <span className="shrink-0 font-semibold tabular text-text-primary">{scanTime(scan.scanned_at, locale, timeZone)}</span>
                       <span className="min-w-0 flex-1">
                         <span className="block break-words text-text-primary">{scan.checkin_point_name}</span>
                         {scan.recorded_by && <span className="block text-caption text-text-muted">{c.atDesk(scan.recorded_by)}</span>}

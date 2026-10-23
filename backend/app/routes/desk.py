@@ -120,6 +120,7 @@ class DeskLoginResponse(BaseModel):
     event_id: uuid.UUID
     event_name: str
     event_slug: str
+    event_timezone: str
 
 
 class DeskMeOut(BaseModel):
@@ -131,6 +132,8 @@ class DeskMeOut(BaseModel):
     is_organizer_admin: bool
     # An archived congress's desk can look attendees up but changes nothing (409 EVENT_ARCHIVED).
     is_archived: bool = False
+    # The congress's IANA zone (`events.timezone`): the desk shows times in it, not in the device's zone.
+    event_timezone: str
 
 
 class DeskRegistrationCreate(BaseModel):
@@ -445,6 +448,7 @@ async def desk_operator_login(
         event_id=event.id,
         event_name=event.name,
         event_slug=event.slug,
+        event_timezone=event.timezone,
     )
 
 
@@ -460,6 +464,7 @@ async def get_current_desk_operator(
         event_slug=desk_ctx.event.slug,
         is_organizer_admin=desk_ctx.is_organizer_admin,
         is_archived=desk_ctx.event.archived_at is not None,
+        event_timezone=desk_ctx.event.timezone,
     )
 
 

@@ -192,6 +192,7 @@ the API image now starts with `python -m app.serve`), `ALERT_HEARTBEAT_URL`, `AL
 9. Schedule PDFs with ordinary web links are accepted; javascript:/data:/file: links are refused.
 10. Errors without a known code show a Persian sentence in fa instead of the server's English text.
 11. SMS default texts are shorter (saved overrides untouched); booth API has `event_archived`.
+12. Rate limits are now strict under concurrency (fixes possible over-budget OTP/SMS sends); desk and booth APIs return event_timezone.
 
 ## 8. Environment and tooling notes (important)
 

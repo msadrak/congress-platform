@@ -37,7 +37,7 @@ async function deskFixture(page: Page) {
     if (!match || match[1] !== EVENT) return json(404, { detail: 'Not found' });
     const rest = match[2];
     if (request.headers().authorization !== `Bearer ${TOKEN}`) return json(401, { detail: 'Invalid desk token' });
-    if (rest === 'desk/me') return json(200, { operator_id: 'op-1', operator_name: 'Sara', event_id: EVENT, event_name: 'Gamma Congress', event_slug: 'gamma', is_organizer_admin: false });
+    if (rest === 'desk/me') return json(200, { operator_id: 'op-1', operator_name: 'Sara', event_id: EVENT, event_name: 'Gamma Congress', event_slug: 'gamma', is_organizer_admin: false, event_timezone: 'Asia/Tehran' });
     if (rest === 'desk/tiers') {
       return json(200, [
         { id: 'tier-1', name: 'VIP', description: '', quota: 100, reserved_count: 1, is_open: true },
@@ -325,7 +325,7 @@ test('an archived congress keeps lookups but has no desk registration, no action
   await deskFixture(page);
   await page.route(/\/desk\/me$/, route => route.fulfill({
     status: 200, contentType: 'application/json',
-    body: JSON.stringify({ operator_id: 'op-1', operator_name: 'Sara', event_id: EVENT, event_name: 'Gamma Congress', event_slug: 'gamma', is_organizer_admin: false, is_archived: true }),
+    body: JSON.stringify({ operator_id: 'op-1', operator_name: 'Sara', event_id: EVENT, event_name: 'Gamma Congress', event_slug: 'gamma', is_organizer_admin: false, is_archived: true, event_timezone: 'Asia/Tehran' }),
   }));
   await openDesk(page);
   await expect(page.locator('[data-status="archived"]')).toContainText('Archived');

@@ -74,11 +74,11 @@ async function fixture(page: Page, options: Options = {}): Promise<Fixture> {
       loginCount += 1;
       validToken = tokenOf(loginCount + revokedGeneration);
       issuedTokens.push(validToken);
-      return json(200, { access_token: validToken, token_type: 'bearer', event_id: event, event_name: EVENT_NAMES[event], event_slug: 'alpha', operator: { id: 'op-1', operator_name: 'Operator One' } });
+      return json(200, { access_token: validToken, token_type: 'bearer', event_id: event, event_name: EVENT_NAMES[event], event_slug: 'alpha', event_timezone: 'Asia/Tehran', operator: { id: 'op-1', operator_name: 'Operator One' } });
     }
     if (auth !== `Bearer ${validToken}` || !validToken) return json(401, { detail: 'Invalid desk token' });
     if (event !== EVENT_A) return json(403, { detail: 'Wrong event' });
-    if (rest === 'desk/me') return json(200, { operator_id: 'op-1', operator_name: 'Operator One', event_id: event, event_name: EVENT_NAMES[event], event_slug: 'alpha', is_organizer_admin: false });
+    if (rest === 'desk/me') return json(200, { operator_id: 'op-1', operator_name: 'Operator One', event_id: event, event_name: EVENT_NAMES[event], event_slug: 'alpha', is_organizer_admin: false, event_timezone: 'Asia/Tehran' });
     if (rest === 'desk/tiers') return json(200, [{ id: 'tier-1', name: 'General', description: '', quota: 100, reserved_count: 3, is_open: true }]);
     if (rest === 'attendees' && method === 'GET') {
       const q = (new URL(request.url()).searchParams.get('q') ?? '').toLowerCase();

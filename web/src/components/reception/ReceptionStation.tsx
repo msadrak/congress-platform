@@ -17,7 +17,7 @@ import { deskCopy } from "../../copy/desk";
 import { operatorCopy } from "../../copy/operator";
 import { useHidScanner } from "../../hooks/useHidScanner";
 import { useWakeLock } from "../../hooks/useWakeLock";
-import { tierAvailable } from "../../lib/deskBadge";
+import { deskTimeZone, tierAvailable } from "../../lib/deskBadge";
 import { badgeCode } from "../../lib/deskScan";
 import { networkErrorMessage } from "../../lib/errorMessages";
 import { eventAccentStyle } from "../../lib/eventAccent";
@@ -296,6 +296,7 @@ export function ReceptionStation({ eventId, organizer, locale }: ReceptionStatio
         event_slug: data.event_slug,
         is_organizer_admin: false,
         is_archived: false,
+        event_timezone: data.event_timezone,
       });
       return null;
     }
@@ -858,6 +859,7 @@ export function ReceptionStation({ eventId, organizer, locale }: ReceptionStatio
             pointStorageKey={`congress_desk_point_${eventId}`}
             onNotice={showToast}
             locale={locale}
+            timeZone={deskTimeZone(operatorProfile)}
           />
         </div>
       </div>

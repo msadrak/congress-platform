@@ -25,6 +25,7 @@ import { SkipLink } from "../components/ui/SkipLink";
 import { LoadingState } from "../components/ui/StateBlock";
 import { CaptureDialog } from "../components/booth/CaptureDialog";
 import { LeadList } from "../components/booth/LeadList";
+import { boothTimeZone } from "../components/booth/leadTime";
 import { QualifyDialog } from "../components/booth/QualifyDialog";
 import { codedMessage } from "../components/booth/boothText";
 import { useLeadCounts, useLeadList } from "../components/booth/useLeadList";
@@ -409,6 +410,7 @@ function ExhibitorPortalContent() {
           boothId={booth.id}
           token={token}
           locale={locale}
+          timeZone={boothTimeZone(booth)}
           list={list}
           counts={counts}
           queue={queue}

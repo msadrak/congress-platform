@@ -11,6 +11,8 @@ import type { LeadQueueState } from "./useLeadQueue";
 interface PendingSyncPanelProps {
   queue: LeadQueueState;
   locale: AttendeeLocale;
+  /** The congress's IANA zone: queue times are shown on its clock. */
+  timeZone: string;
 }
 
 /**
@@ -18,7 +20,7 @@ interface PendingSyncPanelProps {
  * that opens into one line per scan: time, the last four characters of the code, its state and its actions.
  * The full badge code is never shown: it is the attendee's gate credential.
  */
-export function PendingSyncPanel({ queue, locale }: PendingSyncPanelProps) {
+export function PendingSyncPanel({ queue, locale, timeZone }: PendingSyncPanelProps) {
   const text = boothCopy[locale];
   const listId = useId();
   const [open, setOpen] = useState(false);
@@ -31,7 +33,7 @@ export function PendingSyncPanel({ queue, locale }: PendingSyncPanelProps) {
     if (sendingId === scan.id) return { tone: "info" as const, label: text.syncing };
     if (scan.state === "failed" && scan.failure) return { tone: "danger" as const, label: queueFailureText(scan.failure, locale) };
     if (!online) return { tone: "muted" as const, label: text.waiting };
-    if (scan.attempts > 0) return { tone: "muted" as const, label: text.retryAt(leadClock(scan.next_attempt_at, locale)) };
+    if (scan.attempts > 0) return { tone: "muted" as const, label: text.retryAt(leadClock(scan.next_attempt_at, locale, timeZone)) };
     return { tone: "muted" as const, label: text.syncing };
   };
 
@@ -71,7 +73,7 @@ export function PendingSyncPanel({ queue, locale }: PendingSyncPanelProps) {
                 className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-control bg-surface-panel py-1.5 ps-3 pe-1.5 text-body-sm"
               >
                 <span className="min-w-0 flex-1">
-                  <span className="text-text-secondary">{leadClock(scan.queued_at, locale)}</span>
+                  <span className="text-text-secondary">{leadClock(scan.queued_at, locale, timeZone)}</span>
                   <span aria-hidden="true" className="mx-1.5 text-text-muted">·</span>
                   <span className="text-text-primary">
                     {text.code}{" "}

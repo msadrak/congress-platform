@@ -100,6 +100,7 @@ async def test_desk_operator_login_and_me_profile(
     assert "access_token" in login_data
     assert login_data["token_type"] == "bearer"
     assert login_data["operator"]["operator_name"] == "Ali Moradi"
+    assert login_data["event_timezone"] == "Asia/Tehran"
     operator_token = login_data["access_token"]
     op_bearer = {"Authorization": f"Bearer {operator_token}"}
 
@@ -113,6 +114,8 @@ async def test_desk_operator_login_and_me_profile(
     assert me_data["operator_name"] == "Ali Moradi"
     assert me_data["is_organizer_admin"] is False
     assert me_data["event_id"] == event_id
+    # The desk shows times in the congress's own zone, so it learns which one.
+    assert me_data["event_timezone"] == "Asia/Tehran"
 
     # Call desk/me with organizer master token
     me_admin_resp = await client.get(
@@ -123,6 +126,11 @@ async def test_desk_operator_login_and_me_profile(
     admin_me_data = me_admin_resp.json()
     assert admin_me_data["is_organizer_admin"] is True
     assert admin_me_data["operator_id"] is None
+
+    moved = await client.patch(f"/api/events/{event_id}", json={"timezone": "Europe/Berlin"}, headers=bearer(organizer))
+    assert moved.status_code == 200, moved.text
+    me_moved = await client.get(f"/api/events/{event_id}/desk/me", headers=op_bearer)
+    assert me_moved.json()["event_timezone"] == "Europe/Berlin"
 
 
 async def test_desk_operator_can_perform_walkin_registration_with_audit_attribution(
