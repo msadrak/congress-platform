@@ -1,5 +1,14 @@
 # 06 — Deployment Architecture & Pilot Infrastructure Specification
 
+> **SUPERSEDED (2026-10-23).** This document describes a bare-metal Nginx + systemd layout the project did not adopt. The platform runs as one Docker Compose stack behind Caddy. Current documents:
+> - [`docs/deployment/STAGING_OPERATIONS.md`](../deployment/STAGING_OPERATIONS.md): services, releases and rollback, backups, point-in-time recovery, monitoring, alerts, operations settings;
+> - [`docs/deployment/HOSTED_STAGING_READINESS.md`](../deployment/HOSTED_STAGING_READINESS.md): hosted deployment procedure, sizing, DNS and firewall;
+> - [`docs/deployment/CDN.md`](../deployment/CDN.md) and [`PROXY-QUICK-START.md`](../deployment/PROXY-QUICK-START.md): CDN in front, servers without direct internet.
+>
+> In particular, the `--workers 4` unit and the `alembic downgrade -1` rollback below are wrong today: rollback is `stack.mjs rollback` (images only, never a downgrade; see `docs/CODING_STANDARDS.md` §2.D).
+>
+> **Do not run multiple uvicorn workers** (`--workers N`) or several API replicas. The failed-login, admin-token, organizer-key and SMS rate limits (`backend/app/rate_limit.py`) live in process memory: each extra process multiplies every budget and a restart resets them. Keep one API process until those limits are shared (for example in PostgreSQL or Redis); scale the VM instead.
+
 **Evaluation Date:** 2026-10-10  
 **Target Release:** Browser-Based SaaS & Web Scanner Station (Pilot Tier)  
 **Classification:** VERIFIED  

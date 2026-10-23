@@ -78,6 +78,37 @@ class Settings(BaseSettings):
     sms_outbox_enabled: bool = True
     sms_outbox_poll_seconds: float = Field(default=5.0, gt=0, le=300)
 
+    # ── Operations: logs, metrics, error reporting (app/logging_setup.py, app/observability.py) ──
+    # json = one object per line (log shippers), text = human-readable. Unset: json in staging/production.
+    log_format: Literal["json", "text"] | None = None
+    # Bearer token a Prometheus scraper presents to /api/metrics. Unset: the endpoint answers 404.
+    metrics_token: str = ""
+    # Sentry or GlitchTip DSN. Unset: no error reporting. Events carry no personal data (see observability.py).
+    sentry_dsn: str = ""
+
+    @property
+    def effective_log_format(self) -> Literal["json", "text"]:
+        if self.log_format is not None:
+            return self.log_format
+        return "json" if self.environment in STRICT_ENVIRONMENTS else "text"
+
+    @field_validator("log_format", mode="before")
+    @classmethod
+    def _blank_log_format_is_unset(cls, v: Any) -> Any:
+        return None if isinstance(v, str) and not v.strip() else v
+
+    @model_validator(mode="after")
+    def _operations_secrets(self) -> "Settings":
+        token = self.metrics_token.strip()
+        if token and self.environment in STRICT_ENVIRONMENTS and (
+            len(token) < MIN_ADMIN_TOKEN_LENGTH or _is_placeholder(token)
+        ):
+            raise ValueError(
+                f"CONGRESS_METRICS_TOKEN must be a generated secret of at least {MIN_ADMIN_TOKEN_LENGTH} "
+                f"characters when CONGRESS_ENVIRONMENT={self.environment}, or empty to disable /api/metrics."
+            )
+        return self
+
     @model_validator(mode="before")
     @classmethod
     def _environment_defaults(cls, data: Any) -> Any:

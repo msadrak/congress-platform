@@ -1,0 +1,54 @@
+# Point-in-time recovery: continuous WAL archiving with pgBackRest (opt-in, BACKUP_WAL=on).
+#
+# `node scripts/staging/stack.mjs` adds this file to every Compose command when BACKUP_WAL=on and fills the
+# PGBACKREST_* values from the BACKUP_* settings (scripts/staging/stack.mjs → walComposeEnv); do not run
+# `docker compose up` by hand without it, or the database restarts without archiving.
+#
+#   - every finished WAL segment (at the latest every BACKUP_WAL_ARCHIVE_TIMEOUT seconds while anything is written)
+#     goes to s3://<BACKUP_S3_BUCKET>/<BACKUP_S3_PREFIX>/pgbackrest, encrypted client-side with BACKUP_ENCRYPTION_KEY;
+#   - base backups: `stack.mjs base-backup` (daily timer congress-basebackup.timer);
+#   - recovery drill: `stack.mjs pitr-restore --to <time>` into a disposable project (archive_mode off there).
+#
+# The database joins the outbound-only `egress` network to reach the bucket; nothing is published.
+services:
+  db:
+    image: congress-platform/db:${CONGRESS_IMAGE_TAG:-staging}
+    build:
+      context: ../db
+    command:
+      - postgres
+      - -c
+      - wal_level=replica
+      - -c
+      - archive_mode=${CONGRESS_DB_ARCHIVE_MODE:-on}
+      - -c
+      - archive_command=pgbackrest --stanza=congress archive-push %p
+      - -c
+      - archive_timeout=${BACKUP_WAL_ARCHIVE_TIMEOUT:-60}
+    environment:
+      PGBACKREST_STANZA: congress
+      PGBACKREST_PG1_PATH: /var/lib/postgresql/data
+      # The image's superuser is POSTGRES_USER (there is no "postgres" role).
+      PGBACKREST_PG1_USER: congress
+      PGBACKREST_LOG_LEVEL_FILE: "off"
+      PGBACKREST_LOG_LEVEL_STDERR: warn
+      PGBACKREST_START_FAST: "y"
+      PGBACKREST_PROCESS_MAX: "2"
+      # If the bucket is unreachable for long, keep the database alive: past this much queued WAL pgBackRest drops
+      # segments (a gap in point-in-time recovery, reported by `stack.mjs check`) instead of filling the disk.
+      PGBACKREST_ARCHIVE_PUSH_QUEUE_MAX: ${BACKUP_WAL_QUEUE_MAX:-1GiB}
+      PGBACKREST_REPO1_TYPE: s3
+      PGBACKREST_REPO1_PATH: ${PGBACKREST_REPO1_PATH:-/congress/pgbackrest}
+      PGBACKREST_REPO1_S3_ENDPOINT: ${PGBACKREST_REPO1_S3_ENDPOINT:-}
+      PGBACKREST_REPO1_STORAGE_PORT: ${PGBACKREST_REPO1_STORAGE_PORT:-443}
+      PGBACKREST_REPO1_STORAGE_VERIFY_TLS: ${PGBACKREST_REPO1_STORAGE_VERIFY_TLS:-y}
+      PGBACKREST_REPO1_S3_URI_STYLE: path
+      PGBACKREST_REPO1_S3_BUCKET: ${PGBACKREST_REPO1_S3_BUCKET:-}
+      PGBACKREST_REPO1_S3_REGION: ${PGBACKREST_REPO1_S3_REGION:-us-east-1}
+      PGBACKREST_REPO1_S3_KEY: ${PGBACKREST_REPO1_S3_KEY:-}
+      PGBACKREST_REPO1_S3_KEY_SECRET: ${PGBACKREST_REPO1_S3_KEY_SECRET:-}
+      PGBACKREST_REPO1_CIPHER_TYPE: aes-256-cbc
+      PGBACKREST_REPO1_CIPHER_PASS: ${PGBACKREST_REPO1_CIPHER_PASS:-}
+      # Full backups kept (with all the WAL needed to recover to any moment since the oldest of them).
+      PGBACKREST_REPO1_RETENTION_FULL: ${BACKUP_WAL_RETENTION_FULL:-2}
+    networks: [backend, egress]

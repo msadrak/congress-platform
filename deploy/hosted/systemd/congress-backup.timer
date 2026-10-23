@@ -1,5 +1,6 @@
 [Unit]
 Description=Nightly Congress Platform backup
+# `stack.mjs event-mode on` adds congress-backup.timer.d/event-mode.conf: hourly during a live congress.
 
 [Timer]
 OnCalendar=*-*-* 02:30:00
