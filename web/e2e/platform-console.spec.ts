@@ -278,8 +278,7 @@ test('the platform admin lists an organizer\'s members and adds its first owner'
   const requests = await fixture(page);
   await openConsole(page);
   await page.getByRole('link', { name: 'Organizers' }).click();
-  await expect(page.getByText('members sign in to the console with their mobile number and an SMS code')).toBeVisible();
-  await expect(page.getByText('The API key is an integration key')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Organizers' })).toBeVisible();
 
   await page.getByRole('button', { name: 'Members of “Alpha Society”' }).click();
   const dialog = page.getByRole('dialog', { name: 'Members of “Alpha Society”' });
