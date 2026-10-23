@@ -1,7 +1,6 @@
-import { useCallback, useEffect, useState } from "react";
-import { useOutletContext, useParams } from "react-router-dom";
+import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import {
-  createApiClient,
+  isNetworkFailure,
   localizedApiError,
   type AttendanceAnalyticsResponse,
   type CheckInPointOut,
@@ -9,54 +8,49 @@ import {
   type HourlyScanCount,
   type TicketTierOut,
 } from "../api/client";
-import { bucketSeries, formatClock, formatDay, formatHour, todayIn, type SeriesPoint } from "../lib/analyticsTime";
-import { networkErrorMessage } from "../lib/errorMessages";
-import { formatLocalizedNumber, type AttendeeLocale } from "../lib/i18n";
-import { eventOperationNumber } from "../lib/organizerWorkspace";
-import { sessionAllows } from "../lib/organizerConsole";
-import { createRequestGate } from "../lib/requestGate";
-import { timeZoneLabel } from "../lib/timeZoneLabel";
-import type { OrganizerOutletContext } from "./OrganizerLayout";
+import { useEventWorkspace } from "../components/organizer/eventWorkspaceContext";
 import { Badge } from "../components/ui/Badge";
-import { Button } from "../components/ui/Button";
+import { Button, IconButton } from "../components/ui/Button";
+import { Dialog } from "../components/ui/Dialog";
 import { Icon } from "../components/ui/Icon";
-import { EmptyState, Meter, SectionHeader } from "../components/organizer/WorkspaceUi";
+import { Select } from "../components/ui/Input";
+import { ErrorState } from "../components/ui/StateBlock";
+import { EmptyState, Field, Meter, Notice, SectionHeader } from "../components/organizer/WorkspaceUi";
+import { organizerDataCopy } from "../copy/organizerData";
+import { bucketSeries, formatClock, formatDay, formatHour, todayIn, type SeriesPoint } from "../lib/analyticsTime";
+import { formatNumber, formatPercent, timeZoneLabel } from "../lib/format";
+import { createRequestGate } from "../lib/requestGate";
+import { EventSectionGate } from "./organizer/EventSectionUi";
 
 /** The dashboard refreshes this often while the tab is visible and auto-refresh is on. */
 const POLL_MS = 30_000;
-/** Until the first response names the event's zone (every event so far is in Tehran). */
-const FALLBACK_TIMEZONE = "Asia/Tehran";
-const NETWORK_ERROR = Symbol("network");
 
 type CsvKind = "attendance" | "registrations";
+type Locale = "fa" | "en";
+type AnalyticsCopy = (typeof organizerDataCopy)[Locale]["analytics"];
 
-/** Locale-formatted figures: IBM Plex Mono only covers Latin, so Persian digits keep the sans font (tabular). */
-function numberFontClass(locale: AttendeeLocale): string {
-  return locale === "fa" ? "tabular" : "font-mono tabular";
-}
-type Translations = OrganizerOutletContext["t"];
-
-// Remount per event so a late response for event A can never write into event B's state.
+// The event workspace remounts per event, so a late response for event A can never write into event B's state.
 export default function OrganizerAnalytics() {
-  const { eventId } = useParams<{ eventId: string }>();
-  return <OrganizerAnalyticsContent key={eventId} />;
+  return <EventSectionGate>{(event) => <AnalyticsSection event={event} />}</EventSectionGate>;
 }
 
-function OrganizerAnalyticsContent() {
-  const { eventId } = useParams<{ eventId: string }>();
-  const { apiKey, reportEvent, session, locale, t } = useOutletContext<OrganizerOutletContext>();
+function AnalyticsSection({ event }: { event: EventOut }) {
+  // A 401 reaches the layout's key gate through the API client (registerUnauthorizedHandler).
+  const { eventId, client, locale, can } = useEventWorkspace();
+  const copy = organizerDataCopy[locale].analytics;
 
-  const [event, setEvent] = useState<EventOut | null>(null);
   const [points, setPoints] = useState<CheckInPointOut[]>([]);
   const [tiers, setTiers] = useState<TicketTierOut[]>([]);
   // The response and the filters it answers: data for other filters is never shown as if it were current.
   const [analytics, setAnalytics] = useState<{ key: string; data: AttendanceAnalyticsResponse } | null>(null);
-  const [error, setError] = useState<unknown>(null);
+  // Kept as the API answered and localized when shown, so a language switch re-words it.
+  const [failure, setFailure] = useState<{ body: unknown; status: number; offline: boolean } | null>(null);
   const [refreshedAt, setRefreshedAt] = useState<number | null>(null);
   const [reloads, setReloads] = useState(0);
 
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [visible, setVisible] = useState(() => typeof document === "undefined" || document.visibilityState !== "hidden");
+  const [filtersOpen, setFiltersOpen] = useState(false);
 
   const [pointId, setPointId] = useState("");
   const [tierId, setTierId] = useState("");
@@ -72,59 +66,48 @@ function OrganizerAnalyticsContent() {
     return () => document.removeEventListener("visibilitychange", onVisibility);
   }, []);
 
-  // The event, its points and its tiers: loaded once, they do not change while the dashboard polls.
+  // The points and pass types for the filters: loaded once, they do not change while the dashboard polls.
   useEffect(() => {
-    // Without an organizer key nothing is dispatched; the layout shows the key gate.
-    if (!eventId || !apiKey) return;
+    if (!client) return;
     let active = true;
-    const client = createApiClient({ kind: "organizer", token: apiKey });
     const path = { path: { event_id: eventId } };
-    Promise.all([
-      client.GET("/api/events/{event_id}", { params: path }),
+    void Promise.all([
       client.GET("/api/events/{event_id}/checkin-points", { params: path }),
       client.GET("/api/events/{event_id}/ticket-tiers", { params: path }),
-    ])
-      .then(([evRes, pointsRes, tiersRes]) => {
-        if (!active) return;
-        if (evRes.data) setEvent(evRes.data);
-        if (pointsRes.data) setPoints(pointsRes.data);
-        if (tiersRes.data) setTiers(tiersRes.data);
-      })
-      .catch(() => {
-        // The analytics request reports connectivity; the filters simply stay empty.
-      });
+    ]).then(([pointsRes, tiersRes]) => {
+      // The analytics request reports connectivity; the filters simply stay empty.
+      if (!active) return;
+      if (pointsRes.data) setPoints(pointsRes.data);
+      if (tiersRes.data) setTiers(tiersRes.data);
+    });
     return () => {
       active = false;
     };
-  }, [eventId, apiKey]);
+  }, [client, eventId]);
 
   // The figures for the current filters. Only the newest request may write, so a slow answer for earlier
   // filters (or an older poll) never replaces a newer one.
   const [requests] = useState(createRequestGate);
   const loadAnalytics = useCallback(async () => {
-    if (!eventId || !apiKey) return;
+    if (!client) return;
     const request = requests.begin();
     const key = JSON.stringify([pointId, tierId, day]);
-    const client = createApiClient({ kind: "organizer", token: apiKey });
-    try {
-      const res = await client.GET("/api/events/{event_id}/analytics/attendance", {
-        params: {
-          path: { event_id: eventId },
-          query: { point_id: pointId || undefined, ticket_tier_id: tierId || undefined, day: day || undefined },
-        },
-      });
-      if (!requests.isLatest(request)) return;
-      if (res.data) {
-        setAnalytics({ key, data: res.data });
-        setError(null);
-        setRefreshedAt(Date.now());
-      } else {
-        setError(res.error ?? { detail: `HTTP ${res.response.status}` });
-      }
-    } catch {
-      if (requests.isLatest(request)) setError(NETWORK_ERROR);
+    // The workspace client answers a network failure as an error result.
+    const res = await client.GET("/api/events/{event_id}/analytics/attendance", {
+      params: {
+        path: { event_id: eventId },
+        query: { point_id: pointId || undefined, ticket_tier_id: tierId || undefined, day: day || undefined },
+      },
+    });
+    if (!requests.isLatest(request)) return;
+    if (res.data) {
+      setAnalytics({ key, data: res.data });
+      setFailure(null);
+      setRefreshedAt(Date.now());
+    } else {
+      setFailure({ body: res.error, status: res.response.status, offline: isNetworkFailure(res.response) });
     }
-  }, [eventId, apiKey, pointId, tierId, day, requests]);
+  }, [client, eventId, pointId, tierId, day, requests]);
 
   // Fetched when the filters change, on retry, and on coming back to a hidden tab; never while hidden.
   useEffect(() => {
@@ -144,416 +127,403 @@ function OrganizerAnalyticsContent() {
   // development remount (cleanup, then the effects again) still shows its figures.
   useEffect(() => () => requests.invalidate(), [requests]);
 
-  useEffect(() => {
-    if (event) reportEvent(event);
-  }, [event, reportEvent]);
-
   const current = analytics?.key === filterKey ? analytics.data : null;
   // The zone and the day list stay known while a new filter is loading.
-  const timezone = analytics?.data.timezone ?? FALLBACK_TIMEZONE;
+  const timezone = analytics?.data.timezone ?? event.timezone;
   const days = analytics?.data.days ?? [];
   const today = todayIn(timezone);
-  const errorText =
-    error === null ? null : error === NETWORK_ERROR ? networkErrorMessage[locale] : localizedApiError(error, locale);
+  const errorText = failure ? localizedApiError(failure.body, locale, failure.status) : null;
 
   const retry = () => {
-    setError(null);
+    setFailure(null);
     setReloads((n) => n + 1);
   };
 
   const downloadCsv = async (kind: CsvKind) => {
-    if (!eventId || !apiKey) return;
+    if (!client) return;
     setExporting(kind);
     setExportError(null);
-    try {
-      const client = createApiClient({ kind: "organizer", token: apiKey });
-      // The same filters as the dashboard, so the file matches what is on screen.
-      const options = {
-        params: {
-          path: { event_id: eventId },
-          query: { point_id: pointId || undefined, ticket_tier_id: tierId || undefined, day: day || undefined },
-        },
-        parseAs: "blob" as const,
-      };
-      const { data: blob, response } =
-        kind === "attendance"
-          ? await client.GET("/api/events/{event_id}/analytics/export-csv", options)
-          : await client.GET("/api/events/{event_id}/analytics/registrations-csv", options);
-      if (!response.ok || !blob) {
-        setExportError(t.csvExportFailed);
-        return;
-      }
-      const link = document.createElement("a");
-      link.href = URL.createObjectURL(blob);
-      link.download = `${event?.slug ?? eventId}-${kind}${day ? `-${day}` : ""}.csv`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(link.href);
-    } catch {
-      setExportError(t.csvNetworkError);
-    } finally {
-      setExporting(null);
+    // The same filters as the dashboard, so the file matches what is on screen.
+    const options = {
+      params: {
+        path: { event_id: eventId },
+        query: { point_id: pointId || undefined, ticket_tier_id: tierId || undefined, day: day || undefined },
+      },
+      parseAs: "blob" as const,
+    };
+    const { data: blob, error, response } =
+      kind === "attendance"
+        ? await client.GET("/api/events/{event_id}/analytics/export-csv", options)
+        : await client.GET("/api/events/{event_id}/analytics/registrations-csv", options);
+    setExporting(null);
+    if (!response.ok || !blob) {
+      setExportError(error ? localizedApiError(error, locale, response.status) : copy.exportFailed);
+      return;
     }
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = `${event.slug}-${kind}${day ? `-${day}` : ""}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(link.href);
   };
 
-  const fmt = (n: number) => formatLocalizedNumber(n, locale);
-  const digitFont = numberFontClass(locale);
-  const canExport = sessionAllows(session, "manager");
-  const numberLocale = locale === "fa" ? "fa-IR" : "en-US";
-  const pct = (rate: number) =>
-    new Intl.NumberFormat(numberLocale, { style: "percent", minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(rate / 100);
-  const policyLabel: Record<string, string> = {
-    SINGLE_USE: t.policySingleUse,
-    MULTI_ENTRY: t.policyMultiEntry,
-    TIER_RESTRICTED: t.policyTierRestricted,
-    CAPACITY_CAPPED: t.policyCapacityCapped,
-  };
-  const statusLabel: Record<string, string> = { active: t.ticketsActiveLabel, cancelled: t.ticketsCancelledLabel };
+  const fmt = (n: number) => formatNumber(n, locale);
+  const pct = (rate: number) => formatPercent(rate / 100, locale, 1);
+  // Row-level exports need the manager role (backend/app/roles.py); viewers and staff would get 403.
+  const canExport = can("manager");
+  const policies: Record<string, string> = copy.policies;
+  const policyLabel = (policy: string) => policies[policy] ?? policy;
   const polling = autoRefresh && visible;
+  const filtered = Boolean(pointId || tierId || day);
+  const activeFilters = [pointId, tierId, day].filter(Boolean).length;
+  const clearFilters = () => {
+    setPointId("");
+    setTierId("");
+    setDay("");
+  };
+
+  const filterFields = (
+    <>
+      <Field label={copy.day}>
+        <Select value={day} onChange={(e) => setDay(e.target.value)}>
+          <option value="">{copy.allDays}</option>
+          {days.map((d) => (
+            <option key={d} value={d}>
+              {formatDay(d, locale)}
+              {d === today ? ` (${copy.today})` : ""}
+            </option>
+          ))}
+        </Select>
+      </Field>
+      <Field label={copy.point}>
+        <Select value={pointId} onChange={(e) => setPointId(e.target.value)}>
+          <option value="">{copy.allPoints}</option>
+          {points.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name} ({policyLabel(p.policy_type)})
+            </option>
+          ))}
+        </Select>
+      </Field>
+      <Field label={copy.tier}>
+        <Select value={tierId} onChange={(e) => setTierId(e.target.value)}>
+          <option value="">{copy.allTiers}</option>
+          {tiers.map((tr) => (
+            <option key={tr.id} value={tr.id}>
+              {tr.name}
+            </option>
+          ))}
+        </Select>
+      </Field>
+    </>
+  );
 
   return (
-    <div className="space-y-8 sm:space-y-10">
+    <div className="space-y-5">
       <SectionHeader
-        index={eventOperationNumber("analytics")}
-        eyebrow={event?.name || t.organizerConsole}
-        title={t.analyticsTitle}
-        description={t.analyticsSubtitle}
+        title={copy.title}
         action={
-          <>
-            <Button type="button" variant={autoRefresh ? "outline" : "secondary"} size="md" onClick={() => {
+          <div className="flex items-center gap-2">
+            <IconButton
+              icon={autoRefresh ? "pause" : "play"}
+              label={autoRefresh ? copy.pause : copy.resume}
+              variant="secondary"
+              aria-pressed={!autoRefresh}
+              onClick={() => {
                 // Resuming refreshes at once; pausing sends nothing.
                 if (!autoRefresh) setReloads((n) => n + 1);
                 setAutoRefresh(!autoRefresh);
-              }}>
-              <Icon name={autoRefresh ? "pause" : "play"} size={16} />
-              <span>{autoRefresh ? t.analyticsPauseAction : t.analyticsResumeAction}</span>
-            </Button>
-            {/* Row-level exports need the manager role (backend/app/roles.py); viewers and staff would get 403. */}
-            {canExport && (
-              <>
-                <Button type="button" variant="outline" size="md" disabled={exporting !== null} onClick={() => void downloadCsv("registrations")}>
-                  <Icon name="users" size={18} />
-                  <span>{exporting === "registrations" ? t.exportingCsv : t.exportRegistrationsCsvAction}</span>
-                </Button>
-                <Button type="button" variant="primary" size="md" disabled={exporting !== null} onClick={() => void downloadCsv("attendance")}>
-                  <Icon name="download" size={18} />
-                  <span>{exporting === "attendance" ? t.exportingCsv : t.exportAttendanceCsvAction}</span>
-                </Button>
-              </>
-            )}
-          </>
+              }}
+            />
+            {canExport && <ExportMenu copy={copy} busy={exporting !== null} onExport={(kind) => void downloadCsv(kind)} />}
+          </div>
         }
       />
 
-      {/* Refresh status, filters and the honest data caveat */}
-      <div className="overflow-hidden rounded-2xl border border-border-default bg-surface-panel shadow-soft">
-        <div className="flex flex-wrap items-center gap-x-5 gap-y-3 border-b border-border-subtle px-4 py-3 sm:px-6">
-          <span className="inline-flex items-center gap-2.5 text-xs font-semibold text-text-primary" data-testid="analytics-polling">
-            {polling ? (
-              <span className="org-live" aria-hidden="true">
-                <span className="motion-safe:animate-pulse-ring" />
-                <span />
-              </span>
-            ) : (
-              <Icon name="pause" size={14} className="text-text-muted" />
-            )}
-            {!autoRefresh ? t.analyticsPollingPaused : visible ? t.analyticsPollingActive : t.analyticsPollingHidden}
-          </span>
-          {refreshedAt !== null && (
-            <span className="inline-flex items-center gap-1.5 text-xs text-text-muted">
-              <Icon name="clock" size={14} />
-              {t.lastRefreshedLabel}:{" "}
-              <bdi dir="ltr" className={digitFont} data-testid="analytics-refreshed-at">
-                {formatClock(refreshedAt, timezone, locale)}
-              </bdi>
+      {/* Refresh state and the congress clock; on phones the filters wait behind «فیلتر». */}
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-caption text-text-muted">
+        <span className="inline-flex items-center gap-2 font-semibold text-text-primary" data-testid="analytics-polling">
+          {polling ? (
+            <span className="org-live" aria-hidden="true">
+              <span className="motion-safe:animate-pulse-ring" />
+              <span />
             </span>
+          ) : (
+            <Icon name="pause" size={14} className="text-text-muted" />
           )}
-          <span className="inline-flex items-center gap-1.5 text-xs text-text-muted">
-            <Icon name="globe" size={14} />
-            {t.analyticsTimezoneNote}:{" "}
-            <bdi title={timezone} data-testid="analytics-timezone">
-              {timeZoneLabel(timezone, locale)}
+          {!autoRefresh ? copy.pollingPaused : visible ? copy.pollingLive : copy.pollingHidden}
+        </span>
+        {refreshedAt !== null && (
+          <span className="inline-flex items-center gap-1.5">
+            <Icon name="clock" size={14} />
+            {copy.lastRefreshed}{" "}
+            <bdi dir="ltr" className="tabular" data-testid="analytics-refreshed-at">
+              {formatClock(refreshedAt, timezone, locale)}
             </bdi>
           </span>
-        </div>
-
-        <div className="flex flex-col gap-3 px-4 py-4 sm:flex-row sm:flex-wrap sm:items-center sm:px-6">
-          <span className="inline-flex shrink-0 items-center gap-2 text-xs font-semibold text-text-muted">
-            <Icon name="filter" size={16} />
-            {t.filtersLabel}
-          </span>
-          <select
-            value={day}
-            onChange={(e) => setDay(e.target.value)}
-            className="ui-select text-sm sm:w-auto sm:min-w-[12rem] sm:flex-1 lg:max-w-xs"
-            aria-label={t.analyticsDayFilter}
-          >
-            <option value="">{t.allDaysFilter}</option>
-            {days.map((d) => (
-              <option key={d} value={d}>
-                {formatDay(d, locale)}
-                {d === today ? ` (${t.todayLabel})` : ""}
-              </option>
-            ))}
-          </select>
-          <select
-            value={pointId}
-            onChange={(e) => setPointId(e.target.value)}
-            className="ui-select text-sm sm:w-auto sm:min-w-[12rem] sm:flex-1 lg:max-w-xs"
-            aria-label={t.filterByPoint}
-          >
-            <option value="">{t.allPointsFilter}</option>
-            {points.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name} ({policyLabel[p.policy_type] ?? p.policy_type})
-              </option>
-            ))}
-          </select>
-          <select
-            value={tierId}
-            onChange={(e) => setTierId(e.target.value)}
-            className="ui-select text-sm sm:w-auto sm:min-w-[12rem] sm:flex-1 lg:max-w-xs"
-            aria-label={t.filterByTier}
-          >
-            <option value="">{t.allTiersFilter}</option>
-            {tiers.map((tr) => (
-              <option key={tr.id} value={tr.id}>
-                {tr.name} ({fmt(tr.quota)})
-              </option>
-            ))}
-          </select>
-          {(pointId || tierId || day) && (
-            <Button
-              type="button"
-              variant="ghost"
-              size="md"
-              onClick={() => {
-                setPointId("");
-                setTierId("");
-                setDay("");
-              }}
-              className="shrink-0 text-status-danger-text hover:bg-status-danger-bg"
-            >
-              <Icon name="x" size={16} />
-              {t.clearFiltersAction}
-            </Button>
-          )}
-        </div>
-
-        <div className="flex items-start gap-3 bg-surface-panel-subtle px-4 py-3.5 text-xs leading-relaxed text-text-muted sm:px-6">
-          <Icon name="info" size={16} className="mt-0.5 shrink-0 text-aiteb-slate" />
-          <div className="space-y-1">
-            <p>{t.offlineSyncDisclaimer}</p>
-            {canExport && <p>{t.analyticsFiltersApply}</p>}
-          </div>
-        </div>
+        )}
+        <Badge variant="neutral" size="sm" icon={<Icon name="globe" size={12} />}>
+          <bdi title={timezone} data-testid="analytics-timezone">
+            {timeZoneLabel(timezone, locale)}
+          </bdi>
+        </Badge>
+        <Button type="button" variant="secondary" size="sm" icon="filter" className="ms-auto sm:hidden" onClick={() => setFiltersOpen(true)} data-testid="analytics-filter-button">
+          {activeFilters > 0 ? `${copy.filters} (${fmt(activeFilters)})` : copy.filters}
+        </Button>
       </div>
 
-      {exportError && (
-        <div
-          role="alert"
-          className="flex items-start gap-2.5 rounded-xl border border-status-danger-border bg-status-danger-bg px-4 py-3 text-sm leading-relaxed text-status-danger-text"
-        >
-          <Icon name="alert" size={18} className="mt-0.5 shrink-0" />
-          <span>{exportError}</span>
-        </div>
-      )}
+      <div role="search" aria-label={copy.filtersTitle} className="flex flex-wrap items-end gap-3 max-sm:hidden [&>*]:w-56">
+        {filterFields}
+        {filtered && (
+          <Button type="button" variant="ghost" icon="x" className="!w-auto" onClick={clearFilters}>
+            {copy.clearFilters}
+          </Button>
+        )}
+      </div>
+
+      {exportError && <Notice tone="danger">{exportError}</Notice>}
 
       {/* A failed refresh keeps the figures on screen but says they may be stale. */}
       {current && errorText && (
-        <div
-          role="alert"
-          className="flex flex-wrap items-center gap-2.5 rounded-xl border border-status-warning-border bg-status-warning-bg px-4 py-3 text-sm leading-relaxed text-status-warning-text"
+        <Notice
+          tone="warning"
+          action={
+            <Button type="button" variant="ghost" size="sm" icon="sync" onClick={retry}>
+              {copy.retry}
+            </Button>
+          }
         >
-          <Icon name="alert" size={18} className="shrink-0" />
-          <span className="min-w-0 flex-1">
-            {t.staleDataWarning} <bdi>{errorText}</bdi>
+          <span role="alert">
+            {copy.staleData} <bdi>{errorText}</bdi>
           </span>
-          <Button type="button" variant="ghost" size="md" onClick={retry}>
-            <Icon name="sync" size={16} />
-            {t.analyticsRetryAction}
-          </Button>
-        </div>
+        </Notice>
       )}
 
       {!current && errorText ? (
         // Never zeros in place of figures that could not be loaded.
-        <div role="alert" data-testid="analytics-error">
-          <EmptyState
-            icon="wifi-off"
-            title={t.analyticsLoadFailedTitle}
-            action={
-              <Button type="button" variant="primary" size="md" onClick={retry}>
-                <Icon name="sync" size={16} />
-                {t.analyticsRetryAction}
-              </Button>
-            }
-          >
+        <div data-testid="analytics-error">
+          <ErrorState title={copy.loadFailedTitle} offline={failure?.offline} onRetry={retry} retryLabel={copy.retry}>
             <bdi>{errorText}</bdi>
-          </EmptyState>
+          </ErrorState>
         </div>
       ) : !current ? (
-        <div className="space-y-6" aria-hidden="true" data-testid="analytics-loading">
-          <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-            <div className="skeleton h-36 rounded-2xl" />
-            <div className="skeleton h-36 rounded-2xl" />
-            <div className="skeleton h-36 rounded-2xl" />
-            <div className="skeleton h-36 rounded-2xl" />
+        <div className="space-y-5" aria-hidden="true" data-testid="analytics-loading">
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+            {[0, 1, 2, 3].map((i) => (
+              <div key={i} className="skeleton h-28 rounded-card" />
+            ))}
           </div>
-          <div className="skeleton h-56 rounded-2xl" />
+          <div className="skeleton h-56 rounded-card" />
         </div>
       ) : (
         <>
-          {/* KPI strip */}
-          <section aria-label={t.analyticsTitle} className="grid grid-cols-1 overflow-hidden rounded-2xl border border-border-default bg-surface-panel shadow-soft sm:grid-cols-2 xl:grid-cols-4">
-            <div className="flex flex-col gap-3 p-5 sm:p-6">
-              <span className="flex items-center justify-between gap-2 text-xs font-semibold text-text-muted">
-                {t.totalRegisteredKPI}
-                <Icon name="ticket" size={18} className="text-aiteb-indigo/60" />
+          <section aria-label={copy.kpis} className="grid grid-cols-2 gap-3 lg:grid-cols-4" data-testid="analytics-kpis">
+            <Kpi label={copy.registered} icon="ticket" value={fmt(current.total_tickets)} testId="kpi-registered">
+              {current.tickets_by_status
+                .filter((s) => s.status === "cancelled")
+                .map((s) => (
+                  <span key={s.status}>
+                    {copy.cancelled} <span className="tabular">{fmt(s.count)}</span>
+                  </span>
+                ))}
+            </Kpi>
+            <Kpi label={copy.peopleAdmitted} icon="users" value={fmt(current.unique_admitted)}>
+              <span className="flex items-center gap-2">
+                <Meter value={current.checkin_rate} label={copy.attendanceRate} className="flex-1" />
+                <bdi className="tabular font-semibold text-action-primary">{pct(current.checkin_rate)}</bdi>
               </span>
-              <span className="org-kpi-value text-[2.75rem] text-text-primary sm:text-[3.25rem]" data-testid="kpi-registered">
-                {fmt(current.total_tickets)}
+            </Kpi>
+            <Kpi label={copy.allScans} icon="scan" value={fmt(current.total_scans)} testId="kpi-scans">
+              <span className="font-semibold text-status-success-text">
+                {fmt(current.total_admitted)} {copy.admitted}
               </span>
-              <p className="text-xs leading-relaxed text-text-secondary">{t.totalRegisteredDesc}</p>
-              {current.tickets_by_status.some((s) => s.status !== "active") && (
-                <ul className="mt-auto flex flex-wrap gap-1.5">
-                  {current.tickets_by_status
-                    .filter((s) => s.status !== "active")
-                    .map((s) => (
-                      <li key={s.status}>
-                        <Badge variant="neutral" size="sm">
-                          {statusLabel[s.status] ?? s.status} <span className="tabular">{fmt(s.count)}</span>
-                        </Badge>
-                      </li>
-                    ))}
-                </ul>
-              )}
-            </div>
-
-            <div className="flex flex-col gap-3 border-t border-border-subtle p-5 sm:border-s sm:border-t-0 sm:p-6">
-              <span className="flex items-center justify-between gap-2 text-xs font-semibold text-text-muted">
-                {t.uniqueAdmittedKPI}
-                <span className="rounded-full border border-action-subtle-border bg-action-subtle px-2 py-0.5 text-[0.6875rem] font-bold text-action-primary">
-                  <bdi className="tabular">{pct(current.checkin_rate)}</bdi>
-                </span>
+              {" · "}
+              <span className="font-semibold text-status-danger-text">
+                {fmt(current.total_rejected)} {copy.rejected}
               </span>
-              <span className="org-kpi-value text-[2.75rem] text-text-primary sm:text-[3.25rem]">{fmt(current.unique_admitted)}</span>
-              <Meter value={current.checkin_rate} label={t.checkinRateKPI} className="mt-auto" />
-            </div>
-
-            <div className="flex flex-col gap-3 border-t border-border-subtle p-5 sm:p-6 xl:border-s xl:border-t-0">
-              <span className="flex items-center justify-between gap-2 text-xs font-semibold text-text-muted">
-                {t.totalScansKPI}
-                <Icon name="scan" size={18} className="text-aiteb-indigo/60" />
-              </span>
-              <span className="org-kpi-value text-[2.75rem] text-text-primary sm:text-[3.25rem]" data-testid="kpi-scans">
-                {fmt(current.total_scans)}
-              </span>
-              <div className="mt-auto flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
-                <span className="inline-flex items-center gap-1.5 font-semibold text-status-success-text">
-                  <span aria-hidden="true" className="size-2 rounded-full bg-status-success-solid" />
-                  {fmt(current.total_admitted)} {t.admittedLabel}
-                </span>
-                <span className="inline-flex items-center gap-1.5 font-semibold text-status-danger-text">
-                  <span aria-hidden="true" className="size-2 rounded-full bg-status-danger-solid" />
-                  {fmt(current.total_rejected)} {t.rejectedLabel}
-                </span>
-              </div>
-            </div>
-
-            <div className="flex flex-col gap-3 border-t border-border-subtle p-5 sm:border-s sm:p-6 xl:border-t-0">
-              <span className="flex items-center justify-between gap-2 text-xs font-semibold text-text-muted">
-                {t.admissionsLabel}
-                <Icon name="check-circle" size={18} className="text-aiteb-indigo/60" />
-              </span>
-              <span className="org-kpi-value text-[2.75rem] text-text-primary sm:text-[3.25rem]">{fmt(current.total_admitted)}</span>
-              <p className="text-xs leading-relaxed text-text-secondary">{t.admissionsDesc}</p>
-            </div>
+            </Kpi>
+            <Kpi label={copy.entries} icon="check-circle" value={fmt(current.total_admitted)}>
+              {copy.entriesHint}
+            </Kpi>
           </section>
 
-          {/* Scans per hour across the selected points */}
-          <section aria-labelledby="event-hourly-title" className="space-y-4 rounded-2xl border border-border-default bg-surface-panel p-5 shadow-soft sm:p-6">
-            <h2 id="event-hourly-title" className="text-base font-bold text-text-primary">
-              {t.eventHourlyTitle}
-            </h2>
-            <HourlyActivity id="event" buckets={current.hourly_scans} timezone={timezone} locale={locale} t={t} fmt={fmt} />
-          </section>
+          <Card titleId="event-hourly-title" title={copy.hourlyTitle}>
+            <HourlyActivity id="event" buckets={current.hourly_scans} timezone={timezone} locale={locale} copy={copy} fmt={fmt} />
+          </Card>
 
-          {/* Registrations per tier */}
           {current.tier_registrations.length > 0 && (
-            <section aria-labelledby="tier-registrations-title" className="space-y-4 rounded-2xl border border-border-default bg-surface-panel p-5 shadow-soft sm:p-6">
-              <h2 id="tier-registrations-title" className="text-base font-bold text-text-primary">
-                {t.tierRegistrationsTitle}
-              </h2>
+            <Card titleId="tier-registrations-title" title={copy.tierTitle}>
               <ul className="grid gap-4 md:grid-cols-2">
                 {current.tier_registrations.map((tier) => {
                   const fill = tier.quota > 0 ? (tier.active / tier.quota) * 100 : 0;
                   return (
                     <li key={tier.tier_id} className="space-y-2">
-                      <div className="flex flex-wrap items-baseline justify-between gap-2 text-sm">
+                      <div className="flex flex-wrap items-baseline justify-between gap-2 text-body-sm">
                         <bdi className="min-w-0 truncate font-semibold text-text-primary">{tier.tier_name}</bdi>
-                        <span className="text-xs text-text-secondary">
-                          <span className="tabular font-semibold text-text-primary">{fmt(tier.active)}</span> / {fmt(tier.quota)} {t.tierActiveOfQuota}
+                        <span className="tabular text-caption text-text-secondary">
+                          {copy.ofQuota(fmt(tier.active), fmt(tier.quota))}
                           {tier.total > tier.active && (
                             <span className="text-text-muted">
-                              {" "}
-                              · {t.ticketsCancelledLabel} {fmt(tier.total - tier.active)}
+                              {" · "}
+                              {copy.cancelled} {fmt(tier.total - tier.active)}
                             </span>
                           )}
                         </span>
                       </div>
-                      <Meter value={Math.min(100, fill)} label={`${tier.tier_name} ${t.tierActiveOfQuota}`} tone={fill >= 100 ? "full" : "default"} />
+                      <Meter value={Math.min(100, fill)} label={tier.tier_name} tone={fill >= 100 ? "full" : "default"} />
                     </li>
                   );
                 })}
               </ul>
-            </section>
+            </Card>
           )}
 
-          {/* Catering & Meal Redemption */}
           {current.catering_metrics.length > 0 && (
-            <section aria-labelledby="catering-section-title" className="space-y-4">
-              <div className="flex items-start gap-3">
-                <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-status-warning-bg text-status-warning-text">
-                  <Icon name="utensils" size={20} />
-                </span>
-                <div className="space-y-1">
-                  <h2 id="catering-section-title" className="text-xl font-[660] tracking-[-0.02em] text-text-primary">
-                    {t.cateringSectionTitle}
-                  </h2>
-                  <p className="text-sm text-text-secondary">{t.cateringSectionDesc}</p>
-                </div>
-              </div>
-
-              <div className="grid gap-4 md:grid-cols-2">
+            <Card titleId="catering-section-title" title={copy.catering}>
+              <ul className="grid gap-4 md:grid-cols-2">
                 {current.catering_metrics.map((cat) => (
-                  <div key={cat.point_id} className="space-y-4 shape-arc border border-border-default bg-surface-panel p-5 shadow-soft sm:p-6">
-                    <div className="flex items-start justify-between gap-3">
-                      <h3 className="min-w-0 break-words text-base font-bold text-text-primary">
-                        <bdi>{cat.point_name}</bdi>
-                      </h3>
-                      <Badge variant="warning" size="sm">
-                        <bdi className="tabular">{pct(cat.redemption_rate)}</bdi> {t.cateringRedemptionRate}
-                      </Badge>
-                    </div>
-                    <p className="flex flex-wrap items-baseline gap-x-2">
-                      <span className="org-kpi-value text-[2.5rem] text-text-primary">{fmt(cat.meals_served)}</span>
-                      <span className="text-sm text-text-muted">
-                        / {fmt(cat.total_attendees)} {t.cateringMealsServed}
+                  <li key={cat.point_id} className="space-y-2">
+                    <div className="flex flex-wrap items-baseline justify-between gap-2 text-body-sm">
+                      <bdi className="min-w-0 truncate font-semibold text-text-primary">{cat.point_name}</bdi>
+                      <span className="tabular text-caption text-text-secondary">
+                        {copy.mealsOf(fmt(cat.meals_served), fmt(cat.total_attendees))} · {pct(cat.redemption_rate)} {copy.redeemed}
                       </span>
-                    </p>
-                    <Meter value={cat.redemption_rate} label={`${cat.point_name} ${t.cateringRedemptionRate}`} size="lg" tone={cat.redemption_rate >= 100 ? "full" : "default"} />
-                  </div>
+                    </div>
+                    <Meter value={cat.redemption_rate} label={cat.point_name} tone={cat.redemption_rate >= 100 ? "full" : "default"} />
+                  </li>
                 ))}
-              </div>
-            </section>
+              </ul>
+            </Card>
           )}
 
-          <GateBreakdown analytics={current} timezone={timezone} locale={locale} t={t} fmt={fmt} policyLabel={policyLabel} />
+          <GateBreakdown analytics={current} timezone={timezone} locale={locale} copy={copy} fmt={fmt} policyLabel={policyLabel} />
         </>
       )}
+
+      {/* Phones: the filters in a sheet. */}
+      <Dialog
+        isOpen={filtersOpen}
+        onClose={() => setFiltersOpen(false)}
+        title={copy.filtersTitle}
+        size="sm"
+        footer={
+          <div className="flex flex-col-reverse gap-2">
+            {filtered && (
+              <Button type="button" variant="ghost" onClick={clearFilters}>
+                {copy.clearFilters}
+              </Button>
+            )}
+            <Button type="button" variant="primary" isFullWidth onClick={() => setFiltersOpen(false)}>
+              {copy.showResults}
+            </Button>
+          </div>
+        }
+      >
+        <div className="space-y-4" data-testid="analytics-filter-sheet">
+          {filterFields}
+        </div>
+      </Dialog>
     </div>
+  );
+}
+
+/** The two CSV exports behind one «خروجی اکسل ▾» button (managers only). */
+function ExportMenu({ copy, busy, onExport }: { copy: AnalyticsCopy; busy: boolean; onExport: (kind: CsvKind) => void }) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const firstRef = useRef<HTMLButtonElement>(null);
+  const menuId = useId();
+
+  useEffect(() => {
+    if (!open) return;
+    firstRef.current?.focus();
+    const onPointerDown = (event: PointerEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open]);
+
+  const items: { kind: CsvKind; label: string }[] = [
+    { kind: "attendance", label: copy.exportEntries },
+    { kind: "registrations", label: copy.exportRegistrations },
+  ];
+  return (
+    <div ref={rootRef} className="relative">
+      <Button
+        type="button"
+        variant="secondary"
+        icon="download"
+        iconEnd="chevron-down"
+        loading={busy}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-controls={open ? menuId : undefined}
+        onClick={() => setOpen((o) => !o)}
+      >
+        {copy.export}
+      </Button>
+      {open && (
+        <div
+          id={menuId}
+          role="menu"
+          aria-label={copy.export}
+          className="absolute end-0 top-full z-30 mt-1 min-w-48 rounded-control border border-border-default bg-surface-panel p-1.5 shadow-pop motion-safe:animate-pop"
+        >
+          {items.map((item, i) => (
+            <button
+              key={item.kind}
+              ref={i === 0 ? firstRef : undefined}
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setOpen(false);
+                onExport(item.kind);
+              }}
+              className="flex min-h-11 w-full cursor-pointer items-center gap-2.5 rounded-md px-3 text-start text-body-sm font-medium text-text-primary hover:bg-surface-panel-subtle focus-visible:bg-surface-panel-subtle"
+            >
+              <Icon name={item.kind === "attendance" ? "scan" : "users"} size={18} />
+              {item.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Kpi({ label, icon, value, testId, children }: { label: string; icon: "ticket" | "users" | "scan" | "check-circle"; value: string; testId?: string; children?: ReactNode }) {
+  return (
+    <div className="flex flex-col gap-2 rounded-card border border-border-default bg-surface-panel p-4 shadow-soft">
+      <span className="flex items-center justify-between gap-2 text-caption font-semibold text-text-muted">
+        {label}
+        <Icon name={icon} size={16} className="text-text-muted" />
+      </span>
+      <span className="org-kpi-value text-title-lg text-text-primary" data-testid={testId}>
+        {value}
+      </span>
+      {children && <span className="mt-auto text-caption leading-relaxed text-text-secondary">{children}</span>}
+    </div>
+  );
+}
+
+function Card({ title, titleId, children }: { title: string; titleId: string; children: ReactNode }) {
+  return (
+    <section aria-labelledby={titleId} className="space-y-3 rounded-card border border-border-default bg-surface-panel p-4 shadow-soft sm:p-5">
+      <h2 id={titleId} className="text-title-sm font-bold text-text-primary">
+        {title}
+      </h2>
+      {children}
+    </section>
   );
 }
 
@@ -561,116 +531,102 @@ function GateBreakdown({
   analytics,
   timezone,
   locale,
-  t,
+  copy,
   fmt,
   policyLabel,
 }: {
   analytics: AttendanceAnalyticsResponse;
   timezone: string;
-  locale: AttendeeLocale;
-  t: Translations;
+  locale: Locale;
+  copy: AnalyticsCopy;
   fmt: (n: number) => string;
-  policyLabel: Record<string, string>;
+  policyLabel: (policy: string) => string;
 }) {
   const maxGateTotal = Math.max(1, ...analytics.gate_breakdown.map((g) => g.total_admitted + g.total_rejected));
   return (
-    <section aria-labelledby="gate-throughput-title" className="space-y-5">
-      <div className="flex items-start gap-3">
-        <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-aiteb-lavender text-aiteb-indigo">
-          <Icon name="gate" size={20} />
-        </span>
-        <h2 id="gate-throughput-title" className="pt-1.5 text-xl font-[660] tracking-[-0.02em] text-text-primary">
-          {t.gateThroughputSectionTitle}
-        </h2>
-      </div>
+    <section aria-labelledby="gate-throughput-title" className="space-y-3">
+      <h2 id="gate-throughput-title" className="text-title-sm font-bold text-text-primary">
+        {copy.gatesTitle}
+      </h2>
 
       {analytics.gate_breakdown.length === 0 ? (
-        <EmptyState icon="gate" title={t.noGatesMatchFilter} />
+        <EmptyState icon="gate" title={copy.noGates} />
       ) : (
         <>
-          {/* Gate comparison: each bar is the gate's scans relative to the busiest gate */}
-          <div className="space-y-5 rounded-2xl border border-border-default bg-surface-panel p-5 shadow-soft sm:p-6">
-            <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-text-muted">
+          {/* Point comparison: each bar is the point's scans relative to the busiest point */}
+          <div className="space-y-4 rounded-card border border-border-default bg-surface-panel p-4 shadow-soft sm:p-5">
+            <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-caption text-text-muted">
               <span className="inline-flex items-center gap-2">
                 <span aria-hidden="true" className="org-throughput__admit h-2.5 w-6 rounded-full" />
-                {t.admittedLabel}
+                {copy.admitted}
               </span>
               <span className="inline-flex items-center gap-2">
                 <span aria-hidden="true" className="org-throughput__reject h-2.5 w-6 rounded-full" />
-                {t.rejectedLabel}
+                {copy.rejected}
               </span>
             </div>
-            <ul className="space-y-4">
-              {analytics.gate_breakdown.map((gate) => {
-                const total = gate.total_admitted + gate.total_rejected;
-                return (
-                  <li key={gate.point_id} className="grid gap-2 sm:grid-cols-[minmax(0,13rem)_minmax(0,1fr)_auto] sm:items-center sm:gap-4">
-                    <bdi className="min-w-0 truncate text-sm font-semibold text-text-primary">{gate.point_name}</bdi>
-                    <div className="org-throughput" aria-hidden="true">
-                      <span className="org-throughput__admit" style={{ inlineSize: `${(gate.total_admitted / maxGateTotal) * 100}%` }} />
-                      <span className="org-throughput__reject" style={{ inlineSize: `${(gate.total_rejected / maxGateTotal) * 100}%` }} />
-                    </div>
-                    <span className="text-xs text-text-secondary sm:text-end">
-                      <span className="tabular font-semibold text-status-success-text">{fmt(gate.total_admitted)}</span>
-                      <span className="text-text-muted"> / </span>
-                      <span className="tabular font-semibold text-status-danger-text">{fmt(gate.total_rejected)}</span>
-                      <span className="sr-only">
-                        {" "}
-                        ({t.admittedLabel} / {t.rejectedLabel}, {fmt(total)})
-                      </span>
+            <ul className="space-y-3">
+              {analytics.gate_breakdown.map((gate) => (
+                <li key={gate.point_id} className="grid gap-2 sm:grid-cols-[minmax(0,13rem)_minmax(0,1fr)_auto] sm:items-center sm:gap-4">
+                  <bdi className="min-w-0 truncate text-body-sm font-semibold text-text-primary">{gate.point_name}</bdi>
+                  <div className="org-throughput" aria-hidden="true">
+                    <span className="org-throughput__admit" style={{ inlineSize: `${(gate.total_admitted / maxGateTotal) * 100}%` }} />
+                    <span className="org-throughput__reject" style={{ inlineSize: `${(gate.total_rejected / maxGateTotal) * 100}%` }} />
+                  </div>
+                  <span className="tabular text-caption text-text-secondary sm:text-end">
+                    <span className="font-semibold text-status-success-text">
+                      {fmt(gate.total_admitted)} <span className="sr-only">{copy.admitted}</span>
                     </span>
-                  </li>
-                );
-              })}
+                    <span className="text-text-muted"> / </span>
+                    <span className="font-semibold text-status-danger-text">
+                      {fmt(gate.total_rejected)} <span className="sr-only">{copy.rejected}</span>
+                    </span>
+                  </span>
+                </li>
+              ))}
             </ul>
           </div>
 
-          <div className="grid gap-5 lg:grid-cols-2">
+          <div className="grid gap-4 lg:grid-cols-2">
             {analytics.gate_breakdown.map((gate) => (
               <article
                 key={gate.point_id}
                 aria-labelledby={`gate-heading-${gate.point_id}`}
-                className="flex flex-col overflow-hidden rounded-2xl border border-border-default bg-surface-panel shadow-soft"
+                className="space-y-4 rounded-card border border-border-default bg-surface-panel p-4 shadow-soft sm:p-5"
               >
-                <div className="space-y-4 p-5 sm:p-6">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0 space-y-1">
-                      <h3 id={`gate-heading-${gate.point_id}`} className="break-words text-base font-bold text-text-primary">
-                        <bdi>{gate.point_name}</bdi>
-                      </h3>
-                      {gate.location && (
-                        <p className="flex items-center gap-1.5 text-xs text-text-secondary">
-                          <Icon name="pin" size={14} className="shrink-0 text-text-muted" />
-                          <bdi>{gate.location}</bdi>
-                        </p>
-                      )}
-                    </div>
-                    <Badge variant="neutral" size="sm">
-                      {policyLabel[gate.policy_type] ?? gate.policy_type}
-                    </Badge>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0 space-y-1">
+                    <h3 id={`gate-heading-${gate.point_id}`} className="break-words text-body font-bold text-text-primary">
+                      <bdi>{gate.point_name}</bdi>
+                    </h3>
+                    {gate.location && (
+                      <p className="flex items-center gap-1.5 text-caption text-text-secondary">
+                        <Icon name="pin" size={14} className="shrink-0 text-text-muted" />
+                        <bdi>{gate.location}</bdi>
+                      </p>
+                    )}
                   </div>
-
-                  <dl className="grid grid-cols-3 divide-x divide-border-subtle rounded-xl border border-border-subtle bg-surface-page">
-                    {([
-                      [t.admissionsLabel, gate.admissions, "text-status-success-text"],
-                      [t.rejectedLabel, gate.total_rejected, "text-status-danger-text"],
-                      [t.gateScansLabel, gate.total_admitted + gate.total_rejected, "text-text-primary"],
-                    ] as const).map(([label, value, tone]) => (
-                      <div key={label} className="min-w-0 px-3 py-2.5">
-                        <dt className="truncate text-[0.6875rem] font-semibold text-text-muted" title={label}>
-                          {label}
-                        </dt>
-                        <dd className={`org-kpi-value mt-1.5 text-xl ${tone}`}>{fmt(value)}</dd>
-                      </div>
-                    ))}
-                  </dl>
-                  <p className="text-[0.6875rem] text-text-muted">{t.gateAdmissionsNote}</p>
+                  <Badge variant="neutral" size="sm">
+                    {policyLabel(gate.policy_type)}
+                  </Badge>
                 </div>
-
-                <div className="mt-auto space-y-4 border-t border-border-subtle px-5 py-5 sm:px-6">
-                  <span className="text-xs font-semibold text-text-muted">{t.hourlyDistributionLabel}</span>
-                  <HourlyActivity id={gate.point_id} buckets={gate.hourly_scans} timezone={timezone} locale={locale} t={t} fmt={fmt} />
-                </div>
+                <dl className="grid grid-cols-3 gap-3">
+                  {(
+                    [
+                      [copy.entries, gate.admissions, "text-status-success-text"],
+                      [copy.rejected, gate.total_rejected, "text-status-danger-text"],
+                      [copy.allScans, gate.total_admitted + gate.total_rejected, "text-text-primary"],
+                    ] as const
+                  ).map(([label, value, tone]) => (
+                    <div key={label} className="min-w-0">
+                      <dt className="truncate text-caption font-semibold text-text-muted" title={label}>
+                        {label}
+                      </dt>
+                      <dd className={`org-kpi-value mt-1 text-title-sm ${tone}`}>{fmt(value)}</dd>
+                    </div>
+                  ))}
+                </dl>
+                <HourlyActivity id={gate.point_id} buckets={gate.hourly_scans} timezone={timezone} locale={locale} copy={copy} fmt={fmt} />
               </article>
             ))}
           </div>
@@ -680,24 +636,24 @@ function GateBreakdown({
   );
 }
 
-/** A column chart of scans per hour on the event's clock, with a data table as its accessible equivalent. */
+/** A column chart of scans per hour on the congress clock, with a data table as its accessible equivalent. */
 function HourlyActivity({
   id,
   buckets,
   timezone,
   locale,
-  t,
+  copy,
   fmt,
 }: {
   id: string;
   buckets: HourlyScanCount[];
   timezone: string;
-  locale: AttendeeLocale;
-  t: Translations;
+  locale: Locale;
+  copy: AnalyticsCopy;
   fmt: (n: number) => string;
 }) {
   const [showTable, setShowTable] = useState(false);
-  if (buckets.length === 0) return <p className="py-6 text-center text-xs text-text-muted">{t.noHourlyScansLogged}</p>;
+  if (buckets.length === 0) return <p className="py-6 text-center text-caption text-text-muted">{copy.noHourly}</p>;
 
   const series = bucketSeries(buckets, timezone);
   const multiDay = new Set(series.map((p) => p.day)).size > 1;
@@ -710,32 +666,21 @@ function HourlyActivity({
   const last = series[series.length - 1];
 
   return (
-    <div className="space-y-3" data-testid={`hourly-${id}`}>
-      <div className="flex justify-end">
-        <button
-          type="button"
-          onClick={() => setShowTable((prev) => !prev)}
-          aria-pressed={showTable}
-          className="inline-flex min-h-[36px] cursor-pointer items-center gap-1.5 rounded-lg px-2 text-xs font-semibold text-action-primary transition-colors hover:bg-action-subtle focus-visible:outline-2 focus-visible:outline-focus-ring"
-        >
-          <Icon name={showTable ? "chart" : "grid"} size={14} />
-          {t.hourlyTableToggle}
-        </button>
-      </div>
+    <div className="space-y-2" data-testid={`hourly-${id}`}>
       {showTable ? (
-        <div className="max-h-72 overflow-y-auto rounded-xl border border-border-subtle">
-          <table className="org-table text-xs">
+        <div className="max-h-72 overflow-y-auto rounded-control border border-border-subtle">
+          <table className="org-table text-caption">
             <thead>
               <tr>
-                <th scope="col">{t.hourColumn}</th>
+                <th scope="col">{copy.hour}</th>
                 <th scope="col" className="text-end">
-                  {t.admittedLabel}
+                  {copy.admitted}
                 </th>
                 <th scope="col" className="text-end">
-                  {t.rejectedLabel}
+                  {copy.rejected}
                 </th>
                 <th scope="col" className="text-end">
-                  {t.scansCountColumn}
+                  {copy.scans}
                 </th>
               </tr>
             </thead>
@@ -747,9 +692,9 @@ function HourlyActivity({
                     <td className="!py-2.5">
                       <bdi>{when(p)}</bdi>
                     </td>
-                    <td className={`!py-2.5 text-end ${numberFontClass(locale)}`}>{fmt(p.admitted)}</td>
-                    <td className={`!py-2.5 text-end ${numberFontClass(locale)}`}>{fmt(p.rejected)}</td>
-                    <td className={`!py-2.5 text-end font-semibold ${numberFontClass(locale)}`}>{fmt(p.count)}</td>
+                    <td className="tabular !py-2.5 text-end">{fmt(p.admitted)}</td>
+                    <td className="tabular !py-2.5 text-end">{fmt(p.rejected)}</td>
+                    <td className="tabular !py-2.5 text-end font-semibold">{fmt(p.count)}</td>
                   </tr>
                 ))}
             </tbody>
@@ -760,7 +705,7 @@ function HourlyActivity({
           <div className="org-columns" dir="ltr" aria-hidden="true">
             {series.map((p) => (
               <div key={p.starts_at} className="flex h-full min-w-0 flex-1 flex-col items-center justify-end gap-1" title={`${when(p)} · ${fmt(p.count)}`}>
-                {series.length <= 12 && p.count > 0 && <span className={`text-[11px] font-semibold text-text-secondary ${numberFontClass(locale)}`}>{fmt(p.count)}</span>}
+                {series.length <= 12 && p.count > 0 && <span className="tabular text-caption font-semibold text-text-secondary">{fmt(p.count)}</span>}
                 <div
                   className="org-column w-full max-w-7"
                   data-empty={p.count === 0 ? "true" : undefined}
@@ -771,27 +716,32 @@ function HourlyActivity({
           </div>
           <div dir="ltr" className="flex gap-1" aria-hidden="true">
             {series.map((p, i) => (
-              <span key={p.starts_at} className={`min-w-0 flex-1 text-center text-[11px] text-text-muted ${numberFontClass(locale)}`}>
+              <span key={p.starts_at} className="tabular min-w-0 flex-1 text-center text-caption text-text-muted">
                 {i % labelStep === 0 ? hour(p).slice(0, -3) : ""}
               </span>
             ))}
           </div>
-          <figcaption className="flex flex-wrap items-center justify-between gap-2 pt-1 text-xs text-text-muted">
+          <figcaption className="flex flex-wrap items-center gap-x-4 gap-y-1 text-caption text-text-muted">
             <span>
-              {t.hourColumn}{" "}
+              {copy.hour}{" "}
               <bdi data-testid={`hourly-range-${id}`}>
                 ({when(first)} – {when(last)})
               </bdi>
             </span>
             {peakPoint && (
               <span>
-                {t.peakLabel}: <bdi className="font-semibold text-text-primary">{when(peakPoint)}</bdi> ·{" "}
+                {copy.peak}: <bdi className="font-semibold text-text-primary">{when(peakPoint)}</bdi> ·{" "}
                 <span className="tabular font-semibold text-text-primary">{fmt(peakPoint.count)}</span>
               </span>
             )}
           </figcaption>
         </figure>
       )}
+      <div className="flex justify-end">
+        <Button type="button" variant="ghost" size="sm" icon={showTable ? "chart" : "grid"} aria-pressed={showTable} onClick={() => setShowTable((prev) => !prev)}>
+          {copy.showTable}
+        </Button>
+      </div>
     </div>
   );
 }
