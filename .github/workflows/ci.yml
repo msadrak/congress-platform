@@ -2,9 +2,11 @@ name: CI
 
 on:
   push:
-    # ws/** are workstream branches; integration/** collects them before main.
-    branches: [master, main, 'integration/**', 'ws/**', 'feature/**']
+    # integration/** collects the workstream (ws/**) branches before main. ws/** branches are not built on push,
+    # to save Actions minutes; open a pull request or run the workflow by hand (Actions → CI → Run workflow).
+    branches: [master, main, 'integration/**', 'feature/**']
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -20,7 +22,7 @@ concurrency:
 jobs:
   backend:
     name: Backend (FastAPI & PostgreSQL)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
 
     services:
@@ -67,7 +69,7 @@ jobs:
 
   web:
     name: Web Frontend (React & TypeScript)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
 
     steps:
@@ -105,7 +107,7 @@ jobs:
 
   api-schema:
     name: API client types match the backend
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
 
     steps:
@@ -140,7 +142,7 @@ jobs:
 
   mobile:
     name: Mobile (Flutter / Dart)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
 
     steps:
@@ -166,7 +168,7 @@ jobs:
 
   e2e:
     name: Browser end-to-end (Playwright, intercepted API)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
 
     steps:
@@ -220,7 +222,7 @@ jobs:
 
   live-e2e:
     name: Browser journeys (Playwright, live API & PostgreSQL)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
 
     steps:
@@ -264,7 +266,7 @@ jobs:
 
   images:
     name: Docker images and Caddy configuration
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
 
     steps:
@@ -307,7 +309,7 @@ jobs:
 
   compose-smoke:
     name: Staging stack smoke (compose init, up, check, probes, down)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
 
     steps:
@@ -363,7 +365,7 @@ jobs:
 
   load-scripts:
     name: Load test scripts compile (k6 inspect)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
 
     steps:
@@ -380,7 +382,7 @@ jobs:
 
   audit:
     name: Dependency audit (high and critical fail)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
 
     steps:
