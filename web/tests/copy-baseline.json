@@ -41,11 +41,6 @@
   "src/lib/errorMessages.ts": {
     "devTerm": 1
   },
-  "src/lib/i18n.ts": {
-    "asciiEllipsis": 7,
-    "devTerm": 1,
-    "checkmark": 6
-  },
   "src/pages/CongressDetails.tsx": {
     "ternary": 4,
     "persian": 4
