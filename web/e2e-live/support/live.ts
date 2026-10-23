@@ -84,7 +84,8 @@ export async function signInWithCode(scope: Page | Locator, mobile: string, full
   await codeField.fill(await smsCode(mobile, since));
   if (fullName) {
     await scope.getByLabel('نام و نام خانوادگی').fill(fullName);
-    await scope.getByRole('button', { name: 'ساخت حساب' }).click();
+    // «ساخت حساب» on the sign-in page, «دریافت کارت ورود» inside the congress page's reservation dialog.
+    await scope.getByRole('button', { name: /^(ساخت حساب|دریافت کارت ورود)$/ }).click();
   }
 }
 
