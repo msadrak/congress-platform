@@ -329,7 +329,7 @@ export function PublicLayout({ children, locale, onLocaleChange, congressName, c
                 <p className="text-xs font-semibold text-white">{c.footerAttendees}</p>
                 <ul className="space-y-1">
                   {congress ? (
-                    <li><Link to={signedIn ? passPath : signInTarget} className={footerLink}>{signedIn ? c.myPass : c.attendeeSignIn}</Link></li>
+                    <li><Link to={signedIn ? passPath : signInTarget} className={footerLink}>{signedIn ? c.myPass : c.findMyPass}</Link></li>
                   ) : (
                     <li><Link to="/my-tickets" className={footerLink}>{c.footerPasses}</Link></li>
                   )}
