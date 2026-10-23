@@ -9,15 +9,22 @@
   (`/api/events/{event_id}`), never the concrete path, so ids and personal data never become label values.
   Scan outcomes, SMS states and the outbox lag are read from the database at scrape time, so they survive
   restarts and are the same whichever process answers.
+  Process-local counters (no database): sign-in code requests and checks by purpose and outcome (the purpose is read
+  from the small JSON body of `/api/auth/otp/request` only), scanner traffic by route kind, rate-limiter fallbacks
+  and retention passes (both seen through their loggers / sessions, so those modules stay unchanged). Read at scrape
+  time: SMS platform cap usage and the database pool.
 - **Error reporting** to Sentry or GlitchTip when CONGRESS_SENTRY_DSN is set. Nothing personal leaves the server:
   no request bodies, headers, cookies, query strings, user or local variables, and mobile numbers, bearer tokens,
   JWTs and `token=`/`code=`-style values are masked in every string of the event.
 """
 
 import hmac
+import json
+import logging
 import re
 import time
 import uuid
+import weakref
 from collections.abc import Iterable
 from datetime import UTC, datetime
 from typing import Any
@@ -25,20 +32,52 @@ from typing import Any
 import sentry_sdk
 from fastapi import APIRouter, FastAPI, Request
 from fastapi.responses import PlainTextResponse, Response
-from prometheus_client import CONTENT_TYPE_LATEST, CollectorRegistry, Counter, Histogram, generate_latest
+from prometheus_client import CONTENT_TYPE_LATEST, CollectorRegistry, Counter, Gauge, Histogram, generate_latest
 from prometheus_client.core import CounterMetricFamily, GaugeMetricFamily, Metric
 from prometheus_client.registry import Collector
-from sqlalchemy import text
+from sqlalchemy import event, text
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
+from sqlalchemy.orm import Session
 from starlette.datastructures import MutableHeaders
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from app.config import Settings
 from app.logging_setup import request_id_var
+from app.platform_config import platform_config
+from app.rate_limit import DAY_SECONDS, LONGEST_WINDOW_SECONDS, Budget, limiter
+from app.sms.gateway import DAILY_KEY, HOURLY_KEY
 
 REQUEST_ID_HEADER = "X-Request-ID"
 _VALID_REQUEST_ID = re.compile(r"[A-Za-z0-9._:-]{8,128}")
 LATENCY_BUCKETS = (0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0)
 DB_QUERY_TIMEOUT_MS = 5000
+
+# Sign-in code endpoints: route template -> (step, purpose); None = the purpose is in the request body.
+OTP_ROUTES: dict[str, tuple[str, str | None]] = {
+    "/api/auth/otp/request": ("request", None),
+    "/api/auth/otp/verify": ("verify", "signin"),
+    "/api/events/{event_id}/desk/login": ("verify", "desk"),
+    "/api/organizer/login": ("verify", "organizer"),
+}
+OTP_PURPOSES = frozenset({"signin", "desk", "organizer"})
+OTP_BODY_LIMIT = 4096
+SCANNER_PREFIX = "/api/checkin-points/{point_id}/"
+SCANNER_KINDS = {"manifest": "manifest", "scan": "scan", "scans/batch": "batch", "heartbeat": "heartbeat"}
+
+
+def otp_outcome(status: int) -> str:
+    if status < 400:
+        return "ok"
+    if status == 429:
+        return "rate_limited"
+    return "rejected" if status < 500 else "error"
+
+
+def scanner_kind(route: str) -> str | None:
+    """Scanner device traffic, from the route template (`.../{point_id}/manifest` -> manifest)."""
+    if not route.startswith(SCANNER_PREFIX):
+        return None
+    return SCANNER_KINDS.get(route.removeprefix(SCANNER_PREFIX), "other")
 
 
 class Metrics:
@@ -54,12 +93,85 @@ class Metrics:
             "congress_http_request_duration_seconds", "HTTP request duration by method and route template.",
             ["method", "route"], buckets=LATENCY_BUCKETS, registry=self.registry,
         )
+        self.otp = Counter(
+            "congress_otp_requests", "Sign-in code requests (step=request) and checks (step=verify) by purpose and outcome.",
+            ["step", "purpose", "outcome"], registry=self.registry,
+        )
+        self.scanner = Counter(
+            "congress_scanner_requests", "Scanner device requests by kind (manifest, scan, batch, heartbeat, other) and status.",
+            ["kind", "status"], registry=self.registry,
+        )
+        self.limiter_degraded = Counter(
+            "congress_rate_limiter_degraded",
+            "Times the shared rate-limit counters were unreachable and this process limited in memory.",
+            registry=self.registry,
+        )
+        self.retention_runs = Counter(
+            "congress_retention_runs", "Retention passes by outcome (ok, failed).", ["outcome"], registry=self.registry,
+        )
+        self.retention_last_success = Gauge(
+            "congress_retention_last_success_timestamp_seconds",
+            "Unix time the retention job last completed a pass (0 = not since this process started).",
+            registry=self.registry,
+        )
         self.database = DatabaseSnapshot()
         self.registry.register(self.database)
+        _LIVE_METRICS.add(self)
 
     def observe(self, method: str, route: str, status: int, seconds: float) -> None:
         self.requests.labels(method, route, str(status)).inc()
         self.latency.labels(method, route).observe(seconds)
+        kind = scanner_kind(route)
+        if kind is not None:
+            self.scanner.labels(kind, str(status)).inc()
+
+    def observe_otp(self, route: str, status: int, body: bytes) -> None:
+        step, purpose = OTP_ROUTES[route]
+        if purpose is None:
+            try:
+                parsed = json.loads(body) if body else {}
+                purpose = str(parsed.get("purpose") or "signin") if isinstance(parsed, dict) else "other"
+            except ValueError:
+                purpose = "other"
+            if purpose not in OTP_PURPOSES:
+                purpose = "other"  # never a free-form label value
+        self.otp.labels(step, purpose, otp_outcome(status)).inc()
+
+    def retention_pass(self, ok: bool) -> None:
+        self.retention_runs.labels("ok" if ok else "failed").inc()
+        if ok:
+            self.retention_last_success.set(time.time())
+
+
+# Every application's metrics (tests build many apps per process); log records fan out to the live ones.
+_LIVE_METRICS: "weakref.WeakSet[Metrics]" = weakref.WeakSet()
+
+
+class _LogSignals(logging.Handler):
+    """Counts the limiter's fallback warnings and failed retention passes from their log records."""
+
+    def emit(self, record: logging.LogRecord) -> None:
+        if record.name == "congress.rate_limit" and record.getMessage().startswith(
+            "Rate limit counters unavailable; limiting"
+        ):
+            for metrics in list(_LIVE_METRICS):
+                metrics.limiter_degraded.inc()
+        elif record.name == "congress.retention" and record.levelno >= logging.ERROR:
+            for metrics in list(_LIVE_METRICS):
+                metrics.retention_pass(False)
+
+
+_LOG_SIGNALS = _LogSignals(logging.WARNING)
+for _name in ("congress.rate_limit", "congress.retention"):
+    if _LOG_SIGNALS not in logging.getLogger(_name).handlers:
+        logging.getLogger(_name).addHandler(_LOG_SIGNALS)
+
+
+def retention_sessionmaker(engine: AsyncEngine, metrics: Metrics) -> async_sessionmaker[AsyncSession]:
+    """Sessions for the retention job: each committed pass records its time (app/retention.py stays unchanged)."""
+    session_class = type("RetentionSession", (Session,), {})
+    event.listen(session_class, "after_commit", lambda _session: metrics.retention_pass(True))
+    return async_sessionmaker(engine, expire_on_commit=False, sync_session_class=session_class)
 
 
 class DatabaseSnapshot(Collector):
@@ -71,8 +183,19 @@ class DatabaseSnapshot(Collector):
         self.sms: list[tuple[str, str, int]] = []
         self.outbox_due = 0
         self.outbox_lag_seconds = 0.0
+        self.caps: list[tuple[str, int, int]] = []
+        self.pool: dict[str, int] = {}
 
     async def refresh(self, request: Request) -> None:
+        self._read_pool(request)
+        try:
+            caps = platform_config(request).sms
+            hour, day = await limiter(request).peek(
+                (HOURLY_KEY, Budget(1, LONGEST_WINDOW_SECONDS)), (DAILY_KEY, Budget(1, DAY_SECONDS))
+            )
+            self.caps = [("hour", hour, caps.hourly_cap), ("day", day, caps.daily_cap)]
+        except Exception:
+            self.caps = []
         try:
             async with request.app.state.sessionmaker() as session:
                 await session.execute(text(f"SET LOCAL statement_timeout = {DB_QUERY_TIMEOUT_MS}"))
@@ -94,6 +217,19 @@ class DatabaseSnapshot(Collector):
         oldest: datetime | None = due[1]
         self.outbox_lag_seconds = max(0.0, (datetime.now(UTC) - oldest).total_seconds()) if oldest else 0.0
 
+    def _read_pool(self, request: Request) -> None:
+        settings: Settings = request.app.state.settings
+        try:
+            pool: Any = request.app.state.sessionmaker.kw["bind"].sync_engine.pool
+            self.pool = {
+                "checked_out": int(pool.checkedout()),
+                "size": int(pool.size()),
+                "overflow": max(0, int(pool.overflow())),
+                "capacity": settings.db_pool_size + settings.db_max_overflow,
+            }
+        except (AttributeError, KeyError, TypeError):
+            self.pool = {}
+
     def collect(self) -> Iterable[Metric]:
         yield GaugeMetricFamily("congress_database_up", "1 when the metrics queries reached the database.", value=self.up)
         scans = CounterMetricFamily(
@@ -112,6 +248,21 @@ class DatabaseSnapshot(Collector):
             "congress_sms_outbox_lag_seconds", "Age of the oldest queued SMS that is due (0 when none).",
             value=self.outbox_lag_seconds,
         )
+        sent = GaugeMetricFamily("congress_sms_cap_sent", "SMS counted against the platform cap in the rolling window.", labels=["window"])
+        limit = GaugeMetricFamily("congress_sms_cap_limit", "The platform SMS cap for the window (0 = no cap).", labels=["window"])
+        for window, count, cap in self.caps:
+            sent.add_metric([window], count)
+            limit.add_metric([window], cap)
+        yield sent
+        yield limit
+        descriptions = {
+            "checked_out": "Database connections of this process in use.",
+            "size": "Database pool size of this process.",
+            "overflow": "Connections open beyond the pool size.",
+            "capacity": "Most connections this process may open (pool size + max overflow).",
+        }
+        for key, value in self.pool.items():
+            yield GaugeMetricFamily(f"congress_db_pool_{key}", descriptions[key], value=value)
 
 
 def _route_template(scope: Scope) -> str:
@@ -138,6 +289,15 @@ class RequestContextMiddleware:
             sentry_sdk.set_tag("request_id", request_id)
         status = 500
         started = time.perf_counter()
+        # Only the code request carries its purpose in the body; keep at most a few KB of it, passed on unchanged.
+        body = bytearray()
+        capture = scope["method"] == "POST" and scope["path"] == "/api/auth/otp/request"
+
+        async def receive_capturing() -> Message:
+            message = await receive()
+            if message["type"] == "http.request" and len(body) < OTP_BODY_LIMIT:
+                body.extend(message.get("body", b"")[: OTP_BODY_LIMIT - len(body)])
+            return message
 
         async def send_with_id(message: Message) -> None:
             nonlocal status
@@ -147,9 +307,12 @@ class RequestContextMiddleware:
             await send(message)
 
         try:
-            await self.app(scope, receive, send_with_id)
+            await self.app(scope, receive_capturing if capture else receive, send_with_id)
         finally:
-            self.metrics.observe(scope["method"], _route_template(scope), status, time.perf_counter() - started)
+            route = _route_template(scope)
+            self.metrics.observe(scope["method"], route, status, time.perf_counter() - started)
+            if scope["method"] == "POST" and route in OTP_ROUTES:
+                self.metrics.observe_otp(route, status, bytes(body))
             request_id_var.reset(token)
 
 

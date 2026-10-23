@@ -19,7 +19,14 @@ from sqlalchemy import text
 from app.config import Settings
 from app.logging_setup import JsonFormatter, configure_logging, request_id_var
 from app.main import create_app
-from app.observability import init_error_reporting, scrub_event, scrub_text
+from app.observability import (
+    init_error_reporting,
+    otp_outcome,
+    retention_sessionmaker,
+    scanner_kind,
+    scrub_event,
+    scrub_text,
+)
 from tests.conftest import ADMIN_TOKEN, TEST_JWT_SECRET, _truncate_all, make_test_settings
 
 METRICS_TOKEN = "metrics-token-for-tests-0123456789abcdef"
@@ -183,3 +190,56 @@ async def test_an_unhandled_error_is_reported_without_request_data(media_root: P
     assert event["request"]["url"] == "http://test/api/test-failure"
     assert set(event["request"]) <= {"url", "method"} and "user" not in event
     assert event["tags"]["request_id"]
+
+
+def _value(body: str, prefix: str) -> float:
+    return next(float(line.rsplit(" ", 1)[1]) for line in body.splitlines() if line.startswith(prefix))
+
+
+async def test_metrics_count_otp_purposes_scanner_kinds_caps_pool_limiter_and_retention(
+    observed: tuple[FastAPI, AsyncClient], monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The in-process Alembic run of the test setup (fileConfig) disables existing loggers; the API process never does.
+    for name in ("congress.rate_limit", "congress.retention"):
+        monkeypatch.setattr(logging.getLogger(name), "disabled", False)
+    application, http = observed
+    assert (await http.post("/api/auth/otp/request", json={"mobile": "09121234567", "purpose": "desk"})).status_code < 500
+    assert (await http.post("/api/auth/otp/request", json={"mobile": "09121234567"})).status_code == 202
+    assert (await http.post("/api/auth/otp/request", json={"mobile": "09121234567", "purpose": "x" * 50})).status_code == 422
+    assert (await http.post("/api/auth/otp/verify", json={"mobile": "09121234567", "code": "000000"})).status_code in (401, 429)
+    point = "00000000-0000-0000-0000-000000000001"
+    assert (await http.get(f"/api/checkin-points/{point}/manifest")).status_code == 401
+    logging.getLogger("congress.rate_limit").warning(
+        "Rate limit counters unavailable; limiting in this process only until the database is back"
+    )
+    async with retention_sessionmaker(application.state.sessionmaker.kw["bind"], application.state.metrics)() as session:
+        await session.execute(text("SELECT 1"))
+        await session.commit()
+
+    body = (await http.get("/api/metrics", headers={"Authorization": f"Bearer {METRICS_TOKEN}"})).text
+
+    assert 'congress_otp_requests_total{outcome="ok",purpose="signin",step="request"} 1.0' in body
+    assert 'purpose="desk",step="request"' in body
+    # A purpose outside the known set never becomes a label value.
+    assert 'congress_otp_requests_total{outcome="rejected",purpose="other",step="request"} 1.0' in body
+    assert "x" * 50 not in body and "09121234567" not in body
+    assert 'purpose="signin",step="verify"' in body
+    assert 'congress_scanner_requests_total{kind="manifest",status="401"} 1.0' in body
+    assert point not in body
+    assert _value(body, 'congress_sms_cap_sent{window="hour"}') >= 1
+    assert 'congress_sms_cap_limit{window="day"} 20000.0' in body
+    assert "congress_db_pool_capacity 20.0" in body and "congress_db_pool_checked_out " in body
+    assert _value(body, "congress_rate_limiter_degraded_total") >= 1
+    assert 'congress_retention_runs_total{outcome="ok"} 1.0' in body
+    assert _value(body, "congress_retention_last_success_timestamp_seconds") > 1.7e9
+    logging.getLogger("congress.retention").error("Retention pass failed")
+    body = (await http.get("/api/metrics", headers={"Authorization": f"Bearer {METRICS_TOKEN}"})).text
+    assert 'congress_retention_runs_total{outcome="failed"} 1.0' in body
+
+
+def test_otp_outcomes_and_scanner_kinds() -> None:
+    assert [otp_outcome(s) for s in (202, 401, 422, 429, 503)] == ["ok", "rejected", "rejected", "rate_limited", "error"]
+    assert scanner_kind("/api/checkin-points/{point_id}/scans/batch") == "batch"
+    assert scanner_kind("/api/checkin-points/{point_id}/heartbeat") == "heartbeat"
+    assert scanner_kind("/api/checkin-points/{point_id}/devices") == "other"
+    assert scanner_kind("/api/events/{event_id}") is None

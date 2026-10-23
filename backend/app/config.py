@@ -1,10 +1,11 @@
+import json
 from ipaddress import IPv4Network, IPv6Network, ip_network
 from pathlib import Path
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 from urllib.parse import urlsplit
 
 from pydantic import Field, ValidationError, field_validator, model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 Environment = Literal["development", "test", "staging", "production"]
 # smsir: real delivery through sms.ir. console: nothing is sent, messages are kept in memory (development,
@@ -53,7 +54,9 @@ def _is_placeholder(value: str) -> bool:
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="CONGRESS_", env_file=".env")
+    # An empty variable means "unset": Compose forwards every optional setting as `${CONGRESS_X:-}` (see
+    # deploy/staging/compose.yaml), so an operator who leaves one blank gets the default below, not an error.
+    model_config = SettingsConfigDict(env_prefix="CONGRESS_", env_file=".env", env_ignore_empty=True)
 
     # Unset means production: a deployment that forgets to say what it is gets the strict checks.
     environment: Environment = "production"
@@ -65,7 +68,8 @@ class Settings(BaseSettings):
     # Encrypts credentials stored in the database (app/secret_box.py). Optional: without it they are sealed with
     # a key derived from the JWT secret, which values sealed that way keep opening with.
     secret_box_key: str = ""
-    cors_origins: list[str] = ["http://localhost:5173"]
+    # A JSON list (`["https://congress.example.org"]`); decoded below, after blank values were dropped.
+    cors_origins: Annotated[list[str], NoDecode] = ["http://localhost:5173"]
     # Uploaded Page Studio images. Must be a durable volume (or mount) outside the application image.
     media_root: Path
     # Throttle repeated failed sign-ins / admin-token / API-key attempts (see app/rate_limit.py).
@@ -175,6 +179,15 @@ class Settings(BaseSettings):
 
     @model_validator(mode="before")
     @classmethod
+    def _blank_optional_values_are_unset(cls, data: Any) -> Any:
+        # Whitespace-only values too (env_ignore_empty only skips ""); required settings keep their own messages.
+        if not isinstance(data, dict):
+            return data
+        optional = {name for name, field in cls.model_fields.items() if not field.is_required()}
+        return {k: v for k, v in data.items() if not (k in optional and isinstance(v, str) and not v.strip())}
+
+    @model_validator(mode="before")
+    @classmethod
     def _environment_defaults(cls, data: Any) -> Any:
         if not isinstance(data, dict):
             return data
@@ -200,6 +213,11 @@ class Settings(BaseSettings):
         if not str(data.get("media_root") or "").strip():
             data["media_root"] = DEV_MEDIA_ROOT
         return data
+
+    @field_validator("cors_origins", mode="before")
+    @classmethod
+    def _cors_origins_json(cls, v: Any) -> Any:
+        return json.loads(v) if isinstance(v, str) else v
 
     @field_validator("smsir_line_number", mode="before")
     @classmethod
