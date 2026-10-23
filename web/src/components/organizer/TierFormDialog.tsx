@@ -39,7 +39,7 @@ type TierFormDialogProps = {
 /** Create or edit a pass type; its reservation window is entered on the congress clock. Closing an open type asks first. */
 export function TierFormDialog(props: TierFormDialogProps) {
   const { onClose, onSaved } = props;
-  const { eventId, event, client, locale, isRtl } = useEventWorkspace();
+  const { eventId, event, client, locale } = useEventWorkspace();
   const copy = organizerSetupCopy[locale].tierForm;
   const common = commonCopy[locale];
   const zone = event ? eventTimeZone(event) : "";
@@ -80,7 +80,7 @@ export function TierFormDialog(props: TierFormDialogProps) {
 
   // A new tier keeps what was typed when closed (the draft survives), so only the edit form asks.
   const dirty = isEdit && !sameDraft(draft, initial);
-  const { requestClose, discardDialog } = useGuardedClose(dirty, onClose, isRtl);
+  const { requestClose, discardDialog } = useGuardedClose(dirty, onClose, locale);
 
   const handleSubmit = async (e?: React.FormEvent) => {
     e?.preventDefault();

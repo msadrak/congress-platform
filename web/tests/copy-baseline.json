@@ -46,9 +46,6 @@
     "devTerm": 1,
     "checkmark": 6
   },
-  "src/lib/programFiles.ts": {
-    "ternary": 3
-  },
   "src/pages/CongressDetails.tsx": {
     "ternary": 4,
     "persian": 4

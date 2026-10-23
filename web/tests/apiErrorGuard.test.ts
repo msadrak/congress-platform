@@ -8,12 +8,8 @@ import { join, relative } from "node:path";
 const SRC = new URL("../src", import.meta.url).pathname;
 const UI_ROOTS = ["pages", "components", "layouts"].map((dir) => join(SRC, dir));
 
-// Files that still call formatApiError because another branch owned them when this guard landed (the scanner and
-// its pairing dialog). THIS LIST MUST ONLY SHRINK, down to zero: when a branch moves a file to
-// localizedApiError, delete its line here (the second test fails until you do). Never add a file to it.
-const NOT_YET_CONVERTED: readonly string[] = [
-  // Scanner (C1)
-];
+// Files that still call formatApiError. Empty since UX-SCAN and UX-ORG-3; never add a file to it.
+const NOT_YET_CONVERTED: readonly string[] = [];
 
 function* sourceFiles(path: string): Generator<string> {
   if (statSync(path).isDirectory()) {

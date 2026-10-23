@@ -93,7 +93,7 @@ export function EventEditDialog({ event, apiKey, locale, onClose, onSaved }: Eve
   }, [attempt]);
 
   const dirty = Boolean(draft && initial && !sameDraft(draft, initial));
-  const { requestClose, discardDialog } = useGuardedClose(dirty, onClose, locale === "fa");
+  const { requestClose, discardDialog } = useGuardedClose(dirty, onClose, locale);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

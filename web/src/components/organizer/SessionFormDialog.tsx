@@ -91,7 +91,7 @@ export function SessionFormDialog({ session, halls, tracks, defaultDay, timeZone
     if (failure) setError(failure);
   };
 
-  const { requestClose, discardDialog } = useGuardedClose(dirty, onClose, locale === "fa");
+  const { requestClose, discardDialog } = useGuardedClose(dirty, onClose, locale);
   const close = () => {
     if (!submitting) requestClose();
   };

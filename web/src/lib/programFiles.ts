@@ -1,13 +1,11 @@
 /**
- * Schedule files (the congress program as a PDF or an image) for the organizer console. Uploads send the raw
- * bytes with their Content-Type, as Page Studio images do; the server checks PDFs, re-encodes images and
- * stores both under generated names. Failures carry a code the screen maps to localized copy.
- *
- * Uses `fetch` rather than the openapi-fetch client because the upload body is the file itself, not JSON;
- * the shapes are the generated schema types.
+ * Schedule files (the congress program as a PDF or an image): the organizer screen's checks and error codes, and
+ * the public payload's files. The server checks PDFs, re-encodes images and stores both under generated names;
+ * failures carry a code the screen maps to localized copy.
  */
 
-import { apiErrorCode, formatApiError, type ProgramFileOut, type ProgramFileUpdate, type PublicProgramFile } from "../api/client.ts";
+import type { ProgramFileOut, PublicProgramFile } from "../api/client.ts";
+import { formatNumber } from "./format.ts";
 
 export const PROGRAM_FILE_TYPES = ["application/pdf", "image/png", "image/jpeg", "image/webp"] as const;
 /** The API's (and the edge's) limit: 8,000,000 bytes. */
@@ -28,11 +26,6 @@ export type ProgramFileErrorCode =
   | "unauthorized"
   | "network"
   | "server";
-
-/** Narrow with `"code" in result` (the app's tsconfig is not strict, so `ok` alone does not narrow). */
-export type ProgramFileResult<T> =
-  | { ok: true; value: T }
-  | { ok: false; code: ProgramFileErrorCode; status: number; detail: string };
 
 /** The screen's code for each stable API error code (backend/app/routes/program_files.py and events.py). */
 const API_CODES: Record<string, ProgramFileErrorCode> = {
@@ -90,70 +83,6 @@ export function labelFromFileName(name: string): string {
   return name.replace(/\.[A-Za-z0-9]{1,5}$/, "").replace(/[_]+/g, " ").trim().slice(0, MAX_PROGRAM_FILE_LABEL);
 }
 
-const base = (eventId: string) => `/api/events/${encodeURIComponent(eventId)}/program-files`;
-
-async function request<T>(
-  apiKey: string,
-  url: string,
-  init: RequestInit,
-  parse: (body: unknown) => T,
-  upload?: { contentType: string },
-): Promise<ProgramFileResult<T>> {
-  let response: Response;
-  try {
-    response = await fetch(url, { ...init, headers: { ...init.headers, Authorization: `Bearer ${apiKey}` } });
-  } catch {
-    return { ok: false, code: "network", status: 0, detail: "" };
-  }
-  const body: unknown = response.status === 204 ? null : await response.json().catch(() => null);
-  if (!response.ok) {
-    const detail = formatApiError(body);
-    return { ok: false, code: programFileErrorCode(response.status, apiErrorCode(body), upload), status: response.status, detail };
-  }
-  return { ok: true, value: parse(body) };
-}
-
-// The server's response shapes are trusted as typed here, as openapi-fetch trusts the generated ones.
-const asFile = (body: unknown) => body as ProgramFileOut;
-const asFiles = (body: unknown) => (Array.isArray(body) ? (body as ProgramFileOut[]) : []);
-
-export function listProgramFiles(apiKey: string, eventId: string): Promise<ProgramFileResult<ProgramFileOut[]>> {
-  return request(apiKey, base(eventId), {}, asFiles);
-}
-
-export function uploadProgramFile(apiKey: string, eventId: string, file: File, label: string): Promise<ProgramFileResult<ProgramFileOut>> {
-  const url = `${base(eventId)}?label=${encodeURIComponent(label.trim())}`;
-  return request(apiKey, url, { method: "POST", headers: { "Content-Type": file.type }, body: file }, asFile, { contentType: file.type });
-}
-
-export function updateProgramFile(
-  apiKey: string,
-  eventId: string,
-  fileId: string,
-  patch: ProgramFileUpdate,
-): Promise<ProgramFileResult<ProgramFileOut>> {
-  return request(
-    apiKey,
-    `${base(eventId)}/${encodeURIComponent(fileId)}`,
-    { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(patch) },
-    asFile,
-  );
-}
-
-export function deleteProgramFile(apiKey: string, eventId: string, fileId: string): Promise<ProgramFileResult<null>> {
-  return request(apiKey, `${base(eventId)}/${encodeURIComponent(fileId)}`, { method: "DELETE" }, () => null);
-}
-
-/** The organizer's copy of the file as an object URL (the content endpoint needs the Authorization header). */
-export async function programFileObjectUrl(apiKey: string, item: Pick<ProgramFileOut, "content_url">): Promise<string | null> {
-  try {
-    const response = await fetch(item.content_url, { headers: { Authorization: `Bearer ${apiKey}` } });
-    return response.ok ? URL.createObjectURL(await response.blob()) : null;
-  } catch {
-    return null;
-  }
-}
-
 /**
  * The positions that put `files` in the order of `ids`: only the files whose position changes are listed,
  * so a move costs one or two PATCHes once positions are distinct.
@@ -183,9 +112,11 @@ export function programFilesOf(event: object): PublicProgramFile[] {
   return event.program_files.filter(isProgramFile);
 }
 
+const SIZE_UNITS: Record<"fa" | "en", { mb: string; kb: string }> = { fa: { mb: "مگابایت", kb: "کیلوبایت" }, en: { mb: "MB", kb: "KB" } };
+
 /** "1.2 MB" / "۱٫۲ مگابایت". */
 export function formatFileSize(bytes: number, locale: "fa" | "en"): string {
-  const tag = locale === "fa" ? "fa-IR" : "en-GB";
-  const [value, unit] = bytes >= 1_000_000 ? [bytes / 1_000_000, locale === "fa" ? "مگابایت" : "MB"] : [Math.max(1, Math.round(bytes / 1000)), locale === "fa" ? "کیلوبایت" : "KB"];
-  return `${new Intl.NumberFormat(tag, { maximumFractionDigits: 1 }).format(value)} ${unit}`;
+  const units = SIZE_UNITS[locale];
+  const [value, unit] = bytes >= 1_000_000 ? [bytes / 1_000_000, units.mb] : [Math.max(1, Math.round(bytes / 1000)), units.kb];
+  return `${formatNumber(value, locale, { maximumFractionDigits: 1 })} ${unit}`;
 }
