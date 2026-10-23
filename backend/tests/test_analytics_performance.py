@@ -57,6 +57,7 @@ async def seed(app: FastAPI, event_id: uuid.UUID) -> tuple[list[uuid.UUID], list
             "event_id": event_id,
             "ticket_tier_id": tier_ids[i % 2],
             "user_id": user["id"],
+            "attendee_full_name": user["full_name"],
             "status": "cancelled" if i % 50 == 0 else "active",
         }
         for i, user in enumerate(users)

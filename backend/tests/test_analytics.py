@@ -455,6 +455,24 @@ async def test_registrations_csv_has_one_row_per_ticket(app: FastAPI, client: As
     assert (await client.get(url, headers=bearer(intruder))).status_code == 404
 
 
+async def test_exports_name_the_registration_not_the_account(client: AsyncClient) -> None:
+    organizer, event_id, _, _, tickets = await setup_event_with_scans(client)
+    edited = await client.patch(
+        f"/api/events/{event_id}/participants/{tickets[0]['id']}",
+        json={"attendee_full_name": "Dr. Corrected", "attendee_organization": "Fixed Org", "attendee_title": "MD"},
+        headers=bearer(organizer),
+    )
+    assert edited.status_code == 200, edited.text
+
+    base = f"/api/events/{event_id}/analytics"
+    for path in ("export-csv", "registrations-csv"):
+        rows = csv_rows(await client.get(f"{base}/{path}", headers=bearer(organizer)))
+        names = {r["Attendee Name"] for r in rows}
+        assert "Dr. Corrected" in names and "Attendee One" not in names, path
+        corrected = next(r for r in rows if r["Attendee Name"] == "Dr. Corrected")
+        assert (corrected["Organization"], corrected["Title"]) == ("Fixed Org", "MD"), path
+
+
 async def test_an_inverted_date_range_is_refused_with_a_code(client: AsyncClient) -> None:
     organizer = await provision_organizer(client, "Acme Congress Co")
     event_id = await create_event(client, organizer)
