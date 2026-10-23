@@ -17,6 +17,7 @@ import { ConfirmDialog } from "../components/ui/ConfirmDialog";
 import { Dialog } from "../components/ui/Dialog";
 import { Icon, type IconName } from "../components/ui/Icon";
 import { DialogActions, EmptyState, Field, FormAlert, Notice, SectionHeader } from "../components/organizer/WorkspaceUi";
+import { sessionAllows } from "../lib/organizerConsole";
 
 /** The API's order within a kind: position, then creation. */
 const byPosition = (a: VenuePlaceOut, b: VenuePlaceOut) => a.position - b.position || a.created_at.localeCompare(b.created_at);
@@ -29,7 +30,9 @@ export default function OrganizerVenue() {
 
 function OrganizerVenueContent() {
   const { eventId } = useParams<{ eventId: string }>();
-  const { apiKey, reportEvent, locale, isRtl } = useOutletContext<OrganizerOutletContext>();
+  const { apiKey, reportEvent, session, locale, isRtl } = useOutletContext<OrganizerOutletContext>();
+  // Changing the venue is a manager's (backend/app/roles.py); a lower role only reads it.
+  const canManage = sessionAllows(session, "manager");
 
   const [event, setEvent] = useState<EventOut | null>(null);
   const [places, setPlaces] = useState<VenuePlaceOut[]>([]);
@@ -200,10 +203,12 @@ function OrganizerVenueContent() {
             </h2>
             <p className="max-w-2xl text-sm leading-relaxed text-text-secondary">{description}</p>
           </div>
-          <Button type="button" variant="secondary" size="md" onClick={() => setEditing({ kind })}>
-            <Icon name="plus" size={18} />
-            {isRtl ? `افزودن ${copy.one}` : `Add ${copy.one}`}
-          </Button>
+          {canManage && (
+            <Button type="button" variant="secondary" size="md" onClick={() => setEditing({ kind })}>
+              <Icon name="plus" size={18} />
+              {isRtl ? `افزودن ${copy.one}` : `Add ${copy.one}`}
+            </Button>
+          )}
         </div>
         {list.length === 0 ? (
           <EmptyState icon={icon} title={copy.empty} />
@@ -230,38 +235,40 @@ function OrganizerVenueContent() {
                       <p className="text-xs text-text-muted">{isRtl ? `${fmt(used)} جلسه در این سالن` : `${used} ${used === 1 ? "session" : "sessions"} in this hall`}</p>
                     )}
                   </div>
-                  <div className="flex shrink-0 items-center gap-0.5">
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      aria-disabled={busy || index === 0}
-                      onClick={() => void move(list, index, -1)}
-                      aria-label={isRtl ? `انتقال «${place.name}» به بالا` : `Move “${place.name}” up`}
-                      className="aria-disabled:cursor-not-allowed aria-disabled:opacity-55"
-                    >
-                      <Icon name="arrow-up" size={16} />
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      aria-disabled={busy || index === list.length - 1}
-                      onClick={() => void move(list, index, 1)}
-                      aria-label={isRtl ? `انتقال «${place.name}» به پایین` : `Move “${place.name}” down`}
-                      className="aria-disabled:cursor-not-allowed aria-disabled:opacity-55"
-                    >
-                      <Icon name="arrow-down" size={16} />
-                    </Button>
-                    <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={() => setEditing(place)} aria-label={isRtl ? `ویرایش ${place.name}` : `Edit ${place.name}`}>
-                      <Icon name="note" size={16} />
-                      <span className="hidden sm:inline">{isRtl ? "ویرایش" : "Edit"}</span>
-                    </Button>
-                    <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={() => setDeleteTarget(place)} aria-label={isRtl ? `حذف ${place.name}` : `Delete ${place.name}`}>
-                      <Icon name="trash" size={16} />
-                      <span className="hidden sm:inline">{isRtl ? "حذف" : "Delete"}</span>
-                    </Button>
-                  </div>
+                  {canManage && (
+                    <div className="flex shrink-0 items-center gap-0.5">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        aria-disabled={busy || index === 0}
+                        onClick={() => void move(list, index, -1)}
+                        aria-label={isRtl ? `انتقال «${place.name}» به بالا` : `Move “${place.name}” up`}
+                        className="aria-disabled:cursor-not-allowed aria-disabled:opacity-55"
+                      >
+                        <Icon name="arrow-up" size={16} />
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        aria-disabled={busy || index === list.length - 1}
+                        onClick={() => void move(list, index, 1)}
+                        aria-label={isRtl ? `انتقال «${place.name}» به پایین` : `Move “${place.name}” down`}
+                        className="aria-disabled:cursor-not-allowed aria-disabled:opacity-55"
+                      >
+                        <Icon name="arrow-down" size={16} />
+                      </Button>
+                      <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={() => setEditing(place)} aria-label={isRtl ? `ویرایش ${place.name}` : `Edit ${place.name}`}>
+                        <Icon name="note" size={16} />
+                        <span className="hidden sm:inline">{isRtl ? "ویرایش" : "Edit"}</span>
+                      </Button>
+                      <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={() => setDeleteTarget(place)} aria-label={isRtl ? `حذف ${place.name}` : `Delete ${place.name}`}>
+                        <Icon name="trash" size={16} />
+                        <span className="hidden sm:inline">{isRtl ? "حذف" : "Delete"}</span>
+                      </Button>
+                    </div>
+                  )}
                 </li>
               );
             })}

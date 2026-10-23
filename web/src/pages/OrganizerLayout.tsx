@@ -19,7 +19,7 @@ import { usePageTitle } from "../hooks/usePageTitle";
 import { EventStatusBadge } from "../components/organizer/WorkspaceUi";
 import { eventAccentStyle } from "../lib/eventAccent";
 import { PARTICIPANTS_COPY } from "../lib/participants";
-import { CONSOLE_COPY, ROLE_COPY, roleAtLeast } from "../lib/organizerConsole";
+import { CONSOLE_COPY, ROLE_COPY, roleAtLeast, sessionAllows } from "../lib/organizerConsole";
 import "../styles/organizer.css";
 
 export type ActiveEvent = Pick<EventOut, "id" | "name" | "slug" | "starts_at" | "ends_at">;
@@ -329,12 +329,16 @@ export default function OrganizerLayout() {
           {eventId ? (
             <nav ref={sectionNavRef} aria-label={isRtl ? "فضای کاری همایش" : "Event workspace"} className="org-nav lg:border-t lg:border-white/10 lg:pt-4">
               {EVENT_SETUP_SECTIONS.map((s, i) =>
-                navItem(s.key, eventWorkspacePath(eventId, s.path), setupLabels[s.key], SECTION_ICONS[s.key], i + 1, section === s.key),
+                // Desk operators are a manager's list; every other section reads for any role.
+                s.key === "operators" && !sessionAllows(session, "manager")
+                  ? null
+                  : navItem(s.key, eventWorkspacePath(eventId, s.path), setupLabels[s.key], SECTION_ICONS[s.key], i + 1, section === s.key),
               )}
               <span className="org-nav-divider" aria-hidden="true" />
-              {navItem("participants", eventWorkspacePath(eventId, "/participants"), PARTICIPANTS_COPY[locale].navLabel, "users", eventOperationNumber("participants"), section === "participants")}
+              {/* Participants and reception carry personal data: staff and up. */}
+              {sessionAllows(session, "staff") && navItem("participants", eventWorkspacePath(eventId, "/participants"), PARTICIPANTS_COPY[locale].navLabel, "users", eventOperationNumber("participants"), section === "participants")}
               {navItem("analytics", eventWorkspacePath(eventId, "/analytics"), t.breadcrumbAnalytics, "chart", eventOperationNumber("analytics"), section === "analytics")}
-              {navItem(
+              {sessionAllows(session, "staff") && navItem(
                 "desk",
                 eventWorkspacePath(eventId, "/desk"),
                 t.breadcrumbDesk,
