@@ -75,7 +75,7 @@ async def test_export_contains_the_persons_own_data(client: AsyncClient) -> None
     _, peer = await register(client, event_id, tier_id, "09122220022", "Peer Person")
     await client.post(
         "/api/attendees/me/network/scan",
-        json={"qr_secret": peer["qr_secret"], "private_notes": "met at lunch"},
+        json={"qr_secret": peer["qr_secret"], "private_notes": "met at lunch", "event_id": event_id},
         headers=auth(token),
     )
 

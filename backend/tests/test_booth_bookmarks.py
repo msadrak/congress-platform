@@ -4,7 +4,7 @@ from httpx import AsyncClient
 from tests.helpers import bearer, provision_organizer, publish_page
 from tests.test_booths import BOOTH_PAYLOAD
 from tests.test_events import EVENT
-from tests.test_ticket_tiers import create_event
+from tests.test_ticket_tiers import create_event, tier
 from tests.test_tickets import register_user
 
 
@@ -22,6 +22,21 @@ async def setup_event_and_booth(
         )
     ).json()
     return organizer, event_id, booth
+
+
+async def attendee_with_ticket(client: AsyncClient, organizer: dict[str, str], event_id: str, mobile: str) -> str:
+    """A signed-in attendee holding an active ticket for the event (bookmarking requires one)."""
+    _, token = await register_user(client, mobile)
+    tier_id = (
+        await client.post(f"/api/events/{event_id}/ticket-tiers", json=tier(), headers=bearer(organizer))
+    ).json()["id"]
+    reserved = await client.post(
+        f"/api/events/{event_id}/tickets/reserve",
+        json={"ticket_tier_id": tier_id},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert reserved.status_code == 201, reserved.text
+    return token
 
 
 async def test_public_booth_profile_returns_details_and_brochure(
@@ -48,10 +63,10 @@ async def test_public_booth_profile_returns_details_and_brochure(
 async def test_authenticated_attendee_bookmarks_and_unbookmarks_booth(
     client: AsyncClient,
 ) -> None:
-    _, event_id, booth = await setup_event_and_booth(client)
+    organizer, event_id, booth = await setup_event_and_booth(client)
     booth_id = booth["id"]
 
-    _, token = await register_user(client, "09121000015")
+    token = await attendee_with_ticket(client, organizer, event_id, "09121000015")
 
     # 1. Bookmark booth
     add_resp = await client.post(
@@ -108,7 +123,7 @@ async def test_attendee_can_list_bookmarked_booths(
         )
     ).json()
 
-    _, token = await register_user(client, "09121000016")
+    token = await attendee_with_ticket(client, organizer, event_id, "09121000016")
 
     # Bookmark both
     await client.post(

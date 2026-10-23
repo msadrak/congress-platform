@@ -158,7 +158,7 @@ async def test_platform_wording_is_the_default_and_an_event_override_wins(app: F
     assert recorder(app).sent_to(MOBILE)[-1].text.startswith("Own: ")
 
     listed = (await client.get("/api/platform/sms-templates", headers=ADMIN)).json()
-    assert {t["kind"] for t in listed} == {"otp", "ticket_confirmation", "ticket_cancelled", "ticket_reissued"}
+    assert {t["kind"] for t in listed} == {"otp", "ticket_confirmation", "ticket_cancelled", "ticket_reissued", "staff_invite"}
 
 
 async def test_platform_sets_the_sign_in_code_text(app: FastAPI, client: AsyncClient) -> None:

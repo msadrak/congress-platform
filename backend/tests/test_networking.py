@@ -60,6 +60,7 @@ async def test_attendee_scans_peer_badge_and_creates_connection(
         json={
             "qr_secret": t_b["qr_secret"],
             "private_notes": "Met during morning keynote.",
+            "event_id": event_id,
         },
         headers={"Authorization": f"Bearer {token_a}"},
     )
@@ -83,7 +84,7 @@ async def test_scanning_own_badge_is_rejected(
     # Alice tries scanning her own badge
     self_resp = await client.post(
         "/api/attendees/me/network/scan",
-        json={"qr_secret": t_a["qr_secret"]},
+        json={"qr_secret": t_a["qr_secret"], "event_id": event_id},
         headers={"Authorization": f"Bearer {token_a}"},
     )
 
@@ -101,7 +102,7 @@ async def test_duplicate_peer_scan_updates_existing_connection(
     # First scan
     first = await client.post(
         "/api/attendees/me/network/scan",
-        json={"qr_secret": t_b["qr_secret"], "private_notes": "First note"},
+        json={"qr_secret": t_b["qr_secret"], "private_notes": "First note", "event_id": event_id},
         headers={"Authorization": f"Bearer {token_a}"},
     )
     assert first.status_code == 201
@@ -109,7 +110,7 @@ async def test_duplicate_peer_scan_updates_existing_connection(
     # Second scan updates notes
     second = await client.post(
         "/api/attendees/me/network/scan",
-        json={"qr_secret": t_b["qr_secret"], "private_notes": "Updated note"},
+        json={"qr_secret": t_b["qr_secret"], "private_notes": "Updated note", "event_id": event_id},
         headers={"Authorization": f"Bearer {token_a}"},
     )
     assert second.status_code == 200
@@ -135,7 +136,7 @@ async def test_attendee_can_list_connections_and_update_private_notes(
     created = (
         await client.post(
             "/api/attendees/me/network/scan",
-            json={"qr_secret": t_b["qr_secret"], "private_notes": "Initial"},
+            json={"qr_secret": t_b["qr_secret"], "private_notes": "Initial", "event_id": event_id},
             headers={"Authorization": f"Bearer {token_a}"},
         )
     ).json()
@@ -161,7 +162,7 @@ async def test_vcard_download_returns_rfc_compliant_vcf_file(
     created = (
         await client.post(
             "/api/attendees/me/network/scan",
-            json={"qr_secret": t_b["qr_secret"], "private_notes": "Met at keynote"},
+            json={"qr_secret": t_b["qr_secret"], "private_notes": "Met at keynote", "event_id": event_id},
             headers={"Authorization": f"Bearer {token_a}"},
         )
     ).json()
@@ -196,7 +197,7 @@ async def test_authorization_isolation_on_network(
     created = (
         await client.post(
             "/api/attendees/me/network/scan",
-            json={"qr_secret": t_b["qr_secret"]},
+            json={"qr_secret": t_b["qr_secret"], "event_id": event_id},
             headers={"Authorization": f"Bearer {token_a}"},
         )
     ).json()
@@ -267,7 +268,7 @@ async def test_peer_consent_toggle_governs_api_and_vcard_disclosure(
     # 1. Initially Bob has consent=False. Alice scans Bob -> mobile is None
     scan1 = await client.post(
         "/api/attendees/me/network/scan",
-        json={"qr_secret": t_b["qr_secret"]},
+        json={"qr_secret": t_b["qr_secret"], "event_id": event_id},
         headers=header_a,
     )
     assert scan1.status_code == 201
@@ -374,12 +375,19 @@ async def test_event_scoped_scan_of_another_congress_badge_leaves_existing_notes
     other_event_id, carol_ticket = await _second_event_attendee(client, "09121000056")
     event_id, _, token_a, _, _, _ = await setup_event_and_attendees(client)
     header_a = {"Authorization": f"Bearer {token_a}"}
-    legacy = await client.post(
-        "/api/attendees/me/network/scan",
-        json={"qr_secret": carol_ticket["qr_secret"], "private_notes": "original"},
+    # Alice also attends the other congress and connected with Carol there.
+    reserved = await client.post(
+        f"/api/events/{other_event_id}/tickets/reserve",
+        json={"ticket_tier_id": carol_ticket["ticket_tier_id"]},
         headers=header_a,
     )
-    assert legacy.status_code == 201
+    assert reserved.status_code == 201, reserved.text
+    there = await client.post(
+        "/api/attendees/me/network/scan",
+        json={"qr_secret": carol_ticket["qr_secret"], "private_notes": "original", "event_id": other_event_id},
+        headers=header_a,
+    )
+    assert there.status_code == 201
 
     rejected = await client.post(
         "/api/attendees/me/network/scan",
@@ -428,8 +436,11 @@ async def _vcard_of_peer(client: AsyncClient, name: str, organization: str, titl
         )
     ).json()
     header_a = {"Authorization": f"Bearer {token_a}"}
+    await client.post(f"/api/events/{event_id}/tickets/reserve", json={"ticket_tier_id": tier_id}, headers=header_a)
     conn = await client.post(
-        "/api/attendees/me/network/scan", json={"qr_secret": badge["qr_secret"], "private_notes": notes}, headers=header_a
+        "/api/attendees/me/network/scan",
+        json={"qr_secret": badge["qr_secret"], "private_notes": notes, "event_id": event_id},
+        headers=header_a,
     )
     assert conn.status_code == 201, conn.text
     vcard = await client.get(f"/api/attendees/me/network/{conn.json()['id']}/vcard", headers=header_a)

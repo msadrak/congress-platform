@@ -184,9 +184,10 @@ async def test_editing_registration_details_leaves_the_shared_account_alone(clie
 async def test_cancel_releases_the_place_once_and_revokes_the_pass(app: FastAPI, client: AsyncClient) -> None:
     organizer, event_id, tier_id = await congress(client)
     token, ticket = await register(client, event_id, tier_id, "09121230041", "Dr. Cancel Me")
-    _, peer_token = await sign_in(client, "09121230042", "Peer")
+    # Networking scans need the scanner's own active ticket for the congress.
+    peer_token, _ = await register(client, event_id, tier_id, "09121230042", "Peer")
     item = f"/api/events/{event_id}/participants/{ticket['id']}"
-    assert await reserved_count(app, tier_id) == 1
+    assert await reserved_count(app, tier_id) == 2
     await deliver_due(app.state.sessionmaker, app.state.sms)
 
     cancelled = await client.post(f"{item}/cancel", json={"reason": "Asked by phone"}, headers=bearer(organizer))
@@ -197,9 +198,9 @@ async def test_cancel_releases_the_place_once_and_revokes_the_pass(app: FastAPI,
     assert (body["status"], body["cancelled_reason"], body["qr_secret"]) == ("cancelled", "Asked by phone", None)
     assert body["cancelled_at"] is not None
     assert again.status_code == 409
-    assert await reserved_count(app, tier_id) == 0
+    assert await reserved_count(app, tier_id) == 1
     assert [q.is_active for q in await qr_rows(app, ticket["id"])] == [False]
-    scan = await client.post("/api/attendees/me/network/scan", json={"qr_secret": ticket["qr_secret"]}, headers=auth(peer_token))
+    scan = await client.post("/api/attendees/me/network/scan", json={"qr_secret": ticket["qr_secret"], "event_id": event_id}, headers=auth(peer_token))
     assert scan.status_code == 404
     # Hidden from the attendee's passes unless asked for, and never shown as a scannable code.
     assert (await client.get("/api/attendees/me/tickets", headers=auth(token))).json() == []
@@ -251,7 +252,7 @@ async def test_registering_again_after_a_cancellation_reactivates_the_ticket(app
 async def test_reissue_replaces_the_secret_and_texts_the_new_pass(app: FastAPI, client: AsyncClient) -> None:
     organizer, event_id, tier_id = await congress(client)
     token, ticket = await register(client, event_id, tier_id, "09121230061", "Lost Phone")
-    _, peer_token = await sign_in(client, "09121230062", "Peer")
+    peer_token, _ = await register(client, event_id, tier_id, "09121230062", "Peer")
     await deliver_due(app.state.sessionmaker, app.state.sms)
 
     resp = await client.post(f"/api/events/{event_id}/participants/{ticket['id']}/reissue", json={}, headers=bearer(organizer))
@@ -262,11 +263,11 @@ async def test_reissue_replaces_the_secret_and_texts_the_new_pass(app: FastAPI, 
     assert body["qr_secret"] and body["qr_secret"] != ticket["qr_secret"]
     (mine,) = (await client.get("/api/attendees/me/tickets", headers=auth(token))).json()
     assert mine["qr_secret"] == body["qr_secret"]
-    old = await client.post("/api/attendees/me/network/scan", json={"qr_secret": ticket["qr_secret"]}, headers=auth(peer_token))
-    new = await client.post("/api/attendees/me/network/scan", json={"qr_secret": body["qr_secret"]}, headers=auth(peer_token))
+    old = await client.post("/api/attendees/me/network/scan", json={"qr_secret": ticket["qr_secret"], "event_id": event_id}, headers=auth(peer_token))
+    new = await client.post("/api/attendees/me/network/scan", json={"qr_secret": body["qr_secret"], "event_id": event_id}, headers=auth(peer_token))
     assert old.status_code == 404
     assert new.status_code in (200, 201)
-    assert await reserved_count(app, tier_id) == 1
+    assert await reserved_count(app, tier_id) == 2
     await deliver_due(app.state.sessionmaker, app.state.sms)
     notice = sms_to(app, "09121230061")[-1]
     assert notice.kind == "ticket_reissued"

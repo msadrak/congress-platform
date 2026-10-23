@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import SmsTemplate
 
-SmsKind = Literal["otp", "ticket_confirmation", "ticket_cancelled", "ticket_reissued"]
+SmsKind = Literal["otp", "ticket_confirmation", "ticket_cancelled", "ticket_reissued", "staff_invite"]
 # Kinds an organizer may override for one event (sign-in codes are platform-wide: they belong to no event).
 EVENT_KINDS: tuple[SmsKind, ...] = ("ticket_confirmation", "ticket_cancelled", "ticket_reissued")
 MAX_BODY_LENGTH = 1000
@@ -57,6 +57,12 @@ KINDS: dict[SmsKind, KindSpec] = {
         placeholders=("name", "event", "tier", "location", "link"),
         required=(),
         default="{name} عزیز، کارت ورود شما در «{event}» دوباره صادر شد و کارت قبلی دیگر معتبر نیست.\nکارت ورود جدید: {link}",
+    ),
+    # Booth staff invitation (app/routes/booths.py), platform-wide: {link} opens the booth portal.
+    "staff_invite": KindSpec(
+        placeholders=("name", "booth", "event", "link"),
+        required=("link",),
+        default="{name} عزیز، شما نمایندهٔ غرفهٔ «{booth}» در «{event}» شدید.\nورود به پنل غرفه و ثبت لید: {link}",
     ),
 }
 

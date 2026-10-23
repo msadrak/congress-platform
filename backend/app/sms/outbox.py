@@ -21,7 +21,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.config import Settings
-from app.models import Event, SmsMessage, Ticket, TicketTier, User
+from app.models import Booth, Event, SmsMessage, Ticket, TicketTier, User
 from app.sms.phone import mask_mobile
 from app.sms.gateway import DEFERRED_ERRORS
 from app.sms.provider import SmsProvider, SmsResult
@@ -90,6 +90,28 @@ async def queue_ticket_confirmation(
             ),
             event_id=event.id,
             ticket_id=ticket.id,
+            status="pending",
+            send_after=datetime.now(timezone.utc),
+        )
+    )
+
+
+async def queue_staff_invite(
+    session: AsyncSession, settings: Settings, origin: str, *, user: User, booth: Booth, event: Event
+) -> None:
+    """Queue "you represent this booth" with a link to the booth portal (`/booth/<id>`, which asks for the
+    SMS sign-in code); a no-op for an account without a mobile. Booth portal pages live on the public origin,
+    not on the short-link domain."""
+    if not user.mobile:
+        return
+    portal = f"{(settings.public_origin or origin).rstrip('/')}/booth/{booth.id}"
+    values = {"name": user.full_name, "booth": booth.name, "event": event.name, "link": portal}
+    session.add(
+        SmsMessage(
+            kind="staff_invite",
+            mobile=user.mobile,
+            body=render(await effective_body(session, "staff_invite", None), values),
+            event_id=event.id,
             status="pending",
             send_after=datetime.now(timezone.utc),
         )

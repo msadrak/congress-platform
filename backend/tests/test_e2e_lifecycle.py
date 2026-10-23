@@ -198,7 +198,7 @@ async def test_full_congress_multi_tenant_lifecycle(client: AsyncClient) -> None
     conn_resp = await client.post(
         "/api/attendees/me/network/scan",
         headers=bearer(u1_tok),
-        json={"qr_secret": u2_secret, "private_notes": "Met at keynote"},
+        json={"qr_secret": u2_secret, "private_notes": "Met at keynote", "event_id": evt_a_id},
     )
     assert conn_resp.status_code in (200, 201)
     conn_id = conn_resp.json()["id"]

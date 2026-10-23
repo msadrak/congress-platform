@@ -108,8 +108,15 @@ async def test_booths_capture_leads_only_from_active_tickets_with_active_qr(app:
 
 
 async def test_peers_connect_only_through_active_tickets_with_active_qr(app: FastAPI, client: AsyncClient) -> None:
-    _, event_id, (active, cancelled, qr_off) = await _event_with_passes(client)
+    organizer, event_id, (active, cancelled, qr_off) = await _event_with_passes(client)
     _, token = await sign_in(client, "09121000075")
+    # The scanner needs an active ticket of their own for the congress.
+    tier_id = (await client.get(f"/api/events/{event_id}/ticket-tiers", headers=bearer(organizer))).json()[0]["id"]
+    reserved = await client.post(
+        f"/api/events/{event_id}/tickets/reserve", json={"ticket_tier_id": tier_id},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert reserved.status_code == 201, reserved.text
     await _deactivate(app, cancelled, qr_off)
 
     statuses = [
