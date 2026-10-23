@@ -17,11 +17,9 @@
   --aiteb-blue: #283BEA;     /* [official] site headline gradient end */
   --aiteb-lavender: #F2F0FE; /* [official] section surface */
   --aiteb-slate: #486284;    /* [official] section heading colour */
-  --aiteb-graphite: #191919; /* [official] body ink */
 
   --grad-aiteb: linear-gradient(90deg, var(--aiteb-orchid), var(--aiteb-violet));
   --grad-aiteb-deep: linear-gradient(90deg, var(--aiteb-magenta), var(--aiteb-blue));
-  --grad-aiteb-arc: linear-gradient(135deg, var(--aiteb-orchid) 0%, #9B6BF2 45%, var(--aiteb-indigo) 100%);
 
   /* ── Surfaces ───────────────────────────────────────────────── */
   --surface-page: #F8F7FC;
@@ -41,6 +39,8 @@
   --border-default: #E3E0EF;
   --border-subtle: #EFEDF7;
   --border-strong: #C9C4DE;
+  /* Field boundaries: >= 3:1 against every light surface (WCAG 1.4.11). Cards and dividers keep --border-default. */
+  --border-input: #827EA6;
 
   /* ── Action (AIteb indigo) ──────────────────────────────────── */
   --action-primary: #2000CD;
@@ -51,6 +51,7 @@
   --action-subtle-text: #2000CD;
 
   --focus-ring: #2000CD;
+  --focus-ring-ink: var(--aiteb-orchid);
 
   /* ── Semantic status ────────────────────────────────────────── */
   --status-success-text: #04704F;
@@ -73,12 +74,10 @@
   --status-info-border: #C9D3FF;
   --status-info-solid: #283BEA;
 
-  /* ── Shape ──────────────────────────────────────────────────── */
-  --radius-sm: 6px;
-  --radius-md: 10px;
-  --radius-lg: 14px;
-  --radius-xl: 20px;
-  --radius-arc: 34px;
+  /* ── Control heights: sm (dense desktop tables), md (default), lg (scanner, desk, sticky mobile CTA) ── */
+  --control-sm: 40px;
+  --control-md: 48px;
+  --control-lg: 56px;
 
   /* Per-congress accent; CongressSignature/eventAccent() override it on a wrapper. */
   --event-accent: var(--aiteb-indigo);
@@ -136,33 +135,18 @@
   --color-aiteb-indigo: var(--aiteb-indigo);
   --color-aiteb-violet: var(--aiteb-violet);
   --color-aiteb-orchid: var(--aiteb-orchid);
-  --color-aiteb-magenta: var(--aiteb-magenta);
-  --color-aiteb-blue: var(--aiteb-blue);
   --color-aiteb-lavender: var(--aiteb-lavender);
   --color-aiteb-slate: var(--aiteb-slate);
-  --color-aiteb-graphite: var(--aiteb-graphite);
   --color-event-accent: var(--event-accent);
   --color-event-accent-soft: var(--event-accent-soft);
 
-  --color-brand-50: #F4F2FF;
-  --color-brand-100: #EAE6FF;
-  --color-brand-200: #D4CDFF;
-  --color-brand-300: #B1A4FF;
   --color-brand-400: #8770FF;
   --color-brand-500: #5B3FF5;
-  --color-brand-600: #2000CD;
-  --color-brand-700: #1B00AD;
-  --color-brand-800: #16008A;
-  --color-brand-900: #120066;
 
-  --color-ink-50: #F7F6FB;
   --color-ink-100: #EEEDF6;
   --color-ink-200: #DCDAEC;
   --color-ink-300: #B9B6D3;
   --color-ink-400: #8C88B0;
-  --color-ink-500: #67638A;
-  --color-ink-600: #3A3570;
-  --color-ink-700: #241F55;
   --color-ink-800: #17143D;
   --color-ink-900: #0E0C2B;
   --color-ink-950: #07061A;
@@ -173,9 +157,28 @@
   --font-display: "Schibsted Grotesk Variable", "Vazirmatn Variable", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
 
-  --radius-arc: 34px;
+  /* Type scale: weights 400/500/600/700 only; Persian text never below 12px. */
+  --text-caption: 0.75rem;
+  --text-meta: 0.8125rem;
+  --text-body-sm: 0.875rem;
+  --text-body: 1rem;
+  --text-title-sm: 1.125rem;
+  --text-title: 1.5rem;
+  --text-title-lg: 1.75rem;
+  --text-display: clamp(2rem, 5vw, 3rem);
 
-  --shadow-hairline: 0 0 0 1px rgb(14 12 43 / 0.06);
+  /* Radius scale, ascending (rounded-xl < rounded-2xl). Controls 12, cards 16, dialogs 20, phone sheet top 24. */
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-2xl: 20px;
+  --radius-3xl: 24px;
+  --radius-control: var(--radius-lg);
+  --radius-card: var(--radius-xl);
+  /* Deprecated (UX-Z removes it): its call sites sit on rounded-2xl, so the arc corner now matches them. */
+  --radius-arc: var(--radius-2xl);
+
   --shadow-soft: 0 1px 1px rgb(14 12 43 / 0.03), 0 2px 6px -2px rgb(14 12 43 / 0.08);
   --shadow-lift: 0 1px 2px rgb(14 12 43 / 0.04), 0 14px 30px -14px rgb(32 0 205 / 0.22);
   --shadow-pop: 0 2px 4px rgb(14 12 43 / 0.05), 0 30px 70px -24px rgb(32 0 205 / 0.38);
@@ -294,9 +297,15 @@
     background: rgb(32 0 205 / 0.16);
   }
 
+  /* The one focus style. Ink containers swap the ring colour through .surface-ink. */
   :focus-visible {
     outline: 2px solid var(--focus-ring);
     outline-offset: 2px;
+  }
+
+  .surface-ink {
+    --focus-ring: var(--focus-ring-ink);
+    --border-input: #6E6A99;
   }
 
   code, kbd, samp {
@@ -305,28 +314,17 @@
 }
 
 @layer components {
-  /* Small, spaced meta label above headings ("eyebrow"). */
+  /*
+   * Neutralised decoration (UX-F1). The class names stay so call sites compile; UX-Z deletes them.
+   * .eyebrow is plain muted meta text; arcs, rules and the meridian grid draw nothing.
+   */
   .eyebrow {
     display: inline-flex;
     align-items: center;
     gap: 0.5rem;
-    font-size: 0.72rem;
-    font-weight: 600;
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
+    font-size: var(--text-meta);
+    font-weight: 500;
     color: var(--text-muted);
-  }
-  .eyebrow::before {
-    content: "";
-    inline-size: 1.25rem;
-    block-size: 2px;
-    border-radius: 2px;
-    background: var(--grad-aiteb);
-  }
-  [dir="rtl"] .eyebrow,
-  :lang(fa) .eyebrow {
-    font-size: 0.8rem;
-    letter-spacing: 0;
   }
 
   .text-gradient-aiteb {
@@ -336,37 +334,15 @@
     color: transparent;
   }
 
-  /* Signature silhouette: a quarter-arc corner echoing the AIteb mark. Logical, so it mirrors in RTL. */
-  .shape-arc {
-    border-radius: var(--radius-lg);
-    border-start-end-radius: var(--radius-arc);
-  }
+  .shape-arc,
   .shape-arc-lg {
-    border-radius: var(--radius-xl);
-    border-start-end-radius: 56px;
+    border-radius: var(--radius-card);
   }
 
-  /* Hairline rule with a short brand-gradient lead-in. */
-  .rule-arc {
-    block-size: 1px;
-    background: linear-gradient(90deg, var(--aiteb-orchid), var(--aiteb-violet) 3rem, var(--border-default) 3rem);
-  }
-  [dir="rtl"] .rule-arc {
-    background: linear-gradient(270deg, var(--aiteb-orchid), var(--aiteb-violet) 3rem, var(--border-default) 3rem);
-  }
-
-  /* Fine architectural grid used behind heroes and instruments. */
-  .bg-meridian {
-    background-image:
-      linear-gradient(to right, rgb(32 0 205 / 0.05) 1px, transparent 1px),
-      linear-gradient(to bottom, rgb(32 0 205 / 0.05) 1px, transparent 1px);
-    background-size: 56px 56px;
-  }
+  .rule-arc,
+  .bg-meridian,
   .bg-meridian-ink {
-    background-image:
-      linear-gradient(to right, rgb(255 255 255 / 0.045) 1px, transparent 1px),
-      linear-gradient(to bottom, rgb(255 255 255 / 0.045) 1px, transparent 1px);
-    background-size: 56px 56px;
+    background: none;
   }
 
   /* Form controls */
@@ -381,14 +357,21 @@
   .ui-select,
   .ui-textarea {
     inline-size: 100%;
-    min-block-size: 46px;
-    padding: 0.625rem 0.875rem;
-    border-radius: var(--radius-md);
-    border: 1px solid var(--border-default);
-    background: var(--surface-panel);
+    block-size: var(--control-md);
+    padding-block: 0;
+    padding-inline: 0.875rem;
+    border-radius: var(--radius-control);
+    border: 1px solid var(--border-input);
+    background-color: var(--surface-panel);
     color: var(--text-primary);
-    box-shadow: inset 0 1px 0 rgb(14 12 43 / 0.03);
-    transition: border-color 150ms ease, box-shadow 150ms ease, background-color 150ms ease;
+    transition: border-color 150ms ease, outline-color 150ms ease, background-color 150ms ease;
+  }
+  textarea.ui-input,
+  .ui-textarea {
+    block-size: auto;
+    min-block-size: 6rem;
+    padding-block: 0.625rem;
+    line-height: 1.6;
   }
   .ui-input::placeholder,
   .ui-textarea::placeholder {
@@ -397,35 +380,34 @@
   .ui-input:hover,
   .ui-select:hover,
   .ui-textarea:hover {
-    border-color: var(--border-strong);
+    border-color: var(--text-muted);
   }
   .ui-input:focus,
   .ui-select:focus,
   .ui-textarea:focus {
-    outline: none;
-    border-color: var(--aiteb-indigo);
-    box-shadow: 0 0 0 4px rgb(32 0 205 / 0.12);
+    outline: 2px solid var(--focus-ring);
+    outline-offset: 0;
+    border-color: var(--focus-ring);
   }
-  /* Forced colours drop box-shadows: keep a visible focus outline on fields there. */
-  @media (forced-colors: active) {
-    .ui-input:focus,
-    .ui-select:focus,
-    .ui-textarea:focus {
-      outline: 2px solid CanvasText;
-      outline-offset: 1px;
-    }
-  }
-  .ui-input[aria-invalid="true"] {
+  .ui-input[aria-invalid="true"],
+  .ui-select[aria-invalid="true"],
+  .ui-textarea[aria-invalid="true"] {
     border-color: var(--status-danger-solid);
-    box-shadow: 0 0 0 4px rgb(222 26 80 / 0.1);
+    box-shadow: 0 0 0 1px var(--status-danger-solid);
+  }
+  .ui-input[aria-invalid="true"]:focus,
+  .ui-select[aria-invalid="true"]:focus,
+  .ui-textarea[aria-invalid="true"]:focus {
+    outline-color: var(--status-danger-solid);
   }
   .ui-input:disabled,
   .ui-select:disabled,
   .ui-textarea:disabled {
-    background: var(--surface-panel-subtle);
+    background-color: var(--surface-panel-subtle);
     color: var(--text-muted);
     cursor: not-allowed;
   }
+  /* CSS fallback chevron; UX-F4's Select draws an Icon at the logical end instead. */
   .ui-select {
     appearance: none;
     padding-inline-end: 2.5rem;
@@ -436,10 +418,6 @@
   }
   [dir="rtl"] .ui-select {
     background-position: left 0.75rem center;
-  }
-  .ui-textarea {
-    min-block-size: 6rem;
-    line-height: 1.6;
   }
 
   /* Skeleton shimmer for loading states */
