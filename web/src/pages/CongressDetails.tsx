@@ -3,6 +3,9 @@ import { useLocation, useParams } from "react-router-dom";
 import { AttendeeLayout } from "../layouts/AttendeeLayout";
 import { useAttendeeLocale } from "../lib/i18n";
 import { useCongressEvent } from "../lib/congressContext";
+import { GUEST_AGENDA_OWNER } from "../lib/agenda";
+import { getAuthenticatedUserId } from "../lib/ticketCache";
+import { useAttendeeSession } from "../hooks/useAttendeeSession";
 import { LoadingBlock, StatusPanel } from "../components/ui/PortalState";
 import { Button, LinkButton } from "../components/ui/Button";
 import { Icon } from "../components/ui/Icon";
@@ -16,6 +19,9 @@ export default function CongressDetails() {
   const localeHook = useAttendeeLocale();
   const { locale, t, isRtl } = localeHook;
   const congress = useCongressEvent(slug);
+  const { token } = useAttendeeSession();
+  // The personal agenda is kept per attendee on this device; signed out, a guest agenda.
+  const agendaOwner = getAuthenticatedUserId(token) ?? GUEST_AGENDA_OWNER;
   const event = congress.status === "ready" ? congress.event : null;
   const page = useMemo(() => (event ? publishedPage(event) : null), [event]);
   const labels = useMemo(() => (page ? panelLabels(page.doc, locale) : null), [page, locale]);
@@ -52,7 +58,7 @@ export default function CongressDetails() {
   } else if (!event || !page || !labels) {
     content = <LoadingBlock label={t.navCongressDetails} />;
   } else {
-    content = <CongressDetailsView event={event} page={page} labels={labels} locale={locale} t={t} />;
+    content = <CongressDetailsView event={event} page={page} labels={labels} locale={locale} t={t} agendaOwner={agendaOwner} />;
   }
 
   return (

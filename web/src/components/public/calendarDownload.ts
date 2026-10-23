@@ -26,10 +26,15 @@ export function downloadCalendarFile(event: CalendarEvent): void {
     description: event.description,
     url: publicEventUrl(event.slug),
   });
+  saveIcsFile(ics, icsFileName(event.slug));
+}
+
+/** Hands an iCalendar document to the browser as a download (phones open it in their calendar app). */
+export function saveIcsFile(ics: string, fileName: string): void {
   const url = URL.createObjectURL(new Blob([ics], { type: "text/calendar;charset=utf-8" }));
   const link = document.createElement("a");
   link.href = url;
-  link.download = icsFileName(event.slug);
+  link.download = fileName;
   document.body.append(link);
   link.click();
   link.remove();

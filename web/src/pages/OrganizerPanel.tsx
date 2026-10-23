@@ -178,7 +178,7 @@ export function OrganizerPanelFrame() {
   if (view === "details") {
     content = (
       <div className="mx-auto max-w-6xl space-y-10 px-4 pt-6 sm:space-y-14 sm:px-6 sm:pt-10">
-        <CongressDetailsView event={preview} page={page} labels={labels} locale={locale} t={t} />
+        <CongressDetailsView event={preview} page={page} labels={labels} locale={locale} t={t} agendaOwner={null} />
       </div>
     );
   } else if (view === "card") {
