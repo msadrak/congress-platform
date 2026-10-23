@@ -48,12 +48,8 @@ const ROOTS = [join(WEB, "src"), join(WEB, "index.html"), join(REPO, "backend/ap
  */
 const ALLOWED: Readonly<Record<string, readonly string[]>> = {
   "web/src/components/attendee/attendeeCopy.ts": ["بلیت", "نشست", "گردید"],
-  "web/src/components/organizer/BoothStaffDialog.tsx": ["پورتال"],
-  "web/src/components/organizer/OperatorFormDialog.tsx": ["گیت"],
-  "web/src/components/organizer/ScannerPairingDialog.tsx": ["کنسول", "لینک"],
   "web/src/lib/attendeeSession.ts": ["نشست"],
   "web/src/pages/AttendeeSignIn.tsx": ["فضای کاری", "پرتال", "سرنخ"],
-  "web/src/pages/organizer/EventOperators.tsx": ["نشست"],
 };
 
 function* files(path: string): Generator<string> {

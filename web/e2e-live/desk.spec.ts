@@ -18,11 +18,11 @@ test('desk: operator added by the organizer signs in by SMS code, searches, issu
   await test.step('organizer authorizes the operator by mobile number', async () => {
     await organizerSignIn(page, organizer.api_key);
     await page.goto(`/organizer/events/${event.id}/operators`);
-    await page.getByRole('button', { name: 'افزودن اپراتور جدید' }).first().click();
-    const dialog = page.getByRole('dialog', { name: 'ثبت اپراتور میز پذیرش' });
-    await dialog.getByLabel('نام کامل اپراتور').fill(operatorName);
-    await dialog.getByLabel('شماره موبایل').fill(operatorMobile);
-    await dialog.getByRole('button', { name: 'صدور دسترسی اپراتور' }).click();
+    await page.getByRole('main').getByRole('button', { name: 'اپراتور جدید' }).first().click();
+    const dialog = page.getByRole('dialog', { name: 'اپراتور جدید' });
+    await dialog.getByRole('textbox').first().fill(operatorName);
+    await dialog.getByRole('textbox').nth(1).fill(operatorMobile);
+    await dialog.getByRole('button', { name: 'افزودن', exact: true }).click();
     await expect(page.getByRole('status').filter({ hasText: operatorName })).toBeVisible();
   });
 

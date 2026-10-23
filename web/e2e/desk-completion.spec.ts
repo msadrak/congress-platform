@@ -376,6 +376,6 @@ test('the operators page shows the reception address with a QR code and restores
 
   await page.getByRole('button', { name: 'Restore access' }).click();
   await expect(page.getByRole('status').filter({ hasText: 'Access restored for Operator One' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Revoke Access' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'More actions for Operator One' })).toBeVisible();
   expect(requests.filter(r => r.method === 'POST').map(r => r.path)).toEqual(['/api/events/event-a/desk/operators/op-1/restore']);
 });

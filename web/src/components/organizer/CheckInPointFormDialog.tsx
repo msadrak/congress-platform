@@ -1,7 +1,11 @@
-import React, { useState } from "react";
+import React, { useId, useState } from "react";
 import { localizedApiError, type CheckInPointOut, type EventSessionOut, type TicketTierOut } from "../../api/client";
+import { commonCopy } from "../../copy/common";
+import { organizerSetupCopy } from "../../copy/organizerSetup";
 import { Button } from "../ui/Button";
 import { Dialog } from "../ui/Dialog";
+import { Icon } from "../ui/Icon";
+import { Select, TextInput } from "../ui/Input";
 import { DialogActions, Field, FormAlert } from "./WorkspaceUi";
 import { checkInPolicyMeta, type PolicyType } from "./checkInPolicy";
 import { useEventWorkspace } from "./eventWorkspaceContext";
@@ -58,10 +62,16 @@ type CheckInPointFormDialogProps = {
     }
 );
 
-/** Create or edit a check-in point: its admission policy, tier filter, window, occupancy, hierarchy and session. */
+/**
+ * Create or edit a check-in point: name, location and entry rule up front; the pass-type filter, entry/exit,
+ * daily reset, required point and session door under «تنظیمات پیشرفته», collapsed until opened.
+ */
 export function CheckInPointFormDialog(props: CheckInPointFormDialogProps) {
   const { tiers, points, sessions, onClose, onSaved } = props;
-  const { eventId, apiKey, client, onKeyRejected, t, isRtl, locale } = useEventWorkspace();
+  const { eventId, client, locale } = useEventWorkspace();
+  const copy = organizerSetupCopy[locale].pointForm;
+  const common = commonCopy[locale];
+  const advancedId = useId();
   const point = props.mode === "edit" ? props.point : null;
   const isEdit = props.mode === "edit";
   const isOpen = props.mode === "edit" ? props.point !== null : props.isOpen;
@@ -69,11 +79,11 @@ export function CheckInPointFormDialog(props: CheckInPointFormDialogProps) {
   const [draft, setDraft] = useState<PointDraft>(NEW_POINT);
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
-  // The field the last client-side check rejected; marked only while the form's error is shown.
+  // The field the last client-side check rejected; its message shows under that field.
   const [invalidField, setInvalidField] = useState<PointField | null>(null);
-  const fieldInvalid = (field: PointField) => (formError !== null && invalidField === field) || undefined;
+  const [advancedOpen, setAdvancedOpen] = useState(false);
 
-  // Each opening of the edit form starts from the point as saved.
+  // Each opening of the edit form starts from the point as saved, with the advanced settings collapsed.
   const [shownPoint, setShownPoint] = useState<CheckInPointOut | null>(null);
   if (point !== shownPoint) {
     setShownPoint(point);
@@ -91,12 +101,14 @@ export function CheckInPointFormDialog(props: CheckInPointFormDialogProps) {
       });
       setFormError(null);
       setInvalidField(null);
+      setAdvancedOpen(false);
     }
   }
 
   const occupancyAllowed = OCCUPANCY_POLICIES.includes(draft.policy);
   const tracksOccupancy = occupancyAllowed && draft.tracksOccupancy;
   const windowApplies = draft.policy === "SINGLE_USE" || draft.policy === "CAPACITY_CAPPED" || tracksOccupancy;
+  const fieldError = (field: PointField) => (invalidField === field ? formError : null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -106,15 +118,16 @@ export function CheckInPointFormDialog(props: CheckInPointFormDialogProps) {
     setInvalidField(null);
     if (!draft.name.trim()) {
       setInvalidField("name");
-      setFormError(isRtl ? "نام نقطه ورود را وارد کنید." : "Enter the check-in point name.");
+      setFormError(copy.nameRequired);
       return;
     }
     if (draft.policy === "TIER_RESTRICTED" && draft.allowedTiers.length === 0) {
       setInvalidField("tiers");
-      setFormError(isRtl ? "حداقل یک نوع کارت ورود مجاز برای این نقطه ورود انتخاب کنید." : "Select at least one allowed tier.");
+      setFormError(copy.tiersRequired);
+      setAdvancedOpen(true);
       return;
     }
-    if (!apiKey || !client) return;
+    if (!client) return;
     setSubmitting(true);
     const rules = {
       name: draft.name.trim(),
@@ -125,6 +138,7 @@ export function CheckInPointFormDialog(props: CheckInPointFormDialogProps) {
       reset_window: windowApplies ? draft.resetWindow : ("EVENT" as const),
       tracks_occupancy: tracksOccupancy,
     };
+    // A 401 reaches the layout's key gate through the API client (registerUnauthorizedHandler).
     const { data, error: err, response } = point
       ? await client.PATCH("/api/events/{event_id}/checkin-points/{point_id}", {
           params: { path: { event_id: eventId, point_id: point.id } },
@@ -145,20 +159,22 @@ export function CheckInPointFormDialog(props: CheckInPointFormDialogProps) {
             session_id: draft.sessionId || undefined,
           },
         });
-    if (response.status === 401) onKeyRejected(apiKey);
     setSubmitting(false);
     if (err) {
-      setFormError(localizedApiError(err, locale));
+      setFormError(localizedApiError(err, locale, response.status));
     } else if (data) {
       if (!point) setDraft(NEW_POINT);
       onSaved(data);
     }
   };
 
-  const cancelLabel = isRtl ? "انصراف" : "Cancel";
-  const policyMeta = checkInPolicyMeta(t);
   // Another point of this event, not archived (or the one already chosen), can be required first.
   const parentOptions = points.filter((p) => p.id !== point?.id && (!p.archived_at || p.id === draft.requiresPointId));
+  const policyOption = (policy: PolicyType) => (
+    <option key={policy} value={policy}>
+      {checkInPolicyMeta(policy, locale).label}
+    </option>
+  );
 
   return (
     <Dialog
@@ -169,210 +185,164 @@ export function CheckInPointFormDialog(props: CheckInPointFormDialogProps) {
           setFormError(null);
         }
       }}
-      title={isEdit ? t.editPointTitle || (isRtl ? "ویرایش نقطه ورود" : "Edit Check-In Point") : t.createPointModalTitle}
-      description={isEdit ? t.editPointDesc || (isRtl ? "ویرایش نام، محل استقرار و ظرفیت نقطه ورود." : "Update gate details.") : t.createPointModalDesc}
+      title={isEdit ? copy.editTitle : copy.createTitle}
       size="md"
     >
       {(!isEdit || point) && (
         <form onSubmit={handleSubmit} className="space-y-4" noValidate>
-          <Field label={t.pointNameLabel} required>
-            <input
-              type="text"
+          <Field label={copy.name} required error={fieldError("name")}>
+            <TextInput
               required
               value={draft.name}
               onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))}
-              aria-invalid={fieldInvalid("name")}
-              placeholder={isEdit ? undefined : isRtl ? "مثال: درِ شمالی سالن ۱" : "e.g. North Gate Entrance"}
-              className="ui-input"
+              placeholder={isEdit ? undefined : copy.namePlaceholder}
             />
           </Field>
 
-          <Field label={t.pointLocationLabel}>
-            <input
-              type="text"
+          <Field label={copy.location}>
+            <TextInput
               value={draft.location}
               onChange={(e) => setDraft((d) => ({ ...d, location: e.target.value }))}
-              placeholder={
-                isEdit
-                  ? isRtl
-                    ? "مثال: ورودی سالن اصلی، طبقه ۱"
-                    : "e.g. Main Hall North, Floor 1"
-                  : isRtl
-                    ? "مثال: طبقه همکف، درب B"
-                    : "e.g. Ground Floor, Gate B"
-              }
-              className="ui-input"
+              placeholder={copy.locationPlaceholder}
             />
           </Field>
 
-          <Field
-            label={t.policyTypeLabel}
-            required={!isEdit}
-            hint={
-              isEdit
-                ? t.policyLockedNotice || (isRtl ? "سیاست پذیرش پس از ثبت اسکن جهت حفظ یکپارچگی مانیفست قفل می‌شود." : "Policy locked once scans are recorded.")
-                : policyMeta[draft.policy]?.desc
-            }
-          >
-            <select value={draft.policy} onChange={(e) => setDraft((d) => ({ ...d, policy: e.target.value as PolicyType }))} className="ui-select">
-              <option value="MULTI_ENTRY">{t.policyMultiEntry}</option>
-              <option value="SINGLE_USE">{t.policySingleUse}</option>
-              <option value="CAPACITY_CAPPED">{t.policyCapacityCapped}</option>
+          <Field label={copy.rule} required={!isEdit} hint={isEdit ? copy.ruleLocked : checkInPolicyMeta(draft.policy, locale).desc}>
+            <Select value={draft.policy} onChange={(e) => setDraft((d) => ({ ...d, policy: e.target.value as PolicyType }))}>
+              {policyOption("MULTI_ENTRY")}
+              {policyOption("SINGLE_USE")}
+              {policyOption("CAPACITY_CAPPED")}
               {/* Kept for points that already use it: a multi-entry point with a tier filter does the same. */}
-              {point?.policy_type === "TIER_RESTRICTED" && <option value="TIER_RESTRICTED">{t.policyTierRestricted}</option>}
-            </select>
+              {point?.policy_type === "TIER_RESTRICTED" && policyOption("TIER_RESTRICTED")}
+            </Select>
           </Field>
-
-          <fieldset className="space-y-2 rounded-xl border border-border-default bg-surface-panel-subtle p-3.5">
-            <legend className="sr-only">{t.allowedTiersLabel}</legend>
-            <span aria-hidden="true" className="ui-label">
-              {t.allowedTiersLabel}
-              {draft.policy === "TIER_RESTRICTED" && <span className="ms-1 text-status-danger-solid">*</span>}
-            </span>
-            <p className="text-xs text-text-muted">
-              {isRtl ? "اگر هیچ نوع کارت ورودی انتخاب نشود، همهٔ انواع کارت ورود پذیرفته می‌شوند." : "Leave all unticked to admit every tier."}
-            </p>
-            <div className="max-h-40 space-y-1 overflow-y-auto">
-              {tiers.map((tr) => (
-                <label
-                  key={tr.id}
-                  className="flex min-h-[40px] cursor-pointer items-center gap-3 rounded-lg px-2 text-sm text-text-secondary transition-colors hover:bg-surface-panel"
-                >
-                  <input
-                    type="checkbox"
-                    checked={draft.allowedTiers.includes(tr.id)}
-                    onChange={(e) => {
-                      const { checked } = e.target;
-                      setDraft((d) => ({
-                        ...d,
-                        allowedTiers: checked ? [...d.allowedTiers, tr.id] : d.allowedTiers.filter((id) => id !== tr.id),
-                      }));
-                    }}
-                    aria-invalid={fieldInvalid("tiers")}
-                    className="size-4 shrink-0 accent-aiteb-indigo"
-                  />
-                  <span>{tr.name}</span>
-                </label>
-              ))}
-            </div>
-          </fieldset>
 
           {draft.policy === "CAPACITY_CAPPED" && (
-            <Field
-              label={t.maxCapacityLabel}
-              hint={
-                tracksOccupancy
-                  ? isRtl
-                    ? "سقف افرادی که هم‌زمان داخل هستند."
-                    : "The most people inside at once."
-                  : isRtl
-                    ? "سقف کل ورودها (در هر بازه)."
-                    : "The most admissions in total (per window)."
-              }
-            >
-              <input
+            <Field label={copy.capacity} optional hint={tracksOccupancy ? copy.capacityInside : copy.capacityTotal}>
+              <TextInput
                 type="number"
+                inputMode="numeric"
                 min={1}
-                value={isEdit ? (draft.maxCapacity ?? "") : draft.maxCapacity || ""}
+                className="tabular"
+                value={draft.maxCapacity ?? ""}
                 onChange={(e) => {
-                  const { value } = e.target;
-                  // The edit form reads whole numbers only.
-                  setDraft((d) => ({ ...d, maxCapacity: value ? (isEdit ? parseInt(value) : Number(value)) : undefined }));
+                  const value = parseInt(e.target.value, 10);
+                  setDraft((d) => ({ ...d, maxCapacity: Number.isFinite(value) ? value : undefined }));
                 }}
-                placeholder={isEdit ? "200" : isRtl ? "مثال: ۲۵۰" : "e.g. 250"}
-                className="ui-input font-mono tabular"
+                placeholder={copy.capacityPlaceholder}
               />
             </Field>
           )}
 
-          {occupancyAllowed && (
-            <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-border-default p-3.5 text-sm">
-              <input
-                type="checkbox"
-                checked={draft.tracksOccupancy}
-                onChange={(e) => {
-                  const { checked } = e.target;
-                  setDraft((d) => ({ ...d, tracksOccupancy: checked }));
-                }}
-                className="mt-0.5 size-4 shrink-0 accent-aiteb-indigo"
-              />
-              <span className="space-y-0.5">
-                <span className="block font-semibold text-text-primary">{isRtl ? "ثبت ورود و خروج" : "Track entry and exit"}</span>
-                <span className="block text-xs text-text-muted">
-                  {isRtl
-                    ? "اسکنر حالت ورود/خروج می‌گیرد و تعداد افراد داخل شمرده می‌شود؛ ورود دوبارهٔ کسی که داخل است دوباره شمرده نمی‌شود."
-                    : "The scanner gets an Entry/Exit switch and the point counts who is inside; someone already inside is not counted twice."}
-                </span>
-              </span>
-            </label>
-          )}
-
-          {windowApplies && (
-            <Field
-              label={isRtl ? "بازهٔ تکرار" : "Reset window"}
-              hint={
-                isRtl
-                  ? "روزانه: هر روز (به وقت همایش) از نو؛ مثلاً یک ناهار در روز."
-                  : "Daily: starts afresh each day in the congress's time zone, e.g. one lunch per day."
-              }
+          <div className="rounded-control border border-border-default">
+            <button
+              type="button"
+              aria-expanded={advancedOpen}
+              aria-controls={advancedId}
+              onClick={() => setAdvancedOpen((open) => !open)}
+              className="flex min-h-11 w-full items-center gap-2 px-3.5 text-start text-body-sm font-semibold text-text-primary"
             >
-              <select
-                value={draft.resetWindow}
-                onChange={(e) => setDraft((d) => ({ ...d, resetWindow: e.target.value === "DAY" ? "DAY" : "EVENT" }))}
-                className="ui-select"
-              >
-                <option value="EVENT">{isRtl ? "کل همایش" : "Whole congress"}</option>
-                <option value="DAY">{isRtl ? "هر روز" : "Each day"}</option>
-              </select>
-            </Field>
-          )}
+              <Icon name={advancedOpen ? "chevron-down" : "chevron-right"} size={16} />
+              {copy.advanced}
+            </button>
+            {advancedOpen && (
+              <div id={advancedId} className="space-y-4 border-t border-border-subtle p-3.5" data-testid="point-advanced">
+                <fieldset className="space-y-1">
+                  <legend className="ui-label">
+                    {copy.tiers}
+                    {draft.policy === "TIER_RESTRICTED" && (
+                      <span aria-hidden="true" className="ms-1 text-status-danger-solid">
+                        *
+                      </span>
+                    )}
+                  </legend>
+                  <div className="max-h-40 space-y-1 overflow-y-auto">
+                    {tiers.map((tr) => (
+                      <label key={tr.id} className="flex min-h-11 cursor-pointer items-center gap-3 rounded-md px-2 text-body-sm text-text-secondary hover:bg-surface-panel-subtle">
+                        <input
+                          type="checkbox"
+                          checked={draft.allowedTiers.includes(tr.id)}
+                          onChange={(e) => {
+                            const { checked } = e.target;
+                            setDraft((d) => ({
+                              ...d,
+                              allowedTiers: checked ? [...d.allowedTiers, tr.id] : d.allowedTiers.filter((id) => id !== tr.id),
+                            }));
+                          }}
+                          aria-invalid={fieldError("tiers") ? true : undefined}
+                          className="size-4 shrink-0 accent-aiteb-indigo"
+                        />
+                        <bdi>{tr.name}</bdi>
+                      </label>
+                    ))}
+                  </div>
+                  {fieldError("tiers") ? (
+                    <p className="text-xs font-medium text-status-danger-text">{fieldError("tiers")}</p>
+                  ) : (
+                    <p className="text-xs text-text-muted">{copy.tiersHint}</p>
+                  )}
+                </fieldset>
 
-          <Field
-            label={isRtl ? "نقطه ورود پیش‌نیاز" : "Required point"}
-            hint={isRtl ? "فقط کسانی پذیرفته می‌شوند که پیش‌تر از این نقطه ورود وارد شده‌اند." : "Only tickets already admitted at that point are let in."}
-          >
-            <select
-              value={draft.requiresPointId}
-              onChange={(e) => setDraft((d) => ({ ...d, requiresPointId: e.target.value }))}
-              className="ui-select"
-            >
-              <option value="">{isRtl ? "بدون پیش‌نیاز" : "None"}</option>
-              {parentOptions.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
-          </Field>
+                {occupancyAllowed && (
+                  <label className="flex min-h-11 cursor-pointer items-start gap-3 text-body-sm">
+                    <input
+                      type="checkbox"
+                      checked={draft.tracksOccupancy}
+                      onChange={(e) => {
+                        const { checked } = e.target;
+                        setDraft((d) => ({ ...d, tracksOccupancy: checked }));
+                      }}
+                      className="mt-1 size-4 shrink-0 accent-aiteb-indigo"
+                    />
+                    <span>
+                      <span className="block font-semibold text-text-primary">{copy.occupancy}</span>
+                      <span className="block text-xs text-text-muted">{copy.occupancyHint}</span>
+                    </span>
+                  </label>
+                )}
 
-          <Field
-            label={isRtl ? "درِ جلسه" : "Session door"}
-            hint={isRtl ? "ورودهای این نقطه ورود حضور در آن جلسه به‌شمار می‌آیند." : "Admissions here count as attendance of that session."}
-          >
-            <select value={draft.sessionId} onChange={(e) => setDraft((d) => ({ ...d, sessionId: e.target.value }))} className="ui-select">
-              <option value="">{isRtl ? "هیچ جلسه‌ای" : "No session"}</option>
-              {sessions.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.title}
-                </option>
-              ))}
-            </select>
-          </Field>
+                {windowApplies && (
+                  <Field label={copy.resetWindow} hint={copy.resetHint}>
+                    <Select value={draft.resetWindow} onChange={(e) => setDraft((d) => ({ ...d, resetWindow: e.target.value === "DAY" ? "DAY" : "EVENT" }))}>
+                      <option value="EVENT">{copy.wholeCongress}</option>
+                      <option value="DAY">{copy.eachDay}</option>
+                    </Select>
+                  </Field>
+                )}
 
-          {formError && <FormAlert>{formError}</FormAlert>}
+                <Field label={copy.requires} hint={copy.requiresHint}>
+                  <Select value={draft.requiresPointId} onChange={(e) => setDraft((d) => ({ ...d, requiresPointId: e.target.value }))}>
+                    <option value="">{copy.noRequirement}</option>
+                    {parentOptions.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+
+                <Field label={copy.session} hint={copy.sessionHint}>
+                  <Select value={draft.sessionId} onChange={(e) => setDraft((d) => ({ ...d, sessionId: e.target.value }))}>
+                    <option value="">{copy.noSession}</option>
+                    {sessions.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.title}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+              </div>
+            )}
+          </div>
+
+          {formError && invalidField === null && <FormAlert>{formError}</FormAlert>}
 
           <DialogActions>
-            <Button type="button" variant="ghost" size="md" disabled={isEdit ? submitting : undefined} onClick={onClose}>
-              {isEdit ? t.cancelAction || cancelLabel : cancelLabel}
+            <Button type="button" variant="ghost" disabled={submitting} onClick={onClose}>
+              {common.cancel}
             </Button>
-            <Button type="submit" variant="primary" size="md" disabled={submitting} aria-busy={submitting}>
-              {isEdit
-                ? submitting
-                  ? t.savingAction
-                  : t.saveChangesAction || (isRtl ? "ذخیره تغییرات" : "Save Changes")
-                : submitting
-                  ? t.creatingAction
-                  : t.savePointAction}
+            <Button type="submit" variant="primary" loading={submitting}>
+              {isEdit ? common.save : common.add}
             </Button>
           </DialogActions>
         </form>

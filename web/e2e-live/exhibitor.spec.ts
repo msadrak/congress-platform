@@ -44,18 +44,18 @@ test('exhibitor: booth and staff set up by the organizer, staff signs in, captur
   await test.step('organizer creates the booth and assigns its staff by mobile', async () => {
     await organizerSignIn(page, organizer.api_key);
     await page.goto(`/organizer/events/${event.id}/booths`);
-    await page.getByRole('button', { name: 'افزودن غرفه جدید' }).first().click();
-    const dialog = page.getByRole('dialog', { name: 'ثبت غرفه نمایشگاهی جدید' });
-    await dialog.getByLabel('نام شرکت یا غرفه').fill(boothName);
+    await page.getByRole('main').getByRole('button', { name: 'غرفهٔ جدید' }).first().click();
+    const dialog = page.getByRole('dialog', { name: 'غرفهٔ جدید' });
+    await dialog.getByLabel('نام شرکت').fill(boothName);
     await dialog.getByLabel('نشانی صفحهٔ غرفه').fill(boothSlug);
-    await dialog.getByRole('button', { name: 'ثبت غرفه نمایشگاهی' }).click();
+    await dialog.getByRole('button', { name: 'افزودن', exact: true }).click();
     await expect(page.getByRole('status').filter({ hasText: boothName })).toBeVisible();
-    await page.getByRole('button', { name: 'تخصیص نماینده غرفه' }).click();
+    await page.getByRole('button', { name: 'نمایندگان' }).click();
     const staff = page.getByRole('dialog', { name: 'نمایندگان غرفه' });
     await staff.getByLabel('نام نماینده').fill(staffName);
-    await staff.getByLabel('شماره موبایل کارشناس').fill(staffMobile);
-    await staff.getByRole('button', { name: 'تخصیص دسترسی نماینده' }).click();
-    await expect(page.getByRole('status').filter({ hasText: 'نماینده تخصیص یافت' })).toBeVisible();
+    await staff.getByLabel('شمارهٔ موبایل').fill(staffMobile);
+    await staff.getByRole('button', { name: 'افزودن و ارسال پیامک' }).click();
+    await expect(page.getByRole('status').filter({ hasText: 'پیامک دعوت ارسال شد' })).toBeVisible();
   });
   const [booth] = await api<Array<{ id: string }>>('GET', `/api/events/${event.id}/booths`, { token: organizer.api_key });
 

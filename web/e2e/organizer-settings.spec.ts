@@ -223,34 +223,42 @@ test('a congress that issued tickets is never offered for deletion', async ({ pa
   await expect(page.getByRole('button', { name: 'More congress actions' })).toHaveCount(0);
 });
 
-test('a tier is deleted after a confirmation; one with reservations offers to close instead', async ({ page }) => {
+test('a tier is deleted after a confirmation; a refusal for reservations says to close it instead', async ({ page }) => {
   const requests = await fixture(page, { tierDeleteStatus: 409 });
   await page.goto('/organizer/events/event-s/tiers');
-  await page.getByRole('button', { name: 'Delete tier Delegate' }).click();
-  const confirm = page.getByRole('dialog', { name: 'Delete this ticket tier?' });
+  const deleteDelegate = async () => {
+    await page.getByRole('button', { name: 'More actions for Delegate' }).click();
+    await page.getByRole('menuitem', { name: 'Delete' }).click();
+  };
+  await deleteDelegate();
+  const confirm = page.getByRole('dialog', { name: 'Delete “Delegate”?' });
   await confirm.getByRole('button', { name: 'Cancel' }).click();
   expect(requests.some((r) => r.method === 'DELETE')).toBe(false);
 
-  await page.getByRole('button', { name: 'Delete tier Delegate' }).click();
-  await page.getByRole('dialog', { name: 'Delete this ticket tier?' }).getByRole('button', { name: 'Delete tier' }).click();
-  const refused = page.getByRole('dialog', { name: 'This tier cannot be deleted' });
-  await expect(refused).toContainText('close its registration instead');
-  await refused.getByRole('button', { name: 'Close this tier instead' }).click();
-  await expect(page.getByRole('status').filter({ hasText: 'Registration for “Delegate” is closed.' })).toBeVisible();
-  expect(requests.find((r) => r.method === 'PATCH' && r.path.includes('/ticket-tiers/'))?.body).toEqual({ is_open: false });
+  await deleteDelegate();
+  await page.getByRole('dialog', { name: 'Delete “Delegate”?' }).getByRole('button', { name: 'Delete' }).click();
+  await expect(page.getByRole('alert').filter({ hasText: 'close its registration instead' })).toBeVisible();
+  expect(requests.some((r) => r.method === 'DELETE' && r.path.includes('/ticket-tiers/'))).toBe(true);
 });
 
 test('a tier sales window is entered on the congress clock', async ({ page }) => {
   const requests = await fixture(page);
   await page.goto('/organizer/events/event-s/tiers');
-  await page.getByRole('button', { name: /Edit Tier/ }).click();
-  const edit = page.getByRole('dialog').filter({ has: page.getByLabel('Sales start') });
-  await edit.getByLabel('Sales start').fill('2099-04-01T09:00');
-  await edit.getByLabel('Sales end').fill('2099-04-01T08:00');
-  await edit.getByRole('button', { name: 'Save Changes' }).click();
-  await expect(edit.getByRole('alert')).toHaveText('Sales must end after they start.');
-  await edit.getByLabel('Sales end').fill('2099-05-09T21:00');
-  await edit.getByRole('button', { name: 'Save Changes' }).click();
+  await page.getByRole('button', { name: 'Edit', exact: true }).click();
+  const edit = page.getByRole('dialog', { name: 'Edit pass type' });
+  const enter = async (label: string, day: string, month: string, time: string) => {
+    const field = edit.getByRole('group', { name: label });
+    await field.getByLabel('Day').selectOption(day);
+    await field.getByLabel('Month').selectOption({ label: month });
+    await field.getByLabel('Year').fill('2099');
+    await field.getByLabel('Time').fill(time);
+  };
+  await enter('Reservations open', '1', 'April', '09:00');
+  await enter('Reservations close', '1', 'April', '08:00');
+  await edit.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(edit.getByText('Reservations must close after they open.')).toBeVisible();
+  await enter('Reservations close', '9', 'May', '21:00');
+  await edit.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(page.getByRole('status').filter({ hasText: 'saved' })).toBeVisible();
   // Tehran is UTC+03:30.
   expect(requests.find((r) => r.method === 'PATCH')?.body).toMatchObject({ sales_starts_at: '2099-04-01T05:30:00.000Z', sales_ends_at: '2099-05-09T17:30:00.000Z' });
@@ -260,12 +268,13 @@ test('a tier sales window is entered on the congress clock', async ({ page }) =>
 test('booth representatives are listed and removed after a confirmation; assigning sends an invite', async ({ page }) => {
   const requests = await fixture(page);
   await page.goto('/organizer/events/event-s/booths');
-  await page.getByRole('button', { name: 'Assign Booth Staff' }).click();
+  await page.getByRole('button', { name: 'Representatives' }).click();
   const dialog = page.getByRole('dialog', { name: 'Booth representatives' });
   await expect(dialog.getByTestId('booth-staff-list').getByRole('listitem')).toHaveCount(2);
-  await expect(dialog).toContainText('texts an invitation with the booth portal link');
-  await dialog.getByRole('button', { name: 'Remove Sara Karimi' }).click();
-  await page.getByRole('dialog', { name: 'Remove this representative?' }).getByRole('button', { name: 'Remove access' }).click();
+  await expect(dialog).toContainText("We'll text them the booth panel link.");
+  await dialog.getByRole('button', { name: 'More actions for Sara Karimi' }).click();
+  await page.getByRole('menuitem', { name: 'Remove access' }).click();
+  await page.getByRole('dialog', { name: 'Remove access for “Sara Karimi”?' }).getByRole('button', { name: 'Remove access' }).click();
   await expect(dialog.getByTestId('booth-staff-list').getByRole('listitem')).toHaveCount(1);
   await expect(dialog.getByRole('status')).toContainText('Sara Karimi no longer has access');
   expect(requests.some((r) => r.method === 'DELETE' && r.path === '/api/events/event-s/booths/booth-1/staff/staff-1')).toBe(true);
@@ -274,7 +283,7 @@ test('booth representatives are listed and removed after a confirmation; assigni
 test('the standee QR encodes the standee URL, warns while unpublished and prints', async ({ page }) => {
   await fixture(page, { pagePublished: false });
   await page.goto('/organizer/events/event-s/booths');
-  await page.getByRole('button', { name: 'Standee QR' }).click();
+  await page.getByRole('button', { name: 'Booth QR code' }).click();
   const standee = page.getByTestId('booth-standee');
   await expect(standee).toHaveAttribute('data-qr-value', 'https://congress.example/e/settings-congress/booths/booth-1?b=secret-1');
   await expect(page.getByTestId('standee-url')).toHaveText('https://congress.example/e/settings-congress/booths/booth-1?b=secret-1');
@@ -293,7 +302,7 @@ test('the standee QR encodes the standee URL, warns while unpublished and prints
 test('a published page shows no standee warning', async ({ page }) => {
   await fixture(page, { pagePublished: true });
   await page.goto('/organizer/events/event-s/booths');
-  await page.getByRole('button', { name: 'Standee QR' }).click();
+  await page.getByRole('button', { name: 'Booth QR code' }).click();
   await expect(page.getByTestId('booth-standee')).toBeVisible();
   await expect(page.getByTestId('standee-unpublished')).toHaveCount(0);
 });
@@ -341,12 +350,12 @@ test('a viewer sees the setup without any edit control', async ({ page }) => {
 
   await workspaceNav(page).getByRole('link', { name: /Pass types/ }).click();
   await expect(page.getByText('Delegate').first()).toBeVisible();
-  await expect(page.getByRole('button', { name: /Edit Tier|Delete tier|Add Ticket Tier/ })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /^Edit$|More actions|New pass type/ })).toHaveCount(0);
 
   await workspaceNav(page).getByRole('link', { name: /Booths/ }).click();
   await expect(page.getByText('Acme Biotech')).toBeVisible();
-  await expect(page.getByRole('button', { name: /Edit booth|Delete booth|Assign Booth Staff|Representatives|Add Exhibition Booth/ })).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'Standee QR' })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Representatives|New booth/ })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Booth QR code' })).toBeVisible();
 
   await workspaceNav(page).getByRole('link', { name: /Program/ }).click();
   await expect(page.getByTestId('program-session')).toHaveCount(1);
@@ -359,8 +368,8 @@ test('staff see booth representatives but cannot change them', async ({ page }) 
   await page.getByRole('button', { name: 'Representatives' }).click();
   const dialog = page.getByRole('dialog', { name: 'Booth representatives' });
   await expect(dialog.getByTestId('booth-staff-list').getByRole('listitem')).toHaveCount(2);
-  await expect(dialog.getByRole('button', { name: /Remove/ })).toHaveCount(0);
-  await expect(dialog.getByRole('button', { name: 'Authorize Representative' })).toHaveCount(0);
+  await expect(dialog.getByRole('button', { name: /More actions/ })).toHaveCount(0);
+  await expect(dialog.getByRole('button', { name: 'Add and text' })).toHaveCount(0);
 });
 
 test('a viewer is told the participant list is not for their role, with no search or export', async ({ page }) => {

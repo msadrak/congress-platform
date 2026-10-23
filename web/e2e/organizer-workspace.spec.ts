@@ -326,18 +326,18 @@ test('closing a ticket tier needs confirmation; cancelling sends nothing', async
   const requests = await fixture(page);
   await seed(page);
   await page.goto('/organizer/events/event-a/tiers');
-  await page.getByRole('button', { name: /Edit Tier/ }).first().click();
-  const edit = page.getByRole('dialog').filter({ has: page.getByRole('combobox') });
-  await edit.getByRole('combobox').selectOption('closed');
-  await edit.getByRole('button', { name: 'Save Changes' }).click();
-  const confirm = page.getByRole('dialog', { name: 'Close this ticket tier?' });
+  await page.getByRole('button', { name: 'Edit', exact: true }).first().click();
+  const edit = page.getByRole('dialog', { name: 'Edit pass type' });
+  await edit.getByLabel('Registration').selectOption('closed');
+  await edit.getByRole('button', { name: 'Save', exact: true }).click();
+  const confirm = page.getByRole('dialog', { name: 'Close registration for this pass type?' });
   await expect(confirm).toBeVisible();
   await confirm.getByRole('button', { name: 'Cancel' }).click();
   await expect(confirm).toHaveCount(0);
   expect(requests.some(r => r.method === 'PATCH' && r.path.includes('/ticket-tiers/'))).toBe(false);
 
-  await edit.getByRole('button', { name: 'Save Changes' }).click();
-  await page.getByRole('dialog', { name: 'Close this ticket tier?' }).getByRole('button', { name: 'Close tier' }).click();
+  await edit.getByRole('button', { name: 'Save', exact: true }).click();
+  await page.getByRole('dialog', { name: 'Close registration for this pass type?' }).getByRole('button', { name: 'Close registration' }).click();
   await expect(page.getByRole('status').filter({ hasText: 'saved' })).toBeVisible();
   const patch = requests.find(r => r.method === 'PATCH' && r.path.includes('/ticket-tiers/'));
   expect(patch?.auth).toBe(bearer);
@@ -349,15 +349,19 @@ for (const failing of [false, true]) {
     const requests = await fixture(page, failing ? { revokeStatus: 500 } : {});
     await seed(page);
     await page.goto('/organizer/events/event-a/operators');
-    await page.getByRole('button', { name: 'Revoke Access' }).click();
-    const confirm = page.getByRole('dialog', { name: 'Revoke operator access?' });
+    const revoke = async () => {
+      await page.getByRole('button', { name: 'More actions for Operator One' }).click();
+      await page.getByRole('menuitem', { name: 'Remove access' }).click();
+    };
+    await revoke();
+    const confirm = page.getByRole('dialog', { name: 'Remove access for “Operator One”?' });
     await confirm.getByRole('button', { name: 'Cancel' }).click();
     expect(requests.some(r => r.path.endsWith('/revoke'))).toBe(false);
 
-    await page.getByRole('button', { name: 'Revoke Access' }).click();
-    await page.getByRole('dialog', { name: 'Revoke operator access?' }).getByRole('button', { name: 'Revoke Access' }).click();
-    if (failing) await expect(page.getByRole('alert').filter({ hasText: 'Could not revoke access' })).toBeVisible();
-    else await expect(page.getByRole('status').filter({ hasText: 'Access revoked for Operator One' })).toBeVisible();
+    await revoke();
+    await page.getByRole('dialog', { name: 'Remove access for “Operator One”?' }).getByRole('button', { name: 'Remove access' }).click();
+    if (failing) await expect(page.getByRole('alert').filter({ hasText: 'Server error' })).toBeVisible();
+    else await expect(page.getByRole('status').filter({ hasText: 'Operator One can no longer use the desk.' })).toBeVisible();
   });
 }
 
@@ -365,41 +369,43 @@ test('pairing a scanner device issues a point token, shows its pairing link once
   const requests = await fixture(page);
   await seed(page);
   await page.goto('/organizer/events/event-a/check-in');
-  await page.getByRole('article').filter({ hasText: 'Main Gate' }).getByRole('button', { name: 'Pair device' }).click();
-  const dialog = page.getByRole('dialog', { name: 'Pair a scanner device' });
+  await page.getByRole('article').filter({ hasText: 'Main Gate' }).getByRole('button', { name: 'Devices' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Devices at “Main Gate”' });
   await expect(dialog.getByText('Old tablet')).toBeVisible();
-  await expect(dialog.getByText('1 active')).toBeVisible();
+  await expect(dialog.getByTestId('device-row')).toHaveCount(1);
 
   // A nameless device is refused locally; nothing is issued.
   await dialog.getByRole('textbox', { name: /Device name/ }).fill('   ');
   await dialog.getByRole('button', { name: 'Create pairing link' }).click();
-  await expect(dialog.getByRole('alert')).toContainText('Give the device a name');
+  await expect(dialog.getByText('Give the device a name.')).toBeVisible();
   expect(requests.some(r => r.path.endsWith('/token'))).toBe(false);
 
   await dialog.getByRole('textbox', { name: /Device name/ }).fill('Gate phone 1');
   await dialog.getByRole('button', { name: 'Create pairing link' }).click();
-  await expect(dialog.getByText('Device ready to pair.')).toBeVisible();
+  await expect(dialog.getByText('The pairing link is ready.')).toBeVisible();
   const origin = new URL(page.url()).origin;
   await expect(dialog.getByTestId('pairing-link')).toHaveText(`${origin}/scan/point-a1?token=synthetic.scanner.token`);
-  await expect(dialog.getByRole('img', { name: 'Scanner pairing link QR code' })).toBeVisible();
-  await expect(dialog.getByText('2 active')).toBeVisible();
+  await expect(dialog.getByRole('img', { name: 'Pairing link QR code' })).toBeVisible();
+  await expect(dialog.getByTestId('device-row')).toHaveCount(2);
   const issue = requests.find(r => r.method === 'POST' && r.path === '/api/checkin-points/point-a1/token');
   expect(issue?.auth).toBe(bearer);
   expect(issue?.body).toEqual({ device_name: 'Gate phone 1' });
-  // Opened on 127.0.0.1: the console warns that the link cannot work on a phone.
-  await expect(dialog.getByRole('note')).toContainText('localhost');
 
-  // Revoking the device whose link is on screen asks first, then withdraws the link.
-  await dialog.getByRole('button', { name: 'Revoke Gate phone 1' }).click();
-  const confirm = page.getByRole('dialog', { name: 'Revoke this device?' });
+  // Removing the access of the device whose link is on screen asks first, then withdraws the link.
+  const removeAccess = async () => {
+    await dialog.getByRole('button', { name: 'More actions for Gate phone 1' }).click();
+    await page.getByRole('menuitem', { name: 'Remove access' }).click();
+  };
+  await removeAccess();
+  const confirm = page.getByRole('dialog', { name: 'Remove access for “Gate phone 1”?' });
   await page.keyboard.press('Escape');
   await expect(confirm).toBeHidden();
   await expect(dialog).toBeVisible();
   expect(requests.some(r => r.path.endsWith('/revoke'))).toBe(false);
 
-  await dialog.getByRole('button', { name: 'Revoke Gate phone 1' }).click();
-  await page.getByRole('dialog', { name: 'Revoke this device?' }).getByRole('button', { name: 'Revoke device' }).click();
-  await expect(dialog.getByText('1 active')).toBeVisible();
+  await removeAccess();
+  await page.getByRole('dialog', { name: 'Remove access for “Gate phone 1”?' }).getByRole('button', { name: 'Remove access' }).click();
+  await expect(dialog.getByTestId('device-row').filter({ hasText: 'Gate phone 1' })).toContainText('Access removed');
   await expect(dialog.getByTestId('pairing-link')).toHaveCount(0);
   const revoke = requests.find(r => r.path === '/api/checkin-points/point-a1/devices/device-new/revoke');
   expect(revoke?.auth).toBe(bearer);
@@ -485,22 +491,24 @@ test('booths: a booth is edited, then deleted after an explicit warning', async 
   const requests = await fixture(page);
   await seed(page);
   await page.goto('/organizer/events/event-a/booths');
-  await page.getByRole('button', { name: 'Edit booth Acme Biotech' }).click();
+  await page.getByRole('button', { name: 'More actions for Acme Biotech' }).click();
+  await page.getByRole('menuitem', { name: 'Edit' }).click();
   const edit = page.getByRole('dialog', { name: 'Edit booth' });
-  await edit.getByLabel('Booth Slug').fill('taken');
-  await edit.getByRole('button', { name: 'Save Changes' }).click();
-  await expect(edit.getByRole('alert')).toContainText('Another booth already uses this slug');
-  await edit.getByLabel('Booth Slug').fill('acme-imaging');
-  await edit.getByLabel('Company / Booth Name').fill('Acme Imaging');
-  await edit.getByRole('button', { name: 'Save Changes' }).click();
+  await edit.getByLabel('Page address').fill('taken');
+  await edit.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(edit).toContainText('Another booth uses this address.');
+  await edit.getByLabel('Page address').fill('acme-imaging');
+  await edit.getByLabel('Company').fill('Acme Imaging');
+  await edit.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(edit).toHaveCount(0);
   await expect(page.getByRole('heading', { name: 'Acme Imaging' })).toBeVisible();
 
-  await page.getByRole('button', { name: 'Delete booth Acme Imaging' }).click();
-  const confirm = page.getByRole('dialog', { name: 'Delete this booth?' });
-  await expect(confirm).toContainText("staff assignments, attendees' saved bookmarks and all captured leads");
-  await confirm.getByRole('button', { name: 'Delete booth' }).click();
-  await expect(page.getByText('No exhibition booths registered yet')).toBeVisible();
+  await page.getByRole('button', { name: 'More actions for Acme Imaging' }).click();
+  await page.getByRole('menuitem', { name: 'Delete' }).click();
+  const confirm = page.getByRole('dialog', { name: 'Delete “Acme Imaging”?' });
+  await expect(confirm).toContainText('deleted permanently, and its QR code stops working');
+  await confirm.getByRole('button', { name: 'Delete' }).click();
+  await expect(page.getByText('No booths yet')).toBeVisible();
   expect(requests.some(r => r.method === 'DELETE' && r.path === '/api/events/event-a/booths/booth-a1')).toBe(true);
   expect(requests.every(r => r.auth === bearer)).toBe(true);
 });

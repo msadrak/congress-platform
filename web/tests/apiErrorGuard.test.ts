@@ -13,7 +13,6 @@ const UI_ROOTS = ["pages", "components", "layouts"].map((dir) => join(SRC, dir))
 // localizedApiError, delete its line here (the second test fails until you do). Never add a file to it.
 const NOT_YET_CONVERTED: readonly string[] = [
   // Scanner (C1)
-  "components/organizer/ScannerPairingDialog.tsx",
 ];
 
 function* sourceFiles(path: string): Generator<string> {

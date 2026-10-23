@@ -191,10 +191,10 @@ for (const tierStatus of [201, 401]) {
     await page.goto('/organizer/events/event-a');
     await expect(page.getByTestId('active-event')).toHaveText('Event A');
     await page.getByRole('navigation', { name: 'Congress sections' }).getByRole('link', { name: /Pass types/ }).click();
-    await page.getByRole('button', { name: 'Add Ticket Tier' }).first().click();
+    await page.getByRole('button', { name: 'New pass type' }).first().click();
     const dialog = page.getByRole('dialog');
-    await dialog.getByPlaceholder('e.g. Faculty Full Delegate').fill('New Tier');
-    await dialog.getByRole('button', { name: 'Save Ticket Tier' }).click();
+    await dialog.getByPlaceholder('e.g. Faculty delegate').fill('New Tier');
+    await dialog.getByRole('button', { name: 'Add', exact: true }).click();
     if (tierStatus === 201) {
       await expect(page.getByText('New Tier').first()).toBeVisible();
       expect(await storedKey(page)).toBe(keyA);

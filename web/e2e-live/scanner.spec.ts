@@ -18,11 +18,11 @@ async function pairingLink(page: Page, eventId: string, gate: string, policy: 'S
   await pointDialog.getByRole('combobox').filter({ has: page.locator(`option[value="${policy}"]`) }).selectOption(policy);
   await pointDialog.locator('button[type=submit]').click();
   const card = page.getByRole('article', { name: gate });
-  await card.getByRole('button', { name: 'اتصال دستگاه' }).click();
-  const pairDialog = page.getByRole('dialog', { name: 'اتصال دستگاه اسکنر' });
+  await card.getByRole('button', { name: 'دستگاه‌ها' }).click();
+  const pairDialog = page.getByRole('dialog', { name: `دستگاه‌های «${gate}»` });
   await pairDialog.getByLabel('نام دستگاه').fill(`تلفن ${gate}`);
-  await pairDialog.getByRole('button', { name: 'صدور لینک اتصال' }).click();
-  const ready = pairDialog.getByRole('region', { name: 'دستگاه آماده اتصال است.' });
+  await pairDialog.getByRole('button', { name: 'ساخت پیوند اتصال' }).click();
+  const ready = pairDialog.getByRole('region', { name: 'پیوند اتصال آماده است.' });
   const link = (await ready.getByText(/\/scan\/.+\?token=/).innerText()).trim();
   await pairDialog.getByRole('button', { name: 'بستن' }).click();
   return new URL(link);

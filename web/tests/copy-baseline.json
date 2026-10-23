@@ -31,37 +31,6 @@
   "src/components/operator/OperatorMenu.tsx": {
     "ternary": 1
   },
-  "src/components/organizer/BoothFormDialog.tsx": {
-    "ternary": 8,
-    "persian": 11,
-    "asciiEllipsis": 1
-  },
-  "src/components/organizer/BoothQrDialog.tsx": {
-    "ternary": 5,
-    "persian": 5
-  },
-  "src/components/organizer/BoothStaffDialog.tsx": {
-    "ternary": 19,
-    "persian": 19
-  },
-  "src/components/organizer/CheckInPointFormDialog.tsx": {
-    "ternary": 26,
-    "persian": 26
-  },
-  "src/components/organizer/OperatorFormDialog.tsx": {
-    "ternary": 6,
-    "persian": 6
-  },
-  "src/components/organizer/ScannerPairingDialog.tsx": {
-    "ternary": 41,
-    "persian": 40,
-    "devTerm": 1
-  },
-  "src/components/organizer/TierFormDialog.tsx": {
-    "ternary": 21,
-    "persian": 21,
-    "asciiEllipsis": 1
-  },
   "src/components/QrCameraInput.tsx": {
     "ternary": 7,
     "persian": 7,
@@ -108,21 +77,5 @@
   },
   "src/pages/MyProfile.tsx": {
     "persian": 1
-  },
-  "src/pages/organizer/EventBooths.tsx": {
-    "ternary": 13,
-    "persian": 13
-  },
-  "src/pages/organizer/EventCheckIn.tsx": {
-    "ternary": 29,
-    "persian": 28
-  },
-  "src/pages/organizer/EventOperators.tsx": {
-    "ternary": 21,
-    "persian": 21
-  },
-  "src/pages/organizer/EventTiers.tsx": {
-    "ternary": 28,
-    "persian": 28
   }
 }
