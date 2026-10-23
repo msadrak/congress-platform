@@ -1499,7 +1499,7 @@ export default function GateScanner() {
     {
       id: "sound",
       label: soundEnabled ? op.menu.soundOff : op.menu.soundOn,
-      icon: soundEnabled ? "bell-off" : "bell",
+      icon: soundEnabled ? "volume-off" : "volume",
       onSelect: () => setSoundEnabled((on) => !on),
     },
     { id: "language", label: op.menu.language, lang: op.menu.languageLang, icon: "globe", onSelect: () => setLocale(op.menu.languageLang) },

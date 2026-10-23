@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "test": "node --experimental-strip-types --test tests/*.test.ts",
-    "typecheck": "tsc -b",
+    "typecheck": "tsc -b && tsc -p tsconfig.e2e.json && tsc -p tsconfig.e2e-live.json",
     "lint": "oxlint --deny-warnings",
     "preview": "vite preview",
     "gen:api": "node ../scripts/gen-api.mjs"
