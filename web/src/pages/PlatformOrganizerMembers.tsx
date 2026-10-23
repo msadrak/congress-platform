@@ -1,73 +1,28 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { localizedApiError, type MemberOut, type OrganizerOut, type OrganizerRole } from "../api/client";
-import { codeFontClass, formatLocalizedDate } from "../lib/i18n";
-import { networkErrorMessage } from "../lib/errorMessages";
-import { formatMobile, normalizeIranMobile } from "../lib/mobile";
-import { ORGANIZER_ROLES, ROLE_COPY, inviterLabel, isOrganizerRole } from "../lib/organizerConsole";
+import { commonCopy } from "../copy/common";
+import { codeFontClass, formatDate, formatMobile } from "../lib/format";
+import { normalizeIranMobile } from "../lib/mobile";
+import { ROLE_COPY, inviterLabel } from "../lib/organizerConsole";
 import { useMutation } from "../hooks/useMutation";
+import { RolePicker } from "../components/organizer/RolePicker";
 import { Badge } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
 import { Dialog } from "../components/ui/Dialog";
-import { Icon } from "../components/ui/Icon";
-import { Field, FormAlert } from "../components/organizer/WorkspaceUi";
+import { Field } from "../components/ui/Field";
+import { TextInput } from "../components/ui/Input";
+import { Notice } from "../components/ui/Notice";
+import { ErrorState, LoadingState } from "../components/ui/StateBlock";
+import { StatusChip } from "../components/ui/StatusChip";
 import { usePlatform } from "./platformContext";
-
-const COPY = {
-  fa: {
-    title: (name: string) => `اعضای «${name}»`,
-    description:
-      "اعضا با شماره موبایل و کد پیامکی وارد کنسول برگزارکننده می‌شوند. مالکی که اینجا اضافه می‌کنید بقیهٔ اعضا را خودش از کنسول دعوت می‌کند.",
-    loading: "در حال بارگیری اعضا…",
-    loadFailed: "فهرست اعضا بارگیری نشد.",
-    retry: "تلاش دوباره",
-    empty: "هنوز عضوی ندارد. نخستین مالک را اضافه کنید.",
-    active: "فعال",
-    removed: "حذف‌شده",
-    invitedBy: (who: string, date: string) => `افزوده‌شده به دست ${who} · ${date}`,
-    addTitle: "افزودن عضو",
-    name: "نام و نام خانوادگی",
-    mobile: "شماره موبایل",
-    role: "نقش",
-    nameRequired: "نام عضو را وارد کنید.",
-    mobileInvalid: "یک شماره موبایل معتبر وارد کنید؛ مثلاً ۰۹۱۲ ۳۴۵ ۶۷۸۹.",
-    submit: "افزودن و ارسال پیامک",
-    submitting: "در حال افزودن…",
-    added: (name: string) => `${name} اضافه شد؛ پیامکی با نشانی کنسول برایش فرستاده می‌شود.`,
-    failed: "عضو اضافه نشد.",
-    close: "بستن",
-  },
-  en: {
-    title: (name: string) => `Members of “${name}”`,
-    description:
-      "Members sign in to the organizer console with their mobile number and an SMS code. The owner you add here invites the rest from the console.",
-    loading: "Loading members…",
-    loadFailed: "The member list could not be loaded.",
-    retry: "Try again",
-    empty: "No members yet. Add the first owner.",
-    active: "Active",
-    removed: "Removed",
-    invitedBy: (who: string, date: string) => `Added by ${who} · ${date}`,
-    addTitle: "Add a member",
-    name: "Full name",
-    mobile: "Mobile number",
-    role: "Role",
-    nameRequired: "Enter the member's name.",
-    mobileInvalid: "Enter a valid mobile number, e.g. 0912 345 6789.",
-    submit: "Add and send SMS",
-    submitting: "Adding…",
-    added: (name: string) => `${name} was added and will receive an SMS with the console address.`,
-    failed: "The member was not added.",
-    close: "Close",
-  },
-} as const;
 
 /**
  * An organizer's members as the platform admin sees them (`GET/POST /api/organizers/{id}/members`, ADR 0016):
  * who can sign in to its console, and adding the first owner by mobile number.
  */
 export function PlatformOrganizerMembers({ organizer, isOpen, onClose }: { organizer: OrganizerOut; isOpen: boolean; onClose: () => void }) {
-  const { client, checkResponse, locale } = usePlatform();
-  const copy = COPY[locale];
+  const { client, locale, copy } = usePlatform();
+  const c = copy.members;
   const roles = ROLE_COPY[locale];
   const [members, setMembers] = useState<MemberOut[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -85,20 +40,17 @@ export function PlatformOrganizerMembers({ organizer, isOpen, onClose }: { organ
     client
       .GET("/api/organizers/{organizer_id}/members", { params: { path: { organizer_id: organizer.id } } })
       .then(({ data, error, response }) => {
-        checkResponse(response.status);
         if (!active) return;
         if (data) {
           setMembers(data);
           setLoadError(null);
-        } else setLoadError(error ? localizedApiError(error, locale) : copy.loadFailed);
+        } else setLoadError(localizedApiError(error, locale, response.status));
       })
-      .catch(() => {
-        if (active) setLoadError(networkErrorMessage[locale]);
-      });
+      .catch(() => active && setLoadError(commonCopy[locale].network));
     return () => {
       active = false;
     };
-  }, [client, checkResponse, organizer.id, isOpen, reloads, locale, copy.loadFailed]);
+  }, [client, organizer.id, isOpen, reloads, locale]);
 
   const retry = () => {
     setLoadError(null);
@@ -109,9 +61,9 @@ export function PlatformOrganizerMembers({ organizer, isOpen, onClose }: { organ
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     setAdded(null);
-    if (!name.trim()) return setFormError(copy.nameRequired);
+    if (!name.trim()) return setFormError(c.nameRequired);
     const mobile = normalizeIranMobile(mobileInput);
-    if (!mobile) return setFormError(copy.mobileInvalid);
+    if (!mobile) return setFormError(commonCopy[locale].mobileInvalid);
     setFormError(null);
     const result = await addRequest.run(() =>
       client.POST("/api/organizers/{organizer_id}/members", {
@@ -121,10 +73,9 @@ export function PlatformOrganizerMembers({ organizer, isOpen, onClose }: { organ
     );
     if (!result.ok) return;
     const { data, error, response } = result.value;
-    checkResponse(response.status);
-    if (!data) return setFormError(error ? localizedApiError(error, locale) : copy.failed);
+    if (!data) return setFormError(localizedApiError(error, locale, response.status));
     setMembers((prev) => [...(prev ?? []).filter((m) => m.id !== data.id), data]);
-    setAdded(copy.added(data.display_name));
+    setAdded(c.added(data.display_name));
     setName("");
     setMobileInput("");
     setRole("owner");
@@ -133,49 +84,37 @@ export function PlatformOrganizerMembers({ organizer, isOpen, onClose }: { organ
   const shownFormError = formError ?? addRequest.error;
 
   return (
-    <Dialog isOpen={isOpen} onClose={onClose} title={copy.title(organizer.name)} description={copy.description} size="lg">
+    <Dialog isOpen={isOpen} onClose={onClose} title={copy.organizers.membersOf(organizer.name)} description={c.description} size="lg">
       <div className="space-y-6">
-        {members === null && !loadError ? (
-          <div role="status" aria-busy="true" className="skeleton h-24">
-            <span className="sr-only">{copy.loading}</span>
-          </div>
-        ) : loadError ? (
-          <div className="space-y-3">
-            <FormAlert>{loadError}</FormAlert>
-            <Button type="button" variant="secondary" size="md" onClick={retry}>
-              <Icon name="sync" size={16} />
-              {copy.retry}
-            </Button>
-          </div>
-        ) : members && members.length === 0 ? (
-          <p className="rounded-xl border border-dashed border-border-default px-4 py-5 text-center text-sm text-text-secondary">{copy.empty}</p>
+        {loadError ? (
+          <ErrorState title={c.loadFailed} body={loadError} headingLevel={3} onRetry={retry} />
+        ) : members === null ? (
+          <LoadingState />
+        ) : members.length === 0 ? (
+          <p className="rounded-control border border-dashed border-border-default px-4 py-5 text-center text-body-sm text-text-secondary">{c.empty}</p>
         ) : (
-          <ul data-testid="platform-members" className="divide-y divide-border-subtle overflow-hidden rounded-xl border border-border-default">
-            {members?.map((member) => {
+          <ul data-testid="platform-members" className="divide-y divide-border-subtle rounded-control border border-border-default">
+            {members.map((member) => {
               const removed = member.revoked_at !== null;
               const mobile = member.mobile ? formatMobile(member.mobile, locale) : null;
               return (
                 <li key={member.id} className="flex flex-wrap items-start justify-between gap-2 px-4 py-3">
                   <div className="min-w-0 space-y-0.5">
-                    <p className={`break-words text-sm font-semibold ${removed ? "text-text-secondary" : "text-text-primary"}`}>
+                    <p className={`break-words text-body-sm font-semibold ${removed ? "text-text-secondary" : "text-text-primary"}`}>
                       <bdi>{member.display_name}</bdi>
                     </p>
                     {mobile && (
-                      <p className={`text-xs text-text-muted ${codeFontClass(mobile)}`}>
+                      <p className={`text-caption text-text-muted ${codeFontClass(mobile)}`}>
                         <bdi dir="ltr">{mobile}</bdi>
                       </p>
                     )}
-                    <p className="text-xs text-text-muted">
-                      {copy.invitedBy(inviterLabel(member.invited_by, locale), formatLocalizedDate(member.created_at, locale))}
-                    </p>
+                    <p className="text-caption text-text-muted">{c.invitedBy(inviterLabel(member.invited_by, locale), formatDate(member.created_at, "long", locale))}</p>
                   </div>
                   <div className="flex flex-wrap items-center gap-1.5">
                     <Badge variant={member.role === "owner" ? "brand" : "neutral"} size="sm">
                       {roles[member.role].label}
                     </Badge>
-                    <Badge variant={removed ? "neutral" : "success"} size="sm" dot={!removed}>
-                      {removed ? copy.removed : copy.active}
-                    </Badge>
+                    <StatusChip status={removed ? "accessRemoved" : "active"} size="sm" />
                   </div>
                 </li>
               );
@@ -183,16 +122,16 @@ export function PlatformOrganizerMembers({ organizer, isOpen, onClose }: { organ
           </ul>
         )}
 
-        <form onSubmit={submit} noValidate className="space-y-4 rounded-xl border border-border-default bg-surface-panel-subtle p-4" aria-labelledby="platform-add-member">
-          <h3 id="platform-add-member" className="text-sm font-bold text-text-primary">
-            {copy.addTitle}
+        <form onSubmit={submit} noValidate className="space-y-4 rounded-control border border-border-default bg-surface-panel-subtle p-4" aria-labelledby="platform-add-member">
+          <h3 id="platform-add-member" className="text-body font-bold text-text-primary">
+            {c.addTitle}
           </h3>
           <div className="grid gap-4 sm:grid-cols-2">
-            <Field label={copy.name} required>
-              <input type="text" value={name} maxLength={200} onChange={(e) => setName(e.target.value)} className="ui-input" />
+            <Field label={c.name} required>
+              <TextInput value={name} maxLength={200} onChange={(e) => setName(e.target.value)} />
             </Field>
-            <Field label={copy.mobile} required>
-              <input
+            <Field label={c.mobile} required>
+              <TextInput
                 type="tel"
                 dir="ltr"
                 inputMode="tel"
@@ -200,38 +139,19 @@ export function PlatformOrganizerMembers({ organizer, isOpen, onClose }: { organ
                 value={mobileInput}
                 onChange={(e) => setMobileInput(e.target.value)}
                 placeholder="09xx xxx xxxx"
-                className={`ui-input ${codeFontClass(mobileInput)}`}
+                className={codeFontClass(mobileInput)}
               />
             </Field>
           </div>
-          <Field label={copy.role} hint={roles[role].summary}>
-            <select
-              value={role}
-              onChange={(e) => {
-                if (isOrganizerRole(e.target.value)) setRole(e.target.value);
-              }}
-              className="ui-select"
-            >
-              {ORGANIZER_ROLES.map((option) => (
-                <option key={option} value={option}>
-                  {roles[option].label}
-                </option>
-              ))}
-            </select>
-          </Field>
-          {shownFormError && <FormAlert>{shownFormError}</FormAlert>}
-          {added && (
-            <p role="status" className="text-sm font-medium text-status-success-text">
-              {added}
-            </p>
-          )}
+          <RolePicker value={role} onChange={setRole} locale={locale} confirm={false} busy={addRequest.busy} />
+          {shownFormError && <Notice tone="danger">{shownFormError}</Notice>}
+          {added && <Notice tone="success">{added}</Notice>}
           <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-            <Button type="button" variant="ghost" size="md" onClick={onClose}>
-              {copy.close}
+            <Button type="button" variant="ghost" onClick={onClose}>
+              {commonCopy[locale].close}
             </Button>
-            <Button type="submit" variant="primary" size="md" disabled={addRequest.busy} aria-busy={addRequest.busy}>
-              <Icon name="user-plus" size={16} />
-              {addRequest.busy ? copy.submitting : copy.submit}
+            <Button type="submit" variant="primary" icon="user-plus" loading={addRequest.busy}>
+              {c.submit}
             </Button>
           </div>
         </form>
