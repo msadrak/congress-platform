@@ -143,19 +143,22 @@ async function seed(page: Page, locale = 'en') {
 test('the organizer uploads a PDF and an image; attendees see the image inline and a PDF button', async ({ page }) => {
   const { requests, files } = await fixture(page);
   await seed(page);
-  await page.goto('/organizer/events/event-a/program');
+  await page.goto('/organizer/events/event-a/program?tab=files');
   const section = page.getByTestId('schedule-files');
   await expect(section.getByText('No schedule file yet.')).toBeVisible();
 
-  await section.getByLabel('Label').fill('Full programme');
-  await section.locator('input[type=file]').setInputFiles({ name: 'programme.pdf', mimeType: 'application/pdf', buffer: PDF });
-  await section.getByRole('button', { name: 'Upload' }).click();
+  // Upload is one control: choosing a file opens a small dialog with the label taken from the file name.
+  await section.getByLabel('Upload file').setInputFiles({ name: 'programme.pdf', mimeType: 'application/pdf', buffer: PDF });
+  const dialog = page.getByRole('dialog', { name: 'Schedule file' });
+  await expect(dialog.getByLabel('Label')).toHaveValue('programme');
+  await dialog.getByLabel('Label').fill('Full programme');
+  await dialog.getByRole('button', { name: 'Upload' }).click();
+  await expect(dialog).toHaveCount(0);
   await expect(section.getByText('“Full programme” uploaded.')).toBeVisible();
 
-  // The label is suggested from the file name when left empty.
-  await section.locator('input[type=file]').setInputFiles({ name: 'hall_map.png', mimeType: 'image/png', buffer: PNG });
-  await expect(section.getByLabel('Label')).toHaveValue('hall map');
-  await section.getByRole('button', { name: 'Upload' }).click();
+  await section.getByLabel('Upload file').setInputFiles({ name: 'hall_map.png', mimeType: 'image/png', buffer: PNG });
+  await expect(dialog.getByLabel('Label')).toHaveValue('hall map');
+  await dialog.getByRole('button', { name: 'Upload' }).click();
   await expect(section.getByTestId('schedule-file')).toHaveCount(2);
   await expect(section.getByTestId('schedule-file').nth(1)).toContainText('1,200×800');
 
@@ -169,7 +172,8 @@ test('the organizer uploads a PDF and an image; attendees see the image inline a
   await section.getByRole('button', { name: 'Move hall map up' }).click();
   await expect(section.getByTestId('schedule-file').first()).toContainText('hall map');
   expect(files.find(f => f.label === 'hall map')?.position).toBe(0);
-  await section.getByRole('button', { name: 'Hide hall map' }).click();
+  const hallMap = section.getByTestId('schedule-file').filter({ hasText: 'hall map' });
+  await hallMap.getByRole('button', { name: 'Hide' }).click();
   await expect(section.getByTestId('schedule-file').first().getByText('Hidden')).toBeVisible();
 
   // Attendee details, in Persian: only visible files; the hidden image is not offered.
@@ -183,8 +187,8 @@ test('the organizer uploads a PDF and an image; attendees see the image inline a
   await expect(shown.getByRole('img')).toHaveCount(0);
 
   await page.evaluate(() => localStorage.setItem('congress_attendee_locale', 'en'));
-  await page.goto('/organizer/events/event-a/program');
-  await page.getByTestId('schedule-files').getByRole('button', { name: 'Show hall map' }).click();
+  await page.goto('/organizer/events/event-a/program?tab=files');
+  await page.getByTestId('schedule-file').filter({ hasText: 'hall map' }).getByRole('button', { name: 'Show' }).click();
   await expect(page.getByTestId('schedule-files').getByText('Hidden')).toHaveCount(0);
 
   await page.goto('/c/alpha/details');
@@ -201,24 +205,28 @@ test('the organizer uploads a PDF and an image; attendees see the image inline a
 test('refused uploads show coded, localized errors and delete asks first', async ({ page }) => {
   await fixture(page, { rejectPdf: true });
   await seed(page, 'fa');
-  await page.goto('/organizer/events/event-a/program');
+  await page.goto('/organizer/events/event-a/program?tab=files');
   const section = page.getByTestId('schedule-files');
+  const input = section.getByLabel('بارگذاری فایل');
+  const dialog = page.getByRole('dialog', { name: 'فایل برنامه' });
 
-  await section.locator('input[type=file]').setInputFiles({ name: 'notes.txt', mimeType: 'text/plain', buffer: Buffer.from('hello') });
-  await section.getByRole('button', { name: 'بارگذاری' }).click();
-  await expect(section.getByText('فقط فایل PDF یا تصویر PNG، JPEG یا WebP پذیرفته می‌شود.')).toBeVisible();
+  await input.setInputFiles({ name: 'notes.txt', mimeType: 'text/plain', buffer: Buffer.from('hello') });
+  await dialog.getByRole('button', { name: 'بارگذاری' }).click();
+  await expect(dialog.getByText('فقط فایل PDF یا تصویر PNG، JPEG یا WebP پذیرفته می‌شود.')).toBeVisible();
 
-  await section.locator('input[type=file]').setInputFiles({ name: 'scripted.pdf', mimeType: 'application/pdf', buffer: PDF });
-  await section.getByRole('button', { name: 'بارگذاری' }).click();
-  await expect(section.getByText(/این PDF پذیرفته نشد/)).toBeVisible();
+  await input.setInputFiles({ name: 'scripted.pdf', mimeType: 'application/pdf', buffer: PDF });
+  await dialog.getByRole('button', { name: 'بارگذاری' }).click();
+  // The unsafe-PDF refusal names what was found, «پیوند ناامن» among it.
+  await expect(dialog.getByText(/این PDF پذیرفته نشد/)).toContainText('پیوند ناامن');
 
   // Each new file replaces the label suggested from the previous one.
-  await section.locator('input[type=file]').setInputFiles({ name: 'map.png', mimeType: 'image/png', buffer: PNG });
-  await expect(section.getByLabel('عنوان فایل')).toHaveValue('map');
-  await section.getByRole('button', { name: 'بارگذاری' }).click();
+  await input.setInputFiles({ name: 'map.png', mimeType: 'image/png', buffer: PNG });
+  await expect(dialog.getByLabel('عنوان فایل')).toHaveValue('map');
+  await dialog.getByRole('button', { name: 'بارگذاری' }).click();
   await expect(section.getByTestId('schedule-file')).toHaveCount(1);
-  await section.getByRole('button', { name: 'حذف map' }).click();
-  await page.getByRole('button', { name: 'حذف فایل' }).click();
+  await section.getByRole('button', { name: 'گزینه‌های بیشتر برای «map»' }).click();
+  await page.getByRole('menuitem', { name: 'حذف' }).click();
+  await page.getByRole('dialog', { name: '«map» حذف شود؟' }).getByRole('button', { name: 'حذف' }).click();
   await expect(section.getByTestId('schedule-file')).toHaveCount(0);
   await expect(section.getByText('فایل «map» حذف شد.')).toBeVisible();
 });

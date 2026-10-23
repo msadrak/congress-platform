@@ -506,20 +506,20 @@ test('program: sessions are grouped by day, added in the event time zone, and a 
   await expect(page.getByTestId('program-session')).toContainText('Main hall');
 
   await page.getByRole('button', { name: 'Add session' }).click();
-  const dialog = page.getByRole('dialog', { name: 'Add session' });
+  const dialog = page.getByRole('dialog', { name: 'New session' });
   await dialog.getByLabel('Title').fill('Imaging workshop');
-  await dialog.getByLabel('Starts').fill('2099-05-10T11:00');
+  await dialog.getByRole('group', { name: 'Starts' }).getByLabel('Time').fill('11:00');
   // Moving the start keeps the default one-hour length.
-  await expect(dialog.getByLabel('Ends')).toHaveValue('2099-05-10T12:00');
+  await expect(dialog.getByRole('group', { name: 'Ends' }).getByLabel('Time')).toHaveValue('12:00');
   await dialog.getByLabel('Hall').selectOption({ label: 'Hall 2' });
-  await dialog.getByRole('button', { name: 'Add session' }).click();
+  await dialog.getByRole('button', { name: 'Add', exact: true }).click();
   await expect(dialog).toHaveCount(0);
   await expect(page.getByTestId('program-session')).toHaveCount(2);
   // Read on the event's clock (no zone in the fixture: the default Asia/Tehran, UTC+03:30), not the browser's.
   expect(requests.find(r => r.method === 'POST' && r.path === '/api/events/event-a/sessions')?.body).toMatchObject({ title: 'Imaging workshop', hall_id: 'place-hall2', starts_at: '2099-05-10T07:30:00.000Z' });
 
-  await page.getByRole('button', { name: 'Upload timetable' }).click();
-  const panel = page.getByTestId('timetable-import');
+  await page.getByRole('button', { name: 'Import from Excel' }).click();
+  const panel = page.getByRole('dialog', { name: 'Import from Excel' });
   const csv = '\uFEFFعنوان,شروع,پایان,سالن\r\n"Panel, part 1",2099-05-11 09:00,2099-05-11 10:00,Hall B\r\nBroken,2099-05-11 11:00,2099-05-11 10:00,\r\n';
   await panel.getByLabel('Choose a CSV file').setInputFiles({ name: 'program.csv', mimeType: 'text/csv', buffer: Buffer.from(csv) });
   await expect(panel.getByText('1 of 2 rows need fixing')).toBeVisible();
@@ -539,19 +539,23 @@ test('program: sessions are grouped by day, added in the event time zone, and a 
 test('venue and booths: entrances are added, halls reordered, and a booth is edited, then deleted after an explicit warning', async ({ page }) => {
   const requests = await fixture(page);
   await seed(page);
+  // The former venue page is the program's halls tab.
   await page.goto('/organizer/events/event-a/venue');
+  await expect(page).toHaveURL(/\/program\?tab=venue$/);
+  await expect(page.getByRole('tab', { name: 'Halls & entrances' })).toHaveAttribute('aria-selected', 'true');
   await expect(page.getByTestId('venue-hall')).toHaveText([/Main hall/, /Hall 2/]);
   await page.getByRole('button', { name: 'Add entrance' }).click();
-  const add = page.getByRole('dialog', { name: 'Add entrance' });
+  const add = page.getByRole('dialog', { name: 'New entrance' });
   await add.getByLabel('Name').fill('North gate');
-  await add.getByRole('button', { name: 'Save' }).click();
+  await add.getByRole('button', { name: 'Add', exact: true }).click();
   await expect(page.getByTestId('venue-entrance')).toHaveText([/North gate/]);
   await page.getByRole('button', { name: 'Move “Hall 2” up' }).click();
   await expect(page.getByTestId('venue-hall')).toHaveText([/Hall 2/, /Main hall/]);
   expect(requests.filter(r => r.method === 'PATCH' && r.path.includes('/venue-places/'))).toHaveLength(2);
-  await page.getByRole('button', { name: 'Delete Main hall' }).click();
-  await expect(page.getByRole('dialog', { name: 'Delete this hall?' })).toContainText('Its 1 session stays in the program without a hall.');
-  await page.getByRole('dialog', { name: 'Delete this hall?' }).getByRole('button', { name: 'Cancel' }).click();
+  await page.getByRole('button', { name: 'More actions for “Main hall”' }).click();
+  await page.getByRole('menuitem', { name: 'Delete' }).click();
+  await expect(page.getByRole('dialog', { name: 'Delete “Main hall”?' })).toContainText('Its 1 session stays in the program without a hall.');
+  await page.getByRole('dialog', { name: 'Delete “Main hall”?' }).getByRole('button', { name: 'Cancel' }).click();
 
   await page.goto('/organizer/events/event-a/booths');
   await page.getByRole('button', { name: 'Edit booth Acme Biotech' }).click();

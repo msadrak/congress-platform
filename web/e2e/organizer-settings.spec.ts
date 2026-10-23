@@ -267,18 +267,20 @@ test.describe('with the browser in another time zone', () => {
     await page.goto('/organizer/events/event-s/program');
     // 07:30Z is 11:00 in Tehran (and 03:30 in New York).
     await expect(page.getByTestId('program-session')).toContainText('11:00 – 12:00');
-    await page.getByRole('button', { name: 'Edit Opening keynote' }).click();
+    await page.getByTestId('program-session').filter({ hasText: 'Opening keynote' }).getByRole('button', { name: 'Edit' }).click();
     const edit = page.getByRole('dialog', { name: 'Edit session' });
-    await expect(edit.getByLabel('Starts')).toHaveValue('2099-05-10T11:00');
-    await expect(edit.getByTestId('session-time-zone')).toContainText('Asia/Tehran');
+    const starts = edit.getByRole('group', { name: 'Starts' });
+    await expect(starts.getByLabel('Time')).toHaveValue('11:00');
+    await expect(starts.getByLabel('Year')).toHaveValue('2099');
+    await expect(starts).toContainText('Tehran time');
     await edit.getByRole('button', { name: 'Cancel' }).click();
 
     await page.getByRole('button', { name: 'Add session' }).click();
-    const dialog = page.getByRole('dialog', { name: 'Add session' });
+    const dialog = page.getByRole('dialog', { name: 'New session' });
     await dialog.getByLabel('Title').fill('Imaging workshop');
-    await dialog.getByLabel('Starts').fill('2099-05-10T14:00');
-    await expect(dialog.getByLabel('Ends')).toHaveValue('2099-05-10T15:00');
-    await dialog.getByRole('button', { name: 'Add session' }).click();
+    await dialog.getByRole('group', { name: 'Starts' }).getByLabel('Time').fill('14:00');
+    await expect(dialog.getByRole('group', { name: 'Ends' }).getByLabel('Time')).toHaveValue('15:00');
+    await dialog.getByRole('button', { name: 'Add', exact: true }).click();
     await expect(dialog).toHaveCount(0);
     expect(requests.find((r) => r.method === 'POST' && r.path === '/api/events/event-s/sessions')?.body).toMatchObject({
       starts_at: '2099-05-10T10:30:00.000Z',
@@ -310,7 +312,7 @@ test('a viewer sees the setup without any edit control', async ({ page }) => {
 
   await workspaceNav(page).getByRole('link', { name: /Program/ }).click();
   await expect(page.getByTestId('program-session')).toHaveCount(1);
-  await expect(page.getByRole('button', { name: /Add session|Upload timetable|Edit Opening|Delete Opening/ })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /Add session|Import from Excel|^Edit$|More actions/ })).toHaveCount(0);
 });
 
 test('staff see booth representatives but cannot change them', async ({ page }) => {
