@@ -3,6 +3,15 @@ import type { SVGProps } from "react";
 /**
  * AIteb product icon set: 24px grid, 1.75 stroke, round joins. Drawn for this platform so every
  * portal shares one consistent line language (no emoji, no mixed icon libraries).
+ *
+ * Logical direction (RTL). Icons are named for English (LTR) reading and the set mirrors the
+ * directional ones itself, so a caller never picks a glyph by direction (no `isRtl ? "arrow-right" : …`):
+ * - Mirrored in RTL: chevrons and arrows that mean "back", "forward", "open" or "next"
+ *   (`arrow-left` is always "back", `chevron-right` always "opens something"), `arrow-up-right`
+ *   (external link), and the door pair `login` / `logout`.
+ * - Never mirrored: clocks and time, media (`play`, `pause`), charts, `upload` / `download`, `sync`,
+ *   `chevron-down` / `arrow-up` / `arrow-down` (vertical), checkmarks, the QR and every object icon.
+ * - A row that opens something ends with `chevron-right`; a call-to-action button uses `arrow-right`.
  */
 const paths = {
   calendar: "M4.5 4.5h15A1.5 1.5 0 0 1 21 6v13.5a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 19.5V6a1.5 1.5 0 0 1 1.5-1.5ZM3 9.5h18M8 2.5v4M16 2.5v4",
@@ -35,6 +44,8 @@ const paths = {
   gate: "M5 21V4.5A1.5 1.5 0 0 1 6.5 3h11A1.5 1.5 0 0 1 19 4.5V21M3 21h18M14.5 12v.5",
   key: "M8 10.5a4.5 4.5 0 1 0 0 9 4.5 4.5 0 0 0 0-9ZM11.2 11.8 20 3M16.5 6.5 19 9M14.5 8.5l2 2",
   logout: "M14 4h4.5A1.5 1.5 0 0 1 20 5.5v13a1.5 1.5 0 0 1-1.5 1.5H14M9.5 8l-4 4 4 4M5.5 12H15",
+  login: "M14 4h4.5A1.5 1.5 0 0 1 20 5.5v13a1.5 1.5 0 0 1-1.5 1.5H14M10 8l4 4-4 4M14 12H4.5",
+  more: "M6.5 12a1 1 0 1 1-2 0 1 1 0 0 1 2 0ZM13 12a1 1 0 1 1-2 0 1 1 0 0 1 2 0ZM19.5 12a1 1 0 1 1-2 0 1 1 0 0 1 2 0Z",
   globe: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18ZM3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9s-1.3 6.4-3.8 9c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3Z",
   camera: "M4.5 7h2.8l1.7-2.5h6L16.7 7h2.8A1.5 1.5 0 0 1 21 8.5v10a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5v-10A1.5 1.5 0 0 1 4.5 7ZM12 9.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Z",
   keyboard: "M4.5 6h15A2 2 0 0 1 21.5 8v8a2 2 0 0 1-2 2h-15a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2ZM6.5 10h.01M10 10h.01M14 10h.01M17.5 10h.01M7.5 14h9",
@@ -93,7 +104,7 @@ const paths = {
 export type IconName = keyof typeof paths;
 
 /** Icons that point along the reading direction and must mirror in RTL. */
-const directional = new Set<IconName>(["arrow-right", "arrow-left", "arrow-up-right", "chevron-right", "chevron-left", "logout"]);
+const directional = new Set<IconName>(["arrow-right", "arrow-left", "arrow-up-right", "chevron-right", "chevron-left", "logout", "login"]);
 
 export interface IconProps extends Omit<SVGProps<SVGSVGElement>, "name"> {
   name: IconName;

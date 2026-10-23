@@ -1,46 +1,98 @@
-export type ButtonVariant = "primary" | "secondary" | "outline" | "ghost" | "ink" | "light" | "danger";
+/**
+ * One button look for every portal. Variants: primary, secondary, ghost, danger. Sizes follow the control
+ * tokens: sm 40, md 48 (default), lg 56. Every size uses the 12 px control radius.
+ * `tone="ink"` adapts all variants to the dark ink surfaces (scanner, organizer rail).
+ *
+ * Deprecated aliases kept so existing call sites compile (UX-Z removes them): `outline` → secondary,
+ * `light` → primary on ink, `xl` → lg, and `ink` (a dark button on a light surface).
+ */
+export type ButtonVariant = "primary" | "secondary" | "ghost" | "danger" | "outline" | "ink" | "light";
 export type ButtonSize = "sm" | "md" | "lg" | "xl";
+export type ButtonTone = "default" | "ink";
 
-const variantStyles: Record<ButtonVariant, string> = {
-  primary:
-    "bg-action-primary text-text-inverse border border-transparent shadow-[inset_0_1px_0_rgb(255_255_255/0.18),0_1px_2px_rgb(14_12_43/0.25),0_8px_18px_-10px_rgb(32_0_205/0.7)] hover:bg-action-hover active:bg-action-active",
+type CoreVariant = "primary" | "secondary" | "ghost" | "danger";
+
+const lightSurface: Record<CoreVariant, string> = {
+  primary: "bg-action-primary text-text-inverse border border-transparent shadow-soft hover:bg-action-hover active:bg-action-active",
   secondary:
     "bg-surface-panel text-text-primary border border-border-default shadow-soft hover:border-border-strong hover:bg-surface-panel-subtle",
-  outline:
-    "bg-transparent text-action-primary border border-action-subtle-border hover:bg-action-subtle hover:border-action-primary/40",
-  ghost:
-    "bg-transparent text-text-secondary border border-transparent hover:text-text-primary hover:bg-surface-panel-subtle",
-  ink:
-    "bg-surface-ink text-white border border-transparent shadow-[inset_0_1px_0_rgb(255_255_255/0.08),0_8px_18px_-10px_rgb(14_12_43/0.8)] hover:bg-ink-800 active:bg-ink-950",
-  // White button for ink surfaces: its focus ring is orchid (10:1 on ink; indigo would be 1.8:1).
-  light:
-    "bg-white text-surface-ink border border-transparent shadow-[0_8px_24px_-12px_rgb(0_0_0/0.6)] hover:bg-aiteb-lavender focus-visible:outline-aiteb-orchid",
-  danger:
-    "bg-status-danger-solid text-white border border-transparent shadow-[inset_0_1px_0_rgb(255_255_255/0.16),0_8px_18px_-10px_rgb(222_26_80/0.7)] hover:brightness-95 active:brightness-90",
+  ghost: "bg-transparent text-text-secondary border border-transparent hover:text-text-primary hover:bg-surface-panel-subtle",
+  danger: "bg-status-danger-solid text-white border border-transparent shadow-soft hover:brightness-95 active:brightness-90",
 };
 
-const sizeStyles: Record<ButtonSize, string> = {
-  sm: "text-[13px] px-3 py-1.5 min-h-[36px] rounded-lg gap-1.5 font-semibold",
-  md: "text-sm px-4 py-2.5 min-h-[44px] rounded-[10px] gap-2 font-semibold",
-  lg: "text-[15px] px-5 py-3 min-h-[50px] rounded-xl gap-2.5 font-semibold",
-  xl: "text-base px-6 py-4 min-h-[58px] rounded-2xl gap-3 font-bold",
+const inkSurface: Record<CoreVariant, string> = {
+  primary: "bg-white text-surface-ink border border-transparent hover:bg-aiteb-lavender",
+  secondary: "bg-white/8 text-white border border-white/20 hover:bg-white/14",
+  ghost: "bg-transparent text-white/75 border border-transparent hover:text-white hover:bg-white/8",
+  danger: "bg-status-danger-solid text-white border border-transparent hover:brightness-110",
 };
 
-// No outline colour here: the global :focus-visible rule supplies --focus-ring, so a caller's
-// `focus-visible:outline-aiteb-orchid` (ink surfaces) is not overridden by a later-emitted utility.
+/** The dark "ink" button used on light surfaces; kept as-is until its call sites migrate. */
+const legacyInk = "bg-surface-ink text-white border border-transparent shadow-soft hover:bg-ink-800 active:bg-ink-950";
+
+const sizeStyles: Record<"sm" | "md" | "lg", string> = {
+  sm: "min-h-(--control-sm) px-3.5 py-1 gap-1.5 text-body-sm",
+  md: "min-h-(--control-md) px-4 py-1.5 gap-2 text-body-sm",
+  lg: "min-h-(--control-lg) px-5 py-2 gap-2.5 text-body",
+};
+
+/** Icon size that matches each button size. */
+export const buttonIconSize: Record<ButtonSize, number> = { sm: 16, md: 18, lg: 20, xl: 20 };
+
+// No outline colour here: the global :focus-visible rule supplies --focus-ring (orchid inside .surface-ink).
 const baseStyles =
-  "relative inline-flex items-center justify-center text-center select-none whitespace-nowrap transition-[background-color,border-color,color,box-shadow,transform,filter] duration-200 ease-[var(--ease-arc)] motion-safe:active:scale-[0.98] motion-reduce:transition-none focus-visible:outline-2 focus-visible:outline-offset-2 disabled:opacity-55 disabled:cursor-not-allowed disabled:active:scale-100 cursor-pointer";
+  "relative inline-flex items-center justify-center text-center font-semibold rounded-control select-none whitespace-nowrap cursor-pointer transition-[background-color,border-color,color,filter] duration-150 motion-reduce:transition-none disabled:opacity-55 disabled:cursor-not-allowed aria-busy:cursor-progress";
+
+function variantClass(variant: ButtonVariant, tone: ButtonTone): string {
+  if (variant === "ink") return legacyInk;
+  if (variant === "light") return inkSurface.primary;
+  const core: CoreVariant = variant === "outline" ? "secondary" : variant;
+  return (tone === "ink" ? inkSurface : lightSurface)[core];
+}
 
 export function buttonClassName({
   variant = "primary",
   size = "md",
+  tone = "default",
   isFullWidth = false,
   className = "",
 }: {
   variant?: ButtonVariant;
   size?: ButtonSize;
+  tone?: ButtonTone;
   isFullWidth?: boolean;
   className?: string;
 }): string {
-  return `${baseStyles} ${variantStyles[variant]} ${sizeStyles[size]} ${isFullWidth ? "w-full" : ""} ${className}`.trim();
+  const sizeClass = sizeStyles[size === "xl" ? "lg" : size];
+  return `${baseStyles} ${variantClass(variant, tone)} ${sizeClass} ${isFullWidth ? "w-full" : ""} ${className}`.trim();
+}
+
+/** Square icon-only button: 44×44 (`md`), or 40×40 (`sm`) for dense desktop rows. */
+export function iconButtonClassName({
+  variant = "ghost",
+  size = "md",
+  tone = "default",
+  className = "",
+}: {
+  variant?: "ghost" | "secondary";
+  size?: "sm" | "md";
+  tone?: ButtonTone;
+  className?: string;
+}): string {
+  const box = size === "sm" ? "size-10" : "size-11";
+  return `${baseStyles} ${variantClass(variant, tone)} ${box} shrink-0 p-0 ${className}`.trim();
+}
+
+/**
+ * State attributes for a button. A loading button stays focusable and keeps its width; it reports
+ * `aria-busy` and ignores activation until the work finishes.
+ */
+export function buttonStateProps({ loading = false, disabled = false }: { loading?: boolean; disabled?: boolean }): {
+  "aria-busy"?: true;
+  "aria-disabled"?: true;
+  disabled?: true;
+} {
+  if (disabled) return { disabled: true, ...(loading ? { "aria-busy": true } : {}) };
+  if (loading) return { "aria-busy": true, "aria-disabled": true };
+  return {};
 }
