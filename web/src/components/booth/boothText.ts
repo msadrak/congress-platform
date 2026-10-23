@@ -1,10 +1,11 @@
-import { localizedApiError } from "../../api/client";
+import { NETWORK_FAILURE_CODE, apiErrorCode } from "../../api/client";
+import { errorMessages, networkErrorMessage } from "../../lib/errorMessages";
 import { formatLocalizedNumber, type AttendeeLocale } from "../../lib/i18n";
 import type { QueueFailure } from "../../lib/leadQueue";
 
 /**
  * Booth workspace wording added with the paged lead list, the trash and offline capture. Persian glossary:
- * «کارت ورود» (badge), «کد QR», «بلیت».
+ * «کارت ورود» (badge), «نوع کارت ورود» (ticket type), «کد QR»; never «بلیط».
  */
 const fa = {
   leadsTab: "لیدها",
@@ -69,6 +70,8 @@ const fa = {
   otherBooths: "غرفه‌های دیگر شما",
   badgeInvalid: "این کد QR کارت ورود معتبر نیست.",
   badgeOtherEvent: "این کارت ورود متعلق به همایش دیگری است.",
+  scanFailed: "ثبت لید انجام نشد. دوباره تلاش کنید.",
+  saveFailed: "تغییرات ذخیره نشد. اطلاعات واردشده حفظ شده است؛ دوباره ذخیره کنید.",
 };
 
 type BoothText = typeof fa;
@@ -134,10 +137,22 @@ const en: BoothText = {
   otherBooths: "Your other booths",
   badgeInvalid: "That badge code is not valid.",
   badgeOtherEvent: "That badge belongs to a different congress.",
+  scanFailed: "The lead could not be saved. Try again.",
+  saveFailed: "Your changes were not saved. Your entry is kept; save again.",
 };
 
 export function boothText(locale: AttendeeLocale): BoothText {
   return locale === "fa" ? fa : en;
+}
+
+/**
+ * The reader's-language message of an API error with a known stable code (`errorMessages`), or null. Booth screens
+ * show their own localized sentence instead of null, so the server's English `detail` never reaches a reader.
+ */
+export function codedMessage(error: unknown, locale: AttendeeLocale): string | null {
+  const code = apiErrorCode(error);
+  if (code === NETWORK_FAILURE_CODE) return networkErrorMessage[locale];
+  return code !== undefined && Object.hasOwn(errorMessages[locale], code) ? errorMessages[locale][code] : null;
 }
 
 /** A queued scan's refusal in the reader's language: coded API errors through the shared map, the scan's own 404/400 here. */
@@ -146,6 +161,7 @@ export function queueFailureText(failure: QueueFailure, locale: AttendeeLocale):
   if (failure.kind === "invalid_badge") return text.failInvalidBadge;
   if (failure.kind === "other_event") return text.failOtherEvent;
   const status = formatLocalizedNumber(failure.status, locale);
-  if (failure.code) return localizedApiError({ code: failure.code, detail: failure.detail ?? text.failRefused(status) }, locale);
+  // Only a code with a localized message is shown as such; the English `detail` never reaches the reader.
+  if (failure.code && Object.hasOwn(errorMessages[locale], failure.code)) return errorMessages[locale][failure.code];
   return text.failRefused(status);
 }

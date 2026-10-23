@@ -259,7 +259,7 @@ export const translations = {
     unauthenticatedExhibitorTitle: "ورود نمایندگان غرفه",
     unauthenticatedExhibitorDesc: "برای دسترسی به پرتال لیدهای تجاری غرفه، لطفاً با حساب کاربری نماینده وارد شوید.",
     capturedAtLabel: "زمان ثبت",
-    tierColumnLabel: "ردهٔ بلیت",
+    tierColumnLabel: "نوع کارت ورود",
     tagSendQuote: "ارسال پیش‌فاکتور",
     tagScheduleDemo: "جلسه دمو و پرزنتیشن",
     tagDecisionMaker: "تصمیم‌گیرنده نهایی",
