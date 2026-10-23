@@ -8,6 +8,7 @@ import { CongressSignature } from "../components/brand/CongressSignature";
 import { indexLabel, usePublicLocale, type PublicLocale } from "../components/public/copy";
 import { homeCopy, type EnvironmentCopy } from "../components/public/homeCopy";
 import { BELOW_HEADER_MIN_H } from "../components/public/viewport";
+import { PublicEventList } from "../components/public/PublicEventList";
 import { usePageTitle } from "../hooks/usePageTitle";
 
 type HomeCopy = (typeof homeCopy)[PublicLocale];
@@ -115,6 +116,13 @@ export default function Home() {
           </div>
         </div>
       </section>
+
+      {/* Listed congresses (renders nothing while none is listed). */}
+      <div id="congresses" className="hidden scroll-mt-20 bg-surface-page has-[section]:block">
+        <div className="mx-auto max-w-7xl px-4 pt-20 sm:px-6 sm:pt-28 lg:px-10">
+          <PublicEventList locale={locale} />
+        </div>
+      </div>
 
       {/* 2. Role environments */}
       <section id="roles" aria-labelledby="roles-heading" className="scroll-mt-20 bg-surface-page py-20 sm:py-28">
