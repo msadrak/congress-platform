@@ -3,8 +3,16 @@ rem Full-stack verification (Windows CMD / PowerShell); same checks as scripts/c
 rem script fails; a missing tool falls back to Docker where it can, never to a skip.
 rem   Backend: Docker -> scripts\integration\backend-tests.mjs (disposable PostgreSQL); else local uv + PostgreSQL
 rem            on 127.0.0.1:5433 (backend\tests\conftest.py).
-rem   Dart:    dart on PATH, the WinGet Dart SDK, else the dart image (CONGRESS_DART_IMAGE, default dart:stable).
+rem   Dart:    dart on PATH, the WinGet Dart SDK, else the dart image (CONGRESS_DART_IMAGE, default dart:3.13.5,
+rem            the release CI installs).
+rem   scripts\check.bat           the fast gate
+rem   scripts\check.bat --full    the fast gate, then what only CI ran before: Playwright, Caddy validation, k6 inspect,
+rem                               pip-audit + npm audit, Docker image builds (scripts\check-full.mjs)
 setlocal enabledelayedexpansion
+
+set FULL=0
+if /i "%~1"=="--full" set FULL=1
+if not "%~1"=="" if "!FULL!"=="0" ( echo usage: scripts\check.bat [--full] & exit /b 2 )
 
 rem Run from the repository root wherever this is started from.
 cd /d "%~dp0.."
@@ -84,7 +92,7 @@ if defined DART_BIN (
 )
 
 if not "%HAVE_DOCKER%"=="1" ( echo [FAIL] The mobile checks need the Dart SDK on PATH or Docker & exit /b 1 )
-if not defined CONGRESS_DART_IMAGE set "CONGRESS_DART_IMAGE=dart:stable"
+if not defined CONGRESS_DART_IMAGE set "CONGRESS_DART_IMAGE=dart:3.13.5"
 echo   -^> dart is not on PATH; running the Dart checks in !CONGRESS_DART_IMAGE!...
 rem mobile\ is mounted read-only and copied inside, so nothing is written to the checkout; the pub cache is a named
 rem volume so packages are downloaded once.
@@ -92,6 +100,12 @@ docker run --rm -v "%CD%\mobile:/src:ro" -v congress-dart-pub-cache:/root/.pub-c
 if errorlevel 1 ( echo [FAIL] Dart test/analyze failed & exit /b 1 )
 
 :done
+if "%FULL%"=="1" (
+  echo.
+  echo [full] Checks CI runs beyond the fast gate...
+  call node scripts\check-full.mjs
+  if errorlevel 1 ( echo [FAIL] Full checks failed ^(see the summary above^) & exit /b 1 )
+)
 echo.
 echo ==========================================
 echo [SUCCESS] ALL CHECKS PASSED ACROSS ALL THREE STACKS
