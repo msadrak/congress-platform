@@ -72,10 +72,12 @@ test('exhibitor: booth and staff set up by the organizer, staff signs in, captur
   const capture = async (code: string, holder: string) => {
     await portal.getByRole('button', { name: 'ثبت لید' }).first().click();
     const dialog = portal.getByRole('dialog', { name: 'ثبت لید' });
-    await dialog.getByLabel('کد نشان بازدیدکننده').fill(code);
+    // The badge code field (the glossary term «کارت ورود» is settled; the rest of its label is not).
+    await dialog.getByRole('textbox', { name: /کارت ورود/ }).fill(code);
     await dialog.getByRole('button', { name: 'ذخیرهٔ لید' }).click();
-    await expect(dialog.getByRole('status')).toHaveText('لید ذخیره شد.');
-    await expect(dialog).toContainText(holder);
+    const result = dialog.getByTestId('capture-result');
+    await expect(result).toContainText('لید ذخیره شد');
+    await expect(result).toContainText(holder);
     return dialog;
   };
 
