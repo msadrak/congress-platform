@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { codeFontClass } from "../../lib/i18n";
 
 interface SectionHeaderProps {
   /** Pre-formatted section index ("01" / "۰۱"). */
@@ -20,7 +21,7 @@ export function SectionHeader({ index, id, title, description, aside, as: Headin
         <div className="min-w-0 space-y-1">
           <div className="flex items-baseline gap-3">
             {index && (
-              <span aria-hidden="true" className="font-mono text-xs font-medium text-text-muted tabular">
+              <span aria-hidden="true" className={`${codeFontClass(index)} text-xs font-medium text-text-muted tabular`}>
                 {index}
               </span>
             )}

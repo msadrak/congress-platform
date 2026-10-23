@@ -5,7 +5,7 @@ import { AttendeeLayout } from "../layouts/AttendeeLayout";
 import { Icon } from "../components/ui/Icon";
 import { Button } from "../components/ui/Button";
 import { ArcMotif } from "../components/brand/Aiteb";
-import { useAttendeeLocale } from "../lib/i18n";
+import { codeFontClass, useAttendeeLocale } from "../lib/i18n";
 import { attendeeResponseState, isStoredAttendeeToken } from "../lib/attendeeSession";
 import { useAttendeeSession } from "../hooks/useAttendeeSession";
 import { congressPath } from "../lib/congressContext";
@@ -147,7 +147,7 @@ export default function MyProfile() {
               {user.mobile && (
                 <p className="flex min-w-0 items-center gap-2 text-sm text-text-secondary">
                   <Icon name="phone" size={16} className="text-ink-400" />
-                  <bdi dir="ltr" className="truncate font-mono">{formatMobile(user.mobile, locale)}</bdi>
+                  <bdi dir="ltr" className={`truncate ${codeFontClass(formatMobile(user.mobile, locale))}`}>{formatMobile(user.mobile, locale)}</bdi>
                 </p>
               )}
             </div>

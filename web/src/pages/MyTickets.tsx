@@ -18,6 +18,7 @@ import {
 import { useAttendeeSession } from "../hooks/useAttendeeSession";
 import {
   useAttendeeLocale,
+  codeFontClass,
   formatLocalizedNumber,
 } from "../lib/i18n";
 import { AttendeeLayout } from "../layouts/AttendeeLayout";
@@ -450,7 +451,7 @@ export default function MyTickets() {
                   <li key={step.icon} className="flex gap-3.5 sm:flex-col lg:flex-row xl:flex-col">
                     <span aria-hidden="true" className="relative grid size-11 shrink-0 place-items-center rounded-xl [border-start-end-radius:18px] bg-surface-ink text-white">
                       <Icon name={step.icon} size={20} />
-                      <span className="absolute -top-1.5 -end-1.5 grid size-5 place-items-center rounded-full bg-surface-page font-mono text-[10px] font-semibold text-text-secondary ring-1 ring-border-default">
+                      <span className={`absolute -top-1.5 -end-1.5 grid size-5 place-items-center rounded-full bg-surface-page ${codeFontClass(formatLocalizedNumber(i + 1, locale))} text-[10px] font-semibold text-text-secondary ring-1 ring-border-default`}>
                         {formatLocalizedNumber(i + 1, locale)}
                       </span>
                     </span>

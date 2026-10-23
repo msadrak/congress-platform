@@ -14,7 +14,7 @@ import {
 import { eventAccentStyle } from "../../lib/eventAccent";
 import { formatMobile, mobileSearchDigits, normalizeIranMobile } from "../../lib/mobile";
 import { MobileOtpForm } from "../auth/MobileOtpForm";
-import { formatLocalizedDate, formatLocalizedNumber, type AttendeeLocale, type TranslationDictionary } from "../../lib/i18n";
+import { codeFontClass, formatLocalizedDate, formatLocalizedNumber, type AttendeeLocale, type TranslationDictionary } from "../../lib/i18n";
 import { ArcMotif } from "../brand/Aiteb";
 import { CongressSignature } from "../brand/CongressSignature";
 import { Badge } from "../ui/Badge";
@@ -749,7 +749,7 @@ export function ReceptionStation({ eventId, organizer, locale, t, isRtl }: Recep
               <span>{trimmedQuery ? (isRtl ? "نتایج جستجو" : "Matches") : isRtl ? "شرکت‌کنندگان" : "Attendees"}</span>
             </h2>
             {searchResults.length > 0 && (
-              <span className="rounded-full bg-surface-panel-subtle px-2 py-0.5 font-mono text-[11px] text-text-secondary tabular">{formatLocalizedNumber(searchResults.length, locale)}</span>
+              <span className={`rounded-full bg-surface-panel-subtle px-2 py-0.5 ${codeFontClass(formatLocalizedNumber(searchResults.length, locale))} text-[11px] text-text-secondary tabular`}>{formatLocalizedNumber(searchResults.length, locale)}</span>
             )}
           </div>
           <p className="sr-only" role="status">
@@ -791,7 +791,7 @@ export function ReceptionStation({ eventId, organizer, locale, t, isRtl }: Recep
                         <span className="min-w-0 space-y-1">
                           <span className="block text-[15px] font-semibold leading-snug text-text-primary break-words">{att.attendee_name}</span>
                           {att.attendee_mobile && (
-                            <span className="block truncate font-mono text-xs text-text-secondary">
+                            <span className={`block truncate ${codeFontClass(formatMobile(att.attendee_mobile, locale))} text-xs text-text-secondary`}>
                               <bdi dir="ltr">{formatMobile(att.attendee_mobile, locale)}</bdi>
                             </span>
                           )}
@@ -890,7 +890,7 @@ export function ReceptionStation({ eventId, organizer, locale, t, isRtl }: Recep
                           {review.card.attendee_mobile && (
                             <div className="grid gap-0.5 py-2.5">
                               <dt className="text-xs text-text-muted">{isRtl ? "موبایل" : "Mobile"}</dt>
-                              <dd className="truncate font-mono text-[13px] text-text-primary"><bdi dir="ltr">{formatMobile(review.card.attendee_mobile, locale)}</bdi></dd>
+                              <dd className={`truncate ${codeFontClass(formatMobile(review.card.attendee_mobile, locale))} text-[13px] text-text-primary`}><bdi dir="ltr">{formatMobile(review.card.attendee_mobile, locale)}</bdi></dd>
                             </div>
                           )}
                           {review.card.organization && (
@@ -914,7 +914,7 @@ export function ReceptionStation({ eventId, organizer, locale, t, isRtl }: Recep
                         <div className="space-y-2.5">
                           <h3 className="flex items-center justify-between gap-2 text-xs font-semibold text-text-muted">
                             <span className="flex items-center gap-2"><Icon name="gate" size={15} />{isRtl ? "سوابق تردد و اسکن‌های گیت" : "Check-In Scan History"}</span>
-                            <span className="font-mono tabular">{formatLocalizedNumber(review.card.scan_history.length, locale)}</span>
+                            <span className={`${codeFontClass(formatLocalizedNumber(review.card.scan_history.length, locale))} tabular`}>{formatLocalizedNumber(review.card.scan_history.length, locale)}</span>
                           </h3>
                           {review.card.scan_history.length === 0 ? (
                             <p className="rounded-xl border border-dashed border-border-default px-3 py-4 text-center text-xs text-text-muted">{isRtl ? "هنوز هیچ ترددی برای این کارت ثبت نشده است." : "No gate scans recorded yet."}</p>
@@ -1071,7 +1071,7 @@ export function ReceptionStation({ eventId, organizer, locale, t, isRtl }: Recep
                 <Icon name="mail" size={15} className="mt-px shrink-0" />
                 <span>
                   {isRtl ? "لینک کارت به این شماره پیامک می‌شود: " : "The pass link is being sent by SMS to "}
-                  <bdi dir="ltr" className="font-mono">{formatMobile(mintedPass.attendee_mobile, locale)}</bdi>
+                  <bdi dir="ltr" className={codeFontClass(formatMobile(mintedPass.attendee_mobile, locale))}>{formatMobile(mintedPass.attendee_mobile, locale)}</bdi>
                 </span>
               </p>
             )}
