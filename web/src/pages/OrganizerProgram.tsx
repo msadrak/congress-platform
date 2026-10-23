@@ -3,6 +3,7 @@ import { useOutletContext, useParams } from "react-router-dom";
 import {
   createApiClient,
   formatApiError,
+  localizedApiError,
   type EventOut,
   type EventSessionCreate,
   type EventSessionImport,
@@ -144,7 +145,7 @@ function OrganizerProgramContent() {
           })
         : await client.POST("/api/events/{event_id}/sessions", { params: { path }, body });
     rejected(result.response.status);
-    if (!result.data) return formatApiError(result.error);
+    if (!result.data) return localizedApiError(result.error, locale);
     const saved = result.data;
     setSessions((prev) => [...prev.filter((s) => s.id !== saved.id), saved].sort(bySchedule));
     setEditing(null);
@@ -166,14 +167,14 @@ function OrganizerProgramContent() {
       setSessions((prev) => prev.filter((s) => s.id !== session.id));
       setNotice({ tone: "ok", text: isRtl ? `جلسهٔ «${session.title}» حذف شد.` : `Session “${session.title}” deleted.` });
     } else {
-      setNotice({ tone: "error", text: isRtl ? `جلسه حذف نشد: ${formatApiError(error)}` : `The session was not deleted: ${formatApiError(error)}` });
+      setNotice({ tone: "error", text: isRtl ? `جلسه حذف نشد: ${localizedApiError(error, locale)}` : `The session was not deleted: ${localizedApiError(error, locale)}` });
     }
   };
 
   const importTimetable = async (body: EventSessionImport) => {
     const { data, error, response } = await client.POST("/api/events/{event_id}/sessions/import", { params: { path }, body });
     rejected(response.status);
-    return data ? { result: data } : { error: formatApiError(error) };
+    return data ? { result: data } : { error: localizedApiError(error, locale) };
   };
 
   const timeRange = (s: EventSessionOut) => {

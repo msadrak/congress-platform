@@ -3,6 +3,7 @@ import { useOutletContext, useParams } from "react-router-dom";
 import {
   createApiClient,
   formatApiError,
+  localizedApiError,
   type EventOut,
   type EventSessionOut,
   type VenuePlaceKind,
@@ -125,7 +126,7 @@ function OrganizerVenueContent() {
             params: { path: { event_id: eventId } },
             body: { kind: target.kind, name, location },
           });
-    if (!result.data) return formatApiError(result.error);
+    if (!result.data) return localizedApiError(result.error, locale);
     const saved = result.data;
     setPlaces((prev) => [...prev.filter((p) => p.id !== saved.id), saved]);
     if ("id" in target && saved.kind === "hall") {
@@ -160,7 +161,7 @@ function OrganizerVenueContent() {
     setBusy(ids, false);
     const failed = results ? results.find((r) => !r.data) : undefined;
     if (!results || failed) {
-      const reason = failed ? formatApiError(failed.error) : isRtl ? "اتصال برقرار نشد." : "No connection.";
+      const reason = failed ? localizedApiError(failed.error, locale) : isRtl ? "اتصال برقرار نشد." : "No connection.";
       setNotice({ tone: "error", text: isRtl ? `ترتیب ذخیره نشد: ${reason}` : `The order was not saved: ${reason}` });
       await loadPlaces();
       return;
@@ -176,7 +177,7 @@ function OrganizerVenueContent() {
     });
     setBusy([place.id], false);
     if (!response.ok) {
-      setNotice({ tone: "error", text: isRtl ? `حذف نشد: ${formatApiError(error)}` : `Not deleted: ${formatApiError(error)}` });
+      setNotice({ tone: "error", text: isRtl ? `حذف نشد: ${localizedApiError(error, locale)}` : `Not deleted: ${localizedApiError(error, locale)}` });
       return;
     }
     setPlaces((prev) => prev.filter((p) => p.id !== place.id));
