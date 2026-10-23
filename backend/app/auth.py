@@ -21,9 +21,10 @@ from app.audit import PLATFORM_ADMIN, Actor, set_actor
 from app.db import SessionDep
 from app.errors import ApiError
 from app.models import Organizer, OrganizerMember
-from app.rate_limit import ADMIN_TOKEN_PER_IP, API_KEY_PER_IP, client_ip, limiter
+from app.platform_config import platform_config
+from app.rate_limit import ADMIN_TOKEN_PER_IP, API_KEY_PER_IP, client_ip, in_networks, ip_group, limiter
 from app.roles import Role, required_role
-from app.security import decode_access_token
+from app.security import inspect_token
 
 _bearer = HTTPBearer(auto_error=False)
 KEY_LABEL = "Integration key"
@@ -42,9 +43,10 @@ async def require_platform_admin(
 ) -> None:
     expected: str = request.app.state.settings.platform_admin_token
     throttle = limiter(request)
-    key = f"admin:ip:{client_ip(request)}"
+    key = f"admin:ip:{ip_group(client_ip(request))}"
     await throttle.check((key, ADMIN_TOKEN_PER_IP))
-    if x_admin_token is None or not secrets.compare_digest(x_admin_token, expected):
+    # Bytes, not str: compare_digest refuses non-ASCII strings (a 500 that would not count as a failure).
+    if x_admin_token is None or not secrets.compare_digest(x_admin_token.encode(), expected.encode()):
         await throttle.fail(key)
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid admin token")
     set_actor(request, PLATFORM_ADMIN)
@@ -119,27 +121,42 @@ async def resolve_organizer_principal(
     session: AsyncSession, request: Request, token: str
 ) -> OrganizerPrincipal | None:
     """The organizer this key or member session acts for, or None. Every route that accepts an organizer
-    credential goes through here, so a revoked key or member is refused everywhere and every miss counts toward
-    the per-IP budget. Unknown, rotated-away and revoked credentials are indistinguishable."""
-    throttle = limiter(request)
-    key = f"apikey:ip:{client_ip(request)}"
-    await throttle.check((key, API_KEY_PER_IP))
-    principal: OrganizerPrincipal | None = None
-    payload = decode_access_token(token, request.app.state.settings.jwt_secret)
-    if payload is not None:
-        if payload.get("type") == "organizer_member":
-            principal = await _member_principal(session, payload)
-    else:
-        organizer = await session.scalar(
-            select(Organizer).where(
-                Organizer.api_key_hash == hash_api_key(token),
-                Organizer.revoked_at.is_(None),
-            )
+    credential goes through here (scanner and desk routes too, after their own tokens), so a revoked key or member
+    is refused everywhere. Unknown, rotated-away and revoked credentials are indistinguishable.
+
+    Only guesses count toward the per-IP budget: a credential that verifies is never refused because others behind
+    the same address (a venue NAT) failed, and our own signed tokens are never guesses. An expired one answers
+    401 TOKEN_EXPIRED, so the client knows to sign in again. API keys are 256-bit random values, so the budget
+    bounds noise, not a guessable secret."""
+    state, payload = inspect_token(token, request.app.state.settings.jwt_secret)
+    if state == "expired":
+        raise ApiError(
+            status.HTTP_401_UNAUTHORIZED, "TOKEN_EXPIRED", "This session has expired. Sign in again.",
+            headers={"WWW-Authenticate": "Bearer"},
         )
-        principal = OrganizerPrincipal(organizer, Role.owner) if organizer is not None else None
-    if principal is None:
-        await throttle.fail(key)
-    return principal
+    if state != "foreign":
+        if state == "valid" and payload is not None and payload.get("type") == "organizer_member":
+            return await _member_principal(session, payload)
+        return None
+    organizer = await session.scalar(
+        select(Organizer).where(Organizer.api_key_hash == hash_api_key(token), Organizer.revoked_at.is_(None))
+    )
+    if organizer is not None:
+        return OrganizerPrincipal(organizer, Role.owner)
+    await _count_wrong_key(request)
+    return None
+
+
+async def _count_wrong_key(request: Request) -> None:
+    """Count a wrong API key against the caller's address (IPv6 per /64), or answer 429 once it is used up.
+    Venue networks (the sign-in rules' trusted networks) are exempt: everyone there shares a handful of addresses."""
+    ip = client_ip(request)
+    if in_networks(ip, platform_config(request).sign_in.trusted_networks):
+        return
+    throttle = limiter(request)
+    key = f"apikey:ip:{ip_group(ip)}"
+    await throttle.check((key, API_KEY_PER_IP))
+    await throttle.fail(key)
 
 
 def authorize(request: Request, principal: OrganizerPrincipal) -> None:

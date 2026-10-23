@@ -90,6 +90,8 @@ export const errorMessages: Record<AttendeeLocale, Record<string, string>> = {
     MEMBER_EXISTS: "این شماره هم‌اکنون عضو این سازمان است.",
     MEMBER_REVOKED: "این عضو حذف شده است؛ برای بازگرداندن، دوباره او را دعوت کنید.",
     LAST_OWNER: "پیش از حذف یا تغییر نقش آخرین مالک، مالک دیگری اضافه کنید.",
+    // Expired sessions and SMS notice limits (backend/app/auth.py, app/sms/budgets.py)
+    TOKEN_EXPIRED: "نشست شما به پایان رسیده است. دوباره وارد شوید.",
   },
   en: {
     EVENT_NOT_FOUND: "This congress could not be found.",
@@ -175,6 +177,8 @@ export const errorMessages: Record<AttendeeLocale, Record<string, string>> = {
     MEMBER_EXISTS: "This number is already a member of this organization.",
     MEMBER_REVOKED: "This member was removed; invite them again to restore access.",
     LAST_OWNER: "Add another owner before removing or demoting the last one.",
+    // Expired sessions and SMS notice limits (backend/app/auth.py, app/sms/budgets.py)
+    TOKEN_EXPIRED: "Your session has expired. Sign in again.",
   },
 };
 

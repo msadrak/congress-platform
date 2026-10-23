@@ -20,7 +20,7 @@ from sqlalchemy import func, select, update
 from app.db import SessionDep
 from app.links import normalize_code
 from app.models import EntityQR, Event, ShortLink, Ticket, TicketTier, User
-from app.rate_limit import Budget, client_ip, limiter
+from app.rate_limit import Budget, client_ip, ip_group, limiter
 
 router = APIRouter(prefix="/api/public/passes", tags=["public"])
 
@@ -106,7 +106,7 @@ async def resolve_pass_link(
     body: PassResolveRequest, request: Request, response: Response, session: SessionDep
 ) -> LinkPassOut | JSONResponse:
     throttle = limiter(request)
-    ip = client_ip(request)
+    ip = ip_group(client_ip(request))
     failures, opens = f"link:fail:ip:{ip}", f"link:open:ip:{ip}"
     await throttle.check(
         (failures, LINK_FAILURES_PER_IP), (opens, LINK_OPENS_PER_IP), detail="Too many attempts. Try again later."

@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db import SessionDep, add_or_existing
 from app.errors import ApiError, error_responses
 from app.models import Booth, BoothBookmark, BoothStaff, EntityQR, Event, EventPage, Lead, Ticket, User
-from app.rate_limit import Budget, client_ip, limiter
+from app.rate_limit import Budget, client_ip, ip_group, limiter
 from app.routes.auth import CurrentUserDep
 from app.routes.events import OwnedEventDep
 from app.security import generate_entity_qr_secret
@@ -715,7 +715,7 @@ async def resolve_booth_qr(body: BoothCodeIn, request: Request, session: Session
     throttled per client IP so secrets cannot be guessed.
     """
     throttle = limiter(request)
-    failures = f"boothqr:fail:ip:{client_ip(request)}"
+    failures = f"boothqr:fail:ip:{ip_group(client_ip(request))}"
     await throttle.check((failures, BOOTH_QR_FAILURES_PER_IP), detail=THROTTLED, code="BOOTH_QR_RATE_LIMITED")
     found = await booth_by_code(session, body.code)
     published = found is not None and await session.scalar(
