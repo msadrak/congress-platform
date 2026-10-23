@@ -2,7 +2,8 @@ name: CI
 
 on:
   push:
-    branches: [master, main, 'integration/**', 'feature/**']
+    # ws/** are workstream branches; integration/** collects them before main.
+    branches: [master, main, 'integration/**', 'ws/**', 'feature/**']
   pull_request:
 
 permissions:
@@ -13,10 +14,14 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# Third-party actions are pinned to a full commit SHA (the release is in the trailing comment): a tag can be moved,
+# a commit cannot. Dependabot (.github/dependabot.yml, github-actions) proposes new SHAs and updates the comments.
+
 jobs:
   backend:
     name: Backend (FastAPI & PostgreSQL)
     runs-on: ubuntu-latest
+    timeout-minutes: 25
 
     services:
       postgres:
@@ -34,39 +39,42 @@ jobs:
           --health-retries 5
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v3
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           enable-cache: true
+          cache-dependency-glob: backend/uv.lock
 
       - name: Set up Python
         run: uv python install 3.11
 
+      # --locked: fail when backend/uv.lock no longer matches pyproject.toml instead of silently re-resolving.
       - name: Install dependencies
         working-directory: backend
-        run: uv sync
+        run: uv sync --locked
 
       - name: Strict Mypy Typecheck
         working-directory: backend
-        run: uv run mypy
+        run: uv run --locked mypy
 
       - name: Pytest Suite
         working-directory: backend
         # The suite builds its own settings and targets the disposable `congress_test` database on
         # 127.0.0.1:5433 (tests/conftest.py); no CONGRESS_DATABASE_URL is needed or consulted.
-        run: uv run pytest -v
+        run: uv run --locked pytest -v
 
   web:
     name: Web Frontend (React & TypeScript)
     runs-on: ubuntu-latest
+    timeout-minutes: 20
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Set up Node.js 24
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 24
           cache: npm
@@ -98,24 +106,26 @@ jobs:
   api-schema:
     name: API client types match the backend
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v3
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           enable-cache: true
+          cache-dependency-glob: backend/uv.lock
 
       - name: Set up Python
         run: uv python install 3.11
 
       - name: Install backend dependencies
         working-directory: backend
-        run: uv sync
+        run: uv sync --locked
 
       - name: Set up Node.js 24
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 24
           cache: npm
@@ -131,12 +141,16 @@ jobs:
   mobile:
     name: Mobile (Flutter / Dart)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
+      # The same Dart release as scripts/check.sh (CONGRESS_DART_IMAGE default dart:3.13.5).
       - name: Set up Dart SDK
-        uses: dart-lang/setup-dart@v1
+        uses: dart-lang/setup-dart@6afc89df92d6eb3834022f73cd65adc8cdfcb92d # v1.8.1
+        with:
+          sdk: 3.13.5
 
       - name: Install dependencies
         working-directory: mobile
@@ -153,12 +167,13 @@ jobs:
   e2e:
     name: Browser end-to-end (Playwright, intercepted API)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Set up Node.js 24
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 24
           cache: npm
@@ -181,16 +196,23 @@ jobs:
       # with synthetic responses, so no backend is needed. scanner-real-api.spec.ts needs a live FastAPI +
       # PostgreSQL and CONGRESS_PLATFORM_ADMIN_TOKEN; without the token it reports itself skipped. It runs in
       # scripts/integration/congress-e2e.mjs.
+      # One retry (not the config's two): a test that passes only on its retry is reported as flaky by the next
+      # step (warning annotation + job summary) and must be fixed, not left to the retry.
       - name: Playwright specs
         working-directory: web
         env:
           CONGRESS_BROWSER_CHANNEL: chromium
           CONGRESS_E2E_PREVIEW: '1'
-        run: npx playwright test
+          PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ runner.temp }}/playwright-report.json
+        run: npx playwright test --retries=1 --reporter=list,json
+
+      - name: Flaky test report
+        if: success() || failure()
+        run: node .github/scripts/playwright-flaky.mjs "$RUNNER_TEMP/playwright-report.json"
 
       - name: Upload failure context
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: playwright-test-results
           path: web/test-results
@@ -199,15 +221,16 @@ jobs:
   images:
     name: Docker images and Caddy configuration
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
 
       - name: Build the API image (backend/Dockerfile)
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: backend
           file: backend/Dockerfile
@@ -216,7 +239,7 @@ jobs:
           cache-to: type=gha,mode=max,scope=api
 
       - name: Build the web edge image (deploy/web/Dockerfile)
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: .
           file: deploy/web/Dockerfile
@@ -224,22 +247,108 @@ jobs:
           cache-from: type=gha,scope=web
           cache-to: type=gha,mode=max,scope=web
 
+      # PostgreSQL + pgBackRest for WAL archiving / point-in-time recovery (deploy/staging/compose.wal.yaml).
+      - name: Build the database image (deploy/db/Dockerfile)
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: deploy/db
+          file: deploy/db/Dockerfile
+          push: false
+          cache-from: type=gha,scope=db
+          cache-to: type=gha,mode=max,scope=db
+
       # caddy validate in the official image for each edge mode (local staging, LAN, hosted, CDN in front).
       - name: Validate deploy/staging/Caddyfile
         run: node scripts/ci/validate-caddyfile.mjs
 
+  compose-smoke:
+    name: Staging stack smoke (compose init, up, check, probes, down)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
+
+      # Fresh secrets in .staging/staging.env; persistent data in the runner's temporary folder.
+      - name: stack.mjs init
+        run: |
+          node scripts/staging/stack.mjs init
+          sed -i "s#^CONGRESS_PERSISTENT_DATA_ROOT=.*#CONGRESS_PERSISTENT_DATA_ROOT=$RUNNER_TEMP/congress-data#" .staging/staging.env
+
+      - name: stack.mjs up (build, migrate, start, wait until healthy)
+        run: node scripts/staging/stack.mjs up
+
+      # Exit 0 = ok, 1 = warning (acceptable on a fresh stack, e.g. no backup taken yet), 2 = critical.
+      - name: stack.mjs check
+        run: |
+          set +e
+          node scripts/staging/stack.mjs check
+          rc=$?
+          echo "check exit $rc"
+          test "$rc" -le 1
+
+      - name: HTTP probes through Caddy
+        run: |
+          set -euo pipefail
+          http=http://localhost:18080
+          code() { curl -s -o /dev/null -w '%{http_code}' "$@"; }
+          curl -fsS "$http/api/health"
+          curl -fsS "$http/api/ready" | grep -q '"ready"'
+          test "$(code "$http/")" = 200
+          test "$(code "$http/organizer")" = 200
+          test "$(code "$http/api/public/events/no-such-congress")" = 404
+          curl -fsS -o /dev/null -D - "$http/" | grep -qi '^content-security-policy:'
+          test "$(code -k https://localhost:8443/api/ready)" = 200
+          echo "probes ok"
+
+      - name: Logs on failure
+        if: failure()
+        run: node scripts/staging/stack.mjs logs
+
+      - name: Tear down
+        if: always()
+        run: |
+          if [ -f .staging/staging.env ]; then
+            docker compose -p congress-staging --env-file .staging/staging.env -f deploy/staging/compose.yaml down --remove-orphans
+          fi
+
+  load-scripts:
+    name: Load test scripts compile (k6 inspect)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
+
+      # Every scripts/load/*.js scenario in the pinned grafana/k6 image (scripts/load/k6.mjs); no stack needed.
+      - name: k6 inspect scripts/load/*.js
+        run: node scripts/load/k6.mjs inspect
+
   audit:
     name: Dependency audit (high and critical fail)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v3
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          enable-cache: false
 
       - name: Set up Node.js 24
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 24
 
