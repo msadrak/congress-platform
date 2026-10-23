@@ -75,7 +75,7 @@ Branch `ws/ux-<id>` (team2: `ws/team2-ux-<id>`). A phase-1 package starts when t
 | UX-DESK reception desk | 1 | F1–F6 | coordinator team | merged (`ws/ux-desk` 64de308) |
 | UX-BOOTH booth panel | 1 | F1–F7 | coordinator team | merged (`ws/ux-booth` 025aa2a) |
 | UX-ATT-PASS pass + link pass (also `lib/ticketCache.ts`) | 1 | F1–F5 | team2 | merged (`ws/team2-ux-att-pass` 389dfbc; report below) |
-| UX-ATT-SHELL attendee shell, Home/Program, /me, Network, Profile | 1 | F1–F5 | team2 | waiting |
+| UX-ATT-SHELL attendee shell, Home/Program, /me, Network, Profile | 1 | F1–F5 | team2 | merged (`ws/team2-ux-att-shell` df31cd4; report below) |
 | UX-PUB platform home, public congress, reservation, booth page | 1 | F1–F4 | coordinator team | merged (`ws/ux-pub` b4134f2) |
 | UX-ORG-1 organizer shell, congress list, overview, members, activity | 1 | F1–F4, F8 | coordinator team | merged (`ws/ux-org1` 0646153) |
 | UX-ORG-2 program, venue, Page Studio | 1 | F1–F4, F8 | coordinator team | merged (`ws/ux-org2` d63916f) |
@@ -137,6 +137,42 @@ Web only: no migration, no env var, no backend, no new dependency, no `schema.d.
 3. Spec choices: att says no hint under cancel (copy §4.3 had a shortened one) → none. `arrow-up-right` is the expand mark because the shared `Icon` set has no expand icon. The cancel text is neutral grey: `Button` has no danger text tone, and the dialog carries the danger.
 
 **Left over.** Nothing for this package. Next: UX-ATT-SHELL (needs a claim).
+
+### UX-ATT-SHELL report (team2, 2026-10-23) — `ws/team2-ux-att-shell` at `df31cd4`, contains `72d949f` (the tip with every other phase-1 package merged)
+
+Web only: no migration, no env var, no backend, no new dependency, no `schema.d.ts` change. The branch already contains the tip, so the merge is a fast-forward in effect (the second merge of the tip is done; the conflicts were the ratchets and two spec hunks, resolved as described below). No claim commit was pushed before the work (the shared worktree had unmerged work and I did not want to move `integration/upgrade` under it); the row goes straight from "waiting" to "ready to merge".
+
+**What changed.** Spec: att WP3 + WP4, ds P2, copy §4.3. All words are in the new `src/copy/attendee.ts` (`attendeeCopy`); `components/attendee/attendeeCopy.ts` keeps only `n` and `contactsPhrase` (its dead `boothCopy` is deleted: `BoothDirectory` and `PublicBooth` now read `copy/booth.ts`).
+- **Shell** (`AttendeeLayout.tsx`): on a phone the header has the congress switcher and the avatar, nothing else (2 controls at 360 and 390, fa + en). The language switch is the last row of the switcher menu; log out is in the profile and asks first («خروج از حساب در این دستگاه؟», says the saved pass is removed). From `md` up the header keeps `LanguageToggle`, the avatar and «خروج» and the tabs are the shared `TabNav`. Signed out: the switcher and one «ورود» pill. The footer is only on `/me`. On `/me` (no congress, so no switcher) the header keeps the language switch and log out, and log out is icon-only under 640 px so the title fits at 360. `SignInPrompt.tsx`, `CongressHero.tsx`, `.at-hero-scrim` are deleted; `InlineSignIn.tsx` (title + body + `MobileOtpForm` as UX-PUB left it, `signIn(auth.access_token)`) replaces `SignInPrompt` on Home, `/me`, Network and Profile.
+- **Home** (`CongressHomeView.tsx`): `PageHeader` with the name and one meta row (phase chip, dates, place); the chip is the only countdown (days only; the `role=timer` block is gone). Before: pass card (one «نمایش کارت ورود» button) and a checklist with only calendar and directions; the install row is gone (`InstallHint` lives under the pass). During: the pass QR is the first thing in `main` and inside the first screen at 360×740 and 390×844 (256 px, 224 px under 380 px, the same as the pass tab). After: thanks + summary. Signed out: the phone form on the page, then the program.
+- **Program tab** (`CongressDetailsView.tsx`): `PageHeader` «برنامه» + dates + «درباره همایش» link (`/e/:slug#about`), then the day tabs (in the first screen), the explorer, then the venue. No masthead, fact grid or About text.
+- **`/me`** (`Me.tsx`): «همایش‌های من» without a lead; each card is a link, and the live congress has a «کد QR» button next to it (under the text on a phone) that opens the pass. One offline chip when the list is from this device (no red alert while a saved list is shown); staff and saved booths in a second column from `lg`; no description under «غرفه‌های ذخیره‌شده»; the remove-booth icon is an `IconButton`.
+- **Network** (`MyNetwork.tsx`): `PageHeader` with the count, no eyebrow and no sentence under the code; `?scan=1` opens Scan and the camera starts without a tap when the browser already allows it; empty state = title + «اسکن» button, no paragraph; `SearchInput`, `Notice`, `ErrorState`. My code / Scan stays a `tablist` (a radiogroup would change the existing tests and the tabpanel semantics).
+- **Profile** (`MyProfile.tsx`): `Avatar` + `PageHeader`, `Field`/`TextInput`, `Switch` (no on/off captions, one short line each), `SegmentedControl` for the language; «ذخیره» and the one-line «روی کارت ورود همایش‌های پیش رو هم اعمال می‌شود.» appear only after a change (sticky above the dock on a phone); sign-out is the confirm dialog.
+- Obsolete `min-h-11` / `max-sm:min-h-[52px]` are gone from all my files (`tests/attendeeShell.test.ts` keeps it that way). `lib/attendeeSession.ts` and `congressTime.ts` read the copy module.
+
+**Copy ratchets.** `copy-baseline.json`: every file of mine is 0 (attendeeCopy 1, CongressDetailsView 14, CongressHero 2, CongressHomeView 1, CongressSchedule 5, ProgramExplorer 2, AttendeeLayout 19, attendeeSession 1, CongressDetails 8, Me 29, MyCongress 8, MyProfile 1). `glossary.test.ts`: the `attendeeCopy.ts` and `lib/attendeeSession.ts` entries are gone (the `گردید` that stayed in `attendeeCopy.ts` was the dead `boothCopy`).
+
+**Gates (real exit codes), on the merged tree `df31cd4`.** `npm test` 0 (537 pass) · `npm run lint` 0 · `npx tsc -b` 0 · `vite build` 0 · new `e2e/attendee-shell.spec.ts` (23 tests) and `tests/attendeeShell.test.ts` written first (21 e2e and 9 unit failed on the old UI) and green · all `e2e/attendee-*.spec.ts` 0 (142 passed) · full Playwright on `vite preview` :47531, `CONGRESS_BROWSER_CHANNEL=chrome` **0, 548 passed** (six `--shard=i/6` runs, each exit 0, because something on the shared Mac kept killing one long run) · `./scripts/check.sh` **0** (all three stacks). Screenshots (JPEG, fa + en, 390×844 / 360×740 / 1440×900: Home before, during, signed out; Program; /me; Network code and scan; Profile and Profile with a change; 54 files): `/tmp/team2-att-shell-shots/<locale>-<size>-<page>.jpg`.
+
+**Merge of the tip, what I resolved.** `copy-baseline.json` and `glossary.test.ts`: took the tip's file and removed my entries. `e2e/attendee-authority.spec.ts` (R6 export leads, UX-BOOTH's `exportCsv` helper): `await exportCsv(page); await expect(page.getByText('sign-in changed')).toBeVisible();`. `e2e-live/attendee.spec.ts`: kept ATT-PASS's check of the «برای شبکه‌سازی وارد شوید» link. `sessionChangedMessage` now says «ورود شما در زبانهٔ دیگری تغییر کرد. صفحه را دوباره باز کنید.» / "Your sign-in changed in another tab. Reload this page." (copy §4.3); the booth screens show it too and the booth specs pass.
+
+**Files outside my list.**
+- `web/tests/copy-baseline.json`, `web/tests/glossary.test.ts` (ratchets; they only fall).
+- `web/e2e/public-event-list.spec.ts`: one line, signed-out `/me` shows `otp-mobile-step` instead of the «Sign in to see your pass» link.
+- Existing attendee specs edited for the new UI (mine): authority (`sign-in changed` wording, the phone form instead of the portal heading), home, links-and-session (the header log-out tests run at 1280×800; the footer test opens `/me`), me-and-pass, portal, profile, session-recovery, signin-discovery, staff-access ("Open booth panel"). `e2e-live/attendee.spec.ts`: dropped the "pass from your SMS link" note check (ATT-PASS removed that note).
+
+**For UX-Z.**
+1. `CongressHomeView` / `CongressDetailsView` keep their deprecated optional `page`, `t`, `labels` and `booths(index)` props so `OrganizerPanel` compiles; the organizer package can drop `t`, `page` and the index argument.
+2. Delete: the attendee `SettingSwitch.tsx` (no user left); `SectionHeader.tsx` is still used by `BoothDirectory`, `Monogram.tsx` by `AttendeeSignIn` and `network/ContactCard.tsx`. Unused dictionary keys in `lib/i18n.ts` (no reader left in `src`): `attendeePortal`, `bookmarkRemovedFeedback`, `digitalPassTitle`, `linkPassNote`, `loginAction`, `navCongressDetails`, `navMyCongress`, `navMyProfile`, `networkHeading`, `removeBookmarkAction`, `savedBoothsDesc`, `savedBoothsHeading`, `ticketIdLabel`, `unauthenticatedDesc`, `unauthenticatedTitle`, `venueLabel`.
+3. The `#about` anchor on `/e/:slug` is UX-PUB's: the «درباره همایش» link needs it (check it on the merged public page).
+
+**Spec choices to know.** (a) att §5 asks for a QR of at least 260 px; the pass tab and Home use 256 px (224 px under 380 px) inside a white plate, so the scannable area is bigger than the number; change the QR size classes (`h-56 w-56 min-[380px]:h-64 min-[380px]:w-64`) in `CongressHomeView.tsx` and `DigitalPassCard.tsx` together if you want 260. (b) The saved-booth remove button keeps its old accessible name «Remove Bookmark: <name>» (the spec is silent, and the authority specs search for it). (c) The Home QR card shows the tier and holder under the code, and opens the full pass.
+
+**Left over.**
+- `?scan=1` starts the camera only when the camera permission is already granted (`QrCameraInput`'s `autoStart`); asking for permission on arrival needs a change in `QrCameraInput.tsx` (UX-SCAN's file).
+- I did not edit `MobileOtpForm.tsx` or `AttendeeSignIn.tsx`; none was needed.
+- FOLLOW-4 is merged by the coordinator (`4f46ce2`), so I did not start it. A trial merge of this branch into `4f46ce2` (`git merge-tree`) is clean and no file overlaps.
 
 ## Later (start after the overlapping branches merge)
 
