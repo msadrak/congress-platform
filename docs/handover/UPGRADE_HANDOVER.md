@@ -193,6 +193,12 @@ the API image now starts with `python -m app.serve`), `ALERT_HEARTBEAT_URL`, `AL
 10. Errors without a known code show a Persian sentence in fa instead of the server's English text.
 11. SMS default texts are shorter (saved overrides untouched); booth API has `event_archived`.
 12. Rate limits are now strict under concurrency (fixes possible over-budget OTP/SMS sends); desk and booth APIs return event_timezone.
+13. **New UI everywhere** (UX-IMPL, `docs/ux-review/UX_PLAN.md`): one design system (40/48/56 px buttons, 12 px controls,
+    Jalali date pickers, Persian digits, congress time zone), much less text, organizer nav in two groups
+    («روز همایش» / «راه‌اندازی»), scanner/desk/booth on one operator shell. Old links redirect:
+    `/organizer/events/:id/venue` → program `?tab=venue`, `…/panel` → Page Studio `?preview=panel`; platform SMS is now
+    `/platform/sms`. Desk and organizer sessions stay per tab (no install prompt there). Tell organizers and
+    operators the screens changed before the next congress.
 
 ## 8. Environment and tooling notes (important)
 

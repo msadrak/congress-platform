@@ -82,7 +82,7 @@ Branch `ws/ux-<id>` (team2: `ws/team2-ux-<id>`). A phase-1 package starts when t
 | UX-ORG-3 check-in, operators, ticket types, booths | 1 | F1–F4, F8 | coordinator team | merged (`ws/ux-org3` 7060349) |
 | UX-ORG-4 participants, SMS, statistics | 1 | F1–F4, F8 | coordinator team | merged (`ws/ux-org4` 11d54a6) |
 | UX-PLAT platform admin | 1 | F1–F4, F8 | coordinator team | merged (`ws/ux-plat` 346775f) |
-| UX-Z cleanup, design guard, copy baseline 0, screenshot re-run | 2 | all of phase 1 | coordinator team | waiting |
+| UX-Z cleanup, design guard, copy baseline 0, screenshot re-run | 2 | all of phase 1 | coordinator team | merged (`ws/ux-z` 3c7a3e5) |
 
 ### UX-F5 report (team2, 2026-10-23) — `ws/team2-ux-f5` at `4989c8f`, from `0170ef6`
 
