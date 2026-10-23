@@ -15,7 +15,8 @@ async function pairingLink(page: Page, eventId: string, gate: string, policy: 'S
   await page.getByRole('main').getByRole('button', { name: /افزودن/ }).first().click();
   const pointDialog = page.getByRole('dialog');
   await pointDialog.getByRole('textbox').first().fill(gate);
-  await pointDialog.getByRole('combobox').selectOption(policy);
+  // The policy select is the one offering this policy (the dialog also has required-point and session selects).
+  await pointDialog.getByRole('combobox').filter({ has: page.locator(`option[value="${policy}"]`) }).selectOption(policy);
   await pointDialog.locator('button[type=submit]').click();
   const card = page.getByRole('article', { name: gate });
   await card.getByRole('button', { name: 'اتصال دستگاه' }).click();
