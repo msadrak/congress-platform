@@ -110,6 +110,7 @@ def create_app(settings: Settings) -> FastAPI:
     app.include_router(desk.router)
     app.include_router(analytics.router)
     app.include_router(booths.router)
+    app.include_router(booths.public_router)
     app.include_router(leads.router)
     app.include_router(network.router)
     app.include_router(pages.router)

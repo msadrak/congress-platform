@@ -231,7 +231,7 @@ async def send_platform_test_sms(
     sample = {
         "code": "1" * rules.otp_length, "minutes": str(max(1, rules.otp_ttl_seconds // 60)),
         "name": "نام شرکت‌کننده", "event": "همایش نمونه", "tier": "عمومی", "location": "تهران",
-        "link": pass_link(origin, SAMPLE_CODE),
+        "booth": "غرفهٔ نمونه", "link": pass_link(origin, SAMPLE_CODE),
     }
     text = render(template, sample)
     result = await gateway.send_text(body.mobile, text, kind="test")
