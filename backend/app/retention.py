@@ -48,7 +48,7 @@ async def purge_expired(session: AsyncSession, settings: Settings, *, now: datet
         .where(
             SmsMessage.created_at < now - timedelta(days=settings.sms_body_retention_days),
             SmsMessage.body.is_not(None),
-            SmsMessage.status != "pending",
+            SmsMessage.status.not_in(("pending", "sending")),  # still to be sent
         )
         .values(body=None)
     )
