@@ -5,6 +5,8 @@ import { Button } from "../components/ui/Button";
 import { ConfirmDialog } from "../components/ui/ConfirmDialog";
 import { Icon } from "../components/ui/Icon";
 import { EmptyState, Field, FormAlert, SectionHeader } from "../components/organizer/WorkspaceUi";
+import { networkErrorMessage } from "../lib/errorMessages";
+import { useMutation } from "../hooks/useMutation";
 import { usePlatform } from "./platformContext";
 
 type Pending = { action: "rotate" | "revoke"; organizer: OrganizerOut } | null;
@@ -13,28 +15,45 @@ type Pending = { action: "rotate" | "revoke"; organizer: OrganizerOut } | null;
 export default function PlatformOrganizers() {
   const { client, checkResponse, locale, isRtl } = usePlatform();
   const [organizers, setOrganizers] = useState<OrganizerOut[] | null>(null);
+  /** An HTTP failure's message; network failures of create, rotate and revoke live in the mutations. */
   const [error, setError] = useState<string | null>(null);
+  /** The first list load got no response: the skeleton gives way to the network message. */
+  const [offline, setOffline] = useState(false);
   const [name, setName] = useState("");
-  const [creating, setCreating] = useState(false);
+  // Each request ends its own busy state whatever happens (useMutation).
+  const createRequest = useMutation(locale);
+  const actionRequest = useMutation(locale);
+  const creating = createRequest.busy;
+  const shownError = error ?? createRequest.error ?? actionRequest.error;
   const [issued, setIssued] = useState<OrganizerProvisioned | null>(null);
   const [copied, setCopied] = useState(false);
   const [pending, setPending] = useState<Pending>(null);
 
   const load = useCallback(async () => {
-    const { data, error: err, response } = await client.GET("/api/organizers");
-    checkResponse(response.status);
-    if (data) setOrganizers(data);
-    else setError(err ? formatApiError(err) : isRtl ? "فهرست بارگذاری نشد." : "The list could not be loaded.");
-  }, [client, checkResponse, isRtl]);
+    try {
+      const { data, error: err, response } = await client.GET("/api/organizers");
+      checkResponse(response.status);
+      if (data) setOrganizers(data);
+      else setError(err ? formatApiError(err) : isRtl ? "فهرست بارگذاری نشد." : "The list could not be loaded.");
+    } catch {
+      // A failed refresh keeps the list on screen and says why it may be stale.
+      setError(networkErrorMessage[locale]);
+    }
+  }, [client, checkResponse, isRtl, locale]);
 
   useEffect(() => {
     let active = true;
-    client.GET("/api/organizers").then(({ data, error: err, response }) => {
-      checkResponse(response.status);
-      if (!active) return;
-      if (data) setOrganizers(data);
-      else setError(err ? formatApiError(err) : "—");
-    });
+    client
+      .GET("/api/organizers")
+      .then(({ data, error: err, response }) => {
+        checkResponse(response.status);
+        if (!active) return;
+        if (data) setOrganizers(data);
+        else setError(err ? formatApiError(err) : "—");
+      })
+      .catch(() => {
+        if (active) setOffline(true);
+      });
     return () => {
       active = false;
     };
@@ -43,11 +62,12 @@ export default function PlatformOrganizers() {
   const create = async (e: FormEvent) => {
     e.preventDefault();
     if (!name.trim() || creating) return;
-    setCreating(true);
     setError(null);
-    const { data, error: err, response } = await client.POST("/api/organizers", { body: { name: name.trim() } });
+    actionRequest.setError(null);
+    const result = await createRequest.run(() => client.POST("/api/organizers", { body: { name: name.trim() } }));
+    if (!result.ok) return;
+    const { data, error: err, response } = result.value;
     checkResponse(response.status);
-    setCreating(false);
     if (data) {
       setIssued(data);
       setCopied(false);
@@ -63,18 +83,24 @@ export default function PlatformOrganizers() {
     setPending(null);
     if (!target) return;
     const path = { organizer_id: target.organizer.id };
-    if (target.action === "rotate") {
-      const { data, error: err, response } = await client.POST("/api/organizers/{organizer_id}/rotate-key", { params: { path } });
-      checkResponse(response.status);
-      if (data) {
-        setIssued(data);
-        setCopied(false);
-      } else setError(err ? formatApiError(err) : "—");
-    } else {
-      const { error: err, response } = await client.POST("/api/organizers/{organizer_id}/revoke", { params: { path } });
-      checkResponse(response.status);
-      if (err) setError(formatApiError(err));
-    }
+    setError(null);
+    createRequest.setError(null);
+    const result = await actionRequest.run(async () => {
+      if (target.action === "rotate") {
+        const { data, error: err, response } = await client.POST("/api/organizers/{organizer_id}/rotate-key", { params: { path } });
+        checkResponse(response.status);
+        if (data) {
+          setIssued(data);
+          setCopied(false);
+        } else setError(err ? formatApiError(err) : "—");
+      } else {
+        const { error: err, response } = await client.POST("/api/organizers/{organizer_id}/revoke", { params: { path } });
+        checkResponse(response.status);
+        if (err) setError(formatApiError(err));
+      }
+    });
+    // Refused because another action is in flight: that one reloads the list.
+    if (!result.ok && result.message === null) return;
     void load();
   };
 
@@ -129,10 +155,11 @@ export default function PlatformOrganizers() {
         </div>
       )}
 
-      {error && <FormAlert>{error}</FormAlert>}
+      {shownError && <FormAlert>{shownError}</FormAlert>}
+      {offline && organizers === null && <FormAlert>{networkErrorMessage[locale]}</FormAlert>}
 
       {organizers === null ? (
-        <div className="skeleton h-40" />
+        offline ? null : <div className="skeleton h-40" />
       ) : organizers.length === 0 ? (
         <EmptyState icon="users" title={isRtl ? "هنوز برگزارکننده‌ای ساخته نشده است." : "No organizer yet."} />
       ) : (
@@ -150,12 +177,12 @@ export default function PlatformOrganizers() {
                 <Badge variant={o.revoked_at ? "danger" : "success"} size="sm" dot={!o.revoked_at}>
                   {o.revoked_at ? (isRtl ? "لغو شده" : "Revoked") : isRtl ? "فعال" : "Active"}
                 </Badge>
-                <Button type="button" variant="secondary" size="sm" onClick={() => setPending({ action: "rotate", organizer: o })}>
+                <Button type="button" variant="secondary" size="sm" disabled={actionRequest.busy} onClick={() => setPending({ action: "rotate", organizer: o })}>
                   <Icon name="key" size={15} />
                   {o.revoked_at ? (isRtl ? "فعال‌سازی با کلید جدید" : "Reinstate with a new key") : isRtl ? "تعویض کلید" : "Rotate key"}
                 </Button>
                 {!o.revoked_at && (
-                  <Button type="button" variant="danger" size="sm" onClick={() => setPending({ action: "revoke", organizer: o })}>
+                  <Button type="button" variant="danger" size="sm" disabled={actionRequest.busy} onClick={() => setPending({ action: "revoke", organizer: o })}>
                     {isRtl ? "لغو دسترسی" : "Revoke"}
                   </Button>
                 )}

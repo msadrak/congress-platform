@@ -187,6 +187,33 @@ test('organizers are created, rotated and revoked from the console; keys are sho
   await reinstate.getByRole('button', { name: 'Cancel' }).click();
 });
 
+test('a request that gets no response says so and ends its spinner', async ({ page }) => {
+  await fixture(page);
+  await openConsole(page);
+  const offline = 'Could not reach the server. Check your connection and try again.';
+  // Routes registered later take precedence over the fixture's.
+  await page.route('**/api/platform/sign-in', route => route.abort('internetdisconnected'));
+  await page.route('**/api/platform/sms', route => route.abort('internetdisconnected'));
+  await page.route('**/api/organizers', route => (route.request().method() === 'POST' ? route.abort('internetdisconnected') : route.fallback()));
+
+  await page.getByRole('link', { name: 'Sign-in' }).click();
+  await page.getByLabel('Code digits').fill('4');
+  await page.getByRole('button', { name: 'Save rules' }).click();
+  await expect(page.getByRole('alert')).toContainText(offline);
+  await expect(page.getByRole('button', { name: 'Save rules' })).toBeEnabled();
+
+  await page.getByRole('link', { name: 'SMS' }).click();
+  await page.getByRole('button', { name: 'Save settings' }).click();
+  await expect(page.getByRole('alert').filter({ hasText: offline })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Save settings' })).toBeEnabled();
+
+  await page.getByRole('link', { name: 'Organizers' }).click();
+  await page.getByLabel('New organizer name').fill('Beta Union');
+  await page.getByRole('button', { name: 'Create and issue key' }).click();
+  await expect(page.getByRole('alert').filter({ hasText: offline })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Create and issue key' })).toBeEnabled();
+});
+
 test('Persian RTL at 320px: the console is right-to-left and fits', async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 700 });
   await fixture(page);
