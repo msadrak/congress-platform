@@ -4,7 +4,7 @@ import { ORGANIZER_KEY_STORAGE, createApiClient, registerUnauthorizedHandler, ty
 import { useAttendeeLocale, type TranslationDictionary } from "../lib/i18n";
 import { formatDateRange } from "../lib/format";
 import { EVENT_NAV_GROUPS, eventSectionFromPath, eventTimeStatus, eventWorkspacePath, type EventWorkspaceSection } from "../lib/organizerWorkspace";
-import { ROLE_COPY } from "../lib/organizerConsole";
+import { ROLE_COPY, isOrganizerRole } from "../lib/organizerConsole";
 import { organizerCopy } from "../copy/organizer";
 import { commonCopy } from "../copy/common";
 import { SkipLink } from "../components/ui/SkipLink";
@@ -193,7 +193,7 @@ export default function OrganizerLayout() {
 
   const identityName =
     session?.kind === "member" && session.member ? session.member.display_name : session ? copy.shell.keySession : null;
-  const identityMeta = session ? `${ROLE_COPY[locale][session.role].label} · ${session.organizer.name}` : null;
+  const identityMeta = session && isOrganizerRole(session.role) ? `${ROLE_COPY[locale][session.role].label} · ${session.organizer?.name ?? ""}` : null;
   const languageItem = { label: commonCopy[locale].languageToggle, icon: "globe" as const, onSelect: toggleLocale };
   const signOutItem = { label: copy.shell.signOut, icon: "logout" as const, onSelect: handleLogout };
   const publicHref = contextEvent ? `/e/${encodeURIComponent(contextEvent.slug)}` : null;

@@ -175,16 +175,24 @@ async function seed(page: Page, options: { desk?: boolean; locale?: string } = {
   }, { desk: options.desk ?? false, locale: options.locale ?? 'en' });
 }
 
-const workspaceNav = (page: Page) => page.getByRole('navigation', { name: 'Event workspace' });
+const workspaceNav = (page: Page) => page.getByRole('navigation', { name: 'Congress sections' });
+const NAV = [/Overview/, /Participants/, /Check-in points/, /Reception desk/, /Statistics/, /Program/, /Pass types/, /Booths/, /Public page/, /SMS/];
+
+/** Reads or fills a DateTimeField (day, month, year, time) as a `datetime-local` value, in English. */
+async function dateTimeValue(group: ReturnType<Page['getByRole']>): Promise<string> {
+  const pad = (v: string) => v.padStart(2, '0');
+  const [day, month, year, time] = await Promise.all([group.getByLabel('Day').inputValue(), group.getByLabel('Month').inputValue(), group.getByLabel('Year').inputValue(), group.getByLabel('Time').inputValue()]);
+  return `${year}-${pad(month)}-${pad(day)}T${time}`;
+}
 const overflow = (page: Page) => page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
 
 test('events overview lists authorized events with a status derived from their own dates', async ({ page }) => {
   const requests = await fixture(page);
   await seed(page);
   await page.goto('/organizer');
-  await expect(page.getByRole('link', { name: 'Alpha Congress' })).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Beta Summit' })).toBeVisible();
-  await expect(page).toHaveTitle('Events List · Organizer Console');
+  await expect(page.getByRole('link', { name: 'Alpha Congress', exact: true })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Beta Summit', exact: true })).toBeVisible();
+  await expect(page).toHaveTitle('Congresses · Organizer console');
   await expect(page.getByRole('article').filter({ hasText: 'Alpha Congress' }).getByText('Upcoming')).toBeVisible();
   await expect(page.getByRole('article').filter({ hasText: 'Beta Summit' }).getByText('Ended')).toBeVisible();
   expect(requests.every(r => r.auth === bearer)).toBe(true);
@@ -195,16 +203,20 @@ test('one workspace navigation addresses every section of the selected event by 
   await seed(page);
   await page.goto('/organizer/events/event-a');
   await expect(page.getByTestId('active-event')).toHaveText('Alpha Congress');
-  await expect(workspaceNav(page).getByRole('link')).toHaveText([/Overview/, /Program/, /Venue/, /Ticket Tiers/, /Check-In Gates/, /Exhibition Booths/, /Desk Staff/, /Public page/, /Attendee panel/, /SMS/, /Participants/, /Analytics/, /Front Desk/]);
+  // Overview, then the congress-day group, then setup: no numbers anywhere in the navigation.
+  await expect(workspaceNav(page).getByRole('link')).toHaveText(NAV);
+  await expect(workspaceNav(page).getByRole('group', { name: 'Congress day' })).toBeVisible();
+  await expect(workspaceNav(page).getByRole('group', { name: 'Setup' })).toBeVisible();
+  const numbered = await workspaceNav(page).evaluate((nav) => Array.from(nav.querySelectorAll('*')).filter((el) => /^\d{2}$/.test((el.textContent ?? '').trim())).length);
+  expect(numbered).toBe(0);
   await expect(workspaceNav(page).getByRole('link', { name: /Overview/ })).toHaveAttribute('aria-current', 'page');
 
   const eventReads = () => requests.filter(r => r.method === 'GET' && r.path === '/api/events/event-a').length;
   const before = eventReads();
   const sections: [RegExp, RegExp, string][] = [
-    [/Ticket Tiers/, /\/tiers$/, 'Alpha Delegate'],
-    [/Check-In Gates/, /\/check-in$/, 'Check-in'],
-    [/Exhibition Booths/, /\/booths$/, 'booth'],
-    [/Desk Staff/, /\/operators$/, 'Operator One'],
+    [/Pass types/, /\/tiers$/, 'Alpha Delegate'],
+    [/Check-in points/, /\/check-in$/, 'Check-in'],
+    [/Booths/, /\/booths$/, 'booth'],
   ];
   for (const [label, url, text] of sections) {
     await workspaceNav(page).getByRole('link', { name: label }).click();
@@ -216,9 +228,13 @@ test('one workspace navigation addresses every section of the selected event by 
   expect(eventReads()).toBe(before);
 
   await page.goto('/organizer/events/event-a/booths');
-  await expect(workspaceNav(page).getByRole('link', { name: /Exhibition Booths/ })).toHaveAttribute('aria-current', 'page');
-  await expect(page).toHaveTitle('Exhibition Booths · Alpha Congress');
-  await workspaceNav(page).getByRole('link', { name: /Analytics/ }).click();
+  await expect(workspaceNav(page).getByRole('link', { name: /Booths/ })).toHaveAttribute('aria-current', 'page');
+  await expect(page).toHaveTitle('Booths · Alpha Congress');
+  // Desk operators have no item of their own: the reception desk item stands for them.
+  await page.goto('/organizer/events/event-a/operators');
+  await expect(page.getByText('Operator One')).toBeVisible();
+  await expect(workspaceNav(page).getByRole('link', { name: /Reception desk/ })).toHaveAttribute('aria-current', 'page');
+  await workspaceNav(page).getByRole('link', { name: /Statistics/ }).click();
   await expect(page).toHaveURL(/\/analytics$/);
   await expect(page.getByTestId('active-event')).toHaveText('Alpha Congress');
   expect(requests.every(r => r.auth === bearer)).toBe(true);
@@ -228,32 +244,33 @@ test('overview shows real capacity from the tiers and no invented figures', asyn
   await fixture(page);
   await seed(page);
   await page.goto('/organizer/events/event-a');
-  await expect(page.getByText('60 / 120', { exact: false }).first()).toBeVisible();
+  await expect(page.getByText('60 of 120 reserved')).toBeVisible();
   const row = page.getByRole('listitem').filter({ hasText: 'Alpha Student' });
   await expect(row.getByText('Closed')).toBeVisible();
   await expect(row.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '100');
   await expect(page.getByText(/revenue|\$/i)).toHaveCount(0);
 });
 
-test('an event without tiers says so and points to ticket tiers', async ({ page }) => {
+test('an event without pass types says so', async ({ page }) => {
   await fixture(page, { tiersA: [] });
   await seed(page);
   await page.goto('/organizer/events/event-a');
-  await expect(page.getByText(/No ticket tier is defined yet/)).toBeVisible();
+  await expect(page.getByText('No pass types yet; registration needs one.')).toBeVisible();
+  await expect(page.getByTestId('setup-checklist').getByRole('listitem').filter({ hasText: 'Pass types' }).getByRole('link', { name: 'Add' })).toBeVisible();
 });
 
 test('switching events through the list never shows the previous event data', async ({ page }) => {
   await fixture(page, { slowTiersOf: 'event-a' });
   await seed(page);
   await page.goto('/organizer/events/event-a/tiers');
-  await page.getByRole('link', { name: /Events List/ }).click();
-  await page.getByRole('link', { name: 'Beta Summit' }).first().click();
+  await page.getByRole('link', { name: 'Congresses' }).first().click();
+  await page.getByRole('link', { name: 'Beta Summit', exact: true }).click();
   await expect(page.getByTestId('active-event')).toHaveText('Beta Summit');
   await page.waitForTimeout(1800);
   await expect(page.getByTestId('active-event')).toHaveText('Beta Summit');
   await expect(page.getByText('Alpha Delegate')).toHaveCount(0);
   await expect(page.getByText('Alpha Congress')).toHaveCount(0);
-  await workspaceNav(page).getByRole('link', { name: /Ticket Tiers/ }).click();
+  await workspaceNav(page).getByRole('link', { name: /Pass types/ }).click();
   await expect(page.getByText('Beta Delegate').first()).toBeVisible();
 });
 
@@ -261,11 +278,13 @@ test('editing an event setting persists, announces success and updates the works
   const requests = await fixture(page);
   await seed(page);
   await page.goto('/organizer/events/event-a');
-  await page.getByRole('button', { name: /Edit Event/ }).click();
+  // The settings card holds the overview's one edit control.
+  await expect(page.getByRole('button', { name: /^Edit/ })).toHaveCount(1);
+  await page.getByTestId('event-settings').getByRole('button', { name: 'Edit' }).click();
   const dialog = page.getByRole('dialog');
   await dialog.getByRole('textbox').first().fill('Alpha Congress Renamed');
   await dialog.getByRole('button', { name: /Save/ }).click();
-  await expect(page.getByRole('status').filter({ hasText: 'Event settings saved' })).toBeVisible();
+  await expect(page.getByRole('status').filter({ hasText: 'Congress settings saved' })).toBeVisible();
   await expect(page.getByTestId('active-event')).toHaveText('Alpha Congress Renamed');
   const patch = requests.find(r => r.method === 'PATCH' && r.path === '/api/events/event-a');
   expect(patch?.auth).toBe(bearer);
@@ -279,22 +298,24 @@ test.describe('in a non-UTC time zone', () => {
     const requests = await fixture(page);
     await seed(page);
     await page.goto('/organizer/events/event-a');
-    await page.getByRole('button', { name: /Edit Event/ }).click();
+    await page.getByTestId('event-settings').getByRole('button', { name: 'Edit' }).click();
     const dialog = page.getByRole('dialog');
     // 07:00Z is 10:30 in Tehran (UTC+03:30).
-    await expect(dialog.getByLabel(/Start Date & Time/)).toHaveValue('2099-05-10T10:30');
-    await expect(dialog.getByLabel(/End Date & Time/)).toHaveValue('2099-05-12T18:30');
+    expect(await dateTimeValue(dialog.getByRole('group', { name: 'Starts' }))).toBe('2099-05-10T10:30');
+    expect(await dateTimeValue(dialog.getByRole('group', { name: 'Ends' }))).toBe('2099-05-12T18:30');
 
-    const name = dialog.getByRole('textbox').first();
+    const name = dialog.getByRole('textbox', { name: 'Congress name' });
     await name.fill('');
     await dialog.getByRole('button', { name: /Save/ }).click();
-    await expect(dialog.getByRole('alert')).toHaveText('Enter the event name.');
+    // The error sits under the field, is linked to it, and the field gets focus.
     await expect(name).toHaveAttribute('aria-invalid', 'true');
+    await expect(name).toBeFocused();
+    await expect(page.locator(`#${await name.getAttribute('aria-describedby')}`)).toHaveText('Enter the congress name.');
     expect(requests.some(r => r.method === 'PATCH')).toBe(false);
 
     await name.fill('Alpha Congress');
     await dialog.getByRole('button', { name: /Save/ }).click();
-    await expect(page.getByRole('status').filter({ hasText: 'Event settings saved' })).toBeVisible();
+    await expect(page.getByRole('status').filter({ hasText: 'Congress settings saved' })).toBeVisible();
     const patch = requests.find(r => r.method === 'PATCH' && r.path === '/api/events/event-a');
     expect(patch?.body).toMatchObject({ starts_at: '2099-05-10T07:00:00.000Z', ends_at: '2099-05-12T15:00:00.000Z' });
   });
@@ -536,23 +557,20 @@ test('program: sessions are grouped by day, added in the event time zone, and a 
   expect(requests.every(r => r.auth === bearer)).toBe(true);
 });
 
-test('venue and booths: entrances are added, halls reordered, and a booth is edited, then deleted after an explicit warning', async ({ page }) => {
-  const requests = await fixture(page);
+test('the old venue and panel addresses lead to the program and the public page preview', async ({ page }) => {
+  await fixture(page);
   await seed(page);
   await page.goto('/organizer/events/event-a/venue');
-  await expect(page.getByTestId('venue-hall')).toHaveText([/Main hall/, /Hall 2/]);
-  await page.getByRole('button', { name: 'Add entrance' }).click();
-  const add = page.getByRole('dialog', { name: 'Add entrance' });
-  await add.getByLabel('Name').fill('North gate');
-  await add.getByRole('button', { name: 'Save' }).click();
-  await expect(page.getByTestId('venue-entrance')).toHaveText([/North gate/]);
-  await page.getByRole('button', { name: 'Move “Hall 2” up' }).click();
-  await expect(page.getByTestId('venue-hall')).toHaveText([/Hall 2/, /Main hall/]);
-  expect(requests.filter(r => r.method === 'PATCH' && r.path.includes('/venue-places/'))).toHaveLength(2);
-  await page.getByRole('button', { name: 'Delete Main hall' }).click();
-  await expect(page.getByRole('dialog', { name: 'Delete this hall?' })).toContainText('Its 1 session stays in the program without a hall.');
-  await page.getByRole('dialog', { name: 'Delete this hall?' }).getByRole('button', { name: 'Cancel' }).click();
+  await expect(page).toHaveURL(/\/organizer\/events\/event-a\/program\?tab=venue$/);
+  await expect(workspaceNav(page).getByRole('link', { name: /Program/ })).toHaveAttribute('aria-current', 'page');
+  await page.goto('/organizer/events/event-a/panel');
+  await expect(page).toHaveURL(/\/organizer\/events\/event-a\/page\?preview=panel$/);
+  await expect(workspaceNav(page).getByRole('link', { name: /Public page/ })).toHaveAttribute('aria-current', 'page');
+});
 
+test('booths: a booth is edited, then deleted after an explicit warning', async ({ page }) => {
+  const requests = await fixture(page);
+  await seed(page);
   await page.goto('/organizer/events/event-a/booths');
   await page.getByRole('button', { name: 'Edit booth Acme Biotech' }).click();
   const edit = page.getByRole('dialog', { name: 'Edit booth' });
@@ -592,7 +610,7 @@ test('reception shows which authority is acting when both credentials exist', as
   await expect(page.getByTestId('desk-active-mode')).toHaveText('Acting as: reception operator');
   await page.getByRole('button', { name: 'Organizer', exact: true }).click();
   await expect(page.getByTestId('desk-active-mode')).toHaveText('Acting as: organizer');
-  await expect(workspaceNav(page).getByRole('link', { name: /Front Desk/ })).toHaveAttribute('aria-current', 'page');
+  await expect(workspaceNav(page).getByRole('link', { name: /Reception desk/ })).toHaveAttribute('aria-current', 'page');
 });
 
 test('mobile and tablet layouts have no horizontal overflow; the workspace nav scrolls inside itself', async ({ page }) => {
@@ -602,7 +620,7 @@ test('mobile and tablet layouts have no horizontal overflow; the workspace nav s
     await page.setViewportSize({ width, height });
     for (const path of ['/organizer', '/organizer/events/event-a', '/organizer/events/event-a/tiers', '/organizer/events/event-a/analytics']) {
       await page.goto(path);
-      await expect(page.getByTestId('active-event').or(page.getByRole('heading', { name: 'Events List' }).or(page.getByRole('heading').first())).first()).toBeVisible();
+      await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
       expect(await overflow(page), `${width}px ${path}`).toBe(0);
     }
   }
@@ -618,5 +636,65 @@ test('Persian RTL at 320px: workspace is right-to-left and fits', async ({ page 
     expect(await overflow(page), path).toBe(0);
   }
   await page.goto('/organizer/events/event-a');
-  await expect(page.getByRole('navigation', { name: 'فضای کاری همایش' }).getByRole('link', { name: 'نمای کلی' })).toBeVisible();
+  await expect(page.getByRole('navigation', { name: 'بخش‌های همایش' }).getByRole('link', { name: 'نمای کلی' })).toBeVisible();
+});
+
+test.describe('the shell fits every device', () => {
+  test('at 1280×800 every section link is visible without scrolling the rail', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await fixture(page);
+    await seed(page);
+    await page.goto('/organizer/events/event-a');
+    await expect(workspaceNav(page).getByRole('link')).toHaveText(NAV);
+    const rail = page.locator('aside.org-rail');
+    expect(await rail.evaluate((el) => el.scrollHeight <= el.clientHeight)).toBe(true);
+    for (const link of await workspaceNav(page).getByRole('link').all()) {
+      const box = await link.boundingBox();
+      expect(box && box.y >= 0 && box.y + box.height <= 800).toBe(true);
+    }
+    // Identity, language and sign-out share one 56 px row with a menu.
+    const account = page.getByTestId('console-identity');
+    expect(Math.round((await account.boundingBox())?.height ?? 0)).toBe(56);
+    await account.getByRole('button', { name: 'Account menu' }).click();
+    await expect(page.getByRole('menuitem', { name: 'Sign out' })).toBeVisible();
+    await expect(page.getByRole('menuitem', { name: 'فارسی' })).toBeVisible();
+  });
+
+  test('from 1024 to 1279 px the rail is icons, each link still named', async ({ page }) => {
+    await page.setViewportSize({ width: 1180, height: 820 });
+    await fixture(page);
+    await seed(page);
+    await page.goto('/organizer/events/event-a');
+    const link = workspaceNav(page).getByRole('link', { name: 'Statistics' });
+    await expect(link).toBeVisible();
+    expect((await link.boundingBox())?.width ?? 0).toBeLessThanOrEqual(64);
+    await expect(link).toHaveAttribute('title', 'Statistics');
+    await expect(page.getByTestId('organizer-topbar')).toContainText('Alpha Congress');
+  });
+
+  for (const [width, height] of [[390, 844], [820, 1180]]) {
+    test(`at ${width}×${height} the in-congress header is at most 104 px, congress-day tabs first`, async ({ page }) => {
+      await page.setViewportSize({ width, height });
+      await fixture(page);
+      await seed(page);
+      await page.goto('/organizer/events/event-a');
+      await expect(workspaceNav(page).getByRole('link')).toHaveText(NAV);
+      const bar = (await page.getByTestId('organizer-topbar').boundingBox())?.height ?? 0;
+      const strip = (await page.locator('aside.org-rail').boundingBox())?.height ?? 0;
+      expect(Math.round(bar)).toBe(56);
+      expect(bar + strip).toBeLessThanOrEqual(104);
+      await expect(page.getByTestId('organizer-topbar')).toContainText('Alpha Congress');
+    });
+  }
+
+  test('at 390×844 the sign-in shows Send code above the fold, the organizer key behind a link', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.addInitScript(() => localStorage.setItem('congress_attendee_locale', 'en'));
+    await page.goto('/organizer');
+    const send = page.getByRole('button', { name: 'Send code' });
+    await expect(send).toBeInViewport({ ratio: 1 });
+    await expect(page.getByRole('button', { name: 'Use organizer key' })).toBeVisible();
+    const words = (await page.locator('main').innerText()).split(/\s+/).filter(Boolean).length;
+    expect(words).toBeLessThanOrEqual(30);
+  });
 });
