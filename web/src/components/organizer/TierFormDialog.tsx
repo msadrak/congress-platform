@@ -84,7 +84,7 @@ export function TierFormDialog(props: TierFormDialogProps) {
     setInvalidField(null);
     if (!draft.name.trim()) {
       setInvalidField("name");
-      setFormError(isRtl ? "نام رده را وارد کنید." : "Enter the tier name.");
+      setFormError(isRtl ? "نام نوع کارت ورود را وارد کنید." : "Enter the tier name.");
       return;
     }
     if (!(draft.quota >= 1)) {
@@ -140,7 +140,7 @@ export function TierFormDialog(props: TierFormDialogProps) {
     <Field
       label={t.tierQuotaLabel}
       required
-      hint={isEdit ? (isRtl ? "سهمیه نمی‌تواند کمتر از بلیط‌های صادرشده باشد." : "Quota cannot fall below confirmed registrations.") : undefined}
+      hint={isEdit ? (isRtl ? "سهمیه نمی‌تواند کمتر از کارت‌های ورود صادرشده باشد." : "Quota cannot fall below confirmed registrations.") : undefined}
     >
       <input
         type="number"
@@ -165,8 +165,8 @@ export function TierFormDialog(props: TierFormDialogProps) {
             setFormError(null);
           }
         }}
-        title={isEdit ? t.editTierTitle || (isRtl ? "ویرایش رده بلیط و سهمیه" : "Edit Ticket Tier") : t.createTierModalTitle}
-        description={isEdit ? t.editTierDesc || (isRtl ? "ویرایش نام، توضیحات، سهمیه و وضعیت ثبت‌نام رده." : "Update tier details.") : t.createTierModalDesc}
+        title={isEdit ? t.editTierTitle || (isRtl ? "ویرایش نوع کارت ورود و سهمیه" : "Edit Ticket Tier") : t.createTierModalTitle}
+        description={isEdit ? t.editTierDesc || (isRtl ? "ویرایش نام، توضیحات، سهمیه و وضعیت ثبت‌نام نوع کارت ورود." : "Update tier details.") : t.createTierModalDesc}
         size="md"
       >
         {(!isEdit || tier) && (
@@ -189,7 +189,7 @@ export function TierFormDialog(props: TierFormDialogProps) {
 
                 <Field label={t.tierStatusLabel || (isRtl ? "وضعیت ثبت‌نام" : "Registration Status")}>
                   <select value={draft.isOpen ? "open" : "closed"} onChange={(e) => setDraft((d) => ({ ...d, isOpen: e.target.value === "open" }))} className="ui-select">
-                    <option value="open">{t.tierOpenOption || (isRtl ? "باز جهت ثبت‌نام و صدور بلیط" : "Open for Registration")}</option>
+                    <option value="open">{t.tierOpenOption || (isRtl ? "باز جهت ثبت‌نام و صدور کارت ورود" : "Open for Registration")}</option>
                     <option value="closed">{t.tierClosedOption || (isRtl ? "بسته شده (عدم پذیرش ثبت‌نام)" : "Closed")}</option>
                   </select>
                 </Field>
@@ -198,7 +198,7 @@ export function TierFormDialog(props: TierFormDialogProps) {
               quotaField
             )}
 
-            <Field label={isEdit ? t.tierDescriptionLabel || (isRtl ? "توضیحات و مزایای رده" : "Tier Description") : t.tierDescriptionLabel}>
+            <Field label={isEdit ? t.tierDescriptionLabel || (isRtl ? "توضیحات و مزایای نوع کارت ورود" : "Tier Description") : t.tierDescriptionLabel}>
               <textarea
                 rows={2}
                 value={draft.description}
@@ -248,7 +248,7 @@ export function TierFormDialog(props: TierFormDialogProps) {
               </div>
               <p className="text-xs leading-relaxed text-text-muted">
                 {isRtl
-                  ? `خالی یعنی بدون محدودیت. زمان‌ها به وقت ${zone} است. بیرون از این بازه، رزرو این رده پذیرفته نمی‌شود.`
+                  ? `خالی یعنی بدون محدودیت. زمان‌ها به وقت ${zone} است. بیرون از این بازه، رزرو این نوع کارت ورود پذیرفته نمی‌شود.`
                   : `Leave blank for no limit. Times are in ${zone}. Outside this window the tier cannot be reserved.`}
               </p>
             </fieldset>
@@ -278,13 +278,13 @@ export function TierFormDialog(props: TierFormDialogProps) {
       {isEdit && (
         <ConfirmDialog
           isOpen={confirmClose}
-          title={isRtl ? "بستن این رده بلیط؟" : "Close this ticket tier?"}
+          title={isRtl ? "ثبت‌نام این نوع کارت ورود بسته شود؟" : "Close this ticket tier?"}
           description={
             isRtl
-              ? "پس از بستن، شرکت‌کنندگان جدید نمی‌توانند این رده را رزرو کنند. رزروهای موجود حفظ می‌شود."
+              ? "پس از بستن، شرکت‌کنندگان جدید نمی‌توانند این نوع کارت ورود را رزرو کنند. رزروهای موجود حفظ می‌شود."
               : "New attendees will no longer be able to reserve this tier. Existing reservations are kept."
           }
-          confirmLabel={isRtl ? "بستن رده" : "Close tier"}
+          confirmLabel={isRtl ? "بستن ثبت‌نام" : "Close tier"}
           cancelLabel={cancelLabel}
           onCancel={() => setConfirmClose(false)}
           onConfirm={() => {

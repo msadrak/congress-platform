@@ -137,8 +137,8 @@ export default function EventOverview() {
           {([
             ["program", t.tabProgram, sessions.items.length, isRtl ? "جلسه در برنامه" : "Program sessions", "calendar"],
             ["venue", t.tabVenue, places.items.length, isRtl ? "سالن و ورودی" : "Halls & entrances", "pin"],
-            ["tiers", t.tabTiers, tiers.items.length, isRtl ? "رده بلیط" : "Ticket tiers", "ticket"],
-            ["check-in", t.tabPoints, points.items.length, isRtl ? "ایستگاه اسکن بارکد" : "Scanner stations", "gate"],
+            ["tiers", t.tabTiers, tiers.items.length, isRtl ? "نوع کارت ورود" : "Ticket tiers", "ticket"],
+            ["check-in", t.tabPoints, points.items.length, isRtl ? "نقطه ورود" : "Scanner stations", "gate"],
             ["booths", t.tabBooths, booths.items.length, isRtl ? "غرفه ثبت‌شده" : "Registered booths", "booth"],
             ["operators", t.tabOperators, canManage ? activeOperators : null, isRtl ? "اپراتور فعال" : "Active operators", "users"],
           ] as const).map(([key, label, count, caption, icon]) => (
@@ -180,11 +180,11 @@ export default function EventOverview() {
               </span>
               <div className="space-y-1">
                 <h2 id="capacity-title" className="text-base font-bold text-text-primary">
-                  {isRtl ? "ظرفیت و رزرو بلیط" : "Ticket capacity & reservations"}
+                  {isRtl ? "ظرفیت و رزرو کارت ورود" : "Ticket capacity & reservations"}
                 </h2>
                 <p className="text-sm leading-relaxed text-text-secondary">
                   {isRtl
-                    ? "هنوز رده بلیطی تعریف نشده است؛ بدون رده بلیط، شرکت‌کنندگان نمی‌توانند ثبت‌نام کنند."
+                    ? "هنوز نوع کارت ورودی تعریف نشده است؛ بدون آن، شرکت‌کنندگان نمی‌توانند ثبت‌نام کنند."
                     : "No ticket tier is defined yet; attendees cannot reserve a pass until you add one."}
                 </p>
               </div>
@@ -202,7 +202,7 @@ export default function EventOverview() {
             <div className="flex flex-col gap-6 border-b border-border-subtle bg-meridian p-5 sm:p-7 lg:border-b-0 lg:border-e">
               <div className="flex items-center justify-between gap-3">
                 <h2 id="capacity-title" className="text-base font-bold tracking-tight text-text-primary">
-                  {isRtl ? "ظرفیت و رزرو بلیط" : "Ticket capacity & reservations"}
+                  {isRtl ? "ظرفیت و رزرو کارت ورود" : "Ticket capacity & reservations"}
                 </h2>
                 <Icon name="ticket" size={20} className="text-aiteb-indigo/60" />
               </div>
@@ -214,7 +214,7 @@ export default function EventOverview() {
                     {fmt(totalQuota)}
                   </span>
                 </span>
-                <span className="mt-2.5 block">{isRtl ? "بلیط رزروشده از کل ظرفیت" : "passes reserved of total quota"}</span>
+                <span className="mt-2.5 block">{isRtl ? "کارت ورود رزروشده از کل ظرفیت" : "passes reserved of total quota"}</span>
               </p>
               <div className="mt-auto space-y-2.5">
                 <Meter value={capacityPct} label={isRtl ? "ظرفیت کل" : "Total capacity"} size="lg" tone={capacityPct >= 100 ? "full" : "default"} />

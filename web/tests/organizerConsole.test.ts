@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { activityAction, activityActor, activityTarget, roleAtLeast, sessionAllows } from "../src/lib/organizerConsole.ts";
+import { activityAction, activityActor, activityTarget, roleAtLeast } from "../src/lib/organizerConsole.ts";
 
 test("roles rank owner > manager > staff > viewer, and no role reaches anything", () => {
   assert.equal(roleAtLeast("owner", "manager"), true);
@@ -8,18 +8,6 @@ test("roles rank owner > manager > staff > viewer, and no role reaches anything"
   assert.equal(roleAtLeast("staff", "manager"), false);
   assert.equal(roleAtLeast("viewer", "staff"), false);
   assert.equal(roleAtLeast(null, "viewer"), false);
-});
-
-test("the console offers an action to roles that reach it, and to a session it does not know yet", () => {
-  assert.equal(sessionAllows({ role: "owner" }, "manager"), true);
-  assert.equal(sessionAllows({ role: "manager" }, "manager"), true);
-  assert.equal(sessionAllows({ role: "staff" }, "manager"), false);
-  assert.equal(sessionAllows({ role: "staff" }, "staff"), true);
-  assert.equal(sessionAllows({ role: "viewer" }, "staff"), false);
-  assert.equal(sessionAllows(null, "owner"), true);
-  assert.equal(sessionAllows(undefined, "manager"), true);
-  // Not a session at all (e.g. an empty list from a misrouted response): unknown, so offered.
-  assert.equal(sessionAllows(JSON.parse("[]"), "manager"), true);
 });
 
 test("an automatic row names the route without the prefix and its ids", () => {

@@ -68,7 +68,7 @@ export function BoothQrDialog({ booth, eventName, onClose }: BoothQrDialogProps)
               <Icon name="alert" size={18} className="mt-0.5 shrink-0" />
               <span>
                 {isRtl
-                  ? "صفحهٔ عمومی همایش هنوز منتشر نشده است؛ تا انتشار آن، اسکن این کیوآرکد به صفحهٔ «یافت نشد» می‌رسد. پیش از چاپ، صفحه را منتشر کنید. "
+                  ? "صفحهٔ عمومی همایش هنوز منتشر نشده است؛ تا انتشار آن، اسکن این کد QR به صفحهٔ «یافت نشد» می‌رسد. پیش از چاپ، صفحه را منتشر کنید. "
                   : "The congress page is not published yet, so scanning this code opens a “not found” page until it is. Publish the page before printing. "}
                 {eventId && (
                   <Link to={eventWorkspacePath(eventId, "/page")} className="font-semibold underline">
@@ -99,7 +99,7 @@ export function BoothQrDialog({ booth, eventName, onClose }: BoothQrDialogProps)
                     fgColor="#0F172A"
                     bgColor="#FFFFFF"
                     className="h-48 w-48 select-none"
-                    aria-label={isRtl ? "کیوآرکد صفحهٔ غرفه" : "Booth page QR code"}
+                    aria-label={isRtl ? "کد QR صفحهٔ غرفه" : "Booth page QR code"}
                   />
                 </div>
                 <div className="space-y-1">
@@ -119,7 +119,7 @@ export function BoothQrDialog({ booth, eventName, onClose }: BoothQrDialogProps)
           )}
           <Button type="button" variant="ink" size="md" isFullWidth disabled={!shown} onClick={() => window.print()}>
             <Icon name="print" size={18} />
-            {isRtl ? "چاپ کیوآرکد استند" : "Print Standee QR"}
+            {isRtl ? "چاپ کد QR استند" : "Print Standee QR"}
           </Button>
         </div>
       )}

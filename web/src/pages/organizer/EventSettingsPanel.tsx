@@ -164,10 +164,10 @@ export function EventSettingsPanel({ event, reservedCount, onEdit, onNotice }: E
           <p className="w-full text-xs leading-relaxed text-text-muted">
             {reservedCount === 0
               ? isRtl
-                ? "همایشی که هنوز بلیتی صادر نکرده است حذف می‌شود؛ پس از صدور بلیت فقط می‌توان آن را بایگانی کرد."
+                ? "همایشی که هنوز کارت ورودی صادر نکرده است حذف می‌شود؛ پس از صدور کارت ورود فقط می‌توان آن را بایگانی کرد."
                 : "A congress that has not issued a ticket can be deleted; once it has, it can only be archived."
               : isRtl
-                ? "این همایش بلیت صادر کرده است و حذف نمی‌شود؛ برای کنار گذاشتنش آن را بایگانی کنید."
+                ? "این همایش کارت ورود صادر کرده است و حذف نمی‌شود؛ برای کنار گذاشتنش آن را بایگانی کنید."
                 : "This congress has issued tickets and cannot be deleted; archive it to set it aside."}
           </p>
         </div>
@@ -178,7 +178,7 @@ export function EventSettingsPanel({ event, reservedCount, onEdit, onNotice }: E
         title={isRtl ? "این همایش بایگانی شود؟" : "Archive this congress?"}
         description={
           isRtl
-            ? "صفحهٔ عمومی و صفحه‌های غرفه‌های آن از دسترس خارج می‌شود، رزرو تازه پذیرفته نمی‌شود و همهٔ تنظیماتش فقط‌خواندنی می‌شود. بلیت‌ها، ورودها و داده‌ها حفظ می‌شوند و هر زمان می‌توانید آن را از بایگانی خارج کنید."
+            ? "صفحهٔ عمومی و صفحه‌های غرفه‌های آن از دسترس خارج می‌شود، رزرو تازه پذیرفته نمی‌شود و همهٔ تنظیماتش فقط‌خواندنی می‌شود. کارت‌های ورود، ورودها و داده‌ها حفظ می‌شوند و هر زمان می‌توانید آن را از بایگانی خارج کنید."
             : "Its public page and booth pages go offline, it takes no new reservations and all its settings become read-only. Tickets, check-ins and data are kept, and you can unarchive it at any time."
         }
         confirmLabel={isRtl ? "بایگانی" : "Archive"}
@@ -195,7 +195,7 @@ export function EventSettingsPanel({ event, reservedCount, onEdit, onNotice }: E
         title={isRtl ? "این همایش برای همیشه حذف شود؟" : "Delete this congress permanently?"}
         description={
           isRtl
-            ? `«${event.name}» همراه با رده‌های بلیت، غرفه‌ها، ایستگاه‌های ورود، اپراتورها، برنامه، صفحهٔ عمومی و فایل‌هایش حذف می‌شود. این کار برگشت‌پذیر نیست.`
+            ? `«${event.name}» همراه با انواع کارت ورود، غرفه‌ها، نقاط ورود، اپراتورها، برنامه، صفحهٔ عمومی و فایل‌هایش حذف می‌شود. این کار برگشت‌پذیر نیست.`
             : `“${event.name}” is deleted with its ticket tiers, booths, check-in points, operators, program, public page and files. This cannot be undone.`
         }
         confirmLabel={isRtl ? "حذف همایش" : "Delete congress"}
@@ -215,7 +215,7 @@ export function EventSettingsPanel({ event, reservedCount, onEdit, onNotice }: E
       >
         <p className="text-sm leading-relaxed text-text-secondary">
           {isRtl
-            ? "بایگانی، همایش را از سایت عمومی برمی‌دارد و فقط‌خواندنی می‌کند، اما بلیت‌ها و سوابق آن را نگه می‌دارد."
+            ? "بایگانی، همایش را از سایت عمومی برمی‌دارد و فقط‌خواندنی می‌کند، اما کارت‌های ورود و سوابق آن را نگه می‌دارد."
             : "Archiving takes the congress off the public site and makes it read-only, while keeping its tickets and records."}
         </p>
         <div className="mt-5">

@@ -53,7 +53,7 @@ export default function EventTiers() {
     setBusyTierId(null);
     if (response.ok) {
       tiers.setItems((prev) => prev.filter((x) => x.id !== tier.id));
-      setNotice({ tone: "ok", text: isRtl ? `رده «${tier.name}» حذف شد.` : `Ticket tier “${tier.name}” deleted.` });
+      setNotice({ tone: "ok", text: isRtl ? `نوع کارت ورود «${tier.name}» حذف شد.` : `Ticket tier “${tier.name}” deleted.` });
     } else if (apiErrorCode(err) === "TIER_HAS_RESERVATIONS") {
       setDeleteRefused({ tier, reason: localizedApiError(err, locale) });
     } else {
@@ -71,7 +71,7 @@ export default function EventTiers() {
     setBusyTierId(null);
     if (data) {
       tiers.setItems((prev) => prev.map((x) => (x.id === data.id ? data : x)));
-      setNotice({ tone: "ok", text: isRtl ? `ثبت‌نام رده «${data.name}» بسته شد.` : `Registration for “${data.name}” is closed.` });
+      setNotice({ tone: "ok", text: isRtl ? `ثبت‌نام نوع کارت ورود «${data.name}» بسته شد.` : `Registration for “${data.name}” is closed.` });
     } else {
       setNotice({ tone: "error", text: localizedApiError(err, locale) });
     }
@@ -192,7 +192,7 @@ export default function EventTiers() {
                               size="sm"
                               disabled={busyTierId === tier.id}
                               onClick={() => setDeleteTarget(tier)}
-                              aria-label={isRtl ? `حذف رده ${tier.name}` : `Delete tier ${tier.name}`}
+                              aria-label={isRtl ? `حذف نوع کارت ورود ${tier.name}` : `Delete tier ${tier.name}`}
                               className="!text-status-danger-text hover:!border-status-danger-border hover:!bg-status-danger-bg"
                             >
                               <Icon name="trash" size={16} />
@@ -217,7 +217,7 @@ export default function EventTiers() {
         onSaved={(created) => {
           tiers.setItems((prev) => [...prev, created]);
           setIsCreateOpen(false);
-          setNotice({ tone: "ok", text: isRtl ? `رده «${created.name}» ایجاد شد.` : `Ticket tier “${created.name}” created.` });
+          setNotice({ tone: "ok", text: isRtl ? `نوع کارت ورود «${created.name}» ایجاد شد.` : `Ticket tier “${created.name}” created.` });
         }}
       />
       <TierFormDialog
@@ -227,22 +227,22 @@ export default function EventTiers() {
         onSaved={(saved) => {
           tiers.setItems((prev) => prev.map((tr) => (tr.id === saved.id ? saved : tr)));
           setEditingTier(null);
-          setNotice({ tone: "ok", text: isRtl ? `رده «${saved.name}» ذخیره شد.` : `Ticket tier “${saved.name}” saved.` });
+          setNotice({ tone: "ok", text: isRtl ? `نوع کارت ورود «${saved.name}» ذخیره شد.` : `Ticket tier “${saved.name}” saved.` });
         }}
       />
 
       <ConfirmDialog
         isOpen={deleteTarget !== null}
         tone="danger"
-        title={isRtl ? "حذف این رده بلیت؟" : "Delete this ticket tier?"}
+        title={isRtl ? "این نوع کارت ورود حذف شود؟" : "Delete this ticket tier?"}
         description={
           deleteTarget
             ? isRtl
-              ? `رده «${deleteTarget.name}» حذف می‌شود. رده‌ای که رزرو دارد حذف نمی‌شود؛ آن را ببندید.`
+              ? `نوع کارت ورود «${deleteTarget.name}» حذف می‌شود. نوعی که رزرو دارد حذف نمی‌شود؛ ثبت‌نامش را ببندید.`
               : `“${deleteTarget.name}” is deleted. A tier that has reservations cannot be deleted; close it instead.`
             : ""
         }
-        confirmLabel={isRtl ? "حذف رده" : "Delete tier"}
+        confirmLabel={isRtl ? "حذف نوع کارت ورود" : "Delete tier"}
         cancelLabel={isRtl ? "انصراف" : "Cancel"}
         onCancel={() => setDeleteTarget(null)}
         onConfirm={() => {
@@ -254,13 +254,13 @@ export default function EventTiers() {
       <Dialog
         isOpen={deleteRefused !== null}
         onClose={() => setDeleteRefused(null)}
-        title={isRtl ? "این رده حذف نمی‌شود" : "This tier cannot be deleted"}
+        title={isRtl ? "این نوع کارت ورود حذف نمی‌شود" : "This tier cannot be deleted"}
         description={deleteRefused?.reason}
         size="sm"
       >
         <p className="text-sm leading-relaxed text-text-secondary">
           {isRtl
-            ? "با بستن رده، رزرو تازه پذیرفته نمی‌شود و بلیت‌های صادرشده معتبر می‌مانند."
+            ? "با بستن ثبت‌نام آن، رزرو تازه پذیرفته نمی‌شود و کارت‌های ورود صادرشده معتبر می‌مانند."
             : "Closing the tier stops new reservations while the passes already issued stay valid."}
         </p>
         <div className="mt-5">
@@ -279,7 +279,7 @@ export default function EventTiers() {
                   void closeTier(target);
                 }}
               >
-                {isRtl ? "بستن ثبت‌نام این رده" : "Close this tier instead"}
+                {isRtl ? "بستن ثبت‌نام این نوع کارت ورود" : "Close this tier instead"}
               </Button>
             )}
           </DialogActions>

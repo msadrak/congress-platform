@@ -13,7 +13,6 @@ import { bucketSeries, formatClock, formatDay, formatHour, todayIn, type SeriesP
 import { networkErrorMessage } from "../lib/errorMessages";
 import { formatLocalizedNumber, type AttendeeLocale } from "../lib/i18n";
 import { eventOperationNumber } from "../lib/organizerWorkspace";
-import { sessionAllows } from "../lib/organizerConsole";
 import type { OrganizerOutletContext } from "./OrganizerLayout";
 import { Badge } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
@@ -37,10 +36,7 @@ export default function OrganizerAnalytics() {
 
 function OrganizerAnalyticsContent() {
   const { eventId } = useParams<{ eventId: string }>();
-  // A 401 reaches the layout's key gate through the API client (registerUnauthorizedHandler).
-  const { apiKey, reportEvent, session, locale, t } = useOutletContext<OrganizerOutletContext>();
-  // Row-level exports are a manager's (backend/app/roles.py).
-  const canExport = sessionAllows(session, "manager");
+  const { apiKey, onKeyRejected, reportEvent, locale, t } = useOutletContext<OrganizerOutletContext>();
 
   const [event, setEvent] = useState<EventOut | null>(null);
   const [points, setPoints] = useState<CheckInPointOut[]>([]);
@@ -82,6 +78,7 @@ function OrganizerAnalyticsContent() {
     ])
       .then(([evRes, pointsRes, tiersRes]) => {
         // 401 invalidates only the key that was sent, even if this page has since unmounted.
+        if ([evRes, pointsRes, tiersRes].some((res) => res.response.status === 401)) onKeyRejected(apiKey);
         if (!active) return;
         if (evRes.data) setEvent(evRes.data);
         if (pointsRes.data) setPoints(pointsRes.data);
@@ -93,7 +90,7 @@ function OrganizerAnalyticsContent() {
     return () => {
       active = false;
     };
-  }, [eventId, apiKey]);
+  }, [eventId, apiKey, onKeyRejected]);
 
   // The figures for the current filters. Only the newest request may write, so a slow answer for earlier
   // filters (or an older poll) never replaces a newer one.
@@ -111,6 +108,7 @@ function OrganizerAnalyticsContent() {
         },
       });
       // 401 invalidates only the key that was sent, even if the answer is no longer wanted.
+      if (res.response.status === 401) onKeyRejected(apiKey);
       if (request !== latestRequest.current) return;
       if (res.data) {
         setAnalytics({ key, data: res.data });
@@ -122,7 +120,7 @@ function OrganizerAnalyticsContent() {
     } catch {
       if (request === latestRequest.current) setError(NETWORK_ERROR);
     }
-  }, [eventId, apiKey, pointId, tierId, day]);
+  }, [eventId, apiKey, onKeyRejected, pointId, tierId, day]);
 
   // Fetched when the filters change, on retry, and on coming back to a hidden tab; never while hidden.
   useEffect(() => {
@@ -181,6 +179,7 @@ function OrganizerAnalyticsContent() {
         kind === "attendance"
           ? await client.GET("/api/events/{event_id}/analytics/export-csv", options)
           : await client.GET("/api/events/{event_id}/analytics/registrations-csv", options);
+      if (response.status === 401) onKeyRejected(apiKey);
       if (!response.ok || !blob) {
         setExportError(t.csvExportFailed);
         return;
@@ -229,18 +228,14 @@ function OrganizerAnalyticsContent() {
               <Icon name={autoRefresh ? "pause" : "play"} size={16} />
               <span>{autoRefresh ? t.analyticsPauseAction : t.analyticsResumeAction}</span>
             </Button>
-            {canExport && (
-              <>
-                <Button type="button" variant="outline" size="md" disabled={exporting !== null} onClick={() => void downloadCsv("registrations")}>
-                  <Icon name="users" size={18} />
-                  <span>{exporting === "registrations" ? t.exportingCsv : t.exportRegistrationsCsvAction}</span>
-                </Button>
-                <Button type="button" variant="primary" size="md" disabled={exporting !== null} onClick={() => void downloadCsv("attendance")}>
-                  <Icon name="download" size={18} />
-                  <span>{exporting === "attendance" ? t.exportingCsv : t.exportAttendanceCsvAction}</span>
-                </Button>
-              </>
-            )}
+            <Button type="button" variant="outline" size="md" disabled={exporting !== null} onClick={() => void downloadCsv("registrations")}>
+              <Icon name="users" size={18} />
+              <span>{exporting === "registrations" ? t.exportingCsv : t.exportRegistrationsCsvAction}</span>
+            </Button>
+            <Button type="button" variant="primary" size="md" disabled={exporting !== null} onClick={() => void downloadCsv("attendance")}>
+              <Icon name="download" size={18} />
+              <span>{exporting === "attendance" ? t.exportingCsv : t.exportAttendanceCsvAction}</span>
+            </Button>
           </>
         }
       />

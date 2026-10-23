@@ -213,7 +213,7 @@ export function EventEditDialog({ event, apiKey, t, isRtl, onClose, onSaved }: E
                   <span className="font-semibold">{isRtl ? "ثبت‌نام باز است" : "Registration is open"}</span>
                   <span className="block text-xs leading-relaxed text-text-muted">
                     {isRtl
-                      ? "با خاموش کردن، رزرو تازه پذیرفته نمی‌شود؛ بلیت‌های صادرشده معتبر می‌مانند. بازهٔ ثبت‌نام اختیاری است."
+                      ? "با خاموش کردن، رزرو تازه پذیرفته نمی‌شود؛ کارت‌های ورود صادرشده معتبر می‌مانند. بازهٔ ثبت‌نام اختیاری است."
                       : "Turned off, no new reservation is accepted; issued tickets stay valid. The registration window is optional."}
                   </span>
                 </span>
