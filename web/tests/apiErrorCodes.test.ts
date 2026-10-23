@@ -34,7 +34,13 @@ test("unknown or missing codes fall back to the existing error text", () => {
 
 test("every code has a Persian and an English message", () => {
   assert.deepEqual(Object.keys(errorMessages.fa).sort(), Object.keys(errorMessages.en).sort());
-  for (const code of ["EVENT_NOT_FOUND", "TIER_NOT_FOUND", "TIER_CLOSED", "TIER_SOLD_OUT", "ALREADY_REGISTERED", "ANALYTICS_RANGE_INVALID"]) {
+  for (const code of [
+    "EVENT_NOT_FOUND", "TIER_NOT_FOUND", "TIER_CLOSED", "TIER_SOLD_OUT", "ALREADY_REGISTERED", "ANALYTICS_RANGE_INVALID",
+    "EVENT_ENDED", "REGISTRATION_CLOSED", "REGISTRATION_NOT_OPEN", "TIER_SALES_NOT_OPEN", "TIER_SALES_CLOSED",
+    "EVENT_ARCHIVED", "EVENT_HAS_TICKETS", "EVENT_HAS_RECORDS", "TIER_HAS_RESERVATIONS", "HALL_NAME_TAKEN", "HALL_IN_USE",
+    "PROGRAM_FILE_NOT_FOUND", "PROGRAM_FILE_LABEL_REQUIRED", "PROGRAM_FILE_TYPE_UNSUPPORTED", "PROGRAM_FILE_TOO_LARGE",
+    "PROGRAM_FILE_EMPTY", "PROGRAM_FILE_LIMIT_REACHED", "PROGRAM_FILE_PDF_REJECTED", "PROGRAM_FILE_IMAGE_REJECTED",
+  ]) {
     assert.ok(errorMessages.fa[code]?.trim(), `fa ${code}`);
     assert.ok(errorMessages.en[code]?.trim(), `en ${code}`);
     assert.match(code, /^[A-Z][A-Z0-9_]*$/);
@@ -45,6 +51,8 @@ test("every code has a Persian and an English message", () => {
 test("sold-out and closed tiers mean the page should reload availability", () => {
   assert.equal(isTierUnavailable("TIER_SOLD_OUT"), true);
   assert.equal(isTierUnavailable("TIER_CLOSED"), true);
+  assert.equal(isTierUnavailable("TIER_SALES_CLOSED"), true);
+  assert.equal(isTierUnavailable("REGISTRATION_CLOSED"), true);
   assert.equal(isTierUnavailable("ALREADY_REGISTERED"), false);
   assert.equal(isTierUnavailable(undefined), false);
 });

@@ -18,7 +18,7 @@ from app.secret_box import open_sealed, seal
 from app.sms.gateway import SmsGateway
 from app.sms.outbox import deliver_due
 from tests.conftest import ADMIN_TOKEN, TEST_JWT_SECRET, _truncate_all, make_test_settings
-from tests.helpers import bearer, provision_organizer, sign_in
+from tests.helpers import bearer, provision_organizer, publish_page, sign_in
 from tests.test_ticket_tiers import create_event, tier
 
 ADMIN = {"X-Admin-Token": ADMIN_TOKEN}
@@ -95,6 +95,7 @@ async def test_live_sms_settings_apply_without_a_restart_and_the_key_is_never_sh
 async def test_without_a_key_nothing_can_be_sent_and_confirmations_wait(app: FastAPI, client: AsyncClient) -> None:
     organizer = await provision_organizer(client, "Waiting Co")
     event_id = await create_event(client, organizer)
+    await publish_page(client, organizer, event_id)
     tier_id = (await client.post(f"/api/events/{event_id}/ticket-tiers", json=tier(), headers=bearer(organizer))).json()["id"]
     _, token = await sign_in(client, MOBILE)
 

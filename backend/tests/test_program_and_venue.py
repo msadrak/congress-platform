@@ -87,22 +87,87 @@ async def test_venue_lists_entrances_first_then_halls_in_the_organizers_order(cl
     ]
 
 
-async def test_deleting_a_hall_keeps_its_sessions_without_a_hall(client: AsyncClient) -> None:
+async def test_a_hall_with_sessions_cannot_be_deleted_until_they_move(client: AsyncClient) -> None:
     organizer = await provision_organizer(client, "Acme Congress Co")
     event_id = await create_event(client, organizer)
     hall = await add_place(client, organizer, event_id, "hall", "Main Hall")
     created = await add_session(client, organizer, event_id, hall_id=hall["id"])
+    await add_session(client, organizer, event_id, title="Second", hall_id=hall["id"])
     assert created["hall_name"] == "Main Hall"
 
+    refused = await client.delete(f"{venue_url(event_id)}/{hall['id']}", headers=bearer(organizer))
+    assert refused.status_code == 409
+    assert refused.json()["code"] == "HALL_IN_USE"
+    assert "2 session" in refused.json()["detail"]
+
+    for session in (await client.get(sessions_url(event_id), headers=bearer(organizer))).json():
+        await client.patch(f"{sessions_url(event_id)}/{session['id']}", json={"hall_id": None}, headers=bearer(organizer))
     deleted = await client.delete(f"{venue_url(event_id)}/{hall['id']}", headers=bearer(organizer))
     assert deleted.status_code == 204
     again = await client.delete(f"{venue_url(event_id)}/{hall['id']}", headers=bearer(organizer))
     assert again.status_code == 404
-
-    (session,) = (await client.get(sessions_url(event_id), headers=bearer(organizer))).json()
-    assert session["id"] == created["id"]
-    assert (session["hall_id"], session["hall_name"]) == (None, "")
     assert (await client.get(venue_url(event_id), headers=bearer(organizer))).json() == []
+
+
+async def test_hall_names_are_unique_per_event_ignoring_case_and_spacing(client: AsyncClient) -> None:
+    organizer = await provision_organizer(client, "Acme Congress Co")
+    event_id = await create_event(client, organizer)
+    other_event_id = await second_event(client, organizer, "autumn-congress-2027")
+    main = await add_place(client, organizer, event_id, "hall", "Main Hall")
+    side = await add_place(client, organizer, event_id, "hall", "Side Room")
+
+    clash = await client.post(venue_url(event_id), json={"kind": "hall", "name": " main   HALL "}, headers=bearer(organizer))
+    assert (clash.status_code, clash.json()["code"]) == (409, "HALL_NAME_TAKEN")
+    rename = await client.patch(f"{venue_url(event_id)}/{side['id']}", json={"name": "MAIN hall"}, headers=bearer(organizer))
+    assert rename.status_code == 409
+    # Renaming a hall to its own name in another case, an entrance of the same name and another event's hall are fine.
+    assert (await client.patch(f"{venue_url(event_id)}/{main['id']}", json={"name": "Main HALL"}, headers=bearer(organizer))).status_code == 200
+    await add_place(client, organizer, event_id, "entrance", "Main Hall")
+    await add_place(client, organizer, other_event_id, "hall", "Main Hall")
+
+
+async def test_sessions_must_fall_within_the_event_days_in_its_time_zone(client: AsyncClient) -> None:
+    organizer = await provision_organizer(client, "Acme Congress Co")
+    # 2027-04-10T08:00Z .. 2027-04-12T18:00Z is 10–12 April in Tehran (+03:30): any time on those days is fine.
+    event_id = await create_event(client, organizer)
+    early = await add_session(client, organizer, event_id, starts_at="2027-04-10T00:00:00+03:30", ends_at="2027-04-10T01:00:00+03:30")
+    late = await add_session(client, organizer, event_id, starts_at="2027-04-12T22:00:00+03:30", ends_at="2027-04-13T00:00:00+03:30")
+    assert early and late
+
+    outside = [
+        session_body(starts_at="2027-04-09T23:30:00+03:30", ends_at="2027-04-10T09:00:00+03:30"),
+        session_body(starts_at="2027-04-12T23:00:00+03:30", ends_at="2027-04-13T00:30:00+03:30"),
+        session_body(starts_at="2027-05-01T09:00:00Z", ends_at="2027-05-01T10:00:00Z"),
+    ]
+    for body in outside:
+        response = await client.post(sessions_url(event_id), json=body, headers=bearer(organizer))
+        assert response.status_code == 422, response.text
+        assert "event days" in response.json()["detail"]
+    moved = await client.patch(
+        f"{sessions_url(event_id)}/{early['id']}",
+        json={"starts_at": "2027-04-09T09:00:00Z", "ends_at": "2027-04-09T10:00:00Z"},
+        headers=bearer(organizer),
+    )
+    assert moved.status_code == 422
+    same_time = await client.post(
+        sessions_url(event_id), json=session_body(ends_at="2027-04-10T09:00:00Z"), headers=bearer(organizer)
+    )
+    assert same_time.status_code == 422
+
+    # In Europe/Berlin (+02:00) the same instants span 10–12 April as well, but 01:00 Tehran is 9 April there.
+    berlin = await client.patch(f"/api/events/{event_id}", json={"timezone": "Europe/Berlin"}, headers=bearer(organizer))
+    assert berlin.status_code == 200
+    again = await client.post(
+        sessions_url(event_id),
+        json=session_body(starts_at="2027-04-10T00:00:00+03:30", ends_at="2027-04-10T01:00:00+03:30"),
+        headers=bearer(organizer),
+    )
+    assert again.status_code == 422
+
+    rows = [{"title": "Too late", "starts_at": "2027-04-20T09:00:00Z", "ends_at": "2027-04-20T10:00:00Z"}]
+    imported = await client.post(f"{sessions_url(event_id)}/import", json={"sessions": rows}, headers=bearer(organizer))
+    assert imported.status_code == 422
+    assert imported.json()["detail"].startswith("Row 1: ")
 
 
 async def test_sessions_are_listed_by_start_and_edited_partially(client: AsyncClient) -> None:
@@ -234,7 +299,7 @@ async def test_an_import_with_a_bad_row_saves_nothing_and_names_the_row(client: 
     assert response.status_code == 422
     message = " ".join(error["msg"] for error in response.json()["detail"])
     assert "Row 2: title" in message
-    assert "Row 3: ends_at must not be before starts_at" in message
+    assert "Row 3: ends_at must be after starts_at" in message
     assert "Row 1" not in message
     assert (await client.get(sessions_url(event_id), headers=bearer(organizer))).json() == [existing]
     assert (await client.get(venue_url(event_id), headers=bearer(organizer))).json() == []

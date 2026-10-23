@@ -10,7 +10,7 @@ from sqlalchemy import update
 
 from app.models import Ticket
 from app.routes import checkin
-from tests.helpers import bearer, provision_organizer
+from tests.helpers import bearer, provision_organizer, publish_page
 from tests.test_events import EVENT
 from tests.test_ticket_tiers import create_event, tier
 from tests.test_tickets import register_user
@@ -27,6 +27,7 @@ async def setup_event_with_scans(
 ) -> tuple[dict[str, str], str, dict[str, str], dict[str, str], list[dict[str, str]]]:
     organizer = await provision_organizer(client, "Acme Congress Co")
     event_id = await create_event(client, organizer)
+    await publish_page(client, organizer, event_id)
 
     # 2 Tiers: General (quota 100), VIP (quota 10)
     gen_tier = (

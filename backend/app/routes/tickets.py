@@ -10,8 +10,10 @@ from sqlalchemy.exc import IntegrityError
 from app.db import SessionDep
 from app.errors import ApiError, error_responses
 from app.links import mint_ticket_link
-from app.models import EntityQR, Event, Ticket, TicketTier
+from app.models import EntityQR, Event, EventPage, Ticket, TicketTier
 from app.routes.auth import CurrentUserDep
+from app.routes.events import registration_problem
+from app.routes.ticket_tiers import tier_sales_problem
 from app.security import generate_entity_qr_secret
 from app.sms.outbox import link_origin, queue_ticket_confirmation
 from app.ticket_lifecycle import (
@@ -77,6 +79,18 @@ async def reserve_ticket(
     event = await session.get(Event, event_id)
     if event is None:
         raise ApiError(status.HTTP_404_NOT_FOUND, "EVENT_NOT_FOUND", "Event not found")
+    # Lifecycle rules (B4): only a published, unarchived event within its registration (and the tier's
+    # sales) window takes reservations. Unpublished and archived events look missing, as on public pages.
+    page = await session.get(EventPage, event_id)
+    if event.archived_at is not None or page is None or page.published is None:
+        raise ApiError(status.HTTP_404_NOT_FOUND, "EVENT_NOT_FOUND", "Event not found")
+    now = datetime.now(timezone.utc)
+    closed = registration_problem(event, now)
+    if closed is None:
+        tier_row = await session.get(TicketTier, body.ticket_tier_id)
+        closed = tier_sales_problem(tier_row, now) if tier_row and tier_row.event_id == event_id else None
+    if closed is not None:
+        raise closed
 
     # Check if user already holds a ticket for this event
     existing = await session.scalar(

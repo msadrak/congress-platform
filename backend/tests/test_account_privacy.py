@@ -5,7 +5,7 @@ from httpx import AsyncClient
 
 from app.sms.outbox import deliver_due
 from tests.helpers import bearer, sign_in, sms_code
-from tests.test_participants import auth, congress, register, reserved_count
+from tests.test_participants import auth, congress, register, reschedule, reserved_count
 
 PAST = {"starts_at": "2025-03-01T08:00:00Z", "ends_at": "2025-03-02T18:00:00Z"}
 ONGOING = {"starts_at": "2026-01-01T08:00:00Z", "ends_at": "2030-01-01T18:00:00Z"}
@@ -37,9 +37,10 @@ async def test_attendee_cancels_their_own_ticket_until_the_congress_starts(app: 
 
 async def test_profile_update_refreshes_only_upcoming_registrations(client: AsyncClient) -> None:
     organizer, upcoming, upcoming_tier = await congress(client)
-    _, past, past_tier = await congress(client, organizer, **PAST)
+    _, past, past_tier = await congress(client, organizer)
     token, _ = await register(client, upcoming, upcoming_tier, "09122220011", "Old Name", "Old Org", "Dr")
     await client.post(f"/api/events/{past}/tickets/reserve", json={"ticket_tier_id": past_tier}, headers=auth(token))
+    await reschedule(client, organizer, past, **PAST)
 
     resp = await client.patch(
         "/api/auth/me",
@@ -95,11 +96,12 @@ async def test_export_contains_the_persons_own_data(client: AsyncClient) -> None
 
 async def test_deleting_the_account_anonymises_it_and_keeps_statistics(app: FastAPI, client: AsyncClient) -> None:
     organizer, upcoming, upcoming_tier = await congress(client)
-    _, past, past_tier = await congress(client, organizer, **PAST)
+    _, past, past_tier = await congress(client, organizer)
     token, ticket = await register(client, upcoming, upcoming_tier, "09122220031", "Leaving Person", "Org", "Dr")
     past_ticket = (
         await client.post(f"/api/events/{past}/tickets/reserve", json={"ticket_tier_id": past_tier}, headers=auth(token))
     ).json()
+    await reschedule(client, organizer, past, **PAST)
     _, peer = await register(client, upcoming, upcoming_tier, "09122220032", "Peer")
     await client.post("/api/attendees/me/network/scan", json={"qr_secret": peer["qr_secret"]}, headers=auth(token))
     await deliver_due(app.state.sessionmaker, app.state.sms)

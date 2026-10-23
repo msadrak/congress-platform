@@ -14,7 +14,7 @@ from app.sms.gateway import SmsGateway
 from app.sms.provider import RecordingProvider
 from app.sms.templates import KINDS
 from tests.conftest import ADMIN_TOKEN
-from tests.helpers import bearer, pass_link, provision_organizer, request_code, sign_in
+from tests.helpers import bearer, pass_link, provision_organizer, publish_page, request_code, sign_in
 from tests.test_events import EVENT
 from tests.test_ticket_tiers import create_event, tier
 
@@ -25,6 +25,7 @@ MOBILE = "09121112233"
 async def setup(client: AsyncClient) -> tuple[dict[str, str], str, str]:
     organizer = await provision_organizer(client, "SMS Panel Co")
     event_id = await create_event(client, organizer)
+    await publish_page(client, organizer, event_id)
     tier_id = (
         await client.post(f"/api/events/{event_id}/ticket-tiers", json=tier(name="VIP Pass"), headers=bearer(organizer))
     ).json()["id"]
@@ -135,6 +136,7 @@ async def test_platform_wording_is_the_default_and_an_event_override_wins(app: F
     other_event = await client.post(
         "/api/events", json={**EVENT, "slug": "autumn-congress"}, headers=bearer(organizer)
     )
+    await publish_page(client, organizer, other_event.json()["id"])
     other_tier = (
         await client.post(f"/api/events/{other_event.json()['id']}/ticket-tiers", json=tier(), headers=bearer(organizer))
     ).json()["id"]
@@ -225,6 +227,7 @@ async def long_link_event(app: FastAPI, client: AsyncClient) -> tuple[dict[str, 
     created = await client.post("/api/events", json={**EVENT, "slug": LONG_SLUG}, headers=bearer(organizer))
     assert created.status_code == 201, created.text
     event_id: str = created.json()["id"]
+    await publish_page(client, organizer, event_id)
     tier_id = (
         await client.post(f"/api/events/{event_id}/ticket-tiers", json=tier(), headers=bearer(organizer))
     ).json()["id"]

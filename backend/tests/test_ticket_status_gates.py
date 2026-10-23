@@ -11,7 +11,7 @@ from httpx import AsyncClient
 from sqlalchemy import update
 
 from app.models import EntityQR, Ticket
-from tests.helpers import bearer, provision_organizer, sign_in
+from tests.helpers import bearer, provision_organizer, publish_page, sign_in
 from tests.test_ticket_tiers import create_event, tier
 
 
@@ -22,6 +22,7 @@ async def _event_with_passes(client: AsyncClient) -> tuple[dict[str, str], str, 
     tier_id = (
         await client.post(f"/api/events/{event_id}/ticket-tiers", json=tier(), headers=bearer(organizer))
     ).json()["id"]
+    await publish_page(client, organizer, event_id)
     passes = []
     for mobile in ("09121000071", "09121000072", "09121000073"):
         _, token = await sign_in(client, mobile, f"Attendee {mobile[-2:]}")

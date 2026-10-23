@@ -1,5 +1,5 @@
 import { Fragment, type ReactNode } from "react";
-import type { PublicBoothSummary, PublicSession, PublicVenuePlace } from "../../../api/client";
+import type { PublicBoothSummary, PublicProgramFile, PublicSession, PublicVenuePlace } from "../../../api/client";
 import {
   isSectionVisible,
   localized,
@@ -29,6 +29,7 @@ import {
   SpeakersBlock,
 } from "./PageSections";
 import { RichText } from "./RichText";
+import { ScheduleFiles } from "./ScheduleFiles";
 
 export interface CongressPageEvent extends HeroEvent {
   id: string;
@@ -49,6 +50,8 @@ interface CongressPageProps {
   booths?: PublicBoothSummary[];
   /** "preview" shows empty blocks as placeholders so the organizer can see where they sit. */
   mode?: "public" | "preview";
+  /** Visible schedule files (PDFs and images), shown after the sections. */
+  programFiles?: readonly PublicProgramFile[];
 }
 
 function hasContent(section: PageSection, locale: PublicLocale): boolean {
@@ -75,7 +78,7 @@ function hasContent(section: PageSection, locale: PublicLocale): boolean {
  * sections in their saved order, each drawn by a curated AIteb component. The same component renders
  * `/e/:slug` and the Page Studio preview, so the preview is the page.
  */
-export function CongressPage({ event, doc, images, locale, passes, booths, mode = "public" }: CongressPageProps) {
+export function CongressPage({ event, doc, images, locale, passes, booths, mode = "public", programFiles = [] }: CongressPageProps) {
   const c = publicCopy[locale];
   const preview = mode === "preview";
   const logo = doc.branding.logo_asset_id ? images[doc.branding.logo_asset_id] ?? null : null;
@@ -83,7 +86,7 @@ export function CongressPage({ event, doc, images, locale, passes, booths, mode 
   const exhibitionVisible = isSectionVisible(doc, "exhibitors");
   const exhibitorsTitle = doc.sections.find((section) => section.type === "exhibitors")?.title;
   let index = 0;
-  // Program and venue (operational data) sit right before the passes, or at the end without them.
+  // Program, schedule files and venue (operational data) sit right before the passes, or at the end without them.
   const passesSectionId = doc.sections.find((section) => section.visible && section.type === "passes")?.id;
   const programAndVenue = (): ReactNode => {
     const sessions = event.sessions ?? [];
@@ -94,6 +97,11 @@ export function CongressPage({ event, doc, images, locale, passes, booths, mode 
           <EditorialSection id="program" headingId="program-heading" index={++index} eyebrow={c.sectionProgramEyebrow} title={c.sectionProgram} lead={c.programLead} locale={locale}>
             <PublicProgram sessions={sessions} locale={locale} hallIds={new Set(venue.map((p) => p.id))} />
           </EditorialSection>
+        )}
+        {programFiles.length > 0 && (
+          <section id="schedule-files" aria-label={c.sectionProgram} className="reveal scroll-mt-24">
+            <ScheduleFiles files={programFiles} locale={locale} />
+          </section>
         )}
         {venue.length > 0 && (
           <EditorialSection id="venue" headingId="venue-heading" index={++index} eyebrow={c.sectionVenueEyebrow} title={c.sectionVenue} locale={locale}>

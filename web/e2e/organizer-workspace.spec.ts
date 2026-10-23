@@ -457,7 +457,7 @@ test('program: sessions are grouped by day, added in local time, and a CSV timet
   const csv = '\uFEFFعنوان,شروع,پایان,سالن\r\n"Panel, part 1",2099-05-11 09:00,2099-05-11 10:00,Hall B\r\nBroken,2099-05-11 11:00,2099-05-11 10:00,\r\n';
   await panel.getByLabel('Choose a CSV file').setInputFiles({ name: 'program.csv', mimeType: 'text/csv', buffer: Buffer.from(csv) });
   await expect(panel.getByText('1 of 2 rows need fixing')).toBeVisible();
-  await expect(panel.getByText('Row 2 (line 3): ends before it starts')).toBeVisible();
+  await expect(panel.getByText('Row 2 (line 3): must end after it starts')).toBeVisible();
   await expect(panel.getByRole('button', { name: 'Import 2 sessions' })).toBeDisabled();
 
   await panel.getByLabel('Choose a CSV file').setInputFiles({ name: 'program.csv', mimeType: 'text/csv', buffer: Buffer.from('title,starts_at,ends_at,hall\n"Panel, part 1",2099-05-11 09:00,2099-05-11 10:00,Hall B\n') });

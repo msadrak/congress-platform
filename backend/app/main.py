@@ -36,6 +36,7 @@ from app.routes import (
     passes,
     platform,
     program,
+    program_files,
     public,
     sms,
     sms_outbox,
@@ -114,6 +115,7 @@ def create_app(settings: Settings) -> FastAPI:
     app.include_router(network.router)
     app.include_router(pages.router)
     app.include_router(program.router)
+    app.include_router(program_files.router)
     app.include_router(public.router)
     app.include_router(public.seo_router)
     app.include_router(passes.router)

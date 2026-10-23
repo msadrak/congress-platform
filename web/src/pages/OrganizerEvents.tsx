@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { Link, useOutletContext } from "react-router-dom";
-import { createApiClient, formatApiError, type EventOut } from "../api/client";
+import { createApiClient, formatApiError, type EventCreate, type EventOut } from "../api/client";
+import { parseSessionDateTime } from "../lib/sessionCsv";
 import { formatLocalizedDate, formatLocalizedNumber } from "../lib/i18n";
 import { eventFormProblem, eventTimeStatus, type EventFormField } from "../lib/organizerWorkspace";
 import { eventAccentStyle } from "../lib/eventAccent";
@@ -20,6 +21,28 @@ import {
 } from "../components/organizer/WorkspaceUi";
 import { EventEditDialog } from "../components/organizer/EventEditDialog";
 import { eventTiming } from "../components/organizer/eventTiming";
+import { DEFAULT_EVENT_TIMEZONE } from "../components/organizer/sessionTime";
+
+/** Zones offered for a new congress; the API accepts any IANA name. */
+const EVENT_TIMEZONES = [
+  DEFAULT_EVENT_TIMEZONE,
+  "Asia/Dubai",
+  "Asia/Baghdad",
+  "Asia/Kabul",
+  "Asia/Baku",
+  "Europe/Istanbul",
+  "Europe/Moscow",
+  "Europe/Berlin",
+  "Europe/London",
+  "America/New_York",
+  "UTC",
+] as const;
+
+/** A `datetime-local` value read as wall-clock time in `timeZone`, as an ISO instant ("" when blank or invalid). */
+function wallTimeIso(value: string, timeZone: string): string {
+  const parsed = value ? parseSessionDateTime(value, timeZone) : null;
+  return parsed && "iso" in parsed ? parsed.iso : "";
+}
 
 export default function OrganizerEvents() {
   const { apiKey, locale, t, isRtl } = useOutletContext<OrganizerOutletContext>();
@@ -37,6 +60,10 @@ export default function OrganizerEvents() {
   const [endsAt, setEndsAt] = useState("");
   const [location, setLocation] = useState("");
   const [description, setDescription] = useState("");
+  const [timeZone, setTimeZone] = useState<string>(DEFAULT_EVENT_TIMEZONE);
+  const [registrationEnabled, setRegistrationEnabled] = useState(true);
+  const [registrationOpensAt, setRegistrationOpensAt] = useState("");
+  const [registrationClosesAt, setRegistrationClosesAt] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [formInvalid, setFormInvalid] = useState<EventFormField | null>(null);
@@ -100,16 +127,22 @@ export default function OrganizerEvents() {
     if (!apiKey) return;
     setSubmitting(true);
     const client = createApiClient({ kind: "organizer", token: apiKey });
-    const { data, error: err } = await client.POST("/api/events", {
-      body: {
-        name: name.trim(),
-        slug: slug.trim(),
-        starts_at: new Date(startsAt).toISOString(),
-        ends_at: new Date(endsAt).toISOString(),
-        location: location.trim(),
-        description: description.trim(),
-      },
-    });
+    // Times are wall-clock times of the congress's own zone, whatever the organizer's browser zone is.
+    const body: EventCreate = {
+      name: name.trim(),
+      slug: slug.trim(),
+      starts_at: wallTimeIso(startsAt, timeZone),
+      ends_at: wallTimeIso(endsAt, timeZone),
+      location: location.trim(),
+      description: description.trim(),
+      timezone: timeZone,
+      registration_enabled: registrationEnabled,
+      registration_opens_at: wallTimeIso(registrationOpensAt, timeZone) || null,
+      registration_closes_at: wallTimeIso(registrationClosesAt, timeZone) || null,
+      // Not offered in the create form yet: the API's default (not in the public event list).
+      listed: false,
+    };
+    const { data, error: err } = await client.POST("/api/events", { body });
 
     setSubmitting(false);
     if (err) {
@@ -123,6 +156,10 @@ export default function OrganizerEvents() {
       setEndsAt("");
       setLocation("");
       setDescription("");
+      setTimeZone(DEFAULT_EVENT_TIMEZONE);
+      setRegistrationEnabled(true);
+      setRegistrationOpensAt("");
+      setRegistrationClosesAt("");
       setIsCreateModalOpen(false);
     }
   };
@@ -345,6 +382,20 @@ export default function OrganizerEvents() {
               </div>
             </Field>
 
+            <Field
+              label={isRtl ? "منطقهٔ زمانی همایش" : "Congress time zone"}
+              hint={isRtl ? "زمان‌های این فرم و برنامهٔ همایش به این وقت خوانده می‌شوند." : "The times in this form and the program are read in this zone."}
+              className="sm:col-span-2"
+            >
+              <select value={timeZone} onChange={(e) => setTimeZone(e.target.value)} dir="ltr" className="ui-input font-mono">
+                {EVENT_TIMEZONES.map((zone) => (
+                  <option key={zone} value={zone}>
+                    {zone === DEFAULT_EVENT_TIMEZONE ? `${zone} (${isRtl ? "وقت ایران" : "Iran time"})` : zone}
+                  </option>
+                ))}
+              </select>
+            </Field>
+
             <Field label={t.startsAtLabel} required>
               <input type="datetime-local" required value={startsAt} onChange={(e) => setStartsAt(e.target.value)} aria-invalid={createInvalid("startsAt")} className="ui-input font-mono" />
             </Field>
@@ -364,6 +415,41 @@ export default function OrganizerEvents() {
                 className="ui-input"
               />
             </Field>
+
+            <div className="space-y-3 sm:col-span-2">
+              <label className="flex min-h-[40px] cursor-pointer items-start gap-3 text-sm text-text-primary">
+                <input
+                  type="checkbox"
+                  checked={registrationEnabled}
+                  onChange={(e) => setRegistrationEnabled(e.target.checked)}
+                  className="mt-0.5 size-4 shrink-0 accent-aiteb-indigo"
+                />
+                <span>
+                  <span className="font-semibold">{isRtl ? "ثبت‌نام باز است" : "Registration is open"}</span>
+                  <span className="block text-xs leading-relaxed text-text-muted">
+                    {isRtl
+                      ? "شرکت‌کنندگان پس از انتشار صفحهٔ همایش می‌توانند بلیت رزرو کنند. بازهٔ ثبت‌نام اختیاری است."
+                      : "Attendees can reserve once the congress page is published. The registration window is optional."}
+                  </span>
+                </span>
+              </label>
+              {registrationEnabled && (
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <Field label={isRtl ? "شروع ثبت‌نام (اختیاری)" : "Registration opens (optional)"}>
+                    <input type="datetime-local" value={registrationOpensAt} onChange={(e) => setRegistrationOpensAt(e.target.value)} className="ui-input font-mono" />
+                  </Field>
+                  <Field label={isRtl ? "پایان ثبت‌نام (اختیاری)" : "Registration closes (optional)"}>
+                    <input
+                      type="datetime-local"
+                      value={registrationClosesAt}
+                      min={registrationOpensAt || undefined}
+                      onChange={(e) => setRegistrationClosesAt(e.target.value)}
+                      className="ui-input font-mono"
+                    />
+                  </Field>
+                </div>
+              )}
+            </div>
 
             <Field label={t.descriptionLabel} className="sm:col-span-2">
               <textarea

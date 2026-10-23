@@ -8,7 +8,7 @@ from typing import Any
 
 from httpx import AsyncClient
 
-from tests.helpers import bearer, provision_organizer, sign_in
+from tests.helpers import bearer, provision_organizer, publish_page, sign_in
 from tests.test_ticket_tiers import create_event, tier
 
 
@@ -34,6 +34,7 @@ async def test_reservation_errors_keep_status_and_detail_and_add_a_code(client: 
     event_id = await create_event(client, organizer)
     open_tier = await make_tier(client, organizer, event_id, name="Single Seat", quota=1)
     closed_tier = await make_tier(client, organizer, event_id, name="Closed Pass", is_open=False)
+    await publish_page(client, organizer, event_id)
     _, first = await sign_in(client, "09121000901")
     _, second = await sign_in(client, "09121000902")
 

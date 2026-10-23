@@ -14,7 +14,7 @@ from httpx import AsyncClient
 from sqlalchemy import event, select, update
 
 from app.models import CheckIn, Ticket
-from tests.helpers import bearer, provision_organizer
+from tests.helpers import bearer, provision_organizer, publish_page
 from tests.test_events import EVENT
 from tests.test_ticket_tiers import tier
 from tests.test_tickets import register_user
@@ -85,6 +85,7 @@ async def open_gate(client: AsyncClient, point: dict[str, Any]) -> Gate:
             f"/api/events/{event_id}/ticket-tiers", json=tier(name=name, quota=100), headers=bearer(organizer)
         )
         tiers[name] = made.json()["id"]
+    await publish_page(client, organizer, event_id)
     if point.get("policy_type") == "TIER_RESTRICTED":
         point = {**point, "allowed_tier_ids": [tiers["VIP"]]}
     made_point = await client.post(

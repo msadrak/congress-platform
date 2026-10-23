@@ -16,7 +16,7 @@ from app.sms.outbox import MAX_ATTEMPTS, deliver_due
 from app.sms.gateway import SmsGateway
 from app.sms.provider import RecordingProvider, SmsResult
 from tests.conftest import _truncate_all, make_test_settings
-from tests.helpers import bearer, pass_link, provision_organizer, sign_in
+from tests.helpers import bearer, pass_link, provision_organizer, publish_page, sign_in
 from tests.test_events import EVENT
 from tests.test_ticket_tiers import create_event, tier
 
@@ -26,6 +26,7 @@ MOBILE = "09121112233"
 async def reserve(client: AsyncClient, mobile: str = MOBILE, name: str = "Dr. Neda Karimi") -> str:
     organizer = await provision_organizer(client, "SMS Congress Co")
     event_id = await create_event(client, organizer)
+    await publish_page(client, organizer, event_id)
     tier_id = (
         await client.post(f"/api/events/{event_id}/ticket-tiers", json=tier(), headers=bearer(organizer))
     ).json()["id"]
@@ -114,6 +115,7 @@ async def test_a_timed_out_send_is_never_repeated(app: FastAPI, client: AsyncCli
 async def test_walk_ins_are_confirmed_only_when_they_give_a_number(app: FastAPI, client: AsyncClient) -> None:
     organizer = await provision_organizer(client, "Walk-in SMS Co")
     event_id = await create_event(client, organizer)
+    await publish_page(client, organizer, event_id)
     tier_id = (
         await client.post(f"/api/events/{event_id}/ticket-tiers", json=tier(), headers=bearer(organizer))
     ).json()["id"]

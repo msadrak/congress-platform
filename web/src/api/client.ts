@@ -92,6 +92,11 @@ export type ParticipantPage = components["schemas"]["ParticipantPage"];
 export type ParticipantUpdate = components["schemas"]["ParticipantUpdate"];
 export type ParticipantCancel = components["schemas"]["ParticipantCancel"];
 export type ParticipantTransfer = components["schemas"]["ParticipantTransfer"];
+export type PublicProgramFile = components["schemas"]["PublicProgramFile"];
+export type ProgramFileOut = components["schemas"]["ProgramFileOut"];
+export type ProgramFileUpdate = components["schemas"]["ProgramFileUpdate"];
+export type PublicEventSummary = components["schemas"]["PublicEventSummary"];
+export type PublicEventList = components["schemas"]["PublicEventList"];
 export const ORGANIZER_KEY_STORAGE = "congress_organizer_api_key";
 export const ATTENDEE_TOKEN_STORAGE = "congress_attendee_token";
 /** Tab-scoped (sessionStorage): the most powerful credential is never kept across browser sessions. */

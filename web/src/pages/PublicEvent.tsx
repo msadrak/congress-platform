@@ -25,6 +25,7 @@ import { Bidi } from "../components/public/Bidi";
 import { downloadCalendarFile } from "../components/public/calendarDownload";
 import { useHeldPass } from "../components/public/useHeldPass";
 import { CongressPage } from "../components/public/page/CongressPage";
+import { programFilesOf } from "../lib/programFiles";
 import { PassesPanel } from "../components/public/page/PassesPanel";
 
 export default function PublicEvent() {
@@ -300,6 +301,7 @@ export default function PublicEvent() {
         doc={doc}
         images={images}
         locale={locale}
+        programFiles={programFilesOf(event)}
         passes={
           <PassesPanel
             slug={event.slug}

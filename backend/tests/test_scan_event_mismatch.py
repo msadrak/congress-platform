@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 
 from httpx import AsyncClient
 
-from tests.helpers import bearer, provision_organizer
+from tests.helpers import bearer, provision_organizer, publish_page
 from tests.test_events import EVENT
 from tests.test_ticket_tiers import tier
 from tests.test_tickets import register_user
@@ -18,6 +18,7 @@ async def _congress(client: AsyncClient, name: str, slug: str) -> tuple[dict[str
     )
     assert created.status_code == 201, created.text
     event_id: str = created.json()["id"]
+    await publish_page(client, organizer, event_id)
     tier_resp = await client.post(
         f"/api/events/{event_id}/ticket-tiers",
         json=tier(name="General", quota=10),

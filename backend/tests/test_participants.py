@@ -11,7 +11,7 @@ from sqlalchemy import select
 from app.models import EntityQR, ShortLink, TicketTier
 from app.sms.gateway import SmsGateway
 from app.sms.outbox import deliver_due
-from tests.helpers import bearer, provision_organizer, sign_in
+from tests.helpers import bearer, provision_organizer, publish_page, sign_in
 from tests.test_events import EVENT
 from tests.test_ticket_tiers import tier
 
@@ -32,7 +32,14 @@ async def congress(
     tier_id: str = (
         await client.post(f"/api/events/{event_id}/ticket-tiers", json=tier(quota=10), headers=bearer(organizer))
     ).json()["id"]
+    await publish_page(client, organizer, event_id)  # reservations need a published page
     return organizer, event_id, tier_id
+
+
+async def reschedule(client: AsyncClient, organizer: dict[str, str], event_id: str, **times: str) -> None:
+    """Moves an event's dates, e.g. into the past after registering (an ended event takes no reservations)."""
+    moved = await client.patch(f"/api/events/{event_id}", json=times, headers=bearer(organizer))
+    assert moved.status_code == 200, moved.text
 
 
 async def register(

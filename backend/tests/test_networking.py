@@ -1,7 +1,7 @@
 import uuid
 from httpx import AsyncClient, Response
 
-from tests.helpers import bearer, provision_organizer, sign_in
+from tests.helpers import bearer, provision_organizer, publish_page, sign_in
 from tests.test_events import EVENT
 from tests.test_ticket_tiers import create_event, tier
 from tests.test_tickets import register_user
@@ -12,6 +12,7 @@ async def setup_event_and_attendees(
 ) -> tuple[str, dict[str, str], str, dict[str, str], str, dict[str, str]]:
     organizer = await provision_organizer(client, "Acme Congress Co")
     event_id = await create_event(client, organizer)
+    await publish_page(client, organizer, event_id)
     tier_resp = await client.post(
         f"/api/events/{event_id}/ticket-tiers",
         json=tier(name="General", quota=100),
@@ -328,6 +329,7 @@ async def _second_event_attendee(
     )
     assert created.status_code == 201, created.text
     other_event_id: str = created.json()["id"]
+    await publish_page(client, organizer, other_event_id)
     tier_resp = await client.post(
         f"/api/events/{other_event_id}/ticket-tiers",
         json=tier(name="General", quota=100),
@@ -416,6 +418,7 @@ async def _vcard_of_peer(client: AsyncClient, name: str, organization: str, titl
     tier_id = (
         await client.post(f"/api/events/{event_id}/ticket-tiers", json=tier(), headers=bearer(organizer))
     ).json()["id"]
+    await publish_page(client, organizer, event_id)
     _, token_a = await sign_in(client, "09121000054", "Alice Smith")
     _, token_b = await sign_in(client, "09121000055", name, organization, title)
     badge = (

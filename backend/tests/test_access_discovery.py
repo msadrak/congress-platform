@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 from app.models import Ticket
 from tests.conftest import TEST_URL
-from tests.helpers import bearer, desk_sign_in, provision_organizer
+from tests.helpers import bearer, desk_sign_in, provision_organizer, publish_page
 from tests.test_events import EVENT
 from tests.test_ticket_tiers import tier
 from tests.test_tickets import register_user
@@ -15,6 +15,7 @@ from tests.test_tickets import register_user
 async def make_event(client: AsyncClient, organizer: dict[str, str], slug: str) -> str:
     resp = await client.post("/api/events", json={**EVENT, "slug": slug, "name": slug.title()}, headers=bearer(organizer))
     assert resp.status_code == 201, resp.text
+    await publish_page(client, organizer, resp.json()["id"])
     return str(resp.json()["id"])
 
 

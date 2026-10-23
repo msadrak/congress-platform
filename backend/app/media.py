@@ -11,6 +11,7 @@ swapped for object storage behind the same two functions later.
 import hashlib
 import io
 import os
+import re
 import tempfile
 import uuid
 import warnings
@@ -88,6 +89,35 @@ def process_image(raw: bytes) -> ProcessedImage:
         height=image.height,
         sha256=hashlib.sha256(data).hexdigest(),
     )
+
+
+PDF_MAGIC = b"%PDF-"
+# Active content a schedule never needs. A heuristic (names inside compressed object streams are not seen),
+# kept as defence in depth: the file is also served sandboxed and never executed by this server.
+_PDF_ACTIVE_CONTENT = re.compile(rb"/(?:JavaScript|JS|Launch|EmbeddedFiles?|RichMedia|XFA)(?![A-Za-z0-9])")
+_PDF_PAGE = re.compile(rb"/Type\s*/Page(?![A-Za-z0-9])")
+
+
+class RejectedPdf(ValueError):
+    """The upload is not an acceptable PDF. The message is safe to show to the organizer."""
+
+
+@dataclass(frozen=True)
+class CheckedPdf:
+    sha256: str
+    # Counted from uncompressed page objects; None when the file keeps them in object streams.
+    page_count: int | None
+
+
+def check_pdf(raw: bytes) -> CheckedPdf:
+    """Accepts a PDF by its magic bytes and refuses active content. The bytes are stored as uploaded (they are
+    never parsed or rendered server-side), under a generated name, and served sandboxed."""
+    if not raw.startswith(PDF_MAGIC):
+        raise RejectedPdf("The file is not a PDF.")
+    if _PDF_ACTIVE_CONTENT.search(raw):
+        raise RejectedPdf("PDFs with scripts, launch actions or embedded files are not accepted.")
+    pages = len(_PDF_PAGE.findall(raw))
+    return CheckedPdf(sha256=hashlib.sha256(raw).hexdigest(), page_count=pages or None)
 
 
 def storage_key_for(event_id: uuid.UUID, asset_id: uuid.UUID, extension: str) -> str:

@@ -17,7 +17,7 @@ import pytest
 from httpx import AsyncClient
 
 from tests.conftest import ADMIN_TOKEN
-from tests.helpers import sign_in
+from tests.helpers import publish_page, sign_in
 
 
 def bearer(token: str) -> dict[str, str]:
@@ -55,12 +55,14 @@ async def test_full_congress_multi_tenant_lifecycle(client: AsyncClient) -> None
             "slug": f"tmc-{suffix}",
             "location": "Tehran International Summit Hall",
             "description": "Annual Medical Informatics and AI in Healthcare",
-            "starts_at": "2026-11-01T08:00:00Z",
-            "ends_at": "2026-11-03T18:00:00Z",
+            "starts_at": "2030-11-01T08:00:00Z",
+            "ends_at": "2030-11-03T18:00:00Z",
         },
     )
     assert evt_a_resp.status_code == 201
     evt_a_id = evt_a_resp.json()["id"]
+    # Attendees can reserve once the congress page is published.
+    await publish_page(client, {"api_key": key_a}, evt_a_id)
 
     # Cross-tenant isolation check: Organizer B attempts to read Event A -> 404 Not Found
     leak_check = await client.get(f"/api/events/{evt_a_id}", headers=bearer(key_b))

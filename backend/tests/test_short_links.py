@@ -24,7 +24,7 @@ from app.models import ShortLink, SmsMessage, Ticket
 from app.routes.passes import LINK_FAILURES_PER_IP
 from app.sms.outbox import deliver_due
 from tests.conftest import ADMIN_DSN, BACKEND_DIR, TEST_URL, _truncate_all, disposable_target_problem, make_test_settings
-from tests.helpers import bearer, provision_organizer, sign_in
+from tests.helpers import bearer, provision_organizer, publish_page, sign_in
 from tests.test_events import EVENT
 from tests.test_ticket_tiers import create_event, tier
 
@@ -39,6 +39,7 @@ async def setup(client: AsyncClient) -> tuple[dict[str, str], str, str]:
     tier_id = (
         await client.post(f"/api/events/{event_id}/ticket-tiers", json=tier(name="Delegate"), headers=bearer(organizer))
     ).json()["id"]
+    await publish_page(client, organizer, event_id)
     return organizer, event_id, tier_id
 
 

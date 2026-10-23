@@ -227,7 +227,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List Events */
+        /**
+         * List Events
+         * @description Every event of the organizer, archived ones included (see `archived_at`).
+         */
         get: operations["list_events_api_events_get"];
         put?: never;
         /**
@@ -253,11 +256,37 @@ export interface paths {
         get: operations["get_event_api_events__event_id__get"];
         put?: never;
         post?: never;
-        delete?: never;
+        /**
+         * Delete Event
+         * @description Deletes an event that has never issued a ticket, with its setup (tiers, booths, check-in points, desk
+         *     operators, program, page and uploaded files). An event with tickets can only be archived (409).
+         */
+        delete: operations["delete_event_api_events__event_id__delete"];
         options?: never;
         head?: never;
         /** Update Event */
         patch: operations["update_event_api_events__event_id__patch"];
+        trace?: never;
+    };
+    "/api/events/{event_id}/archive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Archive Event
+         * @description Archive (`archived: true`) or unarchive an event. An archived event disappears from every public
+         *     endpoint, takes no reservations and refuses organizer edits; its data, tickets and passes are kept.
+         */
+        post: operations["archive_event_api_events__event_id__archive_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/events/{event_id}/ticket-tiers": {
@@ -288,7 +317,11 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
-        delete?: never;
+        /**
+         * Delete Ticket Tier
+         * @description Only a tier nobody has reserved can be deleted (409 otherwise; close it instead).
+         */
+        delete: operations["delete_ticket_tier_api_events__event_id__ticket_tiers__tier_id__delete"];
         options?: never;
         head?: never;
         /** Update Ticket Tier */
@@ -1207,8 +1240,8 @@ export interface paths {
         put?: never;
         /**
          * Unpublish Page
-         * @description Takes the public page (and the event's public booth pages) offline. The draft is kept; tickets,
-         *     reservations, check-in and reception are unaffected.
+         * @description Takes the public page (and the event's public booth pages) offline. The draft is kept; issued tickets,
+         *     check-in and reception are unaffected, but attendees cannot reserve until the page is published again.
          */
         post: operations["unpublish_page_api_events__event_id__page_unpublish_post"];
         delete?: never;
@@ -1356,7 +1389,7 @@ export interface paths {
         post?: never;
         /**
          * Delete Venue Place
-         * @description Sessions held in a deleted hall stay in the program without a hall (FK ON DELETE SET NULL).
+         * @description A hall that sessions are held in cannot be deleted (409 with how many): move them first.
          */
         delete: operations["delete_venue_place_api_events__event_id__venue_places__place_id__delete"];
         options?: never;
@@ -1416,6 +1449,100 @@ export interface paths {
         head?: never;
         /** Update Session */
         patch: operations["update_session_api_events__event_id__sessions__session_id__patch"];
+        trace?: never;
+    };
+    "/api/events/{event_id}/program-files": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Program Files */
+        get: operations["list_program_files_api_events__event_id__program_files_get"];
+        put?: never;
+        /** Upload Program File */
+        post: operations["upload_program_file_api_events__event_id__program_files_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/events/{event_id}/program-files/{file_id}/content": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Organizer Program File Content */
+        get: operations["organizer_program_file_content_api_events__event_id__program_files__file_id__content_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/events/{event_id}/program-files/{file_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Program File */
+        delete: operations["delete_program_file_api_events__event_id__program_files__file_id__delete"];
+        options?: never;
+        head?: never;
+        /** Update Program File */
+        patch: operations["update_program_file_api_events__event_id__program_files__file_id__patch"];
+        trace?: never;
+    };
+    "/api/public/program-files/{file_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Public Program File
+         * @description Anonymous access: only visible files of unarchived events whose page is published.
+         */
+        get: operations["public_program_file_api_public_program_files__file_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/public/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Public Events
+         * @description Events the organizer chose to list, once published and while not archived: upcoming and running ones
+         *     first (soonest first), then past ones (most recent first).
+         */
+        get: operations["list_public_events_api_public_events_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/public/events/{slug}": {
@@ -2539,6 +2666,14 @@ export interface components {
             /** Code */
             code?: string | null;
         };
+        /** EventArchive */
+        EventArchive: {
+            /**
+             * Archived
+             * @default true
+             */
+            archived: boolean;
+        };
         /** EventCreate */
         EventCreate: {
             /** Name */
@@ -2562,6 +2697,25 @@ export interface components {
              * @default
              */
             description: string;
+            /**
+             * Timezone
+             * @default Asia/Tehran
+             */
+            timezone: string;
+            /**
+             * Registration Enabled
+             * @default true
+             */
+            registration_enabled: boolean;
+            /** Registration Opens At */
+            registration_opens_at?: string | null;
+            /** Registration Closes At */
+            registration_closes_at?: string | null;
+            /**
+             * Listed
+             * @default false
+             */
+            listed: boolean;
         };
         /** EventOut */
         EventOut: {
@@ -2588,6 +2742,18 @@ export interface components {
             location: string;
             /** Description */
             description: string;
+            /** Timezone */
+            timezone: string;
+            /** Registration Enabled */
+            registration_enabled: boolean;
+            /** Registration Opens At */
+            registration_opens_at: string | null;
+            /** Registration Closes At */
+            registration_closes_at: string | null;
+            /** Listed */
+            listed: boolean;
+            /** Archived At */
+            archived_at: string | null;
         };
         /** EventSessionCreate */
         EventSessionCreate: {
@@ -2743,7 +2909,10 @@ export interface components {
             /** Ends At */
             ends_at?: string | null;
         };
-        /** EventUpdate */
+        /**
+         * EventUpdate
+         * @description Partial update: omitted fields keep their value; an explicit null clears a registration bound.
+         */
         EventUpdate: {
             /** Name */
             name?: string | null;
@@ -2755,6 +2924,16 @@ export interface components {
             location?: string | null;
             /** Description */
             description?: string | null;
+            /** Timezone */
+            timezone?: string | null;
+            /** Registration Enabled */
+            registration_enabled?: boolean | null;
+            /** Registration Opens At */
+            registration_opens_at?: string | null;
+            /** Registration Closes At */
+            registration_closes_at?: string | null;
+            /** Listed */
+            listed?: boolean | null;
         };
         /** ExhibitorsSection */
         ExhibitorsSection: {
@@ -3515,6 +3694,21 @@ export interface components {
             venue: components["schemas"]["PublicVenuePlace"][];
             /** Sessions */
             sessions: components["schemas"]["PublicSession"][];
+            /** Timezone */
+            timezone: string;
+            /** Registration Enabled */
+            registration_enabled: boolean;
+            /** Registration Opens At */
+            registration_opens_at: string | null;
+            /** Registration Closes At */
+            registration_closes_at: string | null;
+            /** Registration Open */
+            registration_open: boolean;
+            /**
+             * Program Files
+             * @default []
+             */
+            program_files: components["schemas"]["PublicProgramFile"][];
             /** Booths */
             booths: components["schemas"]["PublicBoothSummary"][];
         };
@@ -3839,6 +4033,53 @@ export interface components {
             /** Share Contact With Exhibitors */
             share_contact_with_exhibitors?: boolean | null;
         };
+        /** ProgramFileOut */
+        ProgramFileOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Event Id
+             * Format: uuid
+             */
+            event_id: string;
+            /** Label */
+            label: string;
+            /** Kind */
+            kind: string;
+            /** Content Type */
+            content_type: string;
+            /** Position */
+            position: number;
+            /** Is Visible */
+            is_visible: boolean;
+            /** Byte Size */
+            byte_size: number;
+            /** Width */
+            width: number | null;
+            /** Height */
+            height: number | null;
+            /** Page Count */
+            page_count: number | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Content Url */
+            content_url: string;
+        };
+        /** ProgramFileUpdate */
+        ProgramFileUpdate: {
+            /** Label */
+            label?: string | null;
+            /** Position */
+            position?: number | null;
+            /** Is Visible */
+            is_visible?: boolean | null;
+        };
         /** PublicBoothOut */
         PublicBoothOut: {
             /**
@@ -3923,12 +4164,91 @@ export interface components {
             venue: components["schemas"]["PublicVenuePlace"][];
             /** Sessions */
             sessions: components["schemas"]["PublicSession"][];
+            /** Timezone */
+            timezone: string;
+            /** Registration Enabled */
+            registration_enabled: boolean;
+            /** Registration Opens At */
+            registration_opens_at: string | null;
+            /** Registration Closes At */
+            registration_closes_at: string | null;
+            /** Registration Open */
+            registration_open: boolean;
+            /**
+             * Program Files
+             * @default []
+             */
+            program_files: components["schemas"]["PublicProgramFile"][];
+        };
+        /** PublicEventList */
+        PublicEventList: {
+            /** Items */
+            items: components["schemas"]["PublicEventSummary"][];
+            /** Total */
+            total: number;
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+        };
+        /**
+         * PublicEventSummary
+         * @description An entry of the platform's public event list.
+         */
+        PublicEventSummary: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /** Slug */
+            slug: string;
+            /**
+             * Starts At
+             * Format: date-time
+             */
+            starts_at: string;
+            /**
+             * Ends At
+             * Format: date-time
+             */
+            ends_at: string;
+            /** Location */
+            location: string;
+            /** Timezone */
+            timezone: string;
         };
         /** PublicPage */
         PublicPage: {
             document: components["schemas"]["PageDocument"];
             /** Assets */
             assets: components["schemas"]["PageAsset"][];
+        };
+        /** PublicProgramFile */
+        PublicProgramFile: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Label */
+            label: string;
+            /** Kind */
+            kind: string;
+            /** Content Type */
+            content_type: string;
+            /** Byte Size */
+            byte_size: number;
+            /** Width */
+            width: number | null;
+            /** Height */
+            height: number | null;
+            /** Page Count */
+            page_count: number | null;
+            /** Url */
+            url: string;
         };
         /** PublicSession */
         PublicSession: {
@@ -4462,6 +4782,10 @@ export interface components {
              * @default true
              */
             is_open: boolean;
+            /** Sales Starts At */
+            sales_starts_at?: string | null;
+            /** Sales Ends At */
+            sales_ends_at?: string | null;
         };
         /** TicketTierOut */
         TicketTierOut: {
@@ -4483,8 +4807,15 @@ export interface components {
             reserved_count: number;
             /** Is Open */
             is_open: boolean;
+            /** Sales Starts At */
+            sales_starts_at?: string | null;
+            /** Sales Ends At */
+            sales_ends_at?: string | null;
         };
-        /** TicketTierUpdate */
+        /**
+         * TicketTierUpdate
+         * @description Partial update: omitted fields keep their value; an explicit null clears a sales-window bound.
+         */
         TicketTierUpdate: {
             /** Name */
             name?: string | null;
@@ -4494,6 +4825,10 @@ export interface components {
             quota?: number | null;
             /** Is Open */
             is_open?: boolean | null;
+            /** Sales Starts At */
+            sales_starts_at?: string | null;
+            /** Sales Ends At */
+            sales_ends_at?: string | null;
         };
         /** TierRegistration */
         TierRegistration: {
@@ -5091,6 +5426,44 @@ export interface operations {
             };
         };
     };
+    delete_event_api_events__event_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     update_event_api_events__event_id__patch: {
         parameters: {
             query?: never;
@@ -5103,6 +5476,50 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["EventUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EventOut"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    archive_event_api_events__event_id__archive_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EventArchive"];
             };
         };
         responses: {
@@ -5181,6 +5598,63 @@ export interface operations {
                     "application/json": components["schemas"]["TicketTierOut"];
                 };
             };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_ticket_tier_api_events__event_id__ticket_tiers__tier_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tier_id: string;
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description Validation Error */
             422: {
                 headers: {
@@ -5215,6 +5689,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TicketTierOut"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
             /** @description Validation Error */
@@ -7644,6 +8127,15 @@ export interface operations {
                     "application/json": components["schemas"]["VenuePlaceOut"];
                 };
             };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description Validation Error */
             422: {
                 headers: {
@@ -7673,6 +8165,15 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
             };
             /** @description Validation Error */
             422: {
@@ -7708,6 +8209,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["VenuePlaceOut"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
             /** @description Validation Error */
@@ -7776,6 +8286,15 @@ export interface operations {
                     "application/json": components["schemas"]["EventSessionOut"];
                 };
             };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description Validation Error */
             422: {
                 headers: {
@@ -7811,6 +8330,15 @@ export interface operations {
                     "application/json": components["schemas"]["EventSessionImportOut"];
                 };
             };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description Validation Error */
             422: {
                 headers: {
@@ -7840,6 +8368,15 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
             };
             /** @description Validation Error */
             422: {
@@ -7875,6 +8412,326 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["EventSessionOut"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_program_files_api_events__event_id__program_files_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProgramFileOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    upload_program_file_api_events__event_id__program_files_post: {
+        parameters: {
+            query: {
+                /** @description Name shown to attendees */
+                label: string;
+            };
+            header?: {
+                "content-type"?: string | null;
+                "content-length"?: number | null;
+            };
+            path: {
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        /** @description The file bytes: a PDF, or a PNG, JPEG or WebP image. At most 8 MB. */
+        requestBody: {
+            content: {
+                "application/pdf": string;
+                "image/jpeg": string;
+                "image/png": string;
+                "image/webp": string;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProgramFileOut"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Request Entity Too Large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unsupported Media Type */
+            415: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    organizer_program_file_content_api_events__event_id__program_files__file_id__content_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                file_id: string;
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/pdf": unknown;
+                    "image/*": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_program_file_api_events__event_id__program_files__file_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                file_id: string;
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_program_file_api_events__event_id__program_files__file_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                file_id: string;
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProgramFileUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProgramFileOut"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    public_program_file_api_public_program_files__file_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                file_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/pdf": unknown;
+                    "image/*": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_public_events_api_public_events_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicEventList"];
                 };
             };
             /** @description Validation Error */

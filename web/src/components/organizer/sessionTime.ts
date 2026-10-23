@@ -9,12 +9,21 @@ export function toDateTimeLocal(iso: string | number): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-/** Locale tags for session dates: the Persian calendar for fa, as elsewhere in the organizer console. */
-export function sessionDateFormats(locale: "fa" | "en") {
+/** Locale tags for session dates: the Persian calendar for fa, as elsewhere in the organizer console. `timeZone`
+ * (IANA) formats in that zone instead of the browser's. */
+export function sessionDateFormats(locale: "fa" | "en", timeZone?: string) {
   const tag = locale === "fa" ? "fa-IR-u-ca-persian" : "en-GB";
   return {
-    day: new Intl.DateTimeFormat(tag, { weekday: "long", day: "numeric", month: "long", year: "numeric" }),
-    shortDay: new Intl.DateTimeFormat(tag, { day: "numeric", month: "short" }),
-    time: new Intl.DateTimeFormat(tag, { hour: "2-digit", minute: "2-digit", hourCycle: "h23" }),
+    day: new Intl.DateTimeFormat(tag, { weekday: "long", day: "numeric", month: "long", year: "numeric", timeZone }),
+    shortDay: new Intl.DateTimeFormat(tag, { day: "numeric", month: "short", timeZone }),
+    time: new Intl.DateTimeFormat(tag, { hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZone }),
   };
+}
+
+/** Default IANA zone of a new event (`backend/app/routes/events.py` DEFAULT_TIMEZONE). */
+export const DEFAULT_EVENT_TIMEZONE = "Asia/Tehran";
+
+/** The event's IANA zone (the server's default for payloads that predate the field). */
+export function eventTimeZone(event: object): string {
+  return "timezone" in event && typeof event.timezone === "string" && event.timezone ? event.timezone : DEFAULT_EVENT_TIMEZONE;
 }

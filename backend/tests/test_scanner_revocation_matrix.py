@@ -20,7 +20,7 @@ import pytest
 from httpx import AsyncClient
 
 from app.security import create_scanner_token
-from tests.helpers import bearer, provision_organizer
+from tests.helpers import bearer, provision_organizer, publish_page
 from tests.test_events import EVENT
 from tests.test_ticket_tiers import create_event, tier
 from tests.test_tickets import register_user
@@ -31,6 +31,7 @@ async def _create_event(client: AsyncClient, organizer: dict[str, str]) -> str:
     evt["slug"] = f"rev-matrix-{uuid.uuid4().hex[:8]}"
     resp = await client.post("/api/events", json=evt, headers=bearer(organizer))
     assert resp.status_code == 201, resp.text
+    await publish_page(client, organizer, resp.json()["id"])
     return str(resp.json()["id"])
 
 
