@@ -86,6 +86,12 @@ export type EventSessionImportRow = components["schemas"]["EventSessionImportRow
 export type EventSessionImportOut = components["schemas"]["EventSessionImportOut"];
 export type PublicVenuePlace = components["schemas"]["PublicVenuePlace"];
 export type PublicSession = components["schemas"]["PublicSession"];
+export type ParticipantOut = components["schemas"]["ParticipantOut"];
+export type ParticipantDetail = components["schemas"]["ParticipantDetail"];
+export type ParticipantPage = components["schemas"]["ParticipantPage"];
+export type ParticipantUpdate = components["schemas"]["ParticipantUpdate"];
+export type ParticipantCancel = components["schemas"]["ParticipantCancel"];
+export type ParticipantTransfer = components["schemas"]["ParticipantTransfer"];
 export const ORGANIZER_KEY_STORAGE = "congress_organizer_api_key";
 export const ATTENDEE_TOKEN_STORAGE = "congress_attendee_token";
 /** Tab-scoped (sessionStorage): the most powerful credential is never kept across browser sessions. */

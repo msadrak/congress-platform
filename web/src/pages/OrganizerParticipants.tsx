@@ -1,7 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { useOutletContext, useParams } from "react-router-dom";
-import { ApiResponseError, apiErrorCode, createApiClient, localizedApiError, type EventOut, type TicketTierOut } from "../api/client";
-import type { OrganizerOutletContext } from "./OrganizerLayout";
+import {
+  ApiResponseError,
+  apiErrorCode,
+  localizedApiError,
+  type ParticipantDetail,
+  type ParticipantOut,
+  type ParticipantPage,
+  type TicketTierOut,
+} from "../api/client";
+import { useEventWorkspace } from "../components/organizer/eventWorkspaceContext";
 import { Badge } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
 import { Dialog } from "../components/ui/Dialog";
@@ -22,28 +29,22 @@ import {
   type ParticipantStatusFilter,
   type ParticipantsCopy,
 } from "../lib/participants";
-import { createParticipantsApi, type ParticipantDetail, type ParticipantOut, type ParticipantPage } from "../lib/participantsApi";
+import { createParticipantsApi } from "../lib/participantsApi";
 
 const PAGE_SIZE = 25;
 const SEARCH_DEBOUNCE_MS = 300;
 
 type Action = "edit" | "cancel" | "reissue" | "transfer" | "delete";
 
-// Remount per event so a late response for event A can never write into event B's state.
+// The event workspace remounts per event, so a late response for event A can never write into event B's state.
 export default function OrganizerParticipants() {
-  const { eventId } = useParams<{ eventId: string }>();
-  return <ParticipantsContent key={eventId} />;
-}
-
-function ParticipantsContent() {
-  const { eventId = "" } = useParams<{ eventId: string }>();
-  const { apiKey, onKeyRejected, reportEvent, locale } = useOutletContext<OrganizerOutletContext>();
+  // The workspace loads the event (for the header) and reports it to the layout; a 401 on the organizer key
+  // reaches the layout's handler from every request below (registerUnauthorizedHandler).
+  const { eventId, event, client, apiKey, locale } = useEventWorkspace();
   const copy = PARTICIPANTS_COPY[locale];
 
   const api = useMemo(() => (apiKey && eventId ? createParticipantsApi(apiKey, eventId) : null), [apiKey, eventId]);
-  const client = useMemo(() => (apiKey ? createApiClient({ kind: "organizer", token: apiKey }) : null), [apiKey]);
 
-  const [event, setEvent] = useState<EventOut | null>(null);
   const [tiers, setTiers] = useState<TicketTierOut[]>([]);
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState<ParticipantListState>({ q: "", tierId: "", status: "", page: 0, pageSize: PAGE_SIZE });
@@ -59,41 +60,29 @@ function ParticipantsContent() {
   const [detailError, setDetailError] = useState<string | null>(null);
   const [action, setAction] = useState<{ kind: Action; participant: ParticipantOut } | null>(null);
 
-  /** The error in the organizer's language; a rejected key sends them back to the key gate. */
+  /** The error in the organizer's language. */
   const errorText = useCallback(
     (error: unknown, fallback: string) => {
-      if (error instanceof ApiResponseError) {
-        if (error.status === 401 && apiKey) onKeyRejected(apiKey);
-        return localizedApiError(error, locale);
-      }
+      if (error instanceof ApiResponseError) return localizedApiError(error, locale);
       return error instanceof TypeError ? copy.networkError : fallback;
     },
-    [apiKey, onKeyRejected, locale, copy],
+    [locale, copy],
   );
 
-  // Event (for the workspace header) and ticket types (for the filter), once per event and key.
+  // Ticket types (for the filter), once per event and key.
   useEffect(() => {
     if (!client || !eventId) return;
     let active = true;
-    void Promise.all([
-      client.GET("/api/events/{event_id}", { params: { path: { event_id: eventId } } }),
-      client.GET("/api/events/{event_id}/ticket-tiers", { params: { path: { event_id: eventId } } }),
-    ])
-      .then(([ev, tt]) => {
-        if (ev.response.status === 401 && apiKey) onKeyRejected(apiKey);
-        if (!active) return;
-        if (ev.data) setEvent(ev.data);
-        if (tt.data) setTiers(tt.data);
+    void client
+      .GET("/api/events/{event_id}/ticket-tiers", { params: { path: { event_id: eventId } } })
+      .then(({ data: loaded }) => {
+        if (active && loaded) setTiers(loaded);
       })
       .catch(() => undefined);
     return () => {
       active = false;
     };
-  }, [client, eventId, apiKey, onKeyRejected]);
-
-  useEffect(() => {
-    if (event) reportEvent(event);
-  }, [event, reportEvent]);
+  }, [client, eventId]);
 
   // Typing settles before the list is asked again; a new search starts at the first page.
   useEffect(() => {

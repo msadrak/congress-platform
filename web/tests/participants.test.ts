@@ -74,15 +74,17 @@ test("the participants API sends the organizer key, the filters and JSON bodies,
   const { ApiResponseError, apiErrorCode } = await import("../src/api/client.ts");
   const calls: { url: string; method: string; auth: string | null; body: unknown }[] = [];
   const replies: Response[] = [];
+  // The generated client hands `fetch` a Request.
   const fakeFetch = (async (input: string | URL | Request, init?: RequestInit) => {
-    const headers = new Headers(init?.headers);
+    const request = new Request(input, init);
+    const text = await request.text();
     calls.push({
-      url: String(input),
-      method: init?.method ?? "GET",
-      auth: headers.get("Authorization"),
-      body: typeof init?.body === "string" ? JSON.parse(init.body) : undefined,
+      url: request.url,
+      method: request.method,
+      auth: request.headers.get("Authorization"),
+      body: text ? JSON.parse(text) : undefined,
     });
-    return replies.shift() ?? new Response("{}", { status: 200 });
+    return replies.shift() ?? Response.json({});
   }) as typeof fetch;
   const api = createParticipantsApi("org-key", "event/1", { baseUrl: "https://api.test", fetch: fakeFetch });
 
@@ -108,4 +110,19 @@ test("the participants API sends the organizer key, the filters and JSON bodies,
     return true;
   });
   assert.equal(calls[3].method, "DELETE");
+});
+
+test("a rejected organizer key on a participants call reaches the organizer session's 401 handler", async () => {
+  const { createParticipantsApi } = await import("../src/lib/participantsApi.ts");
+  const { ApiResponseError, registerUnauthorizedHandler } = await import("../src/api/client.ts");
+  const rejected: string[] = [];
+  const unregister = registerUnauthorizedHandler("organizer", (token) => rejected.push(token));
+  try {
+    const fakeFetch = (async () => Response.json({ detail: "Invalid key" }, { status: 401 })) as typeof fetch;
+    const api = createParticipantsApi("stale-key", "event-1", { baseUrl: "https://api.test", fetch: fakeFetch });
+    await assert.rejects(api.get("t-1"), (error: unknown) => error instanceof ApiResponseError && error.status === 401);
+    assert.deepEqual(rejected, ["stale-key"]);
+  } finally {
+    unregister();
+  }
 });

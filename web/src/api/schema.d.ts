@@ -112,6 +112,35 @@ export interface paths {
         get: operations["get_my_profile_api_auth_me_get"];
         put?: never;
         post?: never;
+        /**
+         * Delete My Account
+         * @description Delete the account: it is anonymised (see app/account.py) and this session stops working.
+         */
+        delete: operations["delete_my_account_api_auth_me_delete"];
+        options?: never;
+        head?: never;
+        /**
+         * Update My Profile
+         * @description Update the account; name, organization and title also replace the registration details of the
+         *     person's active tickets for congresses that have not ended (past registrations keep theirs).
+         */
+        patch: operations["update_my_profile_api_auth_me_patch"];
+        trace?: never;
+    };
+    "/api/auth/me/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export My Data
+         * @description A copy of everything the platform holds about the signed-in person.
+         */
+        get: operations["export_my_data_api_auth_me_export_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -283,6 +312,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/attendees/me/tickets/{ticket_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cancel My Ticket
+         * @description The attendee cancels their own registration; allowed until the congress starts.
+         */
+        post: operations["cancel_my_ticket_api_attendees_me_tickets__ticket_id__cancel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/attendees/me/tickets": {
         parameters: {
             query?: never;
@@ -290,10 +339,139 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get My Tickets */
+        /**
+         * Get My Tickets
+         * @description The attendee's passes. Cancelled registrations (whose passes no longer work) only on request.
+         */
         get: operations["get_my_tickets_api_attendees_me_tickets_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/events/{event_id}/participants": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Participants
+         * @description Newest registrations first. `total` counts every match, for pagination.
+         */
+        get: operations["list_participants_api_events__event_id__participants_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/events/{event_id}/participants/export-csv": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export Participants Csv
+         * @description Every registration matching the list filters, as CSV (UTF-8 with BOM for Excel; formula-safe cells).
+         */
+        get: operations["export_participants_csv_api_events__event_id__participants_export_csv_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/events/{event_id}/participants/{ticket_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Participant */
+        get: operations["get_participant_api_events__event_id__participants__ticket_id__get"];
+        put?: never;
+        post?: never;
+        /**
+         * Delete Participant
+         * @description Remove a registration made by mistake. A ticket that was scanned or captured as a lead is part of the
+         *     congress's history: cancel it instead (409).
+         */
+        delete: operations["delete_participant_api_events__event_id__participants__ticket_id__delete"];
+        options?: never;
+        head?: never;
+        /**
+         * Update Participant
+         * @description Correct the registration's name, organization or title for this congress only.
+         */
+        patch: operations["update_participant_api_events__event_id__participants__ticket_id__patch"];
+        trace?: never;
+    };
+    "/api/events/{event_id}/participants/{ticket_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cancel Participant
+         * @description Cancel the ticket: its place returns to the tier and its pass stops working.
+         */
+        post: operations["cancel_participant_api_events__event_id__participants__ticket_id__cancel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/events/{event_id}/participants/{ticket_id}/reissue": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reissue Participant
+         * @description Issue a new pass (new QR code); the old one stops working.
+         */
+        post: operations["reissue_participant_api_events__event_id__participants__ticket_id__reissue_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/events/{event_id}/participants/{ticket_id}/transfer": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Transfer Participant
+         * @description Give the ticket's place to another person (by mobile). Returns the new holder's registration.
+         */
+        post: operations["transfer_participant_api_events__event_id__participants__ticket_id__transfer_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1628,6 +1806,25 @@ export interface components {
             /** Events */
             events: components["schemas"]["AccessEvent"][];
         };
+        /** AccountExport */
+        AccountExport: {
+            /**
+             * Exported At
+             * Format: date-time
+             */
+            exported_at: string;
+            profile: components["schemas"]["ExportProfile"];
+            /** Tickets */
+            tickets: components["schemas"]["ExportTicket"][];
+            /** Connections */
+            connections: components["schemas"]["ExportConnection"][];
+            /** Booth Bookmarks */
+            booth_bookmarks: components["schemas"]["ExportBookmark"][];
+            /** Exhibitor Leads */
+            exhibitor_leads: components["schemas"]["ExportLead"][];
+            /** Sms Messages */
+            sms_messages: components["schemas"]["ExportSms"][];
+        };
         /** AgendaItem */
         AgendaItem: {
             /**
@@ -2577,6 +2774,143 @@ export interface components {
             type: "exhibitors";
             lead?: components["schemas"]["LocalizedLine"];
         };
+        /** ExportBookmark */
+        ExportBookmark: {
+            /** Event Name */
+            event_name: string;
+            /** Booth Name */
+            booth_name: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
+        /** ExportConnection */
+        ExportConnection: {
+            /** Event Name */
+            event_name: string;
+            /** Full Name */
+            full_name: string;
+            /** Organization */
+            organization: string;
+            /** Title */
+            title: string;
+            /** Private Notes */
+            private_notes: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
+        /**
+         * ExportLead
+         * @description An exhibitor scanned this person's pass. The exhibitor's rating and notes are the exhibitor's data.
+         */
+        ExportLead: {
+            /** Event Name */
+            event_name: string;
+            /** Booth Name */
+            booth_name: string;
+            /**
+             * Captured At
+             * Format: date-time
+             */
+            captured_at: string;
+        };
+        /** ExportProfile */
+        ExportProfile: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Mobile */
+            mobile: string | null;
+            /** Full Name */
+            full_name: string;
+            /** Organization */
+            organization: string;
+            /** Title */
+            title: string;
+            /** Share Contact With Peers */
+            share_contact_with_peers: boolean;
+            /** Share Contact With Exhibitors */
+            share_contact_with_exhibitors: boolean;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
+        /** ExportScan */
+        ExportScan: {
+            /** Checkin Point */
+            checkin_point: string;
+            /** Status */
+            status: string;
+            /**
+             * Scanned At
+             * Format: date-time
+             */
+            scanned_at: string;
+        };
+        /** ExportSms */
+        ExportSms: {
+            /** Kind */
+            kind: string;
+            /** Status */
+            status: string;
+            /** Body */
+            body: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
+        /** ExportTicket */
+        ExportTicket: {
+            /**
+             * Ticket Id
+             * Format: uuid
+             */
+            ticket_id: string;
+            /** Event Name */
+            event_name: string;
+            /**
+             * Event Starts At
+             * Format: date-time
+             */
+            event_starts_at: string;
+            /**
+             * Event Ends At
+             * Format: date-time
+             */
+            event_ends_at: string;
+            /** Ticket Tier */
+            ticket_tier: string;
+            /** Status */
+            status: string;
+            /** Attendee Full Name */
+            attendee_full_name: string;
+            /** Attendee Organization */
+            attendee_organization: string;
+            /** Attendee Title */
+            attendee_title: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Cancelled At */
+            cancelled_at: string | null;
+            /** Cancelled Reason */
+            cancelled_reason: string | null;
+            /** Scans */
+            scans: components["schemas"]["ExportScan"][];
+        };
         /** FaqItem */
         FaqItem: {
             question?: components["schemas"]["LocalizedLine"];
@@ -3216,6 +3550,190 @@ export interface components {
             /** Has Unpublished Changes */
             has_unpublished_changes: boolean;
         };
+        /** ParticipantCancel */
+        ParticipantCancel: {
+            /**
+             * Reason
+             * @default
+             */
+            reason: string;
+            /**
+             * Notify
+             * @default true
+             */
+            notify: boolean;
+        };
+        /** ParticipantDetail */
+        ParticipantDetail: {
+            /**
+             * Ticket Id
+             * Format: uuid
+             */
+            ticket_id: string;
+            /**
+             * User Id
+             * Format: uuid
+             */
+            user_id: string;
+            /** Attendee Full Name */
+            attendee_full_name: string;
+            /** Attendee Organization */
+            attendee_organization: string;
+            /** Attendee Title */
+            attendee_title: string;
+            /** Mobile */
+            mobile: string | null;
+            /**
+             * Ticket Tier Id
+             * Format: uuid
+             */
+            ticket_tier_id: string;
+            /** Ticket Tier Name */
+            ticket_tier_name: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "active" | "cancelled";
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Cancelled At */
+            cancelled_at: string | null;
+            /** Cancelled Reason */
+            cancelled_reason: string | null;
+            /** Cancelled By */
+            cancelled_by: string | null;
+            /** Reissued At */
+            reissued_at: string | null;
+            /** Issued By */
+            issued_by: string | null;
+            /** Checkin Count */
+            checkin_count: number;
+            /** Lead Count */
+            lead_count: number;
+            /** Can Delete */
+            can_delete: boolean;
+            /** Account Deleted */
+            account_deleted: boolean;
+            /** Qr Secret */
+            qr_secret: string | null;
+            /** Scan History */
+            scan_history: components["schemas"]["ScanOut"][];
+        };
+        /** ParticipantOut */
+        ParticipantOut: {
+            /**
+             * Ticket Id
+             * Format: uuid
+             */
+            ticket_id: string;
+            /**
+             * User Id
+             * Format: uuid
+             */
+            user_id: string;
+            /** Attendee Full Name */
+            attendee_full_name: string;
+            /** Attendee Organization */
+            attendee_organization: string;
+            /** Attendee Title */
+            attendee_title: string;
+            /** Mobile */
+            mobile: string | null;
+            /**
+             * Ticket Tier Id
+             * Format: uuid
+             */
+            ticket_tier_id: string;
+            /** Ticket Tier Name */
+            ticket_tier_name: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "active" | "cancelled";
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Cancelled At */
+            cancelled_at: string | null;
+            /** Cancelled Reason */
+            cancelled_reason: string | null;
+            /** Cancelled By */
+            cancelled_by: string | null;
+            /** Reissued At */
+            reissued_at: string | null;
+            /** Issued By */
+            issued_by: string | null;
+            /** Checkin Count */
+            checkin_count: number;
+            /** Lead Count */
+            lead_count: number;
+            /** Can Delete */
+            can_delete: boolean;
+            /** Account Deleted */
+            account_deleted: boolean;
+        };
+        /** ParticipantPage */
+        ParticipantPage: {
+            /** Items */
+            items: components["schemas"]["ParticipantOut"][];
+            /** Total */
+            total: number;
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+        };
+        /** ParticipantReissue */
+        ParticipantReissue: {
+            /**
+             * Notify
+             * @default true
+             */
+            notify: boolean;
+        };
+        /**
+         * ParticipantTransfer
+         * @description The new holder, by mobile number. Name details are required when the number has no account yet.
+         */
+        ParticipantTransfer: {
+            /** Mobile */
+            mobile: string;
+            /** Full Name */
+            full_name?: string | null;
+            /** Organization */
+            organization?: string | null;
+            /** Title */
+            title?: string | null;
+        };
+        /**
+         * ParticipantUpdate
+         * @description Registration details for this congress only; the person's account is left unchanged.
+         */
+        ParticipantUpdate: {
+            /** Attendee Full Name */
+            attendee_full_name?: string | null;
+            /** Attendee Organization */
+            attendee_organization?: string | null;
+            /** Attendee Title */
+            attendee_title?: string | null;
+        };
         /** PassResolveRequest */
         PassResolveRequest: {
             /** Code */
@@ -3282,7 +3800,7 @@ export interface components {
              * @default otp
              * @enum {string}
              */
-            kind: "otp" | "ticket_confirmation";
+            kind: "otp" | "ticket_confirmation" | "ticket_cancelled" | "ticket_reissued";
             /** Body */
             body?: string | null;
         };
@@ -3306,6 +3824,20 @@ export interface components {
         PrivacyPreferenceUpdate: {
             /** Share Contact With Peers */
             share_contact_with_peers: boolean;
+        };
+        /**
+         * ProfileUpdate
+         * @description The account's own details. Name changes also apply to registrations for congresses that have not ended.
+         */
+        ProfileUpdate: {
+            /** Full Name */
+            full_name?: string | null;
+            /** Organization */
+            organization?: string | null;
+            /** Title */
+            title?: string | null;
+            /** Share Contact With Exhibitors */
+            share_contact_with_exhibitors?: boolean | null;
         };
         /** PublicBoothOut */
         PublicBoothOut: {
@@ -3487,6 +4019,20 @@ export interface components {
         };
         /** ScanHistoryItem */
         ScanHistoryItem: {
+            /** Checkin Point Name */
+            checkin_point_name: string;
+            /** Status */
+            status: string;
+            /** Rejection Reason */
+            rejection_reason: string | null;
+            /**
+             * Scanned At
+             * Format: date-time
+             */
+            scanned_at: string;
+        };
+        /** ScanOut */
+        ScanOut: {
             /** Checkin Point Name */
             checkin_point_name: string;
             /** Status */
@@ -3777,7 +4323,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "otp" | "ticket_confirmation";
+            kind: "otp" | "ticket_confirmation" | "ticket_cancelled" | "ticket_reissued";
             /** Body */
             body: string;
             /** Is Custom */
@@ -3818,9 +4364,9 @@ export interface components {
             /**
              * Kind
              * @default ticket_confirmation
-             * @constant
+             * @enum {string}
              */
-            kind: "ticket_confirmation";
+            kind: "ticket_confirmation" | "ticket_cancelled" | "ticket_reissued";
             /** Body */
             body?: string | null;
         };
@@ -3991,6 +4537,11 @@ export interface components {
              * @default false
              */
             share_contact_with_peers: boolean;
+            /**
+             * Share Contact With Exhibitors
+             * @default false
+             */
+            share_contact_with_exhibitors: boolean;
         };
         /** ValidationError */
         ValidationError: {
@@ -4229,6 +4780,77 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["UserOut"];
+                };
+            };
+        };
+    };
+    delete_my_account_api_auth_me_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    update_my_profile_api_auth_me_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProfileUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    export_my_data_api_auth_me_export_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountExport"];
                 };
             };
         };
@@ -4677,9 +5299,60 @@ export interface operations {
             };
         };
     };
-    get_my_tickets_api_attendees_me_tickets_get: {
+    cancel_my_ticket_api_attendees_me_tickets__ticket_id__cancel_post: {
         parameters: {
             query?: never;
+            header?: never;
+            path: {
+                ticket_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AttendeeTicketDetail"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_my_tickets_api_attendees_me_tickets_get: {
+        parameters: {
+            query?: {
+                include_cancelled?: boolean;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -4693,6 +5366,383 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AttendeeTicketDetail"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_participants_api_events__event_id__participants_get: {
+        parameters: {
+            query?: {
+                q?: string;
+                tier_id?: string | null;
+                status?: ("active" | "cancelled") | null;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path: {
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ParticipantPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    export_participants_csv_api_events__event_id__participants_export_csv_get: {
+        parameters: {
+            query?: {
+                q?: string;
+                tier_id?: string | null;
+                status?: ("active" | "cancelled") | null;
+            };
+            header?: never;
+            path: {
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_participant_api_events__event_id__participants__ticket_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ticket_id: string;
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ParticipantDetail"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_participant_api_events__event_id__participants__ticket_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ticket_id: string;
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_participant_api_events__event_id__participants__ticket_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ticket_id: string;
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ParticipantUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ParticipantDetail"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    cancel_participant_api_events__event_id__participants__ticket_id__cancel_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ticket_id: string;
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ParticipantCancel"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ParticipantDetail"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reissue_participant_api_events__event_id__participants__ticket_id__reissue_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ticket_id: string;
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ParticipantReissue"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ParticipantDetail"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    transfer_participant_api_events__event_id__participants__ticket_id__transfer_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ticket_id: string;
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ParticipantTransfer"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ParticipantDetail"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -7084,7 +8134,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                kind: "ticket_confirmation";
+                kind: "ticket_confirmation" | "ticket_cancelled" | "ticket_reissued";
                 event_id: string;
             };
             cookie?: never;
@@ -7120,7 +8170,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                kind: "ticket_confirmation";
+                kind: "ticket_confirmation" | "ticket_cancelled" | "ticket_reissued";
                 event_id: string;
             };
             cookie?: never;
@@ -7253,7 +8303,7 @@ export interface operations {
                 "x-admin-token"?: string | null;
             };
             path: {
-                kind: "otp" | "ticket_confirmation";
+                kind: "otp" | "ticket_confirmation" | "ticket_cancelled" | "ticket_reissued";
             };
             cookie?: never;
         };
@@ -7290,7 +8340,7 @@ export interface operations {
                 "x-admin-token"?: string | null;
             };
             path: {
-                kind: "otp" | "ticket_confirmation";
+                kind: "otp" | "ticket_confirmation" | "ticket_cancelled" | "ticket_reissued";
             };
             cookie?: never;
         };
