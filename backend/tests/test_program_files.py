@@ -149,6 +149,15 @@ async def test_uploads_over_8_mb_or_without_a_label_are_refused(client: AsyncCli
     assert missing.status_code == 422
 
 
+async def test_an_event_holds_at_most_20_schedule_files(client: AsyncClient) -> None:
+    organizer = await provision_organizer(client, "Acme Congress Co")
+    event_id = await create_event(client, organizer)
+    for _ in range(20):
+        await uploaded(client, organizer, event_id, PDF)
+    refused = await upload(client, organizer, event_id, PDF)
+    assert (refused.status_code, refused.json()["code"]) == (409, "PROGRAM_FILE_LIMIT_REACHED")
+
+
 async def test_organizer_relabels_reorders_hides_and_deletes_files(client: AsyncClient, media_root: Path) -> None:
     organizer = await provision_organizer(client, "Acme Congress Co")
     event_id = await create_event(client, organizer)

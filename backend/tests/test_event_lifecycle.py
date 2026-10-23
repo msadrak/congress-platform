@@ -153,6 +153,15 @@ async def test_an_event_without_tickets_can_be_deleted_with_everything_it_holds(
         f"/api/events/{event_id}/checkin-points", json={"name": "Main gate"}, headers=bearer(organizer)
     )
     assert point.status_code == 201, point.text
+    # A paired scanner that recorded a rejected scan (an unknown pass: a check-in row without a ticket).
+    minted = await client.post(f"/api/checkin-points/{point.json()['id']}/token", headers=bearer(organizer))
+    assert minted.status_code == 201, minted.text
+    scanned = await client.post(
+        f"/api/checkin-points/{point.json()['id']}/scans/batch",
+        json={"scans": [{"scan_id": str(uuid.uuid4()), "qr_secret": "not-a-pass", "scanned_at": iso(timedelta())}]},
+        headers={"Authorization": f"Bearer {minted.json()['scanner_token']}"},
+    )
+    assert scanned.status_code == 200 and scanned.json()["results"][0]["status"] == "REJECTED", scanned.text
 
     assert (await client.delete(f"/api/events/{event_id}", headers=bearer(intruder))).status_code == 404
     deleted = await client.delete(f"/api/events/{event_id}", headers=bearer(organizer))
