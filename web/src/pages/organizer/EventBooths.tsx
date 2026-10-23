@@ -2,7 +2,6 @@ import { useState } from "react";
 import { localizedApiError, type BoothOut, type EventOut } from "../../api/client";
 import { commonCopy } from "../../copy/common";
 import { organizerSetupCopy } from "../../copy/organizerSetup";
-import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { Icon } from "../../components/ui/Icon";
 import { RowActions, type RowAction } from "../../components/ui/RowActions";
@@ -84,9 +83,11 @@ export default function EventBooths() {
                     <bdi>{b.name}</bdi>
                   </h3>
                   {b.location && (
-                    <Badge variant="neutral" size="sm" icon={<Icon name="pin" size={12} />}>
-                      <bdi>{b.location}</bdi>
-                    </Badge>
+                    // A long hall description wraps instead of widening the page on a phone.
+                    <p className="flex items-start gap-1.5 text-caption text-text-secondary">
+                      <Icon name="pin" size={14} className="mt-0.5 shrink-0" />
+                      <bdi className="min-w-0 break-words">{b.location}</bdi>
+                    </p>
                   )}
                   {b.description && (
                     <p className="line-clamp-2 text-caption text-text-secondary">

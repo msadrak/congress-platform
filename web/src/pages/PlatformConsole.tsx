@@ -6,7 +6,7 @@ import { platformCopy } from "../copy/platform";
 import { useLocale } from "../lib/i18n";
 import { usePageTitle } from "../hooks/usePageTitle";
 import { Badge } from "../components/ui/Badge";
-import { Button } from "../components/ui/Button";
+import { Button, IconButton } from "../components/ui/Button";
 import { Field } from "../components/ui/Field";
 import { CodeInput } from "../components/ui/Input";
 import { Icon, type IconName } from "../components/ui/Icon";
@@ -177,10 +177,14 @@ export default function PlatformConsole() {
   const environment = status && (ENVIRONMENTS as readonly string[]).includes(status.environment)
     ? copy.environment[status.environment as (typeof ENVIRONMENTS)[number]]
     : copy.environment.unknown;
+  // On a phone sign-out is an icon, so the header stays one row.
   const signOutButton = (
-    <Button type="button" variant="ghost" size="sm" icon="logout" onClick={() => signOut()}>
-      {copy.signOut}
-    </Button>
+    <>
+      <Button type="button" variant="ghost" size="sm" icon="logout" onClick={() => signOut()} className="max-sm:hidden">
+        {copy.signOut}
+      </Button>
+      <IconButton icon="logout" label={copy.signOut} variant="ghost" onClick={() => signOut()} className="sm:hidden" />
+    </>
   );
 
   const context: PlatformOutletContext | null = status
@@ -199,7 +203,7 @@ export default function PlatformConsole() {
       <header className="border-b border-border-default bg-surface-panel">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-x-3 gap-y-1 px-4 py-2 sm:px-6">
           <div className="flex min-h-11 items-center gap-2.5">
-            <span className="grid size-9 place-items-center rounded-control bg-aiteb-lavender text-aiteb-indigo">
+            <span className="grid size-9 place-items-center rounded-control bg-aiteb-lavender text-aiteb-indigo max-sm:hidden">
               <Icon name="shield" size={18} />
             </span>
             <span className="font-bold">{copy.portal}</span>
