@@ -68,16 +68,22 @@ export function useLeadList({ boothId, token, locale, enabled, onAccessRevoked }
   const [total, setTotal] = useState(0);
   const [cursor, setCursor] = useState<string | null>(null);
   const [status, setStatus] = useState<LeadListState["status"]>("loading");
-  const [refreshing, setRefreshing] = useState(false);
+  // The request a first page answers; `refreshing` is derived from it.
+  const [loadedKey, setLoadedKey] = useState("");
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loadMoreError, setLoadMoreError] = useState<string | null>(null);
   const [reloadNonce, setReloadNonce] = useState(0);
   const generation = useRef(0);
   const revokedRef = useRef(onAccessRevoked);
+  // `locale` only words error messages: switching language does not refetch.
+  const localeRef = useRef(locale);
   useEffect(() => {
     revokedRef.current = onAccessRevoked;
+    localeRef.current = locale;
   });
+  const requestKey = `${boothId}|${token}|${appliedQuery.view}|${appliedQuery.rating}|${appliedQuery.q}|${reloadNonce}`;
+  const refreshing = enabled && loadedKey !== requestKey;
 
   // The search waits for a typing pause; the rating and view apply at once.
   useEffect(() => {
@@ -91,8 +97,7 @@ export function useLeadList({ boothId, token, locale, enabled, onAccessRevoked }
   useEffect(() => {
     if (!enabled || !boothId || !token) return;
     const mine = ++generation.current;
-    setRefreshing(true);
-    setLoadMoreError(null);
+    const key = `${boothId}|${token}|${appliedQuery.view}|${appliedQuery.rating}|${appliedQuery.q}|${reloadNonce}`;
     void (async () => {
       try {
         const res = await client(token).GET("/api/booths/{booth_id}/leads/search", {
@@ -101,6 +106,8 @@ export function useLeadList({ boothId, token, locale, enabled, onAccessRevoked }
         if (mine !== generation.current) return;
         // A changed or expired session: the page re-renders from the session store; nothing here applies.
         if (attendeeResponseState(token, res.response.status) !== "current") return;
+        setLoadedKey(key);
+        setLoadMoreError(null);
         if (res.data) {
           setItems(res.data.items);
           setTotal(res.data.total);
@@ -115,20 +122,18 @@ export function useLeadList({ boothId, token, locale, enabled, onAccessRevoked }
           setTotal(0);
           setCursor(null);
           setStatus("error");
-          setError(localizedApiError(res.error, locale));
+          setError(localizedApiError(res.error, localeRef.current));
         }
       } catch {
         if (mine !== generation.current) return;
+        setLoadedKey(key);
         setItems([]);
         setTotal(0);
         setCursor(null);
         setStatus("error");
         setError(null);
-      } finally {
-        if (mine === generation.current) setRefreshing(false);
       }
     })();
-    // `locale` only words an error message; switching language does not refetch.
   }, [enabled, boothId, token, appliedQuery, reloadNonce]);
 
   const loadMore = useCallback(() => {
@@ -153,7 +158,7 @@ export function useLeadList({ boothId, token, locale, enabled, onAccessRevoked }
           // The position no longer exists: start the list again rather than show a gap.
           setReloadNonce((n) => n + 1);
         } else {
-          setLoadMoreError(localizedApiError(res.error, locale));
+          setLoadMoreError(localizedApiError(res.error, localeRef.current));
         }
       } catch {
         if (mine === generation.current) setLoadMoreError("");
@@ -161,7 +166,7 @@ export function useLeadList({ boothId, token, locale, enabled, onAccessRevoked }
         if (mine === generation.current) setLoadingMore(false);
       }
     })();
-  }, [enabled, boothId, token, cursor, loadingMore, appliedQuery, locale]);
+  }, [enabled, boothId, token, cursor, loadingMore, appliedQuery]);
 
   const reload = useCallback(() => setReloadNonce((n) => n + 1), []);
 

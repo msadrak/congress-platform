@@ -1,4 +1,6 @@
-import type { AttendeeLocale } from "../../lib/i18n";
+import { localizedApiError } from "../../api/client";
+import { formatLocalizedNumber, type AttendeeLocale } from "../../lib/i18n";
+import type { QueueFailure } from "../../lib/leadQueue";
 
 /**
  * Booth workspace wording added with the paged lead list, the trash and offline capture. Persian glossary:
@@ -136,4 +138,14 @@ const en: BoothText = {
 
 export function boothText(locale: AttendeeLocale): BoothText {
   return locale === "fa" ? fa : en;
+}
+
+/** A queued scan's refusal in the reader's language: coded API errors through the shared map, the scan's own 404/400 here. */
+export function queueFailureText(failure: QueueFailure, locale: AttendeeLocale): string {
+  const text = boothText(locale);
+  if (failure.kind === "invalid_badge") return text.failInvalidBadge;
+  if (failure.kind === "other_event") return text.failOtherEvent;
+  const status = formatLocalizedNumber(failure.status, locale);
+  if (failure.code) return localizedApiError({ code: failure.code, detail: failure.detail ?? text.failRefused(status) }, locale);
+  return text.failRefused(status);
 }

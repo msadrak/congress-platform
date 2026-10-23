@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { apiErrorCode, createApiClient, formatApiError, type LeadOut, type LeadScanInput, type LeadScanRequest } from "../../api/client";
 import { isStoredAttendeeToken } from "../../lib/attendeeSession";
 import {
@@ -61,7 +61,10 @@ export interface LeadQueueState {
 export function useLeadQueue({ boothId, token, enabled, onSynced, onAccessRevoked, store = indexedDbLeadQueue }: LeadQueueOptions): LeadQueueState {
   const owner = getAuthenticatedUserId(token);
   const online = useOnline();
-  const [scans, setScans] = useState<QueuedLeadScan[]>([]);
+  // The listed queue with the owner and booth it belongs to: another session's list is never shown.
+  const [listing, setListing] = useState<{ key: string; scans: QueuedLeadScan[] }>({ key: "", scans: [] });
+  const queueKey = owner && boothId ? `${owner}|${boothId}` : "";
+  const scans = useMemo(() => (queueKey && listing.key === queueKey ? listing.scans : []), [listing, queueKey]);
   const [sendingId, setSendingId] = useState<string | null>(null);
   const [storageError, setStorageError] = useState(false);
   const running = useRef(false);
@@ -77,14 +80,10 @@ export function useLeadQueue({ boothId, token, enabled, onSynced, onAccessRevoke
   });
 
   const refresh = useCallback(async (): Promise<QueuedLeadScan[]> => {
-    if (!owner || !boothId) {
-      setScans([]);
-      return [];
-    }
+    if (!owner || !boothId) return [];
     try {
       const listed = await store.list(owner, boothId);
-      // A newer session or booth replaced this one meanwhile: its own refresh shows its queue.
-      if (live.current.owner === owner && live.current.boothId === boothId) setScans(listed);
+      setListing({ key: `${owner}|${boothId}`, scans: listed });
       setStorageError(false);
       return listed;
     } catch {
@@ -93,7 +92,7 @@ export function useLeadQueue({ boothId, token, enabled, onSynced, onAccessRevoke
     }
   }, [owner, boothId, store]);
 
-  const sync = useCallback(async () => {
+  const sync = useCallback(async function runSync(): Promise<void> {
     const { boothId: booth, token: sessionToken, owner: who, enabled: allowed } = live.current;
     if (!booth || !sessionToken || !who || !allowed || !navigator.onLine) return;
     if (running.current) {
@@ -147,26 +146,32 @@ export function useLeadQueue({ boothId, token, enabled, onSynced, onAccessRevoke
     const remaining = await refresh();
     if (again.current) {
       again.current = false;
-      void sync();
+      void runSync();
       return;
     }
     const due = nextRetryAt(remaining);
     if (due !== null && live.current.enabled) {
-      timer.current = window.setTimeout(() => void sync(), Math.max(250, due - Date.now()));
+      timer.current = window.setTimeout(() => void runSync(), Math.max(250, due - Date.now()));
     }
   }, [refresh, store]);
 
   // Load this account's queue for the booth, and send what is waiting.
+  // (Started from a zero-delay timer: the queue is an external store, read after the commit.)
   useEffect(() => {
     if (!enabled) return;
-    void refresh().then((listed) => {
-      if (listed.length) void sync();
-    });
+    const start = window.setTimeout(() => {
+      void refresh().then((listed) => {
+        if (listed.length) void sync();
+      });
+    }, 0);
+    return () => window.clearTimeout(start);
   }, [enabled, refresh, sync]);
 
   // Back online: send at once.
   useEffect(() => {
-    if (online && enabled) void sync();
+    if (!online || !enabled) return;
+    const start = window.setTimeout(() => void sync(), 0);
+    return () => window.clearTimeout(start);
   }, [online, enabled, sync]);
 
   useEffect(() => {

@@ -133,7 +133,8 @@ export function scanBody(scan: QueuedLeadScan): LeadScanInput {
 /** How one answer moves a queued scan on. */
 export function classifySend(result: SendResult): SyncOutcome {
   if (result.network) return { kind: "retry" };
-  const { status, data, code, detail } = result;
+  // (The web build is not `strict`, so the boolean discriminant does not narrow on its own.)
+  const { status, data, code, detail } = result as Extract<SendResult, { network: false }>;
   if ((status === 200 || status === 201) && data) return { kind: "synced", lead: data, existed: status === 200 };
   if (status === 401) return { kind: "session_expired" };
   if (status === 403 && code === "BOOTH_STAFF_REQUIRED") return { kind: "access_revoked" };

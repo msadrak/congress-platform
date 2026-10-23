@@ -1,20 +1,10 @@
-import { localizedApiError } from "../../api/client";
 import { codeFontClass, formatLocalizedNumber, type AttendeeLocale } from "../../lib/i18n";
-import type { QueueFailure, QueuedLeadScan } from "../../lib/leadQueue";
+import type { QueuedLeadScan } from "../../lib/leadQueue";
 import { Button } from "../ui/Button";
 import { Icon } from "../ui/Icon";
 import { BoothSpinner } from "./BoothSpinner";
-import { boothText } from "./boothText";
+import { boothText, queueFailureText } from "./boothText";
 import type { LeadQueueState } from "./useLeadQueue";
-
-/** A refusal in the reader's language: known API codes through the shared map, the scan's own 404/400 here. */
-export function queueFailureText(failure: QueueFailure, locale: AttendeeLocale): string {
-  const text = boothText(locale);
-  if (failure.kind === "invalid_badge") return text.failInvalidBadge;
-  if (failure.kind === "other_event") return text.failOtherEvent;
-  if (failure.code) return localizedApiError({ code: failure.code, detail: failure.detail ?? text.failRefused(String(failure.status)) }, locale);
-  return text.failRefused(formatLocalizedNumber(failure.status, locale));
-}
 
 function clock(ms: number | string, locale: AttendeeLocale): string {
   try {
