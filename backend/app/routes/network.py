@@ -9,12 +9,13 @@ from fastapi import APIRouter, HTTPException, Query, Request, Response, status
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import and_, func, or_, select
 
-from app.db import SessionDep
+from app.db import SessionDep, add_or_existing
 from app.errors import ApiError, error_responses
 from app.models import Connection, EntityQR, Ticket, User
 from app.rate_limit import Budget, limiter
 from app.routes.auth import CurrentUserDep
-from app.routes.booths import THROTTLED, require_active_ticket
+from app.routes.booths import THROTTLED, require_active_ticket, require_networking_open
+from app.routes.leads import LEGACY_LIST_MAX, SEARCH_TERM_MAX, Notes, QrSecret
 from app.search import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, before_cursor, encode_cursor, text_matches
 from app.sms.phone import search_digits, to_e164
 
@@ -26,8 +27,8 @@ SCANS_PER_USER = Budget(120)
 
 
 class ConnectionScanRequest(BaseModel):
-    qr_secret: str
-    private_notes: str = ""
+    qr_secret: QrSecret
+    private_notes: Notes = ""
     # Required: the congress the scan happens in. The scanner must hold an active ticket there, and a badge
     # from another congress is rejected before anything is written. (Typed nullable only so existing clients
     # keep compiling; null is refused with EVENT_ID_REQUIRED.)
@@ -35,7 +36,7 @@ class ConnectionScanRequest(BaseModel):
 
 
 class ConnectionUpdate(BaseModel):
-    private_notes: str
+    private_notes: Notes
 
 
 class PrivacyPreferenceUpdate(BaseModel):
@@ -92,7 +93,8 @@ async def scan_peer_badge(
     response: Response,
 ) -> ConnectionOut:
     """Adds the person whose pass QR was scanned to the caller's network in that congress (201; 200 when
-    already connected). Only someone with an active ticket for the congress may scan there."""
+    already connected, also when two scans race). Only someone with an active ticket for the congress may scan
+    there, and not once the congress is archived (409 NETWORKING_CLOSED)."""
     if body.event_id is None:
         raise ApiError(
             status.HTTP_400_BAD_REQUEST, "EVENT_ID_REQUIRED", "Name the congress the badge is scanned in"
@@ -107,6 +109,7 @@ async def scan_peer_badge(
     )
     await throttle.hit(scans)
     await require_active_ticket(session, current_user.id, body.event_id)
+    await require_networking_open(session, body.event_id)
 
     secret = body.qr_secret.strip().lower()
 
@@ -148,94 +151,56 @@ async def scan_peer_badge(
             status.HTTP_400_BAD_REQUEST, "BADGE_OWN", "Cannot connect with your own badge"
         )
 
-    # 4. Check duplicate connection
-    existing = await session.scalar(
-        select(Connection).where(
-            Connection.user_id == current_user.id,
-            Connection.connected_user_id == peer.id,
-            Connection.event_id == ticket.event_id,
-        )
+    # 4. Connect once: a repeat scan, or a concurrent one that inserted first, answers with that connection.
+    notes = body.private_notes.strip()
+    duplicate = select(Connection).where(
+        Connection.user_id == current_user.id,
+        Connection.connected_user_id == peer.id,
+        Connection.event_id == ticket.event_id,
     )
-
-    if existing is not None:
-        if body.private_notes.strip():
-            existing.private_notes = body.private_notes.strip()
-            await session.commit()
-        response.status_code = status.HTTP_200_OK
-        mobile = peer.mobile if peer.share_contact_with_peers else None
-        return ConnectionOut(
-            id=existing.id,
-            connected_user_id=peer.id,
-            full_name=peer.full_name,
-            mobile=mobile,
-            organization=peer.organization,
-            title=peer.title,
-            event_id=existing.event_id,
-            private_notes=existing.private_notes,
-            created_at=existing.created_at,
+    existing = await session.scalar(duplicate)
+    if existing is None:
+        conn, created = await add_or_existing(
+            session,
+            Connection(
+                user_id=current_user.id, connected_user_id=peer.id, event_id=ticket.event_id, private_notes=notes
+            ),
+            duplicate,
         )
-
-    # 5. Create new Connection
-    conn = Connection(
-        user_id=current_user.id,
-        connected_user_id=peer.id,
-        event_id=ticket.event_id,
-        private_notes=body.private_notes.strip(),
-    )
-    session.add(conn)
+    else:
+        conn, created = existing, False
+    if not created and notes:
+        conn.private_notes = notes
     await session.commit()
-    response.status_code = status.HTTP_201_CREATED
-
-    mobile = peer.mobile if peer.share_contact_with_peers else None
-    return ConnectionOut(
-        id=conn.id,
-        connected_user_id=peer.id,
-        full_name=peer.full_name,
-        mobile=mobile,
-        organization=peer.organization,
-        title=peer.title,
-        event_id=conn.event_id,
-        private_notes=conn.private_notes,
-        created_at=conn.created_at,
-    )
+    response.status_code = status.HTTP_201_CREATED if created else status.HTTP_200_OK
+    return _connection_out(conn, peer)
 
 
-@router.get("")
+@router.get("", deprecated=True)
 async def list_my_connections(
     current_user: CurrentUserDep,
     session: SessionDep,
+    limit: Annotated[int, Query(ge=1, le=LEGACY_LIST_MAX)] = LEGACY_LIST_MAX,
 ) -> list[ConnectionOut]:
-    """Every connection, newest first. `/search` is the paginated, searchable form."""
+    """The caller's connections, newest first: at most `limit` (1,000 by default and at most).
+
+    Deprecated: use `/search`, which pages through every connection, filters by congress and reports the total.
+    """
     query = (
         select(Connection, User)
         .join(User, Connection.connected_user_id == User.id)
         .where(Connection.user_id == current_user.id)
-        .order_by(Connection.created_at.desc())
+        .order_by(Connection.created_at.desc(), Connection.id.desc())
+        .limit(limit)
     )
-    res = await session.execute(query)
-    rows = res.all()
-
-    return [
-        ConnectionOut(
-            id=conn.id,
-            connected_user_id=peer.id,
-            full_name=peer.full_name,
-            mobile=peer.mobile if peer.share_contact_with_peers else None,
-            organization=peer.organization,
-            title=peer.title,
-            event_id=conn.event_id,
-            private_notes=conn.private_notes,
-            created_at=conn.created_at,
-        )
-        for conn, peer in rows
-    ]
+    return [_connection_out(conn, peer) for conn, peer in (await session.execute(query)).all()]
 
 
 @router.get("/search", responses=error_responses(400))
 async def search_my_connections(
     current_user: CurrentUserDep,
     session: SessionDep,
-    q: Annotated[str, Query(max_length=200)] = "",
+    q: Annotated[str, Query(max_length=SEARCH_TERM_MAX)] = "",
     event_id: Annotated[uuid.UUID | None, Query(description="Only this congress's connections")] = None,
     limit: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = DEFAULT_PAGE_SIZE,
     cursor: Annotated[str | None, Query(max_length=200)] = None,
@@ -318,19 +283,7 @@ async def update_connection_notes(
     peer = await session.get(User, conn.connected_user_id)
     if peer is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Peer not found")
-
-    mobile = peer.mobile if peer.share_contact_with_peers else None
-    return ConnectionOut(
-        id=conn.id,
-        connected_user_id=peer.id,
-        full_name=peer.full_name,
-        mobile=mobile,
-        organization=peer.organization,
-        title=peer.title,
-        event_id=conn.event_id,
-        private_notes=conn.private_notes,
-        created_at=conn.created_at,
-    )
+    return _connection_out(conn, peer)
 
 
 @router.delete(
