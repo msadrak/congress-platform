@@ -43,7 +43,7 @@ KINDS: dict[SmsKind, KindSpec] = {
     "otp": KindSpec(
         placeholders=("code", "minutes"),
         required=("code",),
-        default="کد ورود همایش: {code}\nآن را به کسی ندهید.",
+        default="کد ورود همایش: {code}\nتا {minutes} دقیقه معتبر است؛ آن را به کسی ندهید.",
     ),
     "ticket_confirmation": KindSpec(
         placeholders=("name", "event", "tier", "location", "link"),

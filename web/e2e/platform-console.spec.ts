@@ -5,7 +5,7 @@ import type { Page } from '@playwright/test';
 // (backend/tests/test_platform_console.py covers the real API).
 const TOKEN = 'synthetic-platform-admin-token';
 const KEY = 'sk_live_abcdefghijklmnop1234';
-const OTP_DEFAULT = 'کد ورود همایش: {code}\nآن را به کسی ندهید.';
+const OTP_DEFAULT = 'کد ورود همایش: {code}\nتا {minutes} دقیقه معتبر است؛ آن را به کسی ندهید.';
 const CONFIRMATION_DEFAULT = '{name} عزیز، ثبت‌نام شما در «{event}» تأیید شد.\nکارت ورود: {link}';
 
 type Recorded = { method: string; path: string; auth: string | undefined; admin: string | undefined; body: unknown };
