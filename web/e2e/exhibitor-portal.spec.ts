@@ -670,9 +670,11 @@ test.describe('paged list, trash and offline capture', () => {
     const scans = () => requests.filter(r => r.path.endsWith('/leads/scan'));
     expect(scans()).toEqual([]);
 
-    // The queue survives a reload (IndexedDB).
+    // The queue survives leaving the page (IndexedDB). The page is left while still offline, so it cannot
+    // start sending before it is gone.
+    await page.goto('about:blank');
     await context.setOffline(false);
-    await page.reload();
+    await page.goto('/booth/booth-a');
     // Back online: the good scan is sent with exactly its chosen qualification; the refused one stays, explained.
     await expect(card(page, 'Captured offline-attendee')).toBeVisible();
     await expect(pending.getByTestId('pending-scan')).toHaveCount(1);

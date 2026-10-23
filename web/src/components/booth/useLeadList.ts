@@ -74,6 +74,16 @@ export function useLeadList({ boothId, token, locale, enabled, onAccessRevoked }
   const [error, setError] = useState<string | null>(null);
   const [loadMoreError, setLoadMoreError] = useState<string | null>(null);
   const [reloadNonce, setReloadNonce] = useState(0);
+  // Another account (or booth) never sees the previous one's leads, not even while its own first page loads.
+  const [listedFor, setListedFor] = useState(`${boothId}|${token}`);
+  if (listedFor !== `${boothId}|${token}`) {
+    setListedFor(`${boothId}|${token}`);
+    setItems([]);
+    setTotal(0);
+    setCursor(null);
+    setStatus("loading");
+    setError(null);
+  }
   const generation = useRef(0);
   const revokedRef = useRef(onAccessRevoked);
   // `locale` only words error messages: switching language does not refetch.
@@ -228,6 +238,13 @@ export function useLeadCounts({ boothId, token, enabled, onAccessRevoked }: Omit
   const [deleted, setDeleted] = useState(0);
   const [known, setKnown] = useState(false);
   const [nonce, setNonce] = useState(0);
+  const [countedFor, setCountedFor] = useState(`${boothId}|${token}`);
+  if (countedFor !== `${boothId}|${token}`) {
+    setCountedFor(`${boothId}|${token}`);
+    setCounts(ZERO);
+    setDeleted(0);
+    setKnown(false);
+  }
   const revokedRef = useRef(onAccessRevoked);
   useEffect(() => {
     revokedRef.current = onAccessRevoked;

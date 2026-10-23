@@ -24,10 +24,12 @@ interface QualifyDialogProps {
   onSaved: (lead: LeadOut) => void;
   /** 403 BOOTH_STAFF_REQUIRED: this account was removed from the booth. */
   onAccessRevoked: () => void;
+  /** The stored session changed in another tab: the portal re-renders for the current one. */
+  onSessionChanged: () => void;
 }
 
 /** Lead detail and qualification (rating, follow-up tags, notes). Closes itself a moment after a confirmed save. */
-export function QualifyDialog({ lead, onClose, boothId, token, locale, tagPresets, onSaved, onAccessRevoked }: QualifyDialogProps) {
+export function QualifyDialog({ lead, onClose, boothId, token, locale, tagPresets, onSaved, onAccessRevoked, onSessionChanged }: QualifyDialogProps) {
   const t = translations[locale];
   const isRtl = locale === "fa";
   const [editRating, setEditRating] = useState<LeadRating>("WARM");
@@ -87,6 +89,7 @@ export function QualifyDialog({ lead, onClose, boothId, token, locale, tagPreset
     if (!lead) return;
     if (!isStoredAttendeeToken(token)) {
       setEditError(sessionChangedMessage(locale));
+      onSessionChanged();
       return;
     }
 

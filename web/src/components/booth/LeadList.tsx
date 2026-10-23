@@ -27,6 +27,8 @@ interface LeadListProps {
   onQualify: (lead: LeadOut) => void;
   onCapture: () => void;
   onAccessRevoked: () => void;
+  /** The stored session changed in another tab: the portal re-renders for the current one. */
+  onSessionChanged: () => void;
 }
 
 type Client = ReturnType<typeof createApiClient>;
@@ -35,7 +37,7 @@ type Client = ReturnType<typeof createApiClient>;
  * The booth's lead worklist and trash: server-side search and rating filter, paging by cursor, delete with undo,
  * restore, CSV export (optionally with deleted leads) and the scans still waiting on this device.
  */
-export function LeadList({ boothId, boothSlug, token, locale, list, counts, queue, syncNotice, onQualify, onCapture, onAccessRevoked }: LeadListProps) {
+export function LeadList({ boothId, boothSlug, token, locale, list, counts, queue, syncNotice, onQualify, onCapture, onAccessRevoked, onSessionChanged }: LeadListProps) {
   const t = translations[locale];
   const text = boothText(locale);
   const isRtl = locale === "fa";
@@ -60,6 +62,7 @@ export function LeadList({ boothId, boothSlug, token, locale, list, counts, queu
   ): Promise<{ ok: true; data: T | undefined } | { ok: false }> => {
     if (!isStoredAttendeeToken(token)) {
       setActionError(sessionChangedMessage(locale));
+      onSessionChanged();
       return { ok: false };
     }
     try {
@@ -114,6 +117,7 @@ export function LeadList({ boothId, boothSlug, token, locale, list, counts, queu
   const handleExportCsv = async () => {
     if (!isStoredAttendeeToken(token)) {
       setExportError(sessionChangedMessage(locale));
+      onSessionChanged();
       return;
     }
     setIsExporting(true);

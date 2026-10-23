@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { createApiClient, localizedApiError, type BoothOut, type LeadOut } from "../api/client";
 import { attendeeResponseState } from "../lib/attendeeSession";
@@ -66,6 +66,8 @@ function ExhibitorPortalContent() {
 
   const sessionRef = useRef<string | null>(token);
   const revoke = useCallback(() => setAccessRevoked(true), []);
+  // A child noticed the stored session changed: re-render, so the session store hands over the current token.
+  const [, rerender] = useReducer((n: number) => n + 1, 0);
   const live = !accessRevoked && Boolean(token);
 
   const list = useLeadList({ boothId, token, locale, enabled: live, onAccessRevoked: revoke });
@@ -488,6 +490,7 @@ function ExhibitorPortalContent() {
             onQualify={setEditingLead}
             onCapture={openCapture}
             onAccessRevoked={revoke}
+            onSessionChanged={rerender}
           />
         </div>
       </main>
@@ -524,6 +527,7 @@ function ExhibitorPortalContent() {
         }}
         onQueue={queue.enqueue}
         onAccessRevoked={revoke}
+        onSessionChanged={rerender}
       />
 
       {/* 5. Lead detail + qualification */}
@@ -535,11 +539,11 @@ function ExhibitorPortalContent() {
         locale={locale}
         tagPresets={tagPresets}
         onSaved={(saved) => {
-          setEditingLead(saved);
           list.applyLead(saved);
           refreshCounts();
         }}
         onAccessRevoked={revoke}
+        onSessionChanged={rerender}
       />
 
 

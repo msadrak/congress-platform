@@ -37,13 +37,15 @@ interface CaptureDialogProps {
   onQueue: (input: LeadScanInput) => Promise<boolean>;
   /** 403 BOOTH_STAFF_REQUIRED: this account was removed from the booth. */
   onAccessRevoked: () => void;
+  /** The stored session changed in another tab: the portal re-renders for the current one. */
+  onSessionChanged: () => void;
 }
 
 /**
  * Capture station: camera, keyboard-wedge reader or typed badge code, optional quick qualification, and the
  * confirmation of who was captured. The portal remounts it (key) for every opening, so each capture starts clean.
  */
-export function CaptureDialog({ isOpen, onClose, boothId, token, locale, tagPresets, onCaptured, onQualify, onQueue, onAccessRevoked }: CaptureDialogProps) {
+export function CaptureDialog({ isOpen, onClose, boothId, token, locale, tagPresets, onCaptured, onQualify, onQueue, onAccessRevoked, onSessionChanged }: CaptureDialogProps) {
   const t = translations[locale];
   const text = boothText(locale);
   const isRtl = locale === "fa";
@@ -99,6 +101,7 @@ export function CaptureDialog({ isOpen, onClose, boothId, token, locale, tagPres
     if (!qrSecret.trim() || inFlight.current) return;
     if (!isStoredAttendeeToken(token)) {
       setCaptureError(sessionChangedMessage(locale));
+      onSessionChanged();
       return;
     }
 
