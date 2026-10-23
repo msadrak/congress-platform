@@ -1,4 +1,4 @@
-import { daysBetween, homePhase, zonedDayKey } from "../../lib/congressPhase";
+import { daysBetween, homePhase, safeTimeZone, zonedDayKey } from "../../lib/congressPhase";
 import { formatLocalizedNumber, type AttendeeLocale } from "../../lib/i18n";
 
 /** Where "now" sits relative to a congress's real start/end timestamps. */
@@ -45,8 +45,11 @@ export function phaseLabel(phase: CongressPhase, locale: AttendeeLocale): string
   return `Starts in ${phase.days} days`;
 }
 
-/** Compact range ("12 – 27 October 2026"); Solar Hijri for Persian, matching `formatLocalizedDate`. */
-export function formatDateRange(startsAt: string, endsAt: string, locale: AttendeeLocale): string {
+/**
+ * Compact range ("12 – 27 October 2026"); Solar Hijri for Persian, matching `formatLocalizedDate`. Days are the
+ * venue's when the congress's `timeZone` is given (the visitor's otherwise).
+ */
+export function formatDateRange(startsAt: string, endsAt: string, locale: AttendeeLocale, timeZone?: string): string {
   const starts = new Date(startsAt);
   const ends = new Date(endsAt);
   if (Number.isNaN(starts.getTime()) || Number.isNaN(ends.getTime())) return `${startsAt} – ${endsAt}`;
@@ -54,6 +57,7 @@ export function formatDateRange(startsAt: string, endsAt: string, locale: Attend
     day: "numeric",
     month: "long",
     year: "numeric",
+    timeZone: safeTimeZone(timeZone),
   });
   try {
     return fmt.formatRange(starts, ends);
