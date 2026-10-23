@@ -237,11 +237,12 @@ async def test_an_events_configuration_cascades_and_its_tickets_restrict_deletio
         f"/api/events/{empty}/booths/{booth_id}/staff", json={"mobile": "09121100004"}, headers=bearer(organizer)
     )
     assert staff.status_code == 201, staff.text
-    _, attendee_token = await register_user(client, "09121100005")
-    bookmark = await client.post(
-        f"/api/attendees/me/bookmarks/booths/{booth_id}", headers={"Authorization": f"Bearer {attendee_token}"}
+    # Bookmarking through the API needs a ticket for the event, and this event must stay ticketless.
+    await register_user(client, "09121100005")
+    await scalar(
+        "INSERT INTO booth_bookmarks(id,user_id,booth_id) VALUES($1,$2,$3) RETURNING id",
+        uuid.uuid4(), await user_id_of("09121100005"), uuid.UUID(booth_id),
     )
-    assert bookmark.status_code == 201, bookmark.text
     operator = await client.post(
         f"/api/events/{empty}/desk/operators",
         json={"mobile": "09121100006", "operator_name": "Desk"},
@@ -332,6 +333,12 @@ async def test_a_concurrent_bookmark_keeps_one_bookmark(client: AsyncClient) -> 
     booth_id = await add_booth(client, organizer, event_id)
     _, token = await register_user(client, "09121100015")
     user_id = await user_id_of("09121100015")
+    reserved = await client.post(
+        f"/api/events/{event_id}/tickets/reserve",
+        json={"ticket_tier_id": await add_tier(client, organizer, event_id)},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert reserved.status_code == 201, reserved.text  # bookmarking needs an active ticket for the event
     insert = "INSERT INTO booth_bookmarks(id,user_id,booth_id) VALUES($1,$2,$3)"
 
     response = await behind_uncommitted(
