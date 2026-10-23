@@ -726,7 +726,9 @@ class RateLimitCounter(Base):
 
 # --- The audit log and organizer members (ADR 0016) ---------------------------------------------------------
 
-AUDIT_ACTOR_TYPES = ("platform_admin", "organizer_key", "organizer_member", "desk_operator", "system")
+AUDIT_ACTOR_TYPES = (
+    "platform_admin", "organizer_key", "organizer_member", "desk_operator", "booth_staff", "system"
+)
 ORGANIZER_ROLES = ("owner", "manager", "staff", "viewer")
 
 

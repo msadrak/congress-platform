@@ -11,6 +11,7 @@ from sqlalchemy.exc import DBAPIError
 
 from app.models import AuditEvent
 from tests.conftest import ADMIN_TOKEN
+from tests.exhibitors import setup_congress
 from tests.helpers import bearer, desk_sign_in, provision_organizer
 from tests.test_roles import member_session
 from tests.test_events import EVENT
@@ -132,6 +133,49 @@ async def test_desk_operator_actions_are_attributed_to_the_operator(client: Asyn
     assert (row.actor_type, row.actor_label, row.organizer_id) == ("desk_operator", "Sara", uuid.UUID(organizer["id"]))
     assert row.summary["route"] == "/api/events/{event_id}/desk-registrations"
 
+    # A retried walk-in (same Idempotency-Key) replays the first answer and adds no second row.
+    retry = {"Authorization": f"Bearer {desk['access_token']}", "Idempotency-Key": str(uuid.uuid4())}
+    walk_in = {"full_name": "Second Walk In", "ticket_tier_id": tier_id}
+    first = await client.post(f"/api/events/{event_id}/desk-registrations", json=walk_in, headers=retry)
+    count = len(await rows(app))
+    replay = await client.post(f"/api/events/{event_id}/desk-registrations", json=walk_in, headers=retry)
+    assert first.status_code == replay.status_code == 201
+    assert replay.headers["Idempotent-Replayed"] == "true"
+    assert len(await rows(app)) == count
+
+
+async def test_lifecycle_changes_and_every_export_are_recorded(client: AsyncClient, app: FastAPI) -> None:
+    congress = await setup_congress(client)
+    organizer, event_id = congress.organizer, congress.event_id
+    await client.post(
+        f"/api/booths/{congress.booth_id}/leads/scan",
+        json={"qr_secret": congress.ticket["qr_secret"], "rating": "HOT"}, headers=congress.staff,
+    )
+    staff_rows = len(await rows(app))
+    for path in ("participants/export-csv", "analytics/export-csv", "analytics/registrations-csv"):
+        assert (await client.get(f"/api/events/{event_id}/{path}", headers=bearer(organizer))).status_code == 200
+    leads = await client.get(
+        f"/api/booths/{congress.booth_id}/leads/export-csv", params={"include_deleted": True}, headers=congress.staff
+    )
+    assert leads.status_code == 200
+    archived = await client.post(f"/api/events/{event_id}/archive", json={"archived": True}, headers=bearer(organizer))
+    assert archived.status_code == 200
+
+    recorded = (await rows(app))[staff_rows:]
+    assert [(r.action, r.summary["route"]) for r in recorded] == [
+        ("export.download", "/api/events/{event_id}/participants/export-csv"),
+        ("export.download", "/api/events/{event_id}/analytics/export-csv"),
+        ("export.download", "/api/events/{event_id}/analytics/registrations-csv"),
+        ("export.download", "/api/booths/{booth_id}/leads/export-csv"),
+        ("http.post", "/api/events/{event_id}/archive"),
+    ]
+    lead_export = recorded[-2]
+    assert (lead_export.actor_type, lead_export.actor_label) == ("booth_staff", "Booth Rep")
+    assert lead_export.organizer_id == uuid.UUID(organizer["id"]) and lead_export.event_id == uuid.UUID(event_id)
+    assert lead_export.summary["include_deleted"] is True and lead_export.summary["rows"] == 1
+    # Booth staff capturing leads is the exhibitor's own work: no rows before the export.
+    assert all(r.actor_type != "booth_staff" for r in (await rows(app))[:staff_rows])
+
 
 async def test_activity_is_per_organizer_filterable_by_event_and_paged_without_gaps(client: AsyncClient) -> None:
     organizer = await provision_organizer(client, "Acme Congress Co")
@@ -159,7 +203,7 @@ async def test_activity_is_per_organizer_filterable_by_event_and_paged_without_g
     theirs = (await activity(client, bearer(other)))["items"]
     assert {i["id"] for i in theirs}.isdisjoint({i["id"] for i in everything})
     bad = await client.get("/api/organizer/activity", params={"before": "yesterday"}, headers=bearer(organizer))
-    assert bad.status_code == 422 and bad.json()["code"] == "BAD_CURSOR"
+    assert bad.status_code == 400 and bad.json()["code"] == "CURSOR_INVALID"
 
 
 async def test_audit_rows_cannot_be_updated_or_deleted(client: AsyncClient, app: FastAPI) -> None:

@@ -3,6 +3,7 @@ import { useOutletContext } from "react-router-dom";
 import { createApiClient, localizedApiError, type AuditEventOut, type EventOut } from "../api/client";
 import {
   CONSOLE_COPY,
+  PERSON_ACTORS,
   activityAction,
   activityActor,
   activityActorKind,
@@ -109,7 +110,7 @@ export default function OrganizerActivity() {
           {items.map((item) => {
             const target = activityTarget(item, locale);
             const name = eventName(item.event_id);
-            const person = item.actor_type === "organizer_member" || item.actor_type === "desk_operator";
+            const person = PERSON_ACTORS.has(item.actor_type);
             return (
               <li key={item.id} className="flex flex-col gap-1.5 px-4 py-3.5 sm:flex-row sm:items-start sm:gap-4 sm:px-5">
                 <time dateTime={item.at} className="shrink-0 text-xs tabular text-text-muted sm:w-44 sm:pt-0.5">

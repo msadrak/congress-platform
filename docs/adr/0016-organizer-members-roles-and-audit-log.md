@@ -12,10 +12,11 @@ and desk session handed out with the old key working, so it did not fully recove
    organizer with a role. The platform admin adds the first member, normally the owner
    (`POST /api/organizers/{id}/members` with the platform admin token; listed by the matching GET). Owners then
    invite the rest in the console (`/organizer/members`). An invitation queues an SMS with the console address
-   through the outbox. A person may belong to several organizers.
+   through the outbox, worded by the platform template `member_invite` (`{link}` required; editable in `/platform`). A person may belong to several organizers.
 2. **Sign-in by SMS code**, like everyone else on the platform (ADR 0012), with OTP purpose `organizer`. Codes go only to
    numbers of active members of active organizers. `POST /api/organizer/login` answers with a session, or,
-   for a member of several organizers, a ten-minute selection token for `POST /api/organizer/session`.
+   for a member of several organizers, a ten-minute selection token for `POST /api/organizer/session`, which
+   works once (like the signup token). Codes have their own per-number budget (separate from sign-in and desk codes).
    The session is a 12-hour JWT (`type: organizer_member`) carrying the member's `session_version`. Signing
    out, a role change, removal and account deletion increment it, so every copy of the session stops working at once.
    The console stores the session in the same tab-scoped slot as an API key, so every organizer page works
@@ -44,7 +45,12 @@ and desk session handed out with the old key working, so it did not fully recove
    - `AuditMiddleware` writes one row for every other successful (2xx) POST/PUT/PATCH/DELETE made with an
      organizer key, a member session, a desk session or the platform admin token (`http.<method>`), and for
      every export download (`export.download`). It records the route template and status only, never the path,
-     query or body. Scanner scans are not recorded there: they are their own log (`checkins`).
+     query or body. Scanner scans are not recorded there: they are their own log (`checkins`); neither is the
+     replay of an idempotent request (`Idempotent-Replayed: true`, e.g. a retried desk walk-in).
+   - A booth representative's lead export (`GET /api/booths/{booth_id}/leads/export-csv`) is written by the route
+     itself (`export.download`, actor `booth_staff`, with `include_deleted` and the row count), into the
+     congress organizer's log: it carries attendees' data out of the platform. Capturing and editing leads is
+     the exhibitor's own work and is not recorded.
    - Append-only: no route updates or deletes a row, and a trigger refuses UPDATE and DELETE. There are no foreign keys,
      so a row outlives what it names. Mobile numbers in summaries are masked (`0912***4567`), and keys, codes and
      tokens never reach it.

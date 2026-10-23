@@ -16,6 +16,8 @@ revision: str = "0029"
 down_revision: Union[str, Sequence[str], None] = "0028"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
+# Expand only: a new table the previous release never reads or writes (CODING_STANDARDS §2.D).
+backward_compatible = True
 
 
 def upgrade() -> None:

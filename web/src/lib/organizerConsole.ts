@@ -75,6 +75,7 @@ const ACTOR_COPY: Record<AttendeeLocale, Record<string, string>> = {
     organizer_key: "کلید یکپارچه‌سازی",
     organizer_member: "عضو",
     desk_operator: "اپراتور پذیرش",
+    booth_staff: "نمایندهٔ غرفه",
     system: "سامانه",
   },
   en: {
@@ -82,13 +83,17 @@ const ACTOR_COPY: Record<AttendeeLocale, Record<string, string>> = {
     organizer_key: "Integration key",
     organizer_member: "Member",
     desk_operator: "Desk operator",
+    booth_staff: "Booth representative",
     system: "System",
   },
 };
 
-/** "Who": the member's or operator's name; the platform admin and the API key by their localized role. */
+/** Actors that are named people (shown by name, with their kind as a badge). */
+export const PERSON_ACTORS: ReadonlySet<string> = new Set(["organizer_member", "desk_operator", "booth_staff"]);
+
+/** "Who": the person's name; the platform admin and the API key by their localized role. */
 export function activityActor(item: Pick<AuditEventOut, "actor_type" | "actor_label">, locale: AttendeeLocale): string {
-  if (item.actor_type === "organizer_member" || item.actor_type === "desk_operator") {
+  if (PERSON_ACTORS.has(item.actor_type)) {
     return item.actor_label || ACTOR_COPY[locale][item.actor_type];
   }
   return ACTOR_COPY[locale][item.actor_type] ?? item.actor_label;

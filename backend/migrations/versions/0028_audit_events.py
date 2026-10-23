@@ -18,8 +18,10 @@ revision: str = "0028"
 down_revision: Union[str, Sequence[str], None] = "0027"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
+# Expand only: a new table the previous release never reads or writes (CODING_STANDARDS §2.D).
+backward_compatible = True
 
-ACTOR_TYPES = "'platform_admin', 'organizer_key', 'organizer_member', 'desk_operator', 'system'"
+ACTOR_TYPES = "'platform_admin', 'organizer_key', 'organizer_member', 'desk_operator', 'booth_staff', 'system'"
 
 
 def upgrade() -> None:

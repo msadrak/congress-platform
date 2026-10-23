@@ -8,7 +8,8 @@ Two ways a row is written:
 - **Automatically** by `AuditMiddleware` for every other successful (2xx) POST/PUT/PATCH/DELETE made with an
   organizer key, a member session, a desk session or the platform admin token, and for downloads of exports:
   `http.<method>` (or `export.download`) with the route template, never the concrete path or the body.
-  Scanner scans are not recorded here: they are already a log of their own (`checkins`).
+  Scanner scans are not recorded here: they are already a log of their own (`checkins`), and neither is the
+  replay of an idempotent request (`Idempotent-Replayed: true`), whose first answer was already recorded.
 
 The acting credential is attached to the request by the auth dependencies (`set_actor`). Nothing personal is
 stored beyond what identifies the actor: mobile numbers are masked and secrets never reach `summary`.
@@ -130,17 +131,19 @@ class AuditMiddleware:
             await self.app(scope, receive, send)
             return
         status = 500
+        replayed = False
 
         async def send_and_watch(message: Message) -> None:
-            nonlocal status
+            nonlocal status, replayed
             if message["type"] == "http.response.start":
                 status = int(message["status"])
+                replayed = (b"idempotent-replayed", b"true") in message.get("headers", [])
             await send(message)
 
         await self.app(scope, receive, send_and_watch)
         state = scope.get("state") or {}
         actor = state.get(_ACTOR_KEY)
-        if not isinstance(actor, Actor) or state.get(_RECORDED_KEY) or not 200 <= status < 300:
+        if not isinstance(actor, Actor) or state.get(_RECORDED_KEY) or replayed or not 200 <= status < 300:
             return
         template = getattr(scope.get("route"), "path", None)
         if not isinstance(template, str):
