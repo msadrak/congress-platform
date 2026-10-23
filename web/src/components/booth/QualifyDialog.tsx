@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
-import { createApiClient, formatApiError, type LeadOut } from "../../api/client";
+import { createApiClient, localizedApiError, type LeadOut } from "../../api/client";
+import { isBoothAccessRevoked } from "../../lib/leadList";
 import { attendeeResponseState, isStoredAttendeeToken, sessionChangedMessage } from "../../lib/attendeeSession";
 import { codeFontClass, formatLocalizedDate, translations, type AttendeeLocale } from "../../lib/i18n";
 import { formatMobile, telHref } from "../../lib/mobile";
@@ -21,10 +22,12 @@ interface QualifyDialogProps {
   locale: AttendeeLocale;
   tagPresets: string[];
   onSaved: (lead: LeadOut) => void;
+  /** 403 BOOTH_STAFF_REQUIRED: this account was removed from the booth. */
+  onAccessRevoked: () => void;
 }
 
 /** Lead detail and qualification (rating, follow-up tags, notes). Closes itself a moment after a confirmed save. */
-export function QualifyDialog({ lead, onClose, boothId, token, locale, tagPresets, onSaved }: QualifyDialogProps) {
+export function QualifyDialog({ lead, onClose, boothId, token, locale, tagPresets, onSaved, onAccessRevoked }: QualifyDialogProps) {
   const t = translations[locale];
   const isRtl = locale === "fa";
   const [editRating, setEditRating] = useState<LeadRating>("WARM");
@@ -102,8 +105,11 @@ export function QualifyDialog({ lead, onClose, boothId, token, locale, tagPreset
 
       // A changed or expired session (the API client removed it) gets no feedback here.
       if (attendeeResponseState(token, response.status) !== "current") return;
-      if (err) {
-        setEditError(formatApiError(err));
+      if (isBoothAccessRevoked(response.status, err)) {
+        onAccessRevoked();
+      } else if (err) {
+        // LEAD_DELETED (another device moved it to the trash), LEAD_NOT_FOUND …: in the reader's language.
+        setEditError(localizedApiError(err, locale));
       } else if (data) {
         onSaved(data);
         setEditTags(tags);

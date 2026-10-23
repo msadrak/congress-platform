@@ -1,13 +1,16 @@
 import React, { useEffect, useRef, useState } from "react";
 import {
+  apiErrorCode,
   createApiClient,
-  formatApiError,
+  localizedApiError,
   type LeadOut,
   type LeadScanInput,
   type LeadScanRequest,
 } from "../../api/client";
 import { attendeeResponseState, isStoredAttendeeToken, sessionChangedMessage } from "../../lib/attendeeSession";
 import { translations, type AttendeeLocale } from "../../lib/i18n";
+import { isBoothAccessRevoked } from "../../lib/leadList";
+import { boothText } from "./boothText";
 import { QrCameraInput } from "../QrCameraInput";
 import { Badge } from "../ui/Badge";
 import { Button } from "../ui/Button";
@@ -30,15 +33,24 @@ interface CaptureDialogProps {
   onCaptured: (lead: LeadOut, existed: boolean) => void;
   /** "Qualify" from the confirmation: the portal closes this dialog and opens qualification. */
   onQualify: (lead: LeadOut) => void;
+  /** Stores the scan on this device to send later; false when the device could not keep it. */
+  onQueue: (input: LeadScanInput) => Promise<boolean>;
+  /** 403 BOOTH_STAFF_REQUIRED: this account was removed from the booth. */
+  onAccessRevoked: () => void;
 }
 
 /**
  * Capture station: camera, keyboard-wedge reader or typed badge code, optional quick qualification, and the
  * confirmation of who was captured. The portal remounts it (key) for every opening, so each capture starts clean.
  */
-export function CaptureDialog({ isOpen, onClose, boothId, token, locale, tagPresets, onCaptured, onQualify }: CaptureDialogProps) {
+export function CaptureDialog({ isOpen, onClose, boothId, token, locale, tagPresets, onCaptured, onQualify, onQueue, onAccessRevoked }: CaptureDialogProps) {
   const t = translations[locale];
+  const text = boothText(locale);
   const isRtl = locale === "fa";
+  // The scan was stored on this device (no connection) instead of sent.
+  const [queued, setQueued] = useState(false);
+  // After a dropped connection: the scan the operator may keep on the device to send later.
+  const [offerQueue, setOfferQueue] = useState<LeadScanInput | null>(null);
   const [qrSecret, setQrSecret] = useState("");
   const [captureRating, setCaptureRating] = useState<LeadRating>("WARM");
   const [captureTags, setCaptureTags] = useState<string[]>([]);
@@ -61,14 +73,16 @@ export function CaptureDialog({ isOpen, onClose, boothId, token, locale, tagPres
     setCaptureError(null);
     setCaptureFeedback(null);
     setCapturedLead(null);
+    setQueued(false);
+    setOfferQueue(null);
   };
 
   useEffect(() => {
-    if (!isOpen || capturedLead) return;
+    if (!isOpen || capturedLead || queued) return;
     // A keyboard-wedge (USB/HID) scanner types into the focused field and presses Enter.
     const timer = setTimeout(() => codeInputRef.current?.focus(), 120);
     return () => clearTimeout(timer);
-  }, [isOpen, capturedLead]);
+  }, [isOpen, capturedLead, queued]);
 
   const close = () => {
     onClose();
@@ -92,16 +106,27 @@ export function CaptureDialog({ isOpen, onClose, boothId, token, locale, tagPres
     setSubmitting(true);
     setCaptureError(null);
     setCaptureFeedback(null);
+    setOfferQueue(null);
+    // Only qualification the operator actually chose is sent, so scanning an attendee who is
+    // already a lead never resets their rating or tags.
+    const input: LeadScanInput = {
+      qr_secret: qrSecret.trim(),
+      ...(touched.rating ? { rating: captureRating } : {}),
+      ...(touched.tags ? { tags: captureTags } : {}),
+      ...(captureNotes.trim() ? { notes: captureNotes.trim() } : {}),
+    };
+    // No connection at all: keep the scan on this device; it is sent once the booth is back online.
+    if (!navigator.onLine) {
+      try {
+        await queueScan(input);
+      } finally {
+        inFlight.current = false;
+        setSubmitting(false);
+      }
+      return;
+    }
     try {
       const client = createApiClient({ kind: "user", token });
-      // Only qualification the operator actually chose is sent, so scanning an attendee who is
-      // already a lead never resets their rating or tags.
-      const input: LeadScanInput = {
-        qr_secret: qrSecret.trim(),
-        ...(touched.rating ? { rating: captureRating } : {}),
-        ...(touched.tags ? { tags: captureTags } : {}),
-        ...(captureNotes.trim() ? { notes: captureNotes.trim() } : {}),
-      };
       const { data, error: err, response } = await client.POST("/api/booths/{booth_id}/leads/scan", {
         params: { path: { booth_id: boothId } },
         // Defaulted fields are optional on the wire; the generated type wrongly requires them.
@@ -110,15 +135,19 @@ export function CaptureDialog({ isOpen, onClose, boothId, token, locale, tagPres
 
       // A changed or expired session (the API client removed it) gets no feedback here.
       if (attendeeResponseState(token, response.status) !== "current") return;
-      if (err) {
+      if (isBoothAccessRevoked(response.status, err)) {
+        onAccessRevoked();
+      } else if (err) {
+        // The scan's own 404 (not a badge) and 400 (another congress) carry no code; anything coded is localized.
+        const coded = apiErrorCode(err) !== undefined;
         setCaptureError(
-          response.status === 404
-            ? isRtl ? "این کد کارت شرکت‌کننده معتبر نیست." : "That badge code is not valid."
-            : response.status === 400
-              ? isRtl ? "این کارت متعلق به همایش دیگری است." : "That badge belongs to a different congress."
-              : response.status === 403
+          response.status === 404 && !coded
+            ? text.badgeInvalid
+            : response.status === 400 && !coded
+              ? text.badgeOtherEvent
+              : response.status === 403 && !coded
                 ? isRtl ? "شما اجازهٔ ثبت لید برای این غرفه را ندارید." : "You are not authorized to capture leads for this booth."
-                : formatApiError(err)
+                : localizedApiError(err, locale)
         );
       } else if (data) {
         // 201 = new lead, 200 = this attendee was already a lead of this booth.
@@ -131,14 +160,28 @@ export function CaptureDialog({ isOpen, onClose, boothId, token, locale, tagPres
     } catch {
       // The request may or may not have reached the server. Nothing is retried automatically;
       // scanning the same badge again is safe (it updates the same lead), but check the list first.
+      // The operator may keep it on the device instead: a repeated scan never makes a second lead.
       setCaptureError(
         isRtl
-          ? "اتصال قطع شد و مشخص نیست لید ثبت شده یا نه. فهرست لیدها را بررسی کنید؛ اسکن دوباره همین کارت فقط همان لید را به‌روز می‌کند."
+          ? "اتصال قطع شد و مشخص نیست لید ثبت شده یا نه. فهرست لیدها را بررسی کنید؛ اسکن دوباره همین کارت ورود فقط همان لید را به‌روز می‌کند."
           : "The connection dropped, so it is not known whether the lead was saved. Check the lead list; scanning the same badge again only updates the same lead."
       );
+      setOfferQueue(input);
     } finally {
       inFlight.current = false;
       setSubmitting(false);
+    }
+  };
+
+  const queueScan = async (input: LeadScanInput) => {
+    if (await onQueue(input)) {
+      setQueued(true);
+      setQrSecret("");
+      setCaptureError(null);
+      setOfferQueue(null);
+      setCaptureFeedback(text.queuedTitle);
+    } else {
+      setCaptureError(`${text.queueFailed} ${text.storageUnavailable}`);
     }
   };
 
@@ -226,7 +269,39 @@ export function CaptureDialog({ isOpen, onClose, boothId, token, locale, tagPres
           </Button>
         </div>
       )}
-      {!capturedLead && (
+      {queued && (
+        <div className="space-y-4" data-testid="capture-queued">
+          <div className="rounded-2xl border border-status-warning-border bg-status-warning-bg p-4 sm:p-5">
+            <div className="flex items-start gap-3.5">
+              <span aria-hidden="true" className="grid size-12 shrink-0 place-items-center rounded-full bg-status-warning-solid text-white motion-safe:animate-pop">
+                <Icon name="hourglass" size={22} />
+              </span>
+              <div className="min-w-0 pt-0.5">
+                <p className="text-base font-bold leading-snug text-text-primary">{text.queuedTitle}</p>
+                <p className="mt-1 text-[13px] leading-relaxed text-text-secondary">{text.queuedDesc}</p>
+              </div>
+            </div>
+          </div>
+          <Button
+            type="button"
+            variant="primary"
+            size="lg"
+            isFullWidth
+            autoFocus
+            onClick={() => {
+              resetCapture();
+              setTimeout(() => codeInputRef.current?.focus(), 60);
+            }}
+          >
+            <span>{isRtl ? "شرکت‌کننده بعدی" : "Next attendee"}</span>
+            <Icon name="arrow-right" size={18} />
+          </Button>
+          <Button type="button" variant="ghost" size="md" isFullWidth onClick={close}>
+            {isRtl ? "پایان" : "Done"}
+          </Button>
+        </div>
+      )}
+      {!capturedLead && !queued && (
         <form onSubmit={handleCaptureLead} className="space-y-5">
           <QrCameraInput
             isRtl={isRtl}
@@ -304,6 +379,20 @@ export function CaptureDialog({ isOpen, onClose, boothId, token, locale, tagPres
                 <Icon name="alert" size={18} className="shrink-0" />
                 <span>{captureError}</span>
               </div>
+            )}
+            {offerQueue && (
+              <Button
+                type="button"
+                variant="secondary"
+                size="md"
+                isFullWidth
+                disabled={submitting}
+                onClick={() => void queueScan(offerQueue)}
+                className="mb-3 whitespace-normal"
+              >
+                <Icon name="hourglass" size={17} className="shrink-0" />
+                <span>{text.saveOffline}</span>
+              </Button>
             )}
             <div className="flex gap-2 sm:justify-end">
               {/* Phones dismiss with the header close button; the bar keeps the one action that matters. */}
