@@ -9,9 +9,12 @@
  *   and is NEVER touched by SW cache eviction or updates.
  * - API responses are NEVER cached by the Service Worker.
  * - Bearer tokens remain in sessionStorage/memory, never in Cache Storage.
+ * - A launch from the home screen (`/?source=pwa`, the manifest's start_url) is turned into the device's
+ *   own scanner point, or the plain home page, before the app renders (see `launchTarget.ts`).
  */
 
 import { registerSW } from 'virtual:pwa-register';
+import { handleHomeScreenLaunch } from './launchTarget';
 
 // A new version can be waiting before any component subscribes (found on page load), so the
 // fact is kept here rather than only announced.
@@ -63,3 +66,9 @@ const updateSW = registerSW({
 export function applyAppUpdate(): void {
   void updateSW(true);
 }
+
+// Top-level await on purpose: main.tsx imports this module before App, so the router is only created once
+// the address is final. Ordinary visits settle in a microtask; a home-screen launch waits for one local
+// IndexedDB read, capped at 1.5 s. This module must stay ahead of anything that reads `window.location`
+// when the router is created (e.g. a module-level `createBrowserRouter`).
+await handleHomeScreenLaunch();
