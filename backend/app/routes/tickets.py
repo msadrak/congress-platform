@@ -4,7 +4,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Query, Request, status
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import select, update
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
 from app.db import SessionDep
@@ -24,6 +24,7 @@ from app.ticket_lifecycle import (
     locked_status,
     queue_ticket_sms,
     reactivate_ticket,
+    take_tier_place,
 )
 
 router = APIRouter(tags=["tickets"])
@@ -89,9 +90,10 @@ async def reserve_ticket(
         raise ApiError(status.HTTP_404_NOT_FOUND, "EVENT_NOT_FOUND", "Event not found")
     now = datetime.now(timezone.utc)
     closed = registration_problem(event, now)
-    if closed is None:
-        tier_row = await session.get(TicketTier, body.ticket_tier_id)
-        closed = tier_sales_problem(tier_row, now) if tier_row and tier_row.event_id == event_id else None
+    if closed is not None:
+        raise closed
+    tier_row = await session.get(TicketTier, body.ticket_tier_id)
+    closed = tier_sales_problem(tier_row, now) if tier_row and tier_row.event_id == event_id else None
     if closed is not None:
         raise closed
 
@@ -110,30 +112,12 @@ async def reserve_ticket(
             "User already holds a ticket for this event",
         )
 
-    # Atomic inventory reservation
-    stmt = (
-        update(TicketTier)
-        .where(
-            TicketTier.id == body.ticket_tier_id,
-            TicketTier.event_id == event_id,
-            TicketTier.is_open.is_(True),
-            TicketTier.reserved_count < TicketTier.quota,
-        )
-        .values(reserved_count=TicketTier.reserved_count + 1)
-        .returning(TicketTier.name)
-    )
-    res = await session.execute(stmt)
-    tier_name = res.scalar_one_or_none()
-
-    if tier_name is None:
-        # Investigate why the update failed
-        tier = await session.get(TicketTier, body.ticket_tier_id)
-        if tier is None or tier.event_id != event_id:
-            raise ApiError(status.HTTP_404_NOT_FOUND, "TIER_NOT_FOUND", "Ticket tier not found")
-        if not tier.is_open:
-            raise ApiError(
-                status.HTTP_400_BAD_REQUEST, "TIER_CLOSED", "Ticket tier is closed for registration"
-            )
+    # Refuse what is already known to fail before writing anything. The place itself is taken last (below).
+    if tier_row is None or tier_row.event_id != event_id:
+        raise ApiError(status.HTTP_404_NOT_FOUND, "TIER_NOT_FOUND", "Ticket tier not found")
+    if not tier_row.is_open:
+        raise ApiError(status.HTTP_400_BAD_REQUEST, "TIER_CLOSED", "Ticket tier is closed for registration")
+    if tier_row.reserved_count >= tier_row.quota:
         raise ApiError(status.HTTP_410_GONE, "TIER_SOLD_OUT", "Ticket tier is sold out / quota exhausted")
 
     ticket = Ticket(
@@ -166,6 +150,10 @@ async def reserve_ticket(
         session, request.app.state.settings, str(request.base_url), user=user, event=event, ticket=ticket,
         code=link.code,
     )
+    # Atomic inventory reservation, last: the tier row stays locked only for the commit (take_tier_place).
+    tier_name = await take_tier_place(session, body.ticket_tier_id, event_id)
+    if tier_name is None:
+        raise await _tier_unavailable(session, body.ticket_tier_id, event_id)
     await session.commit()
 
     return TicketOut(
@@ -179,6 +167,16 @@ async def reserve_ticket(
         qr_secret=secret,
         created_at=ticket.created_at,
     )
+
+
+async def _tier_unavailable(session: SessionDep, tier_id: uuid.UUID, event_id: uuid.UUID) -> ApiError:
+    """Why no place could be taken in the tier, read afresh (the tier may have changed since it was loaded)."""
+    tier = await session.get(TicketTier, tier_id, populate_existing=True)
+    if tier is None or tier.event_id != event_id:
+        return ApiError(status.HTTP_404_NOT_FOUND, "TIER_NOT_FOUND", "Ticket tier not found")
+    if not tier.is_open:
+        return ApiError(status.HTTP_400_BAD_REQUEST, "TIER_CLOSED", "Ticket tier is closed for registration")
+    return ApiError(status.HTTP_410_GONE, "TIER_SOLD_OUT", "Ticket tier is sold out / quota exhausted")
 
 
 async def _register_again(
@@ -196,13 +194,17 @@ async def _register_again(
     if user.mobile:  # registering again texts a new pass: bounded, so cancel/register loops cannot spend SMS
         await charge_attendee_notice(request, user.id, ticket.id)
     try:
-        secret, code = await reactivate_ticket(session, ticket, tier.id, user, event)
-    except TicketStateError:  # the status is locked above, so only the quota can refuse
-        raise ApiError(status.HTTP_410_GONE, "TIER_SOLD_OUT", "Ticket tier is sold out / quota exhausted") from None
+        secret, code = await reactivate_ticket(session, ticket, tier.id, user, event, reserve_quota=False)
+    except TicketStateError:  # the status is locked above, so this cannot happen; answered as a double tap
+        raise ApiError(
+            status.HTTP_409_CONFLICT, "ALREADY_REGISTERED", "User already holds a ticket for this event"
+        ) from None
     await queue_ticket_sms(
         session, link_origin(request.app.state.settings, str(request.base_url)), "ticket_confirmation",
         mobile=user.mobile, name=ticket.attendee_full_name, event=event, ticket=ticket, code=code,
     )
+    if await take_tier_place(session, tier.id, event.id) is None:  # last, as in reserve_ticket
+        raise await _tier_unavailable(session, tier.id, event.id)
     await session.commit()
     await session.refresh(ticket)
     return TicketOut(
