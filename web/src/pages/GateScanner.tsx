@@ -331,6 +331,7 @@ export default function GateScanner() {
   // Sync states
   const [pendingCount, setPendingCount] = useState(0);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [syncFailCount, setSyncFailCount] = useState(0);
 
   // Recompute the offline-window verdict whenever its inputs change
@@ -1482,8 +1483,12 @@ export default function GateScanner() {
               copy={copy}
               pendingCount={pendingCount}
               isSyncing={isSyncing}
+              refreshing={refreshing}
               onSync={flushQueue}
-              onRefresh={() => void refreshManifest(true)}
+              onRefresh={() => {
+                setRefreshing(true);
+                void refreshManifest(true).finally(() => setRefreshing(false));
+              }}
             />
             <ScanLog scans={recentScans} copy={copy} t={t} />
             {/* Device Settings: unpair without destroying audit trail */}
