@@ -57,6 +57,17 @@ class Event(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
+    # ── Lifecycle (migration 0024) ──
+    # IANA zone the congress happens in: program days and timetable imports are read in it.
+    timezone: Mapped[str] = mapped_column(String(64), default="Asia/Tehran", server_default="Asia/Tehran")
+    registration_enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
+    # Optional reservation window; NULL ends are open.
+    registration_opens_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    registration_closes_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Shown in the platform's public event list (still only once its page is published).
+    listed: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    # Archived events are hidden from every public endpoint and refuse organizer edits until unarchived.
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class EventPage(Base):
@@ -128,6 +139,9 @@ class TicketTier(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
+    # Optional sales window enforced at reservation (migration 0024); NULL ends are open.
+    sales_starts_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    sales_ends_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class User(Base):
@@ -429,6 +443,42 @@ class EventSession(Base):
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class ProgramFile(Base):
+    """The congress schedule as a file (a PDF or an image), shown to attendees beside the structured program.
+
+    Operational data like the program: live as soon as it is visible, once the event's page is published.
+    Bytes live under the media root at a server-generated key; PDFs are stored as uploaded after a magic-byte
+    check, images are re-encoded by app/media.py like Page Studio images.
+    """
+
+    __tablename__ = "program_files"
+    __table_args__ = (
+        CheckConstraint("kind IN ('pdf', 'image')", name="ck_program_files_kind"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    event_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("events.id", ondelete="CASCADE"), index=True
+    )
+    label: Mapped[str] = mapped_column(String(120))
+    kind: Mapped[str] = mapped_column(String(8))
+    position: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    is_visible: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
+    content_type: Mapped[str] = mapped_column(String(32))
+    # Path relative to the media root, generated server-side ("<event_id>/program/<file_id>.<ext>").
+    storage_key: Mapped[str] = mapped_column(String(200), unique=True)
+    byte_size: Mapped[int] = mapped_column(Integer)
+    sha256: Mapped[str] = mapped_column(String(64))
+    # Images only.
+    width: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    height: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # PDFs only, when it could be read cheaply from the file; otherwise NULL.
+    page_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
     )
 
 
