@@ -40,7 +40,7 @@ export default function Home() {
 
       <div id="congresses" className="scroll-mt-20 bg-surface-page">
         <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6 sm:py-14 lg:px-10">
-          <PublicEventList locale={locale} emptyText={h.listEmpty} />
+          <PublicEventList locale={locale} lazy emptyText={h.listEmpty} />
         </div>
       </div>
     </PublicLayout>

@@ -10,6 +10,8 @@ import { congressTiming, formatDateRange } from "./format";
 import { useNow } from "../attendee/useNow";
 
 const PAGE_SIZE = 6;
+/** How long the list must be in view before it loads (`lazy`). */
+const SETTLE_MS = 600;
 
 type ListState =
   | { status: "loading" }
@@ -23,7 +25,7 @@ interface PublicEventListProps {
   variant?: "section" | "panel";
   /** Heading id (several lists never share a page). */
   headingId?: string;
-  /** Load only when the list scrolls into view (below the fold). */
+  /** Load only once the list has been in view for a moment (a visit that leaves at once asks nothing). */
   lazy?: boolean;
   /** Extra classes for the rendered section (e.g. its spacing); nothing is rendered while there is no list. */
   className?: string;
@@ -113,12 +115,18 @@ export function PublicEventList({ locale, variant = "section", headingId = "publ
       setWanted(true);
       return;
     }
-    // The bottom inset keeps a sentinel that merely touches the viewport's lower edge from counting.
+    // The bottom inset keeps a sentinel that merely touches the viewport's lower edge from counting. The list
+    // loads once the sentinel has stayed in view for a moment, so a visit that leaves at once asks nothing.
+    let timer: number | undefined;
     const observer = new IntersectionObserver((entries) => {
-      if (entries.some((e) => e.isIntersecting)) setWanted(true);
+      window.clearTimeout(timer);
+      if (entries.some((e) => e.isIntersecting)) timer = window.setTimeout(() => setWanted(true), SETTLE_MS);
     }, { rootMargin: "0px 0px -2px 0px" });
     observer.observe(sentinel.current);
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+      window.clearTimeout(timer);
+    };
   }, [wanted]);
 
   useEffect(() => {
