@@ -135,43 +135,75 @@ def _pdf_names(data: bytes) -> list[tuple[bytes, int]]:
 
 # Link targets a schedule may open: web pages, e-mail and phone. Anything else (javascript:, data:, file:, …)
 # is refused; a target with no scheme is a relative link and harmless.
-_PDF_LINK_SCHEMES = frozenset({b"http", b"https", b"mailto", b"tel"})
-_PDF_SCHEME = re.compile(rb"^\s*([A-Za-z][A-Za-z0-9+.\-]*):")
+_PDF_LINK_SCHEMES = frozenset({"http", "https", "mailto", "tel"})
+_PDF_SCHEME = re.compile(r"^([A-Za-z][A-Za-z0-9+.\-]*):")
+_PDF_ESCAPES = {ord("n"): b"\n", ord("r"): b"\r", ord("t"): b"\t", ord("b"): b"\b", ord("f"): b"\f"}
+_OCTAL = b"01234567"
 
 
-def _pdf_string_at(data: bytes, start: int) -> bytes | None:
-    """The literal `( … )` or hex `< … >` string starting at `start` (after whitespace), or None."""
-    rest = data[start:].lstrip(_PDF_WHITESPACE)
-    if rest[:1] == b"(":
-        depth, out, i = 1, bytearray(), 1
-        while i < len(rest) and depth:
-            c = rest[i : i + 1]
-            if c == b"\\":
-                out += rest[i + 1 : i + 2]
-                i += 2
+def _pdf_literal(rest: bytes) -> bytes:
+    """The bytes of the literal string `( … )` at the start of `rest`, escapes decoded as a reader decodes them
+    (`\\152` is `j`, a backslash before a line break continues the line)."""
+    depth, out, i = 1, bytearray(), 1
+    while i < len(rest) and depth:
+        c = rest[i]
+        if c == ord("\\"):
+            nxt = rest[i + 1 : i + 2]
+            if nxt and nxt[0] in _OCTAL:
+                j = i + 1
+                while j < min(i + 4, len(rest)) and rest[j] in _OCTAL:
+                    j += 1
+                out.append(int(rest[i + 1 : j], 8) & 0xFF)
+                i = j
                 continue
-            depth += c == b"("
-            depth -= c == b")"
-            if depth:
-                out += c
-            i += 1
-        return bytes(out)
-    if rest[:1] == b"<" and rest[1:2] != b"<":
-        end = rest.find(b">")
-        digits = re.sub(rb"[^0-9A-Fa-f]", b"", rest[1 : end if end > 0 else len(rest)])
-        return bytes.fromhex((digits + b"0" * (len(digits) % 2)).decode())
-    return None
+            if nxt in (b"\r", b"\n"):
+                i += 3 if rest[i + 1 : i + 3] == b"\r\n" else 2
+                continue
+            out += _PDF_ESCAPES.get(nxt[0], nxt) if nxt else b""
+            i += 2
+            continue
+        depth += c == ord("(")
+        depth -= c == ord(")")
+        if depth:
+            out.append(c)
+        i += 1
+    return bytes(out)
+
+
+def _pdf_link_allowed(data: bytes, end: int) -> bool:
+    """Whether the value after a `/URI` name is harmless: the action type in `/S /URI` (its target is the `/URI`
+    key that follows), the catalog's base-URI dictionary, or a string whose scheme is a web, e-mail or phone one.
+    Anything that cannot be checked here (an indirect reference, say) is refused."""
+    rest = data[end:].lstrip(_PDF_WHITESPACE)
+    if rest[:1] == b"/" or rest[:2] == b"<<":
+        return True
+    if rest[:1] == b"(":
+        raw = _pdf_literal(rest)
+    elif rest[:1] == b"<":
+        close = rest.find(b">")
+        digits = re.sub(rb"[^0-9A-Fa-f]", b"", rest[1 : close if close > 0 else len(rest)])
+        raw = bytes.fromhex((digits + b"0" * (len(digits) % 2)).decode())
+    else:
+        return False
+    # Text strings may be UTF-16 or UTF-8 with a byte-order mark; URL parsers drop tabs and line breaks anywhere and
+    # leading controls and spaces, so `java\tscript:` and ` javascript:` are both `javascript:`.
+    if raw[:2] == b"\xfe\xff":
+        text = raw[2:].decode("utf-16-be", "replace")
+    elif raw[:3] == b"\xef\xbb\xbf":
+        text = raw[3:].decode("utf-8", "replace")
+    else:
+        text = raw.decode("latin-1")
+    text = re.sub(r"[\t\n\r]", "", text).lstrip("".join(chr(c) for c in range(0x21)))
+    scheme = _PDF_SCHEME.match(text)
+    return scheme is None or scheme.group(1).lower() in _PDF_LINK_SCHEMES
 
 
 def _refuse_active_names(data: bytes) -> None:
     for name, end in _pdf_names(data):
         if name in _PDF_BLOCKED_NAMES:
             raise RejectedPdf(ACTIVE_PDF)
-        if name == b"URI":
-            target = _pdf_string_at(data, end)
-            scheme = _PDF_SCHEME.match(target) if target is not None else None
-            if scheme is not None and scheme.group(1).lower() not in _PDF_LINK_SCHEMES:
-                raise RejectedPdf(ACTIVE_PDF)
+        if name == b"URI" and not _pdf_link_allowed(data, end):
+            raise RejectedPdf(ACTIVE_PDF)
         # A document-open action is accepted only as an explicit destination (`[page /Fit]`), which merely sets
         # the first view; a dictionary or a reference can be an action.
         if name == b"OpenAction" and data[end:].lstrip(_PDF_WHITESPACE)[:1] != b"[":

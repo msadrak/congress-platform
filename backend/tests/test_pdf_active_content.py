@@ -42,6 +42,26 @@ REFUSED = {
         b"/Type /Page /Parent 2 0 R /Annots [<< /A << /S /URI /URI (FILE:///etc/passwd) >> >>]",
         1,
     ),
+    "octal-escaped javascript link": PDF.replace(
+        b"/Type /Page /Parent 2 0 R",
+        b"/Type /Page /Parent 2 0 R /Annots [<< /A << /S /URI /URI (\\152avascript:app.alert\\(1\\)) >> >>]",
+        1,
+    ),
+    "javascript link split by a tab": PDF.replace(
+        b"/Type /Page /Parent 2 0 R",
+        b"/Type /Page /Parent 2 0 R /Annots [<< /A << /S /URI /URI (java\\tscript:app.alert\\(1\\)) >> >>]",
+        1,
+    ),
+    "UTF-16 javascript link": PDF.replace(
+        b"/Type /Page /Parent 2 0 R",
+        b"/Type /Page /Parent 2 0 R /Annots [<< /A << /S /URI /URI <"
+        + ("\ufeffjavascript:x".encode("utf-16-be").hex().encode())
+        + b"> >> >>]",
+        1,
+    ),
+    "link target by reference": PDF.replace(
+        b"/Type /Page /Parent 2 0 R", b"/Type /Page /Parent 2 0 R /Annots [<< /A << /S /URI /URI 7 0 R >> >>]", 1
+    ),
     "form submission": with_catalog(b"/AcroForm << /Fields [<< /A << /S /SubmitForm /F (http://x) >> >>] >>"),
     "automatic action by reference": with_catalog(b"/OpenAction 7 0 R"),
     "automatic action dictionary": with_catalog(b"/OpenAction << /S /GoTo /D [3 0 R /Fit] >>"),
@@ -76,6 +96,12 @@ ACCEPTED = {
         1,
     ),
     "web link inside an object stream": with_object_stream(b"<< /S /URI /URI (http://x.ir) >>"),
+    "document base URI": with_catalog(b"/URI << /Base (https://x.ir/) >>"),
+    "web link with an escaped parenthesis": PDF.replace(
+        b"/Type /Page /Parent 2 0 R",
+        b"/Type /Page /Parent 2 0 R /Annots [<< /A << /S /URI /URI (https://x.ir/a\\(1\\)) >> >>]",
+        1,
+    ),
 }
 
 
