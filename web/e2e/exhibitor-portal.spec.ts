@@ -33,7 +33,7 @@ const REMOVED = { detail: 'You are not authorized to access this booth portal', 
 const SUSPENDED = { detail: 'Booth access for this congress is suspended', code: 'BOOTH_ACCESS_SUSPENDED' };
 const ARCHIVED = { detail: 'This congress is archived: its leads are read-only', code: 'EVENT_ARCHIVED' };
 
-const BOOTH = (id: string) => ({ id, event_id: id === 'booth-a' ? 'event-1' : 'event-2', name: id === 'booth-a' ? 'Alpha Devices Booth' : 'Beta Labs Booth', slug: id === 'booth-a' ? 'alpha-devices' : 'beta-labs', location: 'Hall 1 · A-12', description: '', website_url: '', brochure_url: '', qr_secret: 'booth-qr', created_at: '2099-01-01T00:00:00Z', event_archived: false });
+const BOOTH = (id: string) => ({ id, event_id: id === 'booth-a' ? 'event-1' : 'event-2', name: id === 'booth-a' ? 'Alpha Devices Booth' : 'Beta Labs Booth', slug: id === 'booth-a' ? 'alpha-devices' : 'beta-labs', location: 'Hall 1 · A-12', description: '', website_url: '', brochure_url: '', qr_secret: 'booth-qr', created_at: '2099-01-01T00:00:00Z', event_archived: false, event_timezone: 'Asia/Tehran' });
 
 async function fixture(page: Page, options: Options = {}) {
   const requests: Recorded[] = [];

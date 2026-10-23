@@ -11,6 +11,8 @@ import { RATING_META, asRating } from "./rating";
 interface LeadCardProps {
   lead: LeadOut;
   locale: "fa" | "en";
+  /** The congress's IANA zone: capture times are shown on its clock. */
+  timeZone: string;
   /** Opens qualification when tapping the card; absent in the trash and when the congress is archived. */
   onQualify?: () => void;
   onDelete?: () => void;
@@ -26,11 +28,11 @@ interface LeadCardProps {
  * One lead: name, role, rating, when it was captured, tags and the note. Tapping the card opens qualification;
  * the trash button and the phone links sit above that tap area.
  */
-export function LeadCard({ lead, locale, onQualify, onDelete, onRestore, actionsDisabled = false, busy = false }: LeadCardProps) {
+export function LeadCard({ lead, locale, timeZone, onQualify, onDelete, onRestore, actionsDisabled = false, busy = false }: LeadCardProps) {
   const text = boothCopy[locale];
   const tone = RATING_META[asRating(lead.rating)].tone;
   const role = [lead.title, lead.organization].filter(Boolean).join(" · ");
-  const when = lead.deleted_at ? text.deletedOn(leadWhen(lead.deleted_at, locale)) : leadWhen(lead.created_at, locale);
+  const when = lead.deleted_at ? text.deletedOn(leadWhen(lead.deleted_at, locale, timeZone)) : leadWhen(lead.created_at, locale, timeZone);
   const rawMobile = lead.attendee_mobile;
   const mobile = rawMobile ? formatMobile(rawMobile, locale) : null;
 

@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { KeyBurst, badgeCode } from "../src/lib/deskScan.ts";
-import { admitReasonText, badgeAffiliation, badgePrintState } from "../src/lib/deskBadge.ts";
+import { admitReasonText, badgeAffiliation, badgePrintState, deskTimeZone } from "../src/lib/deskBadge.ts";
 
 const SECRET = "mzxw6ytboi2dqnrzgezdgnbvgy"; // 26 base32 characters, like a pass QR secret
 
@@ -70,4 +70,10 @@ test("badge affiliation: title and organization, whichever are set", () => {
   assert.equal(badgeAffiliation("Cardiologist", "Heart Center"), "Cardiologist · Heart Center");
   assert.equal(badgeAffiliation("", " Heart Center "), "Heart Center");
   assert.equal(badgeAffiliation("", ""), "");
+});
+
+test("desk clock: the congress's own zone from /desk/me, Tehran until it is known", () => {
+  assert.equal(deskTimeZone({ event_timezone: "Europe/Berlin" }), "Europe/Berlin");
+  assert.equal(deskTimeZone({ event_timezone: "" }), "Asia/Tehran");
+  assert.equal(deskTimeZone(null), "Asia/Tehran");
 });

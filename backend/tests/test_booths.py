@@ -163,6 +163,32 @@ async def test_the_booth_says_when_its_congress_is_archived(client: AsyncClient)
     assert await flags() == [False, False, False]
 
 
+async def test_the_booth_names_its_congress_time_zone(client: AsyncClient) -> None:
+    """Lead times are shown in the congress's zone (not the device's), so every booth answer says which zone."""
+    organizer = await provision_organizer(client, "Acme Congress Co")
+    event_id = await create_event(client, organizer)
+    created = await client.post(f"/api/events/{event_id}/booths", json=BOOTH_PAYLOAD, headers=bearer(organizer))
+    assert created.json()["event_timezone"] == "Asia/Tehran"
+    booth_id = created.json()["id"]
+    _, token = await register_user(client, "09121000020", "Rep Zone")
+    await client.post(
+        f"/api/events/{event_id}/booths/{booth_id}/staff", json={"mobile": "09121000020"}, headers=bearer(organizer)
+    )
+    staff = {"Authorization": f"Bearer {token}"}
+    moved = await client.patch(f"/api/events/{event_id}", json={"timezone": "Europe/Berlin"}, headers=bearer(organizer))
+    assert moved.status_code == 200, moved.text
+
+    portal = (await client.get(f"/api/booths/{booth_id}", headers=staff)).json()
+    (mine,) = (await client.get("/api/booths/me", headers=staff)).json()
+    (listed,) = (await client.get(f"/api/events/{event_id}/booths", headers=bearer(organizer))).json()
+    updated = await client.patch(
+        f"/api/events/{event_id}/booths/{booth_id}", json={"location": "Hall 2"}, headers=bearer(organizer)
+    )
+    assert updated.status_code == 200, updated.text
+    answers = (portal, mine, listed, updated.json())
+    assert [answer["event_timezone"] for answer in answers] == ["Europe/Berlin"] * 4
+
+
 async def test_commercial_isolation_between_booth_staff(
     client: AsyncClient,
 ) -> None:
