@@ -11,7 +11,7 @@ from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Query, Request, status
 from pydantic import BaseModel, Field
-from sqlalchemy import exists, func, or_, select
+from sqlalchemy import exists, func, or_, select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import require_platform_admin
@@ -254,24 +254,33 @@ async def send_test_sms(
     return SmsTestOut(status=outcome, text=text, error=result.error, test_mode=test_mode)
 
 
-@router.get("/api/events/{event_id}/sms/messages")
+@router.get("/api/events/{event_id}/sms/messages", responses=error_responses(400))
 async def list_event_sms(
     event: OwnedEventDep,
     session: SessionDep,
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
+    before: Annotated[uuid.UUID | None, Query()] = None,
 ) -> list[SmsMessageOut]:
-    """Newest first. Numbers are masked; the attendee list and CSV export carry the full numbers."""
+    """Newest first, `limit` at a time. For older messages pass `before` = the id of the last message of the
+    previous page; a page shorter than `limit` is the last one. Numbers are masked; the attendee list and CSV
+    export carry the full numbers."""
     link_opened_at = (
         select(func.min(ShortLink.first_opened_at))
         .where(ShortLink.ticket_id == SmsMessage.ticket_id)
         .correlate(SmsMessage)
         .scalar_subquery()
     )
+    query = select(SmsMessage, link_opened_at).where(SmsMessage.event_id == event.id)
+    if before is not None:
+        anchor = await session.scalar(
+            select(SmsMessage.created_at).where(SmsMessage.id == before, SmsMessage.event_id == event.id)
+        )
+        if anchor is None:
+            raise ApiError(status.HTTP_400_BAD_REQUEST, "CURSOR_INVALID", "Invalid page cursor")
+        # Messages queued in one transaction share a timestamp: the id breaks the tie, so no page loses one.
+        query = query.where(tuple_(SmsMessage.created_at, SmsMessage.id) < tuple_(anchor, before))
     rows = await session.execute(
-        select(SmsMessage, link_opened_at)
-        .where(SmsMessage.event_id == event.id)
-        .order_by(SmsMessage.created_at.desc())
-        .limit(limit)
+        query.order_by(SmsMessage.created_at.desc(), SmsMessage.id.desc()).limit(limit)
     )
     return [_message_out(m, opened) for m, opened in rows]
 

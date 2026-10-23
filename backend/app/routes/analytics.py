@@ -9,25 +9,23 @@ One set of filters (`AnalyticsFilters`: check-in point, ticket tier, date range,
 dashboard and both exports alike. The exports are streamed from a server-side cursor.
 """
 
-import csv
 import uuid
 from collections import defaultdict
-from collections.abc import AsyncIterator, Callable, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta, timezone
-from typing import Annotated, Any, Unpack
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Query, Request, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import ColumnElement, Date, DateTime, Row, Select, String, cast, func, literal, literal_column, select
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy import ColumnElement, Date, DateTime, String, cast, func, literal, literal_column, select
 
+from app.csv_export import AnyRow, AnySelect, csv_response, csv_stream
 from app.db import SessionDep
 from app.errors import ApiError, error_responses
 from app.models import CheckIn, CheckInPoint, Event, Ticket, TicketTier, User
 from app.routes.events import OwnedEventDep
-from app.security import sanitize_csv_cell
 
 router = APIRouter(tags=["analytics"])
 
@@ -36,11 +34,6 @@ ADMITTED = "ADMITTED"
 ACTIVE = "active"
 # The day picker lists every day from the event's first to its last; longer spans list only days with scans.
 MAX_LISTED_EVENT_DAYS = 62
-CSV_BATCH_ROWS = 1_000
-
-# A SELECT and a result row of any number of columns of any type.
-AnySelect = Select[Unpack[tuple[Any, ...]]]
-AnyRow = Row[Unpack[tuple[Any, ...]]]
 
 
 def event_timezone(event: Event) -> str:
@@ -354,36 +347,6 @@ def attendee_columns() -> tuple[Any, ...]:
 ATTENDEE_HEADERS = ["Attendee Name", "Attendee Mobile", "Organization", "Title"]
 
 
-class _Echo:
-    """A file whose `write` returns the text, so `csv.writer(...).writerow` yields one encoded line."""
-
-    def write(self, value: str) -> str:
-        return value
-
-
-async def _csv_stream(
-    sessionmaker: async_sessionmaker[AsyncSession],
-    header: list[str],
-    statement: AnySelect,
-    to_cells: Callable[[AnyRow], Sequence[object]],
-) -> AsyncIterator[bytes]:
-    writer = csv.writer(_Echo())
-    yield ("﻿" + writer.writerow(header)).encode()
-    # Its own session: the request's may be closed while the body is still streaming.
-    async with sessionmaker() as session:
-        result = await session.stream(statement.execution_options(yield_per=CSV_BATCH_ROWS))
-        async for rows in result.partitions():
-            yield "".join(writer.writerow([sanitize_csv_cell(c) for c in to_cells(row)]) for row in rows).encode()
-
-
-def _csv_response(filename: str, body: AsyncIterator[bytes]) -> StreamingResponse:
-    return StreamingResponse(
-        body,
-        media_type="text/csv; charset=utf-8",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
-    )
-
-
 @router.get(
     "/api/events/{event_id}/analytics/export-csv",
     response_class=StreamingResponse,
@@ -431,8 +394,8 @@ async def export_attendance_csv(request: Request, filters: FiltersDep) -> Stream
         scanned_utc = scanned_at.astimezone(UTC).isoformat()
         return [scan_id, point, policy, scan_status, reason, scanned_utc, local_iso(local, utc), *rest]
 
-    body = _csv_stream(request.app.state.sessionmaker, header, statement, cells)
-    return _csv_response(f"{filters.event.slug}-attendance.csv", body)
+    body = csv_stream(request.app.state.sessionmaker, header, statement, cells)
+    return csv_response(f"{filters.event.slug}-attendance.csv", body)
 
 
 @router.get(
@@ -496,5 +459,5 @@ async def export_registrations_csv(request: Request, filters: FiltersDep) -> Str
             count,
         ]
 
-    body = _csv_stream(request.app.state.sessionmaker, header, statement, cells)
-    return _csv_response(f"{filters.event.slug}-registrations.csv", body)
+    body = csv_stream(request.app.state.sessionmaker, header, statement, cells)
+    return csv_response(f"{filters.event.slug}-registrations.csv", body)

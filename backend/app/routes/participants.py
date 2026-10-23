@@ -6,24 +6,23 @@ transferring and deleting go through app/ticket_lifecycle.py. Organizer API key 
 event or ticket is a 404 (OwnedEventDep).
 """
 
-import csv
-import io
 import re
 import uuid
 from datetime import datetime
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Query, Request, Response, status
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, StringConstraints
 from sqlalchemy import ColumnElement, Select, delete, exists, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import QueryableAttribute
 
+from app.csv_export import csv_response, csv_stream
 from app.db import SessionDep
 from app.errors import ApiError, error_responses
 from app.models import CheckIn, CheckInPoint, DeskOperator, EntityQR, Event, Lead, Ticket, TicketTier, User
 from app.routes.events import OwnedEventDep, WritableEventDep
-from app.security import sanitize_csv_cell
 from app.sms.outbox import link_origin
 from app.sms.phone import IranMobile, ascii_digits, search_digits
 from app.ticket_lifecycle import (
@@ -304,49 +303,32 @@ async def list_participants(
     return ParticipantPage(items=[_participant(r) for r in rows.all()], total=total or 0, limit=limit, offset=offset)
 
 
-@router.get("/export-csv")
+@router.get("/export-csv", response_class=StreamingResponse)
 async def export_participants_csv(
     event: OwnedEventDep,
-    session: SessionDep,
+    request: Request,
     q: Annotated[str, Query(max_length=200)] = "",
     tier_id: Annotated[uuid.UUID | None, Query()] = None,
     ticket_status: Annotated[TicketStatus | None, Query(alias="status")] = None,
-) -> Response:
-    """Every registration matching the list filters, as CSV (UTF-8 with BOM for Excel; formula-safe cells)."""
-    rows = await session.execute(
-        _filtered(_base_query(event.id), q, tier_id, ticket_status).order_by(Ticket.created_at, Ticket.id)
-    )
-    output = io.StringIO()
-    writer = csv.writer(output)
-    writer.writerow(
-        [
-            "Ticket ID", "Full Name", "Mobile", "Organization", "Title", "Ticket Tier", "Status",
-            "Registered At (UTC)", "Cancelled At (UTC)", "Cancellation Reason", "Check-ins", "Issued By",
-        ]
-    )
-    for row in rows.all():
+) -> StreamingResponse:
+    """Every registration matching the list filters, as CSV (UTF-8 with BOM for Excel; formula-safe cells),
+    streamed in batches."""
+    statement = _filtered(_base_query(event.id), q, tier_id, ticket_status).order_by(Ticket.created_at, Ticket.id)
+    header = [
+        "Ticket ID", "Full Name", "Mobile", "Organization", "Title", "Ticket Tier", "Status",
+        "Registered At (UTC)", "Cancelled At (UTC)", "Cancellation Reason", "Check-ins", "Issued By",
+    ]
+
+    def cells(row: Any) -> list[object]:
         p = _participant(row)
-        writer.writerow(
-            [
-                str(p.ticket_id),
-                sanitize_csv_cell(p.attendee_full_name),
-                sanitize_csv_cell(p.mobile),
-                sanitize_csv_cell(p.attendee_organization),
-                sanitize_csv_cell(p.attendee_title),
-                sanitize_csv_cell(p.ticket_tier_name),
-                p.status,
-                p.created_at.isoformat(),
-                p.cancelled_at.isoformat() if p.cancelled_at else "",
-                sanitize_csv_cell(p.cancelled_reason),
-                p.checkin_count,
-                sanitize_csv_cell(p.issued_by),
-            ]
-        )
-    return Response(
-        content="﻿" + output.getvalue(),
-        media_type="text/csv; charset=utf-8",
-        headers={"Content-Disposition": f'attachment; filename="{event.slug}-participants.csv"'},
-    )
+        return [
+            p.ticket_id, p.attendee_full_name, p.mobile, p.attendee_organization, p.attendee_title,
+            p.ticket_tier_name, p.status, p.created_at.isoformat(),
+            p.cancelled_at.isoformat() if p.cancelled_at else "", p.cancelled_reason, p.checkin_count, p.issued_by,
+        ]
+
+    body = csv_stream(request.app.state.sessionmaker, header, statement, cells)
+    return csv_response(f"{event.slug}-participants.csv", body)
 
 
 @router.get("/{ticket_id}", responses=NOT_FOUND)

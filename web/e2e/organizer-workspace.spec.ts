@@ -471,6 +471,29 @@ test('SMS: a failed confirmation is sent again; an unknown one is resent only af
   await expect(unknown.getByRole('button', { name: 'Send again' })).toHaveCount(0);
 });
 
+test('SMS: older messages load page by page after the last one shown', async ({ page }) => {
+  await fixture(page);
+  await seed(page);
+  const message = (i: number) => ({ id: `m-${i}`, kind: 'test', mobile: `0912***${String(i).padStart(4, '0')}`, body: `message ${i}`, status: 'sent', attempts: 1, last_error: null, created_at: '2099-01-01T00:00:00Z', sent_at: '2099-01-01T00:00:00Z' });
+  const requested: (string | null)[] = [];
+  await page.route('**/api/events/event-a/sms/messages?*', route => {
+    const before = new URL(route.request().url()).searchParams.get('before');
+    requested.push(before);
+    const items = before === null ? Array.from({ length: 50 }, (_, i) => message(i)) : before === 'm-49' ? [message(50), message(51)] : [];
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(items) });
+  });
+  await page.goto('/organizer/events/event-a/sms');
+  const log = page.locator('section[aria-labelledby="sms-log-title"]');
+  await expect(log.getByRole('listitem')).toHaveCount(50);
+
+  await log.getByRole('button', { name: 'Older messages' }).click();
+
+  await expect(log.getByRole('listitem')).toHaveCount(52);
+  await expect(log.getByText('0912***0051')).toBeVisible();
+  await expect(log.getByRole('button', { name: 'Older messages' })).toHaveCount(0);
+  expect(requested).toEqual([null, 'm-49']);
+});
+
 test('program: sessions are grouped by day, added in local time, and a CSV timetable is checked before it is imported', async ({ page }) => {
   const requests = await fixture(page);
   await seed(page);
