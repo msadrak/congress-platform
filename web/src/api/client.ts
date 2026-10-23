@@ -1,6 +1,7 @@
 import createClient from "openapi-fetch";
 import type { components, paths } from "./schema";
 import type { AttendeeLocale } from "../lib/i18n";
+import { commonCopy } from "../copy/common.ts";
 import { errorMessages, networkErrorMessage } from "../lib/errorMessages.ts";
 
 export type ErrorResponse = components["schemas"]["ErrorResponse"];
@@ -370,7 +371,7 @@ const statusMessages: Record<AttendeeLocale, StatusMessages> = {
   fa: {
     exact: {
       400: "درخواست معتبر نبود. اطلاعات واردشده را بررسی کنید و دوباره تلاش کنید.",
-      401: "نشست شما منقضی شده یا معتبر نیست. دوباره وارد شوید.",
+      401: commonCopy.fa.sessionEnded,
       403: "اجازهٔ انجام این کار را ندارید.",
       404: "مورد درخواستی پیدا نشد.",
       409: "این کار با وضعیت فعلی در تعارض است. صفحه را به‌روز کنید و دوباره تلاش کنید.",
@@ -380,12 +381,12 @@ const statusMessages: Record<AttendeeLocale, StatusMessages> = {
       429: "تعداد درخواست‌ها زیاد است. کمی صبر کنید و دوباره تلاش کنید.",
     },
     server: "در سرور خطایی رخ داد. کمی بعد دوباره تلاش کنید.",
-    other: "انجام نشد. دوباره تلاش کنید.",
+    other: commonCopy.fa.generic,
   },
   en: {
     exact: {
       400: "The request was not valid. Check the details and try again.",
-      401: "Your session has expired or is not valid. Please sign in again.",
+      401: commonCopy.en.sessionEnded,
       403: "You do not have permission to do this.",
       404: "What you asked for was not found.",
       409: "This conflicts with the current state. Refresh the page and try again.",
@@ -395,7 +396,7 @@ const statusMessages: Record<AttendeeLocale, StatusMessages> = {
       429: "Too many requests. Wait a moment and try again.",
     },
     server: "Something went wrong on the server. Try again in a little while.",
-    other: "Something went wrong. Please try again.",
+    other: commonCopy.en.generic,
   },
 };
 

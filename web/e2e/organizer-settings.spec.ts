@@ -161,7 +161,7 @@ test('a delete refused for tickets is explained and offers to archive instead', 
   await page.getByRole('button', { name: 'Delete congress' }).click();
   await page.getByRole('dialog', { name: 'Delete this congress permanently?' }).getByRole('button', { name: 'Delete congress' }).click();
   const refused = page.getByRole('dialog', { name: 'This congress cannot be deleted' });
-  await expect(refused).toContainText('This congress has issued tickets and cannot be deleted; archive it instead.');
+  await expect(refused).toContainText('This congress has issued passes and cannot be deleted; archive it instead.');
   await refused.getByRole('button', { name: 'Archive instead' }).click();
   await expect(page.getByTestId('archived-banner')).toBeVisible();
   expect(requests.some((r) => r.method === 'DELETE' && r.path === '/api/events/event-s')).toBe(true);

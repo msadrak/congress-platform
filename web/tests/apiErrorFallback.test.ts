@@ -16,7 +16,7 @@ const SENTENCES: ReadonlyArray<{ status: number; fa: string; en: string }> = [
     fa: "درخواست معتبر نبود. اطلاعات واردشده را بررسی کنید و دوباره تلاش کنید.",
     en: "The request was not valid. Check the details and try again.",
   },
-  { status: 401, fa: "نشست شما منقضی شده یا معتبر نیست. دوباره وارد شوید.", en: "Your session has expired or is not valid. Please sign in again." },
+  { status: 401, fa: "زمان ورود شما تمام شده است. دوباره وارد شوید.", en: "You've been signed out. Sign in again." },
   { status: 403, fa: "اجازهٔ انجام این کار را ندارید.", en: "You do not have permission to do this." },
   { status: 404, fa: "مورد درخواستی پیدا نشد.", en: "What you asked for was not found." },
   {

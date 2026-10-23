@@ -36,11 +36,11 @@ test('organizer: platform admin provisions the organizer, who sets up and publis
   await test.step('key gate: a wrong key is refused, the issued key opens the console', async () => {
     await page.goto('/organizer');
     await page.getByRole('button', { name: 'کلید API' }).click();
-    await page.getByLabel('کلید دسترسی (API Key)').fill(`wrong-${apiKey}`);
-    await page.getByRole('button', { name: 'ورود به پیشخوان مدیریت' }).click();
+    await page.getByLabel('کلید سازمان').fill(`wrong-${apiKey}`);
+    await page.getByRole('button', { name: 'ورود', exact: true }).click();
     await expect(page.getByRole('alert')).toBeVisible();
-    await page.getByLabel('کلید دسترسی (API Key)').fill(apiKey);
-    await page.getByRole('button', { name: 'ورود به پیشخوان مدیریت' }).click();
+    await page.getByLabel('کلید سازمان').fill(apiKey);
+    await page.getByRole('button', { name: 'ورود', exact: true }).click();
     await expect(page.getByRole('heading', { name: 'مدیریت همایش‌ها و کنگره‌ها' })).toBeVisible();
   });
 
@@ -48,7 +48,7 @@ test('organizer: platform admin provisions the organizer, who sets up and publis
     await page.getByRole('button', { name: 'ایجاد همایش جدید' }).first().click();
     const dialog = page.getByRole('dialog', { name: 'ثبت همایش جدید' });
     await dialog.getByLabel('عنوان رسمی همایش').fill(eventName);
-    await dialog.getByLabel(/شناسه اینترنتی/).fill(slug);
+    await dialog.getByLabel('نشانی صفحه').fill(slug);
     await dialog.getByLabel('منطقهٔ زمانی همایش').selectOption(zone);
     await dialog.getByLabel('زمان آغاز همایش').fill(`${eventDay}T09:00`);
     await dialog.getByLabel('زمان پایان همایش').fill(`${eventDay}T17:00`);
@@ -68,10 +68,9 @@ test('organizer: platform admin provisions the organizer, who sets up and publis
   await page.getByRole('link', { name: eventName }).first().click();
 
   await test.step('add a pass type (ticket tier)', async () => {
-    // Structure-based: the pass-type wording is being renamed («نوع کارت ورود»), the form's shape is not.
     await expect(workspace).toBeVisible();
     await page.goto(`/organizer/events/${event.id}/tiers`);
-    await page.getByRole('main').getByRole('button', { name: /افزودن/ }).first().click();
+    await page.getByRole('main').getByRole('button', { name: /نوع کارت ورود جدید/ }).first().click();
     const dialog = page.getByRole('dialog');
     await dialog.getByRole('textbox').first().fill(tierName);
     await dialog.getByRole('spinbutton').fill('25');

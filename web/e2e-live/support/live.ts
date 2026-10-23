@@ -92,8 +92,8 @@ export async function signInWithCode(scope: Page | Locator, mobile: string, full
 export async function organizerSignIn(page: Page, apiKey: string): Promise<void> {
   await page.goto('/organizer');
   await page.getByRole('button', { name: 'کلید API' }).click();
-  await page.getByLabel('کلید دسترسی (API Key)').fill(apiKey);
-  await page.getByRole('button', { name: 'ورود به پیشخوان مدیریت' }).click();
+  await page.getByLabel('کلید سازمان').fill(apiKey);
+  await page.getByRole('button', { name: 'ورود', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'مدیریت همایش‌ها و کنگره‌ها' })).toBeVisible();
 }
 

@@ -500,7 +500,7 @@ test.describe('layout and language', () => {
     await page.setViewportSize({ width: 320, height: 700 });
     await page.goto(`/reception/${EVENT_A}`);
     await expect(page.locator('[dir="rtl"]').first()).toBeVisible();
-    await expect(page.getByRole('heading', { name: 'ورود به ایستگاه میز پذیرش' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'ورود به میز پذیرش' })).toBeVisible();
     expect(await overflow(page)).toBe(0);
     await page.getByLabel('شماره موبایل').fill('۰۹۱۲۱۱۱۰۰۰۱');
     await page.getByRole('button', { name: 'ارسال کد' }).click();

@@ -11,6 +11,7 @@ import {
   type DateDraft,
   type Locale,
 } from "../../lib/format";
+import { dateFieldCopy } from "../../copy/dateField";
 
 /**
  * Date entry in the reader's calendar (ds §4, T9): a Jalali day, month and year with Persian digits in fa, a
@@ -33,18 +34,13 @@ export interface DateFieldProps {
   className?: string;
 }
 
-const COPY = {
-  fa: { day: "روز", month: "ماه", year: "سال", time: "ساعت", invalidDate: "این تاریخ وجود ندارد.", invalidTime: "ساعت را به شکل ۰۸:۳۰ بنویسید." },
-  en: { day: "Day", month: "Month", year: "Year", time: "Time", invalidDate: "This date does not exist.", invalidTime: "Enter the time as 08:30." },
-} as const;
-
 const DAYS = Array.from({ length: 31 }, (_, i) => i + 1);
 /** `.ui-select` has no invalid look of its own yet (`.ui-input` does). */
 const SELECT_INVALID = "aria-invalid:border-status-danger-solid";
 
 function CalendarField({ withTime, label, value, onChange, locale, timeZone, hint, error, required, disabled, className = "" }: DateFieldProps & { withTime: boolean }) {
   const id = useId();
-  const copy = COPY[locale];
+  const copy = dateFieldCopy[locale];
   const [draft, setDraft] = useState<DateDraft>(() => dateDraft(value, locale));
   const [synced, setSynced] = useState({ value, locale });
   // An impossible date or time is pointed out once a choice is made or the reader leaves the box, not mid-typing.

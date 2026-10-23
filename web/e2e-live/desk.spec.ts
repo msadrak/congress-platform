@@ -31,7 +31,7 @@ test('desk: operator added by the organizer signs in by SMS code, searches, issu
 
   await test.step('desk sign-in by SMS code', async () => {
     await desk.goto(`/reception/${event.id}`);
-    await expect(desk.getByRole('heading', { name: 'ورود به ایستگاه میز پذیرش' })).toBeVisible();
+    await expect(desk.getByRole('heading', { name: 'ورود به میز پذیرش' })).toBeVisible();
     await signInWithCode(desk, operatorMobile);
     await expect(desk.getByRole('heading', { level: 1, name: event.name })).toBeVisible();
     await expect(desk.getByText(operatorName)).toBeVisible();

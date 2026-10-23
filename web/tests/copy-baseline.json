@@ -1,0 +1,390 @@
+{
+  "src/components/AppUpdatePrompt.tsx": {
+    "ternary": 3,
+    "persian": 3
+  },
+  "src/components/attendee/attendeeCopy.ts": {
+    "ternary": 1
+  },
+  "src/components/attendee/CongressDetailsView.tsx": {
+    "ternary": 7,
+    "persian": 7
+  },
+  "src/components/attendee/CongressHero.tsx": {
+    "persian": 2
+  },
+  "src/components/attendee/CongressHomeView.tsx": {
+    "persian": 1
+  },
+  "src/components/attendee/CongressSchedule.tsx": {
+    "persian": 5
+  },
+  "src/components/attendee/DigitalPassCard.tsx": {
+    "ternary": 7,
+    "persian": 7
+  },
+  "src/components/attendee/InstallHint.tsx": {
+    "persian": 5
+  },
+  "src/components/attendee/Monogram.tsx": {
+    "persian": 4
+  },
+  "src/components/attendee/ProgramExplorer.tsx": {
+    "ternary": 2
+  },
+  "src/components/attendee/QrFullscreen.tsx": {
+    "ternary": 3,
+    "persian": 2
+  },
+  "src/components/auth/MobileOtpForm.tsx": {
+    "persian": 33,
+    "ternary": 1
+  },
+  "src/components/booth/CaptureDialog.tsx": {
+    "ternary": 14,
+    "persian": 14
+  },
+  "src/components/booth/LeadList.tsx": {
+    "ternary": 9,
+    "persian": 9
+  },
+  "src/components/booth/PendingSyncPanel.tsx": {
+    "ternary": 1
+  },
+  "src/components/booth/QualifyDialog.tsx": {
+    "ternary": 3,
+    "persian": 3
+  },
+  "src/components/BoothDirectory.tsx": {
+    "persian": 19,
+    "ternary": 20
+  },
+  "src/components/brand/Aiteb.tsx": {
+    "persian": 2,
+    "ternary": 1
+  },
+  "src/components/operator/OperatorGate.tsx": {
+    "ternary": 1
+  },
+  "src/components/operator/OperatorMenu.tsx": {
+    "ternary": 1
+  },
+  "src/components/organizer/BoothFormDialog.tsx": {
+    "ternary": 8,
+    "persian": 11,
+    "asciiEllipsis": 1
+  },
+  "src/components/organizer/BoothQrDialog.tsx": {
+    "ternary": 5,
+    "persian": 5
+  },
+  "src/components/organizer/BoothStaffDialog.tsx": {
+    "ternary": 19,
+    "persian": 19
+  },
+  "src/components/organizer/CheckInPointFormDialog.tsx": {
+    "ternary": 26,
+    "persian": 26
+  },
+  "src/components/organizer/EventEditDialog.tsx": {
+    "ternary": 17,
+    "persian": 16
+  },
+  "src/components/organizer/eventTiming.ts": {
+    "ternary": 1
+  },
+  "src/components/organizer/OperatorFormDialog.tsx": {
+    "ternary": 6,
+    "persian": 6
+  },
+  "src/components/organizer/OrganizerKeyGate.tsx": {
+    "persian": 8,
+    "ternary": 5,
+    "devTerm": 2
+  },
+  "src/components/organizer/OrganizerMemberSignIn.tsx": {
+    "persian": 1
+  },
+  "src/components/organizer/ScannerPairingDialog.tsx": {
+    "ternary": 41,
+    "persian": 40,
+    "devTerm": 1
+  },
+  "src/components/organizer/ScheduleFilesManager.tsx": {
+    "persian": 47,
+    "ternary": 33
+  },
+  "src/components/organizer/SessionFormDialog.tsx": {
+    "ternary": 25,
+    "persian": 25
+  },
+  "src/components/organizer/studio/BrandPanel.tsx": {
+    "persian": 1
+  },
+  "src/components/organizer/studio/SectionEditor.tsx": {
+    "persian": 1
+  },
+  "src/components/organizer/TierFormDialog.tsx": {
+    "ternary": 21,
+    "persian": 21,
+    "asciiEllipsis": 1
+  },
+  "src/components/organizer/TimetableImport.tsx": {
+    "persian": 43,
+    "ternary": 36
+  },
+  "src/components/organizer/useGuardedClose.tsx": {
+    "ternary": 4,
+    "persian": 4
+  },
+  "src/components/organizer/WorkspaceUi.tsx": {
+    "persian": 3,
+    "ternary": 1
+  },
+  "src/components/public/copy.ts": {
+    "ternary": 1
+  },
+  "src/components/public/homeCopy.ts": {
+    "devTerm": 2
+  },
+  "src/components/public/page/ScheduleFiles.tsx": {
+    "ternary": 3,
+    "persian": 3
+  },
+  "src/components/QrCameraInput.tsx": {
+    "ternary": 7,
+    "persian": 7,
+    "asciiEllipsis": 1
+  },
+  "src/components/reception/AttendeeCard.tsx": {
+    "ternary": 20,
+    "persian": 21,
+    "asciiEllipsis": 1
+  },
+  "src/components/reception/AttendeeSearch.tsx": {
+    "ternary": 16,
+    "persian": 16,
+    "asciiEllipsis": 1
+  },
+  "src/components/reception/DeskActions.tsx": {
+    "ternary": 37,
+    "persian": 37
+  },
+  "src/components/reception/DeskAuthGate.tsx": {
+    "ternary": 7,
+    "persian": 10
+  },
+  "src/components/reception/MintedDialog.tsx": {
+    "ternary": 4,
+    "persian": 4
+  },
+  "src/components/reception/ModeSwitch.tsx": {
+    "ternary": 5,
+    "persian": 5
+  },
+  "src/components/reception/PrintableBadge.tsx": {
+    "ternary": 1
+  },
+  "src/components/reception/ReceptionPass.tsx": {
+    "ternary": 2,
+    "persian": 2
+  },
+  "src/components/reception/ReceptionStation.tsx": {
+    "ternary": 24,
+    "persian": 24
+  },
+  "src/components/reception/ResendPassSms.tsx": {
+    "ternary": 8,
+    "persian": 8,
+    "asciiEllipsis": 1
+  },
+  "src/components/reception/WalkInForm.tsx": {
+    "ternary": 15,
+    "persian": 15,
+    "asciiEllipsis": 1
+  },
+  "src/components/scanner/copy.ts": {
+    "devTerm": 2,
+    "asciiEllipsis": 1
+  },
+  "src/components/scanner/ScannerChrome.tsx": {
+    "ternary": 3,
+    "persian": 1
+  },
+  "src/components/scanner/ScannerHeader.tsx": {
+    "ternary": 1,
+    "persian": 1
+  },
+  "src/components/sms/SmsTemplateEditor.tsx": {
+    "persian": 43,
+    "ternary": 34,
+    "devTerm": 2
+  },
+  "src/components/ui/Dialog.tsx": {
+    "persian": 1
+  },
+  "src/layouts/AttendeeLayout.tsx": {
+    "persian": 17,
+    "ternary": 2
+  },
+  "src/layouts/PublicLayout.tsx": {
+    "ternary": 3,
+    "persian": 1
+  },
+  "src/lib/attendeeSession.ts": {
+    "ternary": 1
+  },
+  "src/lib/errorMessages.ts": {
+    "devTerm": 1
+  },
+  "src/lib/format.ts": {
+    "ternary": 3
+  },
+  "src/lib/i18n.ts": {
+    "asciiEllipsis": 7,
+    "devTerm": 1,
+    "checkmark": 6
+  },
+  "src/lib/organizerConsole.ts": {
+    "devTerm": 5,
+    "ternary": 2
+  },
+  "src/lib/programFiles.ts": {
+    "ternary": 3
+  },
+  "src/lib/timeZoneLabel.ts": {
+    "ternary": 2
+  },
+  "src/pages/AttendeeSignIn.tsx": {
+    "persian": 24,
+    "ternary": 2
+  },
+  "src/pages/CongressDetails.tsx": {
+    "ternary": 4,
+    "persian": 4
+  },
+  "src/pages/ExhibitorPortal.tsx": {
+    "ternary": 19,
+    "persian": 18
+  },
+  "src/pages/GateScanner.tsx": {
+    "ternary": 1
+  },
+  "src/pages/Home.tsx": {
+    "ternary": 1,
+    "persian": 1
+  },
+  "src/pages/LinkPassEntry.tsx": {
+    "ternary": 1,
+    "persian": 1
+  },
+  "src/pages/Me.tsx": {
+    "persian": 29
+  },
+  "src/pages/MyCongress.tsx": {
+    "ternary": 4,
+    "persian": 4
+  },
+  "src/pages/MyProfile.tsx": {
+    "persian": 1
+  },
+  "src/pages/MyTickets.tsx": {
+    "persian": 22
+  },
+  "src/pages/organizer/EventBooths.tsx": {
+    "ternary": 13,
+    "persian": 13
+  },
+  "src/pages/organizer/EventCheckIn.tsx": {
+    "ternary": 29,
+    "persian": 28
+  },
+  "src/pages/organizer/EventOperators.tsx": {
+    "ternary": 21,
+    "persian": 21
+  },
+  "src/pages/organizer/EventOverview.tsx": {
+    "ternary": 25,
+    "persian": 25
+  },
+  "src/pages/organizer/EventSectionUi.tsx": {
+    "ternary": 3,
+    "persian": 3
+  },
+  "src/pages/organizer/EventSettingsPanel.tsx": {
+    "ternary": 34,
+    "persian": 34
+  },
+  "src/pages/organizer/EventTiers.tsx": {
+    "ternary": 28,
+    "persian": 28
+  },
+  "src/pages/OrganizerAnalytics.tsx": {
+    "ternary": 2
+  },
+  "src/pages/OrganizerEvents.tsx": {
+    "ternary": 23,
+    "persian": 23,
+    "asciiEllipsis": 1
+  },
+  "src/pages/OrganizerLayout.tsx": {
+    "ternary": 12,
+    "persian": 11
+  },
+  "src/pages/OrganizerMembers.tsx": {
+    "ternary": 4,
+    "persian": 4
+  },
+  "src/pages/OrganizerPagePreview.tsx": {
+    "ternary": 3,
+    "persian": 3
+  },
+  "src/pages/OrganizerPageStudio.tsx": {
+    "ternary": 2,
+    "persian": 1
+  },
+  "src/pages/OrganizerPanel.tsx": {
+    "ternary": 57,
+    "persian": 57
+  },
+  "src/pages/OrganizerParticipants.tsx": {
+    "ternary": 3,
+    "persian": 2
+  },
+  "src/pages/OrganizerProgram.tsx": {
+    "ternary": 25,
+    "persian": 33
+  },
+  "src/pages/OrganizerSms.tsx": {
+    "ternary": 36,
+    "persian": 42
+  },
+  "src/pages/OrganizerVenue.tsx": {
+    "ternary": 42,
+    "persian": 44
+  },
+  "src/pages/PlatformConsole.tsx": {
+    "persian": 27,
+    "ternary": 25
+  },
+  "src/pages/PlatformOrganizerMembers.tsx": {
+    "persian": 20
+  },
+  "src/pages/PlatformOrganizers.tsx": {
+    "ternary": 35,
+    "persian": 34
+  },
+  "src/pages/PlatformSignIn.tsx": {
+    "persian": 31,
+    "ternary": 19
+  },
+  "src/pages/PlatformSms.tsx": {
+    "ternary": 71,
+    "persian": 93
+  },
+  "src/pages/ReceptionPortal.tsx": {
+    "ternary": 23,
+    "persian": 24,
+    "asciiEllipsis": 1
+  }
+}

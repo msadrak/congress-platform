@@ -150,14 +150,40 @@ _Avoid_: Error string, error message (when the code is meant)
 
 ## Persian UI terms
 
-Decided by the product owner (2026-10-23). Use them in every Persian string of the app, in SMS wording and in Persian
-documentation. `web/tests/glossary.test.ts` guards the spellings it can check mechanically.
+Decided by the product owner (2026-10-23; `docs/ux-review/UX_PLAN.md` T1–T5). Use them in every Persian string of
+the app, in SMS wording and in Persian documentation, and the English column in every English string.
+`web/tests/glossary.test.ts` bans the "Avoid" spellings it can check mechanically, in `web/src` and the SMS
+defaults (`backend/app/sms/templates.py`).
 
-| Concept | Persian in the UI | Avoid |
+| Concept | Persian in the UI | English in the UI | Avoid (Persian) |
+|---|---|---|---|
+| Ticket Tier | «نوع کارت ورود» (plural «انواع کارت ورود») | pass type | «رده»، «رده بلیت»، «دسته» |
+| Ticket and its pass, as the attendee sees them | «کارت ورود», for both the reserved ticket and the pass that shows its QR | pass | «بلیت»، «بلیط» |
+| Session (program) | «جلسه» | session | «نشست» |
+| Signed-in state | phrased with «ورود»: «زمان ورود شما تمام شده است.» | signed in / signed out | «نشست» |
+| Check-In Point | «نقطهٔ ورود» (plural «نقطه‌های ورود») | check-in point | «گیت»، «گیت بازرسی»، «ایستگاه» |
+| Admission Policy | «قانون ورود» | entry rule | «سیاست پذیرش»، «سیاست اعتبارسنجی» |
+| QR code | «کد QR» | QR code | a transliteration of "QR" |
+| Walk-in (Desk Registration) | «ثبت‌نام حضوری» | desk registration | «Walk-In» |
+| Lead | «لید», only in the booth panel | lead | «سرنخ» |
+| Bookmark (a saved booth) | «ذخیره»، «غرفه‌های ذخیره‌شده» | save, saved booths | «نشان کردن» |
+| Link | «پیوند», also in SMS | link | «لینک» |
+| Scanner credential | «پیوند اتصال» / «کد اتصال» | pairing link / pairing code | «توکن» |
+| Organizer key | «کلید سازمان», behind a secondary link on sign-in | organizer key | «کلید API» (outside platform admin) |
+| Congress | «همایش» | congress | «رویداد»، «کنگره» in the app's own chrome |
+| Slug | «نشانی صفحه» | page address | «اسلاگ»، «Slug» |
+
+Portal names (one name each, never «کنسول»، «پرتال»، «پورتال»، «پیشخوان»، «فضای کاری»، «ایستگاه»):
+
+| Portal | Persian | English |
 |---|---|---|
-| Ticket Tier | «نوع کارت ورود» (plural «انواع کارت ورود») | «رده» |
-| Ticket and its pass, as the attendee sees them | «کارت ورود», for both the reserved ticket and the pass that shows its QR. «بلیت» only where "ticket" is unavoidable | «بلیط» (misspelling, never) |
-| Session | «جلسه» | «نشست» |
-| Check-In Point | «نقطه ورود» | «گیت»، «گیت بازرسی» |
-| QR code | «کد QR» | a transliteration of "QR" |
-| Walk-in (Desk Registration) | «ثبت‌نام حضوری» | |
+| Organizer Console | پنل برگزارکننده | organizer console |
+| Booth (exhibitor) area | پنل غرفه | booth panel |
+| Reception Desk | میز پذیرش | reception desk |
+| Gate scanner | اسکنر نقطهٔ ورود | check-in scanner |
+| Attendee area | همایش من | my congress |
+| Platform admin | مدیریت سامانه | platform admin |
+
+Wording: «تلاش دوباره» (not «تلاش مجدد»), «بارگذاری» (not «بارگیری»), «جستجو» (not «جست‌وجو»), «تأیید» (not «تایید»),
+«لغو دسترسی» (not «ابطال»), «کنید» (not «نمایید»), «شد» (not «گردید»), «…» (not "..."). English uses US spelling
+("program"). Status words, shared buttons and messages are in `web/src/copy/common.ts`.

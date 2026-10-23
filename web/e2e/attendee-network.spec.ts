@@ -101,7 +101,7 @@ test('a scan without an active pass explains it and links to registration', asyn
 
 for (const [code, status, text] of [
   ['BADGE_OWN', 409, 'You cannot scan your own pass.'],
-  ['BADGE_OTHER_EVENT', 409, 'This badge belongs to another congress and was not saved.'],
+  ['BADGE_OTHER_EVENT', 409, 'This pass belongs to another congress and was not saved.'],
   ['BADGE_NOT_FOUND', 404, 'This QR code is not an attendee pass.'],
 ] as const) {
   test(`scan refusal ${code} is shown in the reader's language`, async ({ page }) => {
