@@ -39,6 +39,16 @@ Mechanical rules live in checks, not here: no `any` (oxlint `typescript/no-expli
 - **Rule:** When writing tests that provision more than one event, every secondary event must randomize or parameterize its slug (e.g. `f"event-b-{uuid.uuid4().hex[:6]}"`).
 - **Why:** Global unique constraints on `events.slug` reject duplicate slugs with `409 Conflict`. Reusing static dictionary fixtures across multiple events causes unforced test failures.
 
+### D. Migrations: expand/contract and `backward_compatible`
+- **Rule:** Split every schema change into an *expand* step and a later *contract* step.
+  - **Expand** (new tables, new nullable columns or columns with a server default, new indexes, new enum values only if the previous release can never meet a row holding one): one migration with a module-level `backward_compatible = True` next to `revision`/`down_revision`. The previous release's code must still work on the expanded schema.
+  - **Contract** (dropping or renaming a table or column, tightening `NOT NULL`, changing a type, removing an enum value, anything the previous release still reads or writes): only in a **later** migration, in a release after the code stopped using the old shape, and **without** the flag.
+  - A rename is three steps: add the new column (marked), deploy code that writes both and reads the new one, then drop the old column (unmarked) in a later release.
+  - Mark a migration only when it is true: a wrong flag lets an older API start on a schema it cannot handle.
+- **Why:** `stack.mjs rollback` re-runs the previous release's images and **never downgrades the database**. The older API starts only if `app/schema_guard.py` accepts the newer schema; an unmarked migration makes rollback impossible, leaving a backup restore or point-in-time recovery as the only way back.
+- **How the guard decides:** an older build does not have the newer migration files. The migrate service (`python -m app.schema_guard migrate`) therefore runs `alembic upgrade head` and then records every revision of its build, with its parent and flag, in the `schema_compatibility` table. At startup in `staging`/`production` the API accepts the database when its revision equals the build's head, or when walking `schema_compatibility` from the database revision down to the build's head passes only revisions recorded `backward_compatible` (then it logs that it serves in rollback mode). A revision missing from the table, an unmarked one, a merge revision or a cycle means refusal. The older image's own migrate step sees the same state and leaves the database untouched.
+- **Checks:** `backend/tests/test_schema_guard.py` covers the chain walk, acceptance of marked revisions and refusal of unmarked ones. Operator side: `docs/deployment/STAGING_OPERATIONS.md` → *Releases and rollback*.
+
 ---
 
 ## 3. Flutter & Dart Standards (`mobile/`)
