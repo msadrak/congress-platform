@@ -34,8 +34,15 @@ Thumbs.db
 
 # Agent tooling & local artifacts
 .obsidian/
+.claude/
 nul
 web/test-results/
+web/playwright-report/
+web/blob-report/
+coverage/
+backend/var/
+# Database dumps (backups are written under .staging/backups; never commit one)
+*.dump
 
 # Local demo environment (credentials, logs, ports)
 .demo/
