@@ -24,10 +24,10 @@ test('organizer: platform admin provisions the organizer, who sets up and publis
 
   await test.step('platform admin creates the organizer and receives its key once', async () => {
     await page.goto('/platform/organizers');
-    await page.getByLabel('توکن مدیر سامانه').fill(ADMIN_TOKEN);
-    await page.getByRole('button', { name: 'ورود به پنل' }).click();
-    await page.getByLabel('نام برگزارکننده جدید').fill(orgName);
-    await page.getByRole('button', { name: 'ساخت و صدور کلید' }).click();
+    await page.getByLabel('کلید مدیر سامانه').fill(ADMIN_TOKEN);
+    await page.getByRole('button', { name: 'ورود', exact: true }).click();
+    await page.getByLabel('نام برگزارکنندهٔ جدید').fill(orgName);
+    await page.getByRole('button', { name: 'افزودن برگزارکننده' }).click();
     await expect(page.getByTestId('issued-key')).toContainText(orgName);
   });
   const apiKey = (await page.getByTestId('issued-key').locator('p[dir=ltr]').innerText()).trim();
