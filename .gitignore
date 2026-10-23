@@ -56,3 +56,4 @@ backend/var/
 
 # Reference copy of the official sms.ir SDK; the backend uses its own httpx client (ADR 0012).
 SmsPanelV2.Python/
+skills/
