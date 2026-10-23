@@ -14,6 +14,7 @@ from typing import Literal
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.db import add_or_existing
 from app.models import SmsTemplate
 
 SmsKind = Literal["otp", "ticket_confirmation", "ticket_cancelled", "ticket_reissued", "staff_invite", "member_invite"]
@@ -135,13 +136,16 @@ async def effective_body(session: AsyncSession, kind: SmsKind, event_id: uuid.UU
 
 
 async def save_body(session: AsyncSession, kind: SmsKind, event_id: uuid.UUID | None, body: str) -> None:
-    """Insert or replace the stored template (caller commits)."""
+    """Insert or replace the stored template (caller commits). Two first saves at once both succeed: the later
+    one replaces the wording the other inserted (the unique index decides who inserts)."""
     clause = SmsTemplate.event_id.is_(None) if event_id is None else SmsTemplate.event_id == event_id
-    row = await session.scalar(select(SmsTemplate).where(SmsTemplate.kind == kind, clause).with_for_update())
+    existing = select(SmsTemplate).where(SmsTemplate.kind == kind, clause).with_for_update()
+    row = await session.scalar(existing)
     if row is None:
-        session.add(SmsTemplate(kind=kind, event_id=event_id, body=body))
-    else:
-        row.body = body
+        row, created = await add_or_existing(session, SmsTemplate(kind=kind, event_id=event_id, body=body), existing)
+        if created:
+            return
+    row.body = body
 
 
 async def delete_body(session: AsyncSession, kind: SmsKind, event_id: uuid.UUID | None) -> None:

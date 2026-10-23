@@ -319,6 +319,19 @@ async def add_member(
 
 
 async def _organizer_member(session: SessionDep, organizer_id: uuid.UUID, member_id: uuid.UUID) -> OrganizerMember:
+    """The member, locked for a change. The organizer's active owners are locked first, always in the same order,
+    so two changes that could each remove an owner (two owners demoting or removing each other) run one after
+    the other and the second one counts what the first left (`_refuse_last_owner`)."""
+    await session.execute(
+        select(OrganizerMember.id)
+        .where(
+            OrganizerMember.organizer_id == organizer_id,
+            OrganizerMember.role == "owner",
+            OrganizerMember.revoked_at.is_(None),
+        )
+        .order_by(OrganizerMember.id)
+        .with_for_update()
+    )
     member = await session.scalar(
         select(OrganizerMember)
         .where(OrganizerMember.id == member_id, OrganizerMember.organizer_id == organizer_id)
