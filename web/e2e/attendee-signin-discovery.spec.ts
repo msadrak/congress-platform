@@ -158,8 +158,9 @@ test.describe('direct attendee sign-in', () => {
     // The page has the phone form itself; the header's log in is the way to the full sign-in page.
     await page.locator('header').getByRole('link', { name: 'Log In' }).click();
     await expect(page).toHaveURL(/\/c\/alpha\/sign-in\?next=%2Fc%2Falpha%2Fmy-profile$/);
+    // The sign-in page's own heading: the page being left has a «Sign in» heading and the congress name too.
+    await expect(page.getByRole('heading', { name: 'Sign in to your attendee portal' })).toBeVisible();
     await expect(page.getByText('Alpha Congress').first()).toBeVisible();
-    await expect(page.getByRole('heading', { name: /Sign in/ })).toBeVisible();
 
     await signInWithCode(page, '۰۹۱۲ ۱۲۳ ۴۵۶۷');  // Persian digits and spaces, as typed on a phone
     await expect(page).toHaveURL(/\/c\/alpha\/my-profile$/);
