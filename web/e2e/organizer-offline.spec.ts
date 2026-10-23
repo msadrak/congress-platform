@@ -29,7 +29,7 @@ for (const section of ['', '/tiers', '/check-in']) {
     await api(page, mode);
     await seed(page, 'en');
     await page.goto(`/organizer/events/event-a${section}`);
-    const alert = page.getByRole('alert').filter({ hasText: 'Failed to Load Event' });
+    const alert = page.getByRole('alert').filter({ hasText: "Couldn't load the congress" });
     await expect(alert).toBeVisible({ timeout: 3000 });
     await expect(alert).toContainText('Could not reach the server');
     const retry = alert.getByRole('button', { name: 'Try again' });
@@ -37,7 +37,7 @@ for (const section of ['', '/tiers', '/check-in']) {
 
     mode.offline = false;
     await retry.click();
-    await expect(page.getByRole('alert').filter({ hasText: 'Failed to Load Event' })).toHaveCount(0);
+    await expect(page.getByRole('alert').filter({ hasText: "Couldn't load the congress" })).toHaveCount(0);
     await expect(page.getByTestId('active-event')).toHaveText('Alpha Congress');
   });
 }
@@ -46,7 +46,7 @@ test('offline in Persian: the alert offers «تلاش دوباره»', async ({ 
   await api(page, { offline: true });
   await seed(page, 'fa');
   await page.goto('/organizer/events/event-a');
-  const alert = page.getByRole('alert').filter({ hasText: 'خطا در بارگذاری همایش' });
+  const alert = page.getByRole('alert').filter({ hasText: 'همایش بارگذاری نشد' });
   await expect(alert).toBeVisible({ timeout: 3000 });
   await expect(alert.getByRole('button', { name: 'تلاش دوباره' })).toBeVisible();
 });
@@ -55,7 +55,7 @@ test('a congress that does not exist says so, with no retry', async ({ page }) =
   await api(page, { offline: false, eventStatus: 404 });
   await seed(page, 'en');
   await page.goto('/organizer/events/event-a');
-  await expect(page.getByRole('heading', { name: 'Congress not found' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Congress not found', level: 1 })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Try again' })).toHaveCount(0);
-  await expect(page.getByRole('link', { name: 'Events List' }).last()).toBeVisible();
+  await expect(page.getByRole('link', { name: 'All congresses' }).last()).toBeVisible();
 });

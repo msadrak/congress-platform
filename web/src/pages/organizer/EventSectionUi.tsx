@@ -5,6 +5,7 @@ import { Notice } from "../../components/ui/Notice";
 import { ErrorState, StateBlock } from "../../components/ui/StateBlock";
 import { FormAlert } from "../../components/organizer/WorkspaceUi";
 import { useEventWorkspace } from "../../components/organizer/eventWorkspaceContext";
+import { commonCopy } from "../../copy/common";
 import { organizerSharedCopy } from "../../copy/organizerShared";
 
 /** Pieces every section of the event workspace shares: load states, the add action, the change notice. */
@@ -34,8 +35,9 @@ export interface EventSectionGateProps {
  * render the section yourself (no archived banner then).
  */
 export function EventSectionGate({ listsLoaded = true, children }: EventSectionGateProps) {
-  const { event, loading, error, errorKind, reload, locale, t } = useEventWorkspace();
+  const { event, loading, error, errorKind, reload, locale } = useEventWorkspace();
   const copy = organizerSharedCopy[locale];
+  const common = commonCopy[locale];
 
   if ((loading && !event) || !listsLoaded) {
     return (
@@ -55,23 +57,24 @@ export function EventSectionGate({ listsLoaded = true, children }: EventSectionG
 
   const back = (
     <LinkButton to="/organizer" variant="secondary" icon="arrow-left">
-      {t.breadcrumbEvents}
+      {copy.allCongresses}
     </LinkButton>
   );
 
   if (errorKind === "not-found") {
-    return <StateBlock kind="empty" icon="search" title={copy.notFoundTitle} body={copy.notFoundBody} action={back} />;
+    return <StateBlock kind="empty" icon="search" headingLevel={1} title={copy.notFoundTitle} body={copy.notFoundBody} action={back} />;
   }
 
   if (error || !event) {
     return (
       <ErrorState
         offline={errorKind === "network"}
+        headingLevel={1}
         title={copy.loadFailedTitle}
         action={
           <div className="flex flex-wrap justify-center gap-2">
             <Button type="button" variant="primary" icon="sync" loading={loading} onClick={reload}>
-              {t.retryAction}
+              {common.retry}
             </Button>
             {back}
           </div>
@@ -159,13 +162,13 @@ export function SectionNotice({ notice, onDismiss }: { notice: SectionNoticeStat
  * `loading` covers the section's lists; the event's own reload is added here.
  */
 export function SectionLoadError({ error, loading, onRetry }: { error: string | null; loading: boolean; onRetry: () => void }) {
-  const { loading: eventLoading, reload, t } = useEventWorkspace();
+  const { loading: eventLoading, reload, locale } = useEventWorkspace();
   if (!error) return null;
   const busy = loading || eventLoading;
   return (
     <div className="space-y-3">
       <FormAlert>
-        {t.sectionsLoadFailed} <bdi>{error}</bdi>
+        {organizerSharedCopy[locale].sectionLoadFailed} <bdi>{error}</bdi>
       </FormAlert>
       <Button
         type="button"
@@ -177,7 +180,7 @@ export function SectionLoadError({ error, loading, onRetry }: { error: string | 
           onRetry();
         }}
       >
-        {t.retryAction}
+        {commonCopy[locale].retry}
       </Button>
     </div>
   );

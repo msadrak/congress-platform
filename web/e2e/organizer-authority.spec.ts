@@ -217,7 +217,7 @@ for (const status of [404, 403, 500]) {
     if (status === 404) {
       await expect(page.getByRole('heading', { name: 'Congress not found' })).toBeVisible();
     } else {
-      await expect(page.getByRole('heading', { name: 'Failed to Load Event' })).toBeVisible();
+      await expect(page.getByRole('heading', { name: "Couldn't load the congress", level: 1 })).toBeVisible();
       await expect(page.getByText(status === 403 ? 'Forbidden' : 'Server error')).toBeVisible();
     }
     await expect(page.getByText('Event A')).toHaveCount(0);

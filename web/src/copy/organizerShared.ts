@@ -11,6 +11,9 @@ export interface OrganizerSharedCopy {
   eventStatus: Record<EventTimeStatus, string>;
   /** The congress could not be loaded (server error, refusal or no connection). */
   loadFailedTitle: string;
+  /** A list of the section failed; the API's message follows. */
+  sectionLoadFailed: string;
+  allCongresses: string;
   loadFailedBody: string;
   /** Announced while the section loads. */
   loading: string;
@@ -31,7 +34,9 @@ export interface OrganizerSharedCopy {
 
 const fa: OrganizerSharedCopy = {
   eventStatus: { upcoming: "در پیش‌رو", "in-progress": "در حال برگزاری", ended: "پایان‌یافته" },
-  loadFailedTitle: "خطا در بارگذاری همایش",
+  loadFailedTitle: "همایش بارگذاری نشد",
+  sectionLoadFailed: "بخشی از اطلاعات این همایش بارگذاری نشد و ممکن است ناقص نمایش داده شود.",
+  allCongresses: "همهٔ همایش‌ها",
   loadFailedBody: "اطلاعات این همایش دریافت نشد. دوباره تلاش کنید.",
   loading: "در حال بارگذاری…",
   notFoundTitle: "این همایش پیدا نشد",
@@ -48,7 +53,9 @@ const fa: OrganizerSharedCopy = {
 
 const en: OrganizerSharedCopy = {
   eventStatus: { upcoming: "Upcoming", "in-progress": "In progress", ended: "Ended" },
-  loadFailedTitle: "Failed to Load Event",
+  loadFailedTitle: "Couldn't load the congress",
+  sectionLoadFailed: "Some of this congress's data didn't load, so parts of this page may be incomplete.",
+  allCongresses: "All congresses",
   loadFailedBody: "This congress could not be loaded. Try again.",
   loading: "Loading…",
   notFoundTitle: "Congress not found",

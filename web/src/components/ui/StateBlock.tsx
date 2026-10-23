@@ -20,8 +20,8 @@ export interface StateBlockProps {
   children?: ReactNode;
   /** One action, usually a single Button. */
   action?: ReactNode;
-  /** Heading level inside the page (default 2). */
-  headingLevel?: 2 | 3;
+  /** Heading level inside the page (default 2); 1 when the state is the whole page (a failed or missing page). */
+  headingLevel?: 1 | 2 | 3;
   className?: string;
 }
 
@@ -30,7 +30,7 @@ export interface StateBlockProps {
  * Errors are announced (`role="alert"`). No decoration.
  */
 export function StateBlock({ kind = "empty", icon, title, body, children, action, headingLevel = 2, className = "" }: StateBlockProps) {
-  const Heading = headingLevel === 3 ? "h3" : "h2";
+  const Heading = (["h1", "h2", "h3"] as const)[headingLevel - 1];
   const alarming = kind === "error";
   const text = body ?? children;
   return (
