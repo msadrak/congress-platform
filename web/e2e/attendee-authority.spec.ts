@@ -66,7 +66,8 @@ async function fixture(page: Page, options: Options = {}) {
 
 // Every other credential family is stored under its real key; the User token is optional.
 async function seed(page: Page, user?: string) {
-  await page.goto('/');
+  // A same-origin static file, not the app: the home page would load its public congress list (an API request) mid-seed.
+  await page.goto('/favicon.png');
   await page.evaluate(({ user, organizerKey, deskToken, scannerToken }) => {
     if (user) localStorage.setItem('congress_attendee_token', user);
     sessionStorage.setItem('congress_organizer_api_key', organizerKey);

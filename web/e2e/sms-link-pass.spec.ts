@@ -36,7 +36,8 @@ async function fixture(page: Page, options: { apiDown?: boolean } = {}) {
 }
 
 async function useLocale(page: Page, locale: 'en' | 'fa') {
-  await page.goto('/');
+  // A same-origin static file, not the app: the home page would load its public congress list (an API request) mid-seed.
+  await page.goto('/favicon.png');
   await page.evaluate(l => localStorage.setItem('congress_attendee_locale', l), locale);
 }
 
