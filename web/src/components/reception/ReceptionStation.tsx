@@ -1,21 +1,31 @@
 import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import {
+  apiErrorCode,
   createApiClient,
   createDeskApiClient,
   formatApiError,
+  localizedApiError,
+  type AttendeeDetailCard,
   type AttendeeSearchItem,
+  type CheckInPointOut,
   type DeskMeOut,
   type DeskRegistrationOut,
   type TicketTierOut,
 } from "../../api/client";
+import { badgeCode, KeyBurst } from "../../lib/deskScan";
 import { eventAccentStyle } from "../../lib/eventAccent";
+import { networkErrorMessage } from "../../lib/errorMessages";
 import { mobileSearchDigits, normalizeIranMobile } from "../../lib/mobile";
+import { normalizeScannedCode } from "../../lib/scannerInput";
 import type { AttendeeLocale, TranslationDictionary } from "../../lib/i18n";
 import { CongressSignature } from "../brand/CongressSignature";
+import { QrCameraInput } from "../QrCameraInput";
 import { Button, LinkButton } from "../ui/Button";
+import { Dialog } from "../ui/Dialog";
 import { Icon } from "../ui/Icon";
 import { AttendeeCard } from "./AttendeeCard";
 import { SearchBar, SearchResults } from "./AttendeeSearch";
+import type { DeskCardActions } from "./DeskActions";
 import { DeskSignIn, OrganizerKeyRequired } from "./DeskAuthGate";
 import { MintedDialog } from "./MintedDialog";
 import { ModeSwitch, type DeskMode } from "./ModeSwitch";
@@ -96,6 +106,11 @@ export function ReceptionStation({ eventId, organizer, locale, t, isRtl }: Recep
   const [searchNonce, setSearchNonce] = useState(0);
   const [review, setReview] = useState<CardState>({ status: "idle" });
   const reviewRequest = useRef(0);
+  // Badge scans: a barcode gun typing into the search box, or the camera.
+  const keyBurstRef = useRef(new KeyBurst());
+  const [badgeNotice, setBadgeNotice] = useState<string | null>(null);
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const [checkinPoints, setCheckinPoints] = useState<CheckInPointOut[]>([]);
 
   const hasDraft = Boolean(draft.fullName.trim() || draft.mobile.trim() || draft.organization.trim() || draft.title.trim());
 
@@ -136,6 +151,11 @@ export function ReceptionStation({ eventId, organizer, locale, t, isRtl }: Recep
           client.GET("/api/events/{event_id}/desk/me", { params: { path: { event_id: eventId } } }),
           client.GET("/api/events/{event_id}/desk/tiers", { params: { path: { event_id: eventId } } }),
         ]);
+        // Where the desk can admit; optional (no points, or an older API, hides "admit at").
+        void client
+          .GET("/api/events/{event_id}/desk/checkin-points", { params: { path: { event_id: eventId } } })
+          .then(({ data }) => { if (isMounted) setCheckinPoints(Array.isArray(data) ? data : []); })
+          .catch(() => undefined);
         const unauthorized = meRes.response.status === 401 || tiersRes.response.status === 401;
         if (unauthorized) rejectAuthority(authority);
         if (!isMounted || unauthorized) return;
@@ -306,7 +326,7 @@ export function ReceptionStation({ eventId, organizer, locale, t, isRtl }: Recep
       if (signatureRef.current !== `${sent.kind}:${sent.token}` && response.status !== 401) return;
       if (err) {
         if (response.status === 401) return;
-        setFormError(formatApiError(err));
+        setFormError(localizedApiError(err, locale));
         if (response.status === 409 && sentMobile) void lookupDuplicate(sent, sentMobile);
       } else if (data) {
         // Only a backend-confirmed issuance is presented as success.
@@ -415,6 +435,159 @@ export function ReceptionStation({ eventId, organizer, locale, t, isRtl }: Recep
       return { kind: "error", message: isRtl ? "این کارت فعال نیست یا شماره موبایلی برای آن ثبت نشده است." : "This pass is not active, or it has no mobile number." };
     }
     return { kind: "error", message: formatApiError(error) };
+  };
+
+  // One desk write or lookup with the current authority: 401 drops exactly that credential, a reply for another
+  // session is ignored, and failures come back as the message to show (null: nothing to show).
+  type DeskReply<T> = { data?: T; error?: unknown; response: Response };
+  const runDesk = async <T,>(
+    call: (client: ReturnType<typeof createDeskApiClient>) => Promise<DeskReply<T>>
+  ): Promise<{ data: T } | { message: string | null; code?: string }> => {
+    if (!authority) return { message: null };
+    const sent = authority;
+    try {
+      const { data, error, response } = await call(createDeskApiClient(sent, eventId));
+      if (response.status === 401) {
+        rejectAuthority(sent);
+        return { message: null };
+      }
+      if (signatureRef.current !== `${sent.kind}:${sent.token}`) return { message: null };
+      if (data !== undefined) return { data };
+      return { message: localizedApiError(error, locale), code: apiErrorCode(error) };
+    } catch {
+      return { message: networkErrorMessage[locale] };
+    }
+  };
+
+  const showCard = (card: AttendeeDetailCard) => {
+    reviewRequest.current++;
+    setReview({ status: "ready", card });
+    setSearchNonce((n) => n + 1);
+  };
+
+  // Re-reads the open card in place (no loading state), when it is still the one on screen.
+  const refreshCard = async (ticketId: string) => {
+    const requestId = reviewRequest.current;
+    const result = await runDesk((client) =>
+      client.GET("/api/events/{event_id}/attendees/{ticket_id}", { params: { path: { event_id: eventId, ticket_id: ticketId } } })
+    );
+    if (!("data" in result) || requestId !== reviewRequest.current) return;
+    const card = result.data;
+    setReview((current) => (current.status === "ready" && current.card.ticket_id === ticketId ? { status: "ready", card } : current));
+  };
+
+  // A scanned badge (gun or camera): resolved by its QR code, never searched as a name.
+  const lookupBadge = async (code: string) => {
+    setBadgeNotice(null);
+    const result = await runDesk((client) =>
+      client.POST("/api/events/{event_id}/attendees/qr-lookup", { params: { path: { event_id: eventId } }, body: { qr: code } })
+    );
+    if ("data" in result) {
+      setSearchQuery("");
+      keyBurstRef.current.reset();
+      void openReview(result.data.ticket_id);
+    } else if (result.message) {
+      setBadgeNotice(result.message);
+    }
+  };
+
+  const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Escape") {
+      keyBurstRef.current.reset();
+      setBadgeNotice(null);
+      setSearchQuery("");
+      return;
+    }
+    if (e.key === "Enter") {
+      const scanned = keyBurstRef.current.enter(performance.now()) ?? badgeCode(searchQuery);
+      if (scanned) {
+        e.preventDefault();
+        void lookupBadge(scanned);
+      } else if (searchResults[0]) {
+        e.preventDefault();
+        void openReview(searchResults[0].ticket_id);
+      }
+      return;
+    }
+    keyBurstRef.current.key(e.nativeEvent, performance.now());
+  };
+
+  const onCameraDecode = (value: string) => {
+    setCameraOpen(false);
+    void lookupBadge(badgeCode(value) ?? normalizeScannedCode(value));
+  };
+
+  // The print is recorded first (first print or reprint, for the "needs reprint" flag), then printed. A failed
+  // record never blocks the badge: the attendee is at the desk.
+  const printBadge = async (ticketId: string): Promise<string | null> => {
+    const result = await runDesk((client) =>
+      client.POST("/api/events/{event_id}/attendees/{ticket_id}/prints", { params: { path: { event_id: eventId, ticket_id: ticketId } } })
+    );
+    if (!("data" in result) && result.message === null) return null; // session lost
+    window.print();
+    if ("data" in result) {
+      const printed = result.data;
+      setReview((current) =>
+        current.status === "ready" && current.card.ticket_id === ticketId
+          ? { status: "ready", card: { ...current.card, print_count: printed.print_count, last_printed_at: printed.printed_at, needs_reprint: false } }
+          : current
+      );
+      return null;
+    }
+    return isRtl ? `چاپ ثبت نشد: ${result.message}` : `The print was not recorded: ${result.message}`;
+  };
+
+  const cardActions: DeskCardActions = {
+    checkinPoints,
+    admit: async (ticketId, pointId) => {
+      const result = await runDesk((client) =>
+        client.POST("/api/events/{event_id}/attendees/{ticket_id}/admit", {
+          params: { path: { event_id: eventId, ticket_id: ticketId } },
+          body: { checkin_point_id: pointId, scan_id: crypto.randomUUID() },
+        })
+      );
+      if (!("data" in result)) return { error: result.message };
+      void refreshCard(ticketId); // the new history line, without reloading the card
+      setSearchNonce((n) => n + 1);
+      return { verdict: result.data };
+    },
+    edit: async (ticketId, body) => {
+      const result = await runDesk((client) =>
+        client.PATCH("/api/events/{event_id}/attendees/{ticket_id}", { params: { path: { event_id: eventId, ticket_id: ticketId } }, body })
+      );
+      if ("data" in result) { showCard(result.data); return null; }
+      return result.message;
+    },
+    cancel: async (ticketId, reason) => {
+      const result = await runDesk((client) =>
+        client.POST("/api/events/{event_id}/attendees/{ticket_id}/cancel", {
+          params: { path: { event_id: eventId, ticket_id: ticketId } },
+          body: { reason, notify: true },
+        })
+      );
+      if ("data" in result) { showCard(result.data); return null; }
+      return result.message;
+    },
+    reissue: async (ticketId) => {
+      const result = await runDesk((client) =>
+        client.POST("/api/events/{event_id}/attendees/{ticket_id}/reissue", {
+          params: { path: { event_id: eventId, ticket_id: ticketId } },
+          body: { notify: true },
+        })
+      );
+      if ("data" in result) { showCard(result.data); return null; }
+      return result.message;
+    },
+    transfer: async (ticketId, body) => {
+      const result = await runDesk((client) =>
+        client.POST("/api/events/{event_id}/attendees/{ticket_id}/transfer", {
+          params: { path: { event_id: eventId, ticket_id: ticketId } },
+          body,
+        })
+      );
+      if ("data" in result) { showCard(result.data); return null; }
+      return result.message;
+    },
   };
 
   const handleNextAttendee = () => {
@@ -590,17 +763,13 @@ export function ReceptionStation({ eventId, organizer, locale, t, isRtl }: Recep
         inputId={ids.search}
         inputRef={searchInputRef}
         query={searchQuery}
-        onQueryChange={setSearchQuery}
-        onKeyDown={(e) => {
-          if (e.key === "Escape") setSearchQuery("");
-          if (e.key === "Enter" && searchResults[0]) {
-            e.preventDefault();
-            void openReview(searchResults[0].ticket_id);
-          }
-        }}
+        onQueryChange={(query) => { setSearchQuery(query); if (!query) setBadgeNotice(null); }}
+        onKeyDown={handleSearchKeyDown}
         searching={searching}
         searchFailed={searchFailed}
         onRetry={() => { setSearchFailed(false); setSearchNonce((n) => n + 1); }}
+        onScanCamera={() => setCameraOpen(true)}
+        badgeNotice={badgeNotice}
         t={t}
         isRtl={isRtl}
       />
@@ -627,9 +796,10 @@ export function ReceptionStation({ eventId, organizer, locale, t, isRtl }: Recep
             printable={!mintedPass}
             onRetry={(ticketId) => void openReview(ticketId)}
             onClose={closeReview}
-            onPrint={() => window.print()}
+            onPrint={(card) => printBadge(card.ticket_id)}
             onNext={handleNextAttendee}
             onResend={resendPassSms}
+            actions={cardActions}
             statusLabels={ticketStatusLabels}
             locale={locale}
             t={t}
@@ -658,13 +828,23 @@ export function ReceptionStation({ eventId, organizer, locale, t, isRtl }: Recep
         minted={mintedPass}
         accentStyle={accentStyle}
         eventName={eventName}
-        onPrint={() => window.print()}
+        onPrint={() => { if (mintedPass) void printBadge(mintedPass.ticket_id); }}
         onNext={handleNextAttendee}
         onResend={resendPassSms}
         locale={locale}
         t={t}
         isRtl={isRtl}
       />
+
+      <Dialog
+        isOpen={cameraOpen}
+        onClose={() => setCameraOpen(false)}
+        title={isRtl ? "اسکن کد QR کارت ورود" : "Scan the badge's QR code"}
+        description={isRtl ? "کد QR کارت ورود را جلوی دوربین بگیرید." : "Hold the badge's QR code in front of the camera."}
+        size="sm"
+      >
+        <QrCameraInput isRtl={isRtl} disabled={!cameraOpen} onDecode={onCameraDecode} />
+      </Dialog>
     </div>
   );
 }

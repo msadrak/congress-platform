@@ -84,6 +84,8 @@ async function fixture(page: Page, options: Options = {}): Promise<Fixture> {
       const q = (new URL(request.url()).searchParams.get('q') ?? '').toLowerCase();
       return json(200, attendees[event].filter(a => !q || `${a.attendee_name} ${a.attendee_mobile ?? ''}`.toLowerCase().includes(q)));
     }
+    const prints = rest.match(/^attendees\/([^/]+)\/prints$/);
+    if (prints && method === 'POST') return json(201, { print_id: 'print-1', reason: 'first', printed_at: '2099-01-01T09:00:00Z', printed_by: 'Operator One', print_count: 1 });
     const detail = rest.match(/^attendees\/([^/]+)$/);
     if (detail) {
       const found = attendees[event].find(a => a.ticket_id === detail[1]);
@@ -252,7 +254,7 @@ test.describe('independent entry and sign-in', () => {
 });
 
 test.describe('search, review and next attendee', () => {
-  test('search shows only this congress, review shows pass and history, print issues nothing, next attendee resets', async ({ page }) => {
+  test('search shows only this congress, review shows pass and history, print only records the print, next attendee resets', async ({ page }) => {
     const fx = await fixture(page);
     await seed(page);
     await page.addInitScript(() => { (window as unknown as { __prints: number }).__prints = 0; window.print = () => { (window as unknown as { __prints: number }).__prints += 1; }; });
@@ -271,8 +273,11 @@ test.describe('search, review and next attendee', () => {
 
     const writesBefore = fx.requests.filter(r => r.method === 'POST').length;
     await review.getByRole('button', { name: /Print Badge Pass/ }).click();
-    expect(await page.evaluate(() => (window as unknown as { __prints: number }).__prints)).toBe(1);
-    expect(fx.requests.filter(r => r.method === 'POST').length).toBe(writesBefore);
+    await expect.poll(() => page.evaluate(() => (window as unknown as { __prints: number }).__prints)).toBe(1);
+    // Printing issues nothing: its only write is the print record (reprint tracking).
+    const writes = fx.requests.filter(r => r.method === 'POST').slice(writesBefore);
+    expect(writes.map(r => r.path)).toEqual([`/api/events/${EVENT_A}/attendees/ticket-${EVENT_A}-1/prints`]);
+    await expect(review.getByTestId('badge-print-state')).toContainText('Printed 1 time');
 
     await review.getByRole('button', { name: /Next Attendee/ }).click();
     await expect(page.getByRole('region', { name: 'Alice Rahimi' })).toHaveCount(0);

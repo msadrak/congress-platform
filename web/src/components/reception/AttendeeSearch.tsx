@@ -17,12 +17,16 @@ interface SearchBarProps {
   searching: boolean;
   searchFailed: boolean;
   onRetry: () => void;
+  /** Opens the camera to read a badge's QR code. */
+  onScanCamera: () => void;
+  /** A scanned badge that could not be resolved, or null. */
+  badgeNotice: string | null;
   t: TranslationDictionary;
   isRtl: boolean;
 }
 
-/** 01 — the command bar: one search box for names and mobile numbers. */
-export function SearchBar({ inputId, inputRef, query, onQueryChange, onKeyDown, searching, searchFailed, onRetry, t, isRtl }: SearchBarProps) {
+/** 01 — the command bar: one search box for names, mobile numbers and scanned badges (gun or camera). */
+export function SearchBar({ inputId, inputRef, query, onQueryChange, onKeyDown, searching, searchFailed, onRetry, onScanCamera, badgeNotice, t, isRtl }: SearchBarProps) {
   return (
     <section aria-labelledby="search-heading" className="space-y-3">
       <div className="flex items-end justify-between gap-4">
@@ -72,6 +76,23 @@ export function SearchBar({ inputId, inputRef, query, onQueryChange, onKeyDown, 
           )}
         </div>
       </div>
+
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-xs text-text-muted">
+          {isRtl ? "کارت ورود را با بارکدخوان در همین کادر اسکن کنید یا از دوربین استفاده کنید." : "Scan a badge into this box with the barcode gun, or use the camera."}
+        </p>
+        <Button type="button" variant="outline" size="sm" onClick={onScanCamera}>
+          <Icon name="camera" size={16} />
+          <span>{isRtl ? "اسکن کد QR با دوربین" : "Scan QR code with camera"}</span>
+        </Button>
+      </div>
+
+      {badgeNotice && (
+        <div role="alert" data-testid="badge-lookup-notice" className="flex items-center gap-2.5 rounded-xl border border-status-warning-border bg-status-warning-bg px-3.5 py-2 text-sm text-status-warning-text">
+          <Icon name="qr" size={18} />
+          <span>{badgeNotice}</span>
+        </div>
+      )}
 
       {searchFailed && (
         <div role="alert" className="flex items-center justify-between gap-3 rounded-xl border border-status-danger-border bg-status-danger-bg py-2 ps-3.5 pe-2 text-sm text-status-danger-text">

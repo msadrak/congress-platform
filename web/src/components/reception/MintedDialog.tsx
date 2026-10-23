@@ -5,6 +5,7 @@ import { codeFontClass, type AttendeeLocale, type TranslationDictionary } from "
 import { Button } from "../ui/Button";
 import { Dialog } from "../ui/Dialog";
 import { Icon } from "../ui/Icon";
+import { PrintableBadge } from "./PrintableBadge";
 import { ReceptionPass } from "./ReceptionPass";
 import { ResendPassSms, type ResendOutcome } from "./ResendPassSms";
 
@@ -38,9 +39,21 @@ export function MintedDialog({ minted, accentStyle, eventName, onPrint, onNext, 
               pass={{ qr: minted.qr_secret, name: minted.attendee_name, tier: minted.ticket_tier_name, org: minted.organization, ticketId: minted.ticket_id }}
               isRtl={isRtl}
               eventName={eventName}
+              printable={false}
+            />
+            <PrintableBadge
+              badge={{ qr: minted.qr_secret, name: minted.attendee_name, title: minted.title, organization: minted.organization, tier: minted.ticket_tier_name }}
+              eventName={eventName}
               printable
+              isRtl={isRtl}
             />
           </div>
+          {minted.reactivated && (
+            <p role="status" className="flex items-start gap-2 rounded-lg bg-status-info-bg px-3 py-2 text-xs leading-relaxed text-status-info-text print:hidden">
+              <Icon name="info" size={15} className="mt-px shrink-0" />
+              <span>{isRtl ? "این شماره پیش‌تر ثبت‌نامی داشت که لغو شده بود؛ همان ثبت‌نام با کارت ورود تازه دوباره فعال شد." : "This number had a cancelled registration; it was reactivated with a new pass."}</span>
+            </p>
+          )}
           {minted.attendee_mobile && (
             <p className="flex items-start gap-2 text-xs leading-relaxed text-text-secondary print:hidden">
               <Icon name="mail" size={15} className="mt-px shrink-0" />
