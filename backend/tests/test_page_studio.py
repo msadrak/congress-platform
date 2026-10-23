@@ -117,7 +117,9 @@ async def test_a_stale_revision_never_overwrites_newer_work(client: AsyncClient)
 
     assert first.status_code == 200
     assert second.status_code == 409
+    assert second.json()["code"] == "PAGE_DRAFT_STALE"
     assert stale_publish.status_code == 409
+    assert stale_publish.json()["code"] == "PAGE_DRAFT_STALE"
     latest = await page_state(client, organizer, event_id)
     assert latest["draft"]["hero"]["subtitle"]["en"] == "Editor one"
     assert latest["is_published"] is False
