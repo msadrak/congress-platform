@@ -1,16 +1,19 @@
-import React, { useState } from "react";
+import React, { useRef, useState } from "react";
 import { apiErrorCode, localizedApiError, type BoothOut } from "../../api/client";
 import { commonCopy } from "../../copy/common";
 import { organizerSetupCopy } from "../../copy/organizerSetup";
+import { IMAGE_ACCEPT, imageFileProblem } from "../../lib/imageUpload";
+import { useOrganizerImages } from "../../lib/pageMedia";
+import { BoothLogo } from "../BoothLogo";
 import { Button } from "../ui/Button";
 import { Dialog } from "../ui/Dialog";
 import { CodeInput, Textarea, TextInput } from "../ui/Input";
 import { DialogActions, Field, FormAlert } from "./WorkspaceUi";
 import { useEventWorkspace } from "./eventWorkspaceContext";
 
-type BoothDraft = Pick<BoothOut, "name" | "slug" | "location" | "description" | "website_url" | "brochure_url">;
+type BoothDraft = Pick<BoothOut, "name" | "slug" | "location" | "description" | "website_url" | "brochure_url" | "logo_asset_id">;
 
-const NEW_BOOTH: BoothDraft = { name: "", slug: "", location: "", description: "", website_url: "", brochure_url: "" };
+const NEW_BOOTH: BoothDraft = { name: "", slug: "", location: "", description: "", website_url: "", brochure_url: "", logo_asset_id: null };
 
 /** Slug suggested from a booth name: Latin letters and digits joined by single hyphens; a Persian name suggests nothing. */
 const boothSlugFrom = (name: string) =>
@@ -20,9 +23,10 @@ const boothSlugFrom = (name: string) =>
     .replace(/(^-|-$)/g, "");
 
 type BoothFormCopy = (typeof organizerSetupCopy)["fa" | "en"]["boothForm"];
+type BoothTextField = Exclude<keyof BoothDraft, "logo_asset_id">;
 
 /** First problem in a booth form (the checks the browser's `required`/`type="url"` used to make), named per field. */
-function boothDraftProblem(draft: BoothDraft, copy: BoothFormCopy): { field: keyof BoothDraft; message: string } | null {
+function boothDraftProblem(draft: BoothDraft, copy: BoothFormCopy): { field: BoothTextField; message: string } | null {
   if (!draft.name.trim()) return { field: "name", message: copy.nameRequired };
   if (!draft.slug.trim()) return { field: "slug", message: copy.slugRequired };
   for (const field of ["website_url", "brochure_url"] as const) {
@@ -56,7 +60,7 @@ type BoothFormDialogProps = {
 /** Create or edit an exhibition booth. A new booth's slug is suggested from its name. */
 export function BoothFormDialog(props: BoothFormDialogProps) {
   const { onClose, onSaved } = props;
-  const { eventId, client, locale } = useEventWorkspace();
+  const { eventId, apiKey, client, locale } = useEventWorkspace();
   const copy = organizerSetupCopy[locale].boothForm;
   const common = commonCopy[locale];
   const booth = props.mode === "edit" ? props.booth : null;
@@ -67,8 +71,15 @@ export function BoothFormDialog(props: BoothFormDialogProps) {
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   // The field the last client-side check rejected; marked only while the form's error is shown.
-  const [invalidField, setInvalidField] = useState<keyof BoothDraft | null>(null);
-  const fieldError = (field: keyof BoothDraft) => (invalidField === field ? formError : null);
+  const [invalidField, setInvalidField] = useState<BoothTextField | null>(null);
+  const fieldError = (field: BoothTextField) => (invalidField === field ? formError : null);
+  const [logoUploading, setLogoUploading] = useState(false);
+  const [logoError, setLogoError] = useState<string | null>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
+  // Draft images are private: the preview loads with the organizer's credential.
+  const logoId = draft.logo_asset_id;
+  const images = useOrganizerImages(apiKey, eventId, logoId ? [{ id: logoId, width: 64, height: 64 }] : []);
+  const logoSrc = logoId ? images[logoId]?.url || null : null;
 
   // Each opening of the edit form starts from the booth as saved.
   const [shownBooth, setShownBooth] = useState<BoothOut | null>(null);
@@ -82,9 +93,11 @@ export function BoothFormDialog(props: BoothFormDialogProps) {
         description: booth.description,
         website_url: booth.website_url,
         brochure_url: booth.brochure_url,
+        logo_asset_id: booth.logo_asset_id,
       });
       setFormError(null);
       setInvalidField(null);
+      setLogoError(null);
     }
   }
 
@@ -100,6 +113,7 @@ export function BoothFormDialog(props: BoothFormDialogProps) {
       description: draft.description.trim(),
       website_url: draft.website_url.trim(),
       brochure_url: draft.brochure_url.trim(),
+      logo_asset_id: draft.logo_asset_id,
     };
     const problem = boothDraftProblem(body, copy);
     if (problem) {
@@ -127,6 +141,31 @@ export function BoothFormDialog(props: BoothFormDialogProps) {
     } else if (data) {
       if (!booth) setDraft(NEW_BOOTH);
       onSaved(data);
+    }
+  };
+
+  const uploadLogo = async (file: File) => {
+    setLogoError(null);
+    const problem = imageFileProblem(file);
+    if (problem) {
+      setLogoError(problem === "type" ? copy.logoTypeError : problem === "size" ? copy.logoSizeError : copy.logoEmptyError);
+      return;
+    }
+    if (!client) return;
+    setLogoUploading(true);
+    try {
+      // The image joins the congress's images; the booth takes it as its logo when the form is saved.
+      const { data, error, response } = await client.POST("/api/events/{event_id}/media", {
+        params: { path: { event_id: eventId }, header: { "content-type": file.type } },
+        body: file as unknown as string,
+        bodySerializer: (body: unknown) => body as BodyInit,
+      });
+      if (data) setDraft((d) => ({ ...d, logo_asset_id: data.id }));
+      else setLogoError(localizedApiError(error, locale, response.status) || copy.logoFailed);
+    } catch {
+      setLogoError(copy.logoFailed);
+    } finally {
+      setLogoUploading(false);
     }
   };
 
@@ -197,6 +236,51 @@ export function BoothFormDialog(props: BoothFormDialogProps) {
             />
           </Field>
 
+          <fieldset className="space-y-2" aria-describedby="booth-form-logo-hint">
+            <legend className="ui-label">{copy.logo}</legend>
+            <div className="flex flex-wrap items-center gap-3">
+              {logoSrc && <BoothLogo key={logoSrc} src={logoSrc} alt={draft.name} size="header" />}
+              <Button type="button" variant="secondary" size="sm" icon="upload" loading={logoUploading} disabled={submitting} onClick={() => fileInput.current?.click()}>
+                {logoId ? copy.replaceLogo : copy.chooseLogo}
+              </Button>
+              {logoId && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  icon="trash"
+                  disabled={submitting || logoUploading}
+                  onClick={() => setDraft((d) => ({ ...d, logo_asset_id: null }))}
+                >
+                  {copy.removeLogo}
+                </Button>
+              )}
+            </div>
+            <input
+              ref={fileInput}
+              type="file"
+              accept={IMAGE_ACCEPT}
+              className="sr-only"
+              tabIndex={-1}
+              aria-hidden="true"
+              data-testid="booth-form-logo-input"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                e.target.value = "";
+                if (file) void uploadLogo(file);
+              }}
+            />
+            {logoError ? (
+              <p role="alert" className="text-meta text-status-danger-text">
+                {logoError}
+              </p>
+            ) : (
+              <p id="booth-form-logo-hint" className="text-caption text-text-muted">
+                {copy.logoHint}
+              </p>
+            )}
+          </fieldset>
+
           <Field label={copy.description} optional>
             <Textarea rows={isEdit ? 3 : 2} value={draft.description} onChange={(e) => setDraft((d) => ({ ...d, description: e.target.value }))} />
           </Field>
@@ -207,7 +291,7 @@ export function BoothFormDialog(props: BoothFormDialogProps) {
             <Button type="button" variant="ghost" disabled={submitting} onClick={onClose}>
               {common.cancel}
             </Button>
-            <Button type="submit" variant="primary" loading={submitting}>
+            <Button type="submit" variant="primary" loading={submitting} disabled={logoUploading}>
               {isEdit ? common.save : common.add}
             </Button>
           </DialogActions>
