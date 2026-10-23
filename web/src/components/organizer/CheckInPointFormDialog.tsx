@@ -106,12 +106,12 @@ export function CheckInPointFormDialog(props: CheckInPointFormDialogProps) {
     setInvalidField(null);
     if (!draft.name.trim()) {
       setInvalidField("name");
-      setFormError(isRtl ? "نام گیت را وارد کنید." : "Enter the check-in point name.");
+      setFormError(isRtl ? "نام نقطه ورود را وارد کنید." : "Enter the check-in point name.");
       return;
     }
     if (draft.policy === "TIER_RESTRICTED" && draft.allowedTiers.length === 0) {
       setInvalidField("tiers");
-      setFormError(isRtl ? "حداقل یک رده بلیط مجاز برای این گیت انتخاب کنید." : "Select at least one allowed tier.");
+      setFormError(isRtl ? "حداقل یک نوع کارت ورود مجاز برای این نقطه ورود انتخاب کنید." : "Select at least one allowed tier.");
       return;
     }
     if (!apiKey || !client) return;
@@ -169,8 +169,8 @@ export function CheckInPointFormDialog(props: CheckInPointFormDialogProps) {
           setFormError(null);
         }
       }}
-      title={isEdit ? t.editPointTitle || (isRtl ? "ویرایش گیت پذیرش" : "Edit Check-In Point") : t.createPointModalTitle}
-      description={isEdit ? t.editPointDesc || (isRtl ? "ویرایش نام، محل استقرار و ظرفیت گیت." : "Update gate details.") : t.createPointModalDesc}
+      title={isEdit ? t.editPointTitle || (isRtl ? "ویرایش نقطه ورود" : "Edit Check-In Point") : t.createPointModalTitle}
+      description={isEdit ? t.editPointDesc || (isRtl ? "ویرایش نام، محل استقرار و ظرفیت نقطه ورود." : "Update gate details.") : t.createPointModalDesc}
       size="md"
     >
       {(!isEdit || point) && (
@@ -182,7 +182,7 @@ export function CheckInPointFormDialog(props: CheckInPointFormDialogProps) {
               value={draft.name}
               onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))}
               aria-invalid={fieldInvalid("name")}
-              placeholder={isEdit ? undefined : isRtl ? "مثال: گیت ورودی شمالی سالن ۱" : "e.g. North Gate Entrance"}
+              placeholder={isEdit ? undefined : isRtl ? "مثال: درِ شمالی سالن ۱" : "e.g. North Gate Entrance"}
               className="ui-input"
             />
           </Field>
@@ -230,7 +230,7 @@ export function CheckInPointFormDialog(props: CheckInPointFormDialogProps) {
               {draft.policy === "TIER_RESTRICTED" && <span className="ms-1 text-status-danger-solid">*</span>}
             </span>
             <p className="text-xs text-text-muted">
-              {isRtl ? "اگر هیچ رده‌ای انتخاب نشود، همهٔ رده‌ها پذیرفته می‌شوند." : "Leave all unticked to admit every tier."}
+              {isRtl ? "اگر هیچ نوع کارت ورودی انتخاب نشود، همهٔ انواع کارت ورود پذیرفته می‌شوند." : "Leave all unticked to admit every tier."}
             </p>
             <div className="max-h-40 space-y-1 overflow-y-auto">
               {tiers.map((tr) => (
@@ -328,8 +328,8 @@ export function CheckInPointFormDialog(props: CheckInPointFormDialogProps) {
           )}
 
           <Field
-            label={isRtl ? "گیت پیش‌نیاز" : "Required point"}
-            hint={isRtl ? "فقط کسانی پذیرفته می‌شوند که پیش‌تر از این گیت وارد شده‌اند." : "Only tickets already admitted at that point are let in."}
+            label={isRtl ? "نقطه ورود پیش‌نیاز" : "Required point"}
+            hint={isRtl ? "فقط کسانی پذیرفته می‌شوند که پیش‌تر از این نقطه ورود وارد شده‌اند." : "Only tickets already admitted at that point are let in."}
           >
             <select
               value={draft.requiresPointId}
@@ -347,7 +347,7 @@ export function CheckInPointFormDialog(props: CheckInPointFormDialogProps) {
 
           <Field
             label={isRtl ? "درِ جلسه" : "Session door"}
-            hint={isRtl ? "ورودهای این گیت حضور در آن جلسه به‌شمار می‌آیند." : "Admissions here count as attendance of that session."}
+            hint={isRtl ? "ورودهای این نقطه ورود حضور در آن جلسه به‌شمار می‌آیند." : "Admissions here count as attendance of that session."}
           >
             <select value={draft.sessionId} onChange={(e) => setDraft((d) => ({ ...d, sessionId: e.target.value }))} className="ui-select">
               <option value="">{isRtl ? "هیچ جلسه‌ای" : "No session"}</option>

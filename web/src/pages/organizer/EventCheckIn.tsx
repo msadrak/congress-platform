@@ -67,10 +67,10 @@ export default function EventCheckIn() {
       tone: "ok",
       text: archive
         ? isRtl
-          ? `گیت «${data.name}» بایگانی شد؛ اسکنرهایش متوقف شدند و آمارش حفظ می‌شود.`
+          ? `نقطه ورود «${data.name}» بایگانی شد؛ اسکنرهایش متوقف شدند و آمارش حفظ می‌شود.`
           : `Check-in point “${data.name}” archived: its scanners stop and its analytics are kept.`
         : isRtl
-          ? `گیت «${data.name}» از بایگانی خارج شد.`
+          ? `نقطه ورود «${data.name}» از بایگانی خارج شد.`
           : `Check-in point “${data.name}” restored.`,
     });
   };
@@ -88,7 +88,7 @@ export default function EventCheckIn() {
       return;
     }
     points.setItems((prev) => prev.filter((p) => p.id !== pt.id));
-    setNotice({ tone: "ok", text: isRtl ? `گیت «${pt.name}» حذف شد.` : `Check-in point “${pt.name}” deleted.` });
+    setNotice({ tone: "ok", text: isRtl ? `نقطه ورود «${pt.name}» حذف شد.` : `Check-in point “${pt.name}” deleted.` });
   };
 
   const downloadAttendance = async (pt: CheckInPointOut) => {
@@ -147,7 +147,7 @@ export default function EventCheckIn() {
     if (pt.reset_window === "DAY") rules.push({ label: isRtl ? "بازهٔ تکرار" : "Reset window", value: isRtl ? "هر روز" : "Each day" });
     if (pt.tracks_occupancy) rules.push({ label: isRtl ? "ورود و خروج" : "Entry and exit", value: isRtl ? "ثبت می‌شود" : "Tracked" });
     if (pt.requires_point_id) {
-      rules.push({ label: isRtl ? "گیت پیش‌نیاز" : "Requires", value: <bdi>{pointNames.get(pt.requires_point_id) ?? "—"}</bdi> });
+      rules.push({ label: isRtl ? "نقطه ورود پیش‌نیاز" : "Requires", value: <bdi>{pointNames.get(pt.requires_point_id) ?? "—"}</bdi> });
     }
     if (pt.session_id) {
       rules.push({ label: isRtl ? "درِ جلسه" : "Session door", value: <bdi>{sessionTitles.get(pt.session_id) ?? "—"}</bdi> });
@@ -280,7 +280,7 @@ export default function EventCheckIn() {
               className="inline-flex min-h-11 items-center gap-2 text-sm font-semibold text-text-secondary hover:text-text-primary"
             >
               <Icon name={showArchived ? "chevron-down" : isRtl ? "chevron-left" : "chevron-right"} size={16} />
-              {isRtl ? `گیت‌های بایگانی‌شده (${fmt(archived.length)})` : `Archived points (${archived.length})`}
+              {isRtl ? `نقطه‌های ورود بایگانی‌شده (${fmt(archived.length)})` : `Archived points (${archived.length})`}
             </button>
           </h2>
           {showArchived && <div className="grid gap-4 xl:grid-cols-2">{archived.map((pt, i) => card(pt, active.length + i))}</div>}
@@ -297,7 +297,7 @@ export default function EventCheckIn() {
         onSaved={(created) => {
           points.setItems((prev) => [...prev, created]);
           setIsCreateOpen(false);
-          setNotice({ tone: "ok", text: isRtl ? `گیت «${created.name}» ایجاد شد.` : `Check-in point “${created.name}” created.` });
+          setNotice({ tone: "ok", text: isRtl ? `نقطه ورود «${created.name}» ایجاد شد.` : `Check-in point “${created.name}” created.` });
         }}
       />
       <CheckInPointFormDialog
@@ -310,20 +310,20 @@ export default function EventCheckIn() {
         onSaved={(saved) => {
           replacePoint(saved);
           setEditingPoint(null);
-          setNotice({ tone: "ok", text: isRtl ? `گیت «${saved.name}» ذخیره شد.` : `Check-in point “${saved.name}” saved.` });
+          setNotice({ tone: "ok", text: isRtl ? `نقطه ورود «${saved.name}» ذخیره شد.` : `Check-in point “${saved.name}” saved.` });
         }}
       />
 
       <ConfirmDialog
         isOpen={deleteTarget !== null}
         tone="danger"
-        title={isRtl ? "حذف این گیت؟" : "Delete this check-in point?"}
+        title={isRtl ? "حذف این نقطه ورود؟" : "Delete this check-in point?"}
         description={
           isRtl
-            ? "فقط گیتی که هیچ اسکنی ندارد حذف می‌شود و دستگاه‌های متصلش هم حذف می‌شوند. گیت دارای اسکن را بایگانی کنید."
+            ? "فقط نقطه ورودی که هیچ اسکنی ندارد حذف می‌شود و دستگاه‌های متصلش هم حذف می‌شوند. نقطه ورود دارای اسکن را بایگانی کنید."
             : "Only a point without scans can be deleted; its paired devices go with it. Archive a point that has scans."
         }
-        confirmLabel={isRtl ? "حذف گیت" : "Delete point"}
+        confirmLabel={isRtl ? "حذف نقطه ورود" : "Delete point"}
         cancelLabel={isRtl ? "انصراف" : "Cancel"}
         onCancel={() => setDeleteTarget(null)}
         onConfirm={() => {

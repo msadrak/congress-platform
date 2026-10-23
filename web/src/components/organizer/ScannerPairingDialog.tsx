@@ -171,7 +171,7 @@ export function ScannerPairingDialog({ point, apiKey, locale, isRtl, onClose }: 
         title={isRtl ? "اتصال دستگاه اسکنر" : "Pair a scanner device"}
         description={
           isRtl
-            ? `یک تلفن یا تبلت را به گیت «${point.name}» متصل کنید. هر دستگاه کلید جداگانه‌ای دارد که می‌توانید هر زمان لغو کنید.`
+            ? `یک تلفن یا تبلت را به نقطه ورود «${point.name}» متصل کنید. هر دستگاه کلید جداگانه‌ای دارد که می‌توانید هر زمان لغو کنید.`
             : `Connect a phone or tablet to “${point.name}”. Each device gets its own key, which you can revoke at any time.`
         }
         size="lg"
@@ -196,7 +196,7 @@ export function ScannerPairingDialog({ point, apiKey, locale, isRtl, onClose }: 
                   </p>
                   <p className="text-xs leading-relaxed">
                     {isRtl
-                      ? "با دوربین تلفن این کیوآرکد را اسکن کنید یا لینک را برای آن بفرستید. این لینک فقط یک‌بار نمایش داده می‌شود؛ مانند رمز عبور با آن رفتار کنید."
+                      ? "با دوربین تلفن این کد QR را اسکن کنید یا لینک را برای آن بفرستید. این لینک فقط یک‌بار نمایش داده می‌شود؛ مانند رمز عبور با آن رفتار کنید."
                       : "Scan this QR code with the phone's camera, or send it the link. It is shown only once; treat it like a password."}
                   </p>
                 </div>
@@ -210,7 +210,7 @@ export function ScannerPairingDialog({ point, apiKey, locale, isRtl, onClose }: 
                       fgColor="#0F172A"
                       bgColor="#FFFFFF"
                       className="h-52 w-52 select-none"
-                      aria-label={isRtl ? "کیوآرکد لینک اتصال اسکنر" : "Scanner pairing link QR code"}
+                      aria-label={isRtl ? "کد QR لینک اتصال اسکنر" : "Scanner pairing link QR code"}
                       role="img"
                     />
                   </div>
@@ -251,7 +251,7 @@ export function ScannerPairingDialog({ point, apiKey, locale, isRtl, onClose }: 
                   value={deviceName}
                   onChange={(e) => setDeviceName(e.target.value)}
                   aria-invalid={(formError !== null && !deviceName.trim()) || undefined}
-                  placeholder={isRtl ? "مثال: گیت اصلی - تلفن ۱" : "e.g. Main gate - phone 1"}
+                  placeholder={isRtl ? "مثال: نقطه ورود اصلی - تلفن ۱" : "e.g. Main gate - phone 1"}
                   className="ui-input"
                 />
               </Field>
@@ -281,7 +281,7 @@ export function ScannerPairingDialog({ point, apiKey, locale, isRtl, onClose }: 
             {devicesLoading ? (
               <p className="text-xs text-text-muted">{isRtl ? "در حال بارگذاری…" : "Loading…"}</p>
             ) : devices.length === 0 ? (
-              <p className="text-xs text-text-muted">{isRtl ? "هنوز دستگاهی به این گیت متصل نشده است." : "No device has been paired with this gate yet."}</p>
+              <p className="text-xs text-text-muted">{isRtl ? "هنوز دستگاهی به این نقطه ورود متصل نشده است." : "No device has been paired with this gate yet."}</p>
             ) : (
               <ul className="divide-y divide-border-subtle rounded-xl border border-border-default">
                 {devices.map((d) => (
