@@ -247,3 +247,64 @@ test("sync only ever reads this account's queue for this booth", async () => {
   });
   assert.equal(report.synced.length + report.failed.length + report.retrying.length, 0);
 });
+
+test("a suspended organizer and an archived congress are classified by code", () => {
+  assert.deepEqual(classifySend({ network: false, status: 403, code: "BOOTH_ACCESS_SUSPENDED" }), { kind: "access_suspended" });
+  assert.deepEqual(classifySend({ network: false, status: 409, code: "EVENT_ARCHIVED" }), { kind: "failed", failure: { kind: "event_archived" } });
+});
+
+test("sync: a suspension stops the run and leaves the queue untouched", async () => {
+  const store = new MemoryStore();
+  await store.put(queued("1", "a", 0));
+  await store.put(queued("2", "b", 1));
+  let calls = 0;
+  const report = await syncLeadQueue({
+    owner: "user-a", boothId: "booth-a", store, now: () => NOW.getTime() + 60_000,
+    send: async () => {
+      calls += 1;
+      return { network: false, status: 403, code: "BOOTH_ACCESS_SUSPENDED" };
+    },
+  });
+  assert.equal(report.stopped, "access_suspended");
+  assert.equal(calls, 1);
+  assert.ok((await store.list("user-a", "booth-a")).every((s) => s.state === "pending" && s.attempts === 0));
+});
+
+test("sync: an archived congress marks every due scan 'congress closed' after one refusal and retries none by itself", async () => {
+  const store = new MemoryStore();
+  await store.put(queued("1", "a", 0));
+  await store.put(queued("2", "b", 1));
+  await store.put(queued("3", "c", 2));
+  let calls = 0;
+  const run = () => syncLeadQueue({
+    owner: "user-a", boothId: "booth-a", store, now: () => NOW.getTime() + 60_000,
+    send: async () => {
+      calls += 1;
+      return { network: false, status: 409, code: "EVENT_ARCHIVED" };
+    },
+  });
+  const report = await run();
+  assert.equal(report.stopped, "event_archived");
+  assert.equal(calls, 1);
+  const left = await store.list("user-a", "booth-a");
+  assert.equal(left.length, 3);
+  assert.ok(left.every((s) => s.state === "failed" && s.failure?.kind === "event_archived"));
+  assert.equal(nextRetryAt(left), null);
+  await run();
+  assert.equal(calls, 1);
+});
+
+test("sync: a scan sent before the congress was archived stays sent", async () => {
+  const store = new MemoryStore();
+  await store.put(queued("1", "first", 0));
+  await store.put(queued("2", "second", 1));
+  const report = await syncLeadQueue({
+    owner: "user-a", boothId: "booth-a", store, now: () => NOW.getTime() + 60_000,
+    send: async (scan) => scan.qr_secret === "first"
+      ? { network: false, status: 201, data: leadFor("first") }
+      : { network: false, status: 409, code: "EVENT_ARCHIVED" },
+  });
+  assert.equal(report.synced.length, 1);
+  const left = await store.list("user-a", "booth-a");
+  assert.deepEqual(left.map((s) => [s.id, s.state]), [["2", "failed"]]);
+});

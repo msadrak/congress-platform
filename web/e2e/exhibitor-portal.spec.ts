@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { expect, test } from '@playwright/test';
-import type { Page } from '@playwright/test';
+import type { BrowserContext, Page } from '@playwright/test';
 
 // Shipping Exhibitor pages + synthetic, intercepted /api/ responses: not FastAPI/PostgreSQL E2E.
 // The real-backend journey is recorded in EXHIBITOR_PORTAL_MILESTONE_RESULT.md.
@@ -23,11 +23,13 @@ interface Options {
   /** Further booth-a leads ("Visitor 01" …), older than the two named ones. */
   extraLeads?: number;
   /** Flip `removed` to answer booth-a calls with 403 BOOTH_STAFF_REQUIRED, as for a removed representative. */
-  control?: { removed: boolean };
+  control?: { removed: boolean; suspended?: boolean; archived?: boolean };
   /** Stand name shown on the booth placard. */
   boothLocation?: string;
 }
 const REMOVED = { detail: 'You are not authorized to access this booth portal', code: 'BOOTH_STAFF_REQUIRED' };
+const SUSPENDED = { detail: 'Booth access for this congress is suspended', code: 'BOOTH_ACCESS_SUSPENDED' };
+const ARCHIVED = { detail: 'This congress is archived: its leads are read-only', code: 'EVENT_ARCHIVED' };
 
 const BOOTH = (id: string) => ({ id, event_id: id === 'booth-a' ? 'event-1' : 'event-2', name: id === 'booth-a' ? 'Alpha Devices Booth' : 'Beta Labs Booth', slug: id === 'booth-a' ? 'alpha-devices' : 'beta-labs', location: 'Hall 1 · A-12', description: '', website_url: '', brochure_url: '', qr_secret: 'booth-qr', created_at: '2099-01-01T00:00:00Z' });
 
@@ -73,6 +75,9 @@ async function fixture(page: Page, options: Options = {}) {
     if (!auth) return json(401, { detail: 'Missing authorization token' });
     if (!isStaff || id !== 'booth-a') return json(403, { detail: 'You are not authorized to access this booth portal' });
     if (options.control?.removed) return json(403, REMOVED);
+    if (options.control?.suspended) return json(403, SUSPENDED);
+    // An archived congress: lead changes are refused, reads, search and export stay open.
+    if (options.control?.archived && (rest === '/leads/scan' || (/^\/leads\/[^/]+(\/restore)?$/.test(rest) && method !== 'GET'))) return json(409, ARCHIVED);
     const active = () => leads[id].filter(l => !l.deleted_at);
     if (rest === '') return json(200, { ...BOOTH(id), ...(options.boothLocation ? { location: options.boothLocation } : {}) });
     if (rest === '/leads' && method === 'GET') return json(200, active());
@@ -752,5 +757,104 @@ test.describe('paged list, trash and offline capture', () => {
     // Online, so the queue tries at once; the aborted answer leaves it waiting for a backoff retry.
     await expect(page.getByTestId('pending-scan')).toContainText('lost-signal');
     await expect.poll(() => requests.filter(r => r.path.endsWith('/leads/scan')).length).toBeGreaterThanOrEqual(2);
+  });
+});
+
+test.describe('suspended organizer and archived congress', () => {
+  const card = (page: Page, name: string) => page.getByRole('article').filter({ hasText: name });
+  const boothCalls = (requests: Recorded[]) => requests.filter(r => r.path.startsWith('/api/booths/booth-a')).length;
+
+  async function queueOffline(page: Page, context: BrowserContext, code: string) {
+    await context.setOffline(true);
+    await openCapture(page);
+    await codeInput(page).fill(code);
+    await saveLead(page);
+    await page.getByTestId('capture-queued').getByRole('button', { name: 'Done' }).click();
+    await expect(page.getByTestId('pending-scan')).toHaveCount(1);
+  }
+
+  test('a suspended organizer: a final screen from the first load, nothing retries', async ({ page }) => {
+    const requests = await fixture(page, { control: { removed: false, suspended: true } });
+    await seed(page, STAFF);
+    await page.goto('/booth/booth-a');
+    await expect(page.getByRole('heading', { name: 'Access to this booth is suspended' })).toBeVisible();
+    await expect(page.getByTestId('access-suspended')).toContainText('suspended this congress');
+    await expect(page.getByRole('heading', { name: 'Commercial Access Restricted' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /Retry|Capture Lead/ })).toHaveCount(0);
+    expect(await storedToken(page)).toBe(STAFF);
+    const after = boothCalls(requests);
+    await page.waitForTimeout(1500);
+    expect(boothCalls(requests)).toBe(after);
+  });
+
+  test('suspended mid-session while scans wait offline: the screen keeps the unsent count, sync stops', async ({ page, context }) => {
+    const control = { removed: false, suspended: false };
+    const requests = await fixture(page, { control });
+    await seed(page, STAFF);
+    await page.goto('/booth/booth-a');
+    await expect(page.getByText('Lead One').first()).toBeVisible();
+    await queueOffline(page, context, 'waiting-attendee');
+    control.suspended = true;
+    await context.setOffline(false);
+    await expect(page.getByRole('heading', { name: 'Access to this booth is suspended' })).toBeVisible();
+    await expect(page.getByTestId('access-suspended')).toContainText('1 unsent scan(s) remain on this device');
+    const scans = requests.filter(r => r.path.endsWith('/leads/scan')).length;
+    expect(scans).toBe(1);
+    await page.waitForTimeout(1500);
+    expect(requests.filter(r => r.path.endsWith('/leads/scan')).length).toBe(scans);
+  });
+
+  test('an archived congress: a read-only notice, changes disabled, search and export still work', async ({ page }) => {
+    const requests = await fixture(page, { control: { removed: false, archived: true } });
+    await seed(page, STAFF);
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto('/booth/booth-a');
+    await card(page, 'Lead Two').getByRole('button', { name: 'Delete lead Lead Two' }).click();
+    const notice = page.getByTestId('archived-notice');
+    await expect(notice).toContainText('This congress is closed');
+    await expect(notice).toContainText('You can still view, search and export');
+    await expect(page.getByRole('alert')).toContainText('leads can no longer be captured or changed');
+    // The shared organizer wording for EVENT_ARCHIVED is not shown to exhibitors.
+    await expect(page.getByText('Unarchive it')).toHaveCount(0);
+    await expect(card(page, 'Lead Two')).toBeVisible();
+    await expect(card(page, 'Lead One').getByRole('button', { name: 'Delete lead Lead One' })).toBeDisabled();
+    await expect(card(page, 'Lead One').getByRole('button', { name: /Qualify/ })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /Capture Lead/ }).first()).toBeDisabled();
+
+    await page.getByPlaceholder(/Search/).fill('lead one');
+    await expect(page.getByRole('article')).toHaveCount(1);
+    const download = page.waitForEvent('download');
+    await page.getByRole('button', { name: 'Export CSV' }).click();
+    expect(await readFile(await (await download).path(), 'utf8')).toContain('Lead One,booth-a');
+    expect(requests.filter(r => r.method === 'DELETE')).toHaveLength(1);
+  });
+
+  test('an archived congress in Persian reads exhibitor wording', async ({ page }) => {
+    await fixture(page, { control: { removed: false, archived: true } });
+    await seed(page, STAFF, 'fa');
+    await page.goto('/booth/booth-a');
+    await page.getByRole('article').filter({ hasText: 'Lead Two' }).getByRole('button', { name: /حذف/ }).click();
+    await expect(page.getByTestId('archived-notice')).toContainText('این همایش بسته شده است');
+    await expect(page.getByRole('alert')).toContainText('ثبت یا تغییر لید دیگر ممکن نیست');
+  });
+
+  test('scans queued offline meet an archived congress: kept, marked "congress closed", never retried', async ({ page, context }) => {
+    const control = { removed: false, archived: false };
+    const requests = await fixture(page, { control });
+    await seed(page, STAFF);
+    await page.goto('/booth/booth-a');
+    await expect(page.getByText('Lead One').first()).toBeVisible();
+    await queueOffline(page, context, 'late-attendee');
+    control.archived = true;
+    await context.setOffline(false);
+    const item = page.getByTestId('pending-scan');
+    await expect(item).toHaveAttribute('data-state', 'failed');
+    await expect(item).toContainText('The congress is closed, so this scan is not sent');
+    await expect(page.getByTestId('archived-notice')).toBeVisible();
+    const scans = () => requests.filter(r => r.path.endsWith('/leads/scan')).length;
+    expect(scans()).toBe(1);
+    await page.waitForTimeout(2500);
+    expect(scans()).toBe(1);
+    await expect(item).toHaveCount(1);
   });
 });

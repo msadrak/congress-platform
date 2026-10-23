@@ -4,10 +4,12 @@ import type { LeadOut } from "../src/api/client.ts";
 import {
   LEAD_PAGE_SIZE,
   LEAD_SEARCH_MAX_LENGTH,
+  accessBlockOf,
   appendLeadPage,
   hasLeadFilters,
   isBoothAccessRevoked,
   isCursorInvalid,
+  isEventArchived,
   leadSearchParams,
   normalizeLeadSearch,
   replaceLead,
@@ -76,4 +78,14 @@ test("revoked access and a stale cursor are recognised by code, never by text", 
 
 test("the booth total is the sum of the three ratings", () => {
   assert.equal(totalOf({ HOT: 2, WARM: 5, COLD: 1 }), 8);
+});
+
+test("a removed representative and a suspended organizer close the workspace; an archived congress only stops changes", () => {
+  assert.equal(accessBlockOf(403, { detail: "x", code: "BOOTH_STAFF_REQUIRED" }), "removed");
+  assert.equal(accessBlockOf(403, { detail: "x", code: "BOOTH_ACCESS_SUSPENDED" }), "suspended");
+  assert.equal(accessBlockOf(403, { detail: "Booth access for this congress is suspended" }), null);
+  assert.equal(accessBlockOf(409, { detail: "x", code: "BOOTH_ACCESS_SUSPENDED" }), null);
+  assert.equal(isEventArchived(409, { detail: "x", code: "EVENT_ARCHIVED" }), true);
+  assert.equal(isEventArchived(409, { detail: "x", code: "LEAD_DELETED" }), false);
+  assert.equal(isEventArchived(403, { detail: "x", code: "EVENT_ARCHIVED" }), false);
 });
