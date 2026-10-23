@@ -119,7 +119,9 @@ export default function EventBooths() {
 
   return (
     <>
-      <EventSectionGate listsLoaded={lists.loaded}>{body}</EventSectionGate>
+      <div className="space-y-6">
+        <EventSectionGate listsLoaded={lists.loaded}>{body}</EventSectionGate>
+      </div>
       <BoothFormDialog
         mode="create"
         isOpen={isCreateOpen}

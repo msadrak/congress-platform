@@ -346,7 +346,9 @@ export default function EventCheckIn() {
 
   return (
     <>
-      <EventSectionGate listsLoaded={lists.loaded}>{body}</EventSectionGate>
+      <div className="space-y-6">
+        <EventSectionGate listsLoaded={lists.loaded}>{body}</EventSectionGate>
+      </div>
 
       <CheckInPointFormDialog
         mode="create"
