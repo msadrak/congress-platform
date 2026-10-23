@@ -38,7 +38,7 @@ test('desk: operator added by the organizer signs in by SMS code, searches, issu
   });
 
   await test.step('search finds the registered attendee', async () => {
-    await desk.getByRole('searchbox', { name: 'جستجوی سریع شرکت‌کنندگان' }).fill(attendeeName.split(' ').at(-1)!);
+    await desk.getByRole('searchbox', { name: 'جستجوی شرکت‌کنندگان' }).fill(attendeeName.split(' ').at(-1)!);
     const results = desk.getByRole('region', { name: 'نتایج جستجو' });
     await expect(results.getByRole('button', { name: `بررسی ${attendeeName}` })).toBeVisible();
     await expect(results.getByRole('listitem')).toHaveCount(1);
@@ -47,8 +47,10 @@ test('desk: operator added by the organizer signs in by SMS code, searches, issu
   await test.step('resend the pass link to the attendee', async () => {
     const before = (await outbox(attendeeMobile)).length;
     await desk.getByRole('button', { name: `بررسی ${attendeeName}` }).click();
-    await desk.getByRole('button', { name: 'ارسال دوباره لینک کارت با پیامک' }).click();
-    await expect(desk.getByText('حالت آزمایشی: پیامک فقط ثبت شد')).toBeVisible();
+    await desk.getByRole('button', { name: `گزینه‌های بیشتر برای ${attendeeName}` }).click();
+    await desk.getByRole('menuitem', { name: 'ارسال دوبارهٔ پیوند کارت ورود' }).click();
+    await expect(desk.getByTestId('toast')).toContainText('حالت آزمایشی: پیامک فقط ثبت شد');
+    await desk.keyboard.press('Escape');
     await expect.poll(async () => (await outbox(attendeeMobile)).length).toBe(before + 1);
     const [latest] = await outbox(attendeeMobile);
     expect(latest.text).toMatch(/\/t\/\S+/);
@@ -67,15 +69,16 @@ test('desk: operator added by the organizer signs in by SMS code, searches, issu
         await route.continue();
       }
     });
-    // The walk-in section, by the settled glossary term «ثبت‌نام حضوری» (C2 renamed the rest of its heading).
-    const form = desk.getByRole('region', { name: /ثبت‌نام حضوری/ });
-    await form.getByLabel('نام و نام خانوادگی شرکت‌کننده').fill(walkIn);
-    await form.getByLabel('شماره موبایل (اختیاری)').fill(walkInMobile);
-    await form.getByRole('button', { name: 'صدور و چاپ کارت ورود' }).click();
-    await expect(desk.getByText('اتصال قطع شد؛ مشخص نیست کارت صادر شده یا نه.', { exact: false })).toBeVisible();
-    await expect(desk.getByRole('dialog')).toHaveCount(0);
-    await form.getByRole('button', { name: 'صدور و چاپ کارت ورود' }).click();
-    await expect(desk.getByRole('dialog').getByText(walkIn).first()).toBeVisible();
+    // Desk registration («ثبت‌نام حضوری») is a dialog opened next to the search.
+    await desk.getByRole('button', { name: 'ثبت‌نام حضوری' }).click();
+    const form = desk.getByRole('dialog', { name: 'ثبت‌نام حضوری' });
+    await form.getByLabel('نام و نام خانوادگی').fill(walkIn);
+    await form.getByLabel(/موبایل/).fill(walkInMobile);
+    await form.getByRole('button', { name: 'صدور کارت ورود' }).click();
+    await expect(form.getByText('اتصال قطع شد. دوباره «صدور» را بزنید', { exact: false })).toBeVisible();
+    await expect(desk.getByRole('dialog', { name: 'صادر شد' })).toHaveCount(0);
+    await form.getByRole('button', { name: 'صدور کارت ورود' }).click();
+    await expect(desk.getByRole('dialog', { name: 'صادر شد' }).getByText(walkIn).first()).toBeVisible();
     expect(keys).toHaveLength(2);
     expect(keys[0]).toMatch(/^[0-9a-f-]{36}$/);
     expect(keys[1]).toBe(keys[0]);
