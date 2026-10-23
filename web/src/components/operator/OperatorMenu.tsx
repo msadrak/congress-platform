@@ -67,8 +67,12 @@ export function OperatorMenu({ locale, items, header, version, tone = "light" }:
       if (target instanceof Node && (menuRef.current?.contains(target) || triggerRef.current?.contains(target))) return;
       setOpen(false);
     }
-    // The popover is placed once; a rotation or resize closes it rather than leaving it adrift.
-    const onResize = () => setOpen(false);
+    // The popover is placed once; a rotation or width change closes it rather than leaving it adrift (height-only
+    // resizes, like a phone's collapsing address bar, keep it open).
+    const width = window.innerWidth;
+    const onResize = () => {
+      if (window.innerWidth !== width) setOpen(false);
+    };
     document.addEventListener("pointerdown", onPointerDown);
     window.addEventListener("resize", onResize);
     return () => {
