@@ -39,6 +39,9 @@ const user = { id: 'user-1', mobile: MOBILE, full_name: 'Sara Fixture', organiza
 type Recorded = { method: string; path: string; auth: string | undefined; body: unknown };
 interface Options {
   requestStatus?: number;
+  requestCode?: string;
+  /** sms.ir did not confirm the send in time. */
+  uncertain?: boolean;
   retryAfter?: string;
   verifyStatus?: number;
   verifyAbort?: boolean;
@@ -61,8 +64,8 @@ async function fixture(page: Page, options: Options = {}) {
     const json = (status: number, body: unknown) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
 
     if (path === '/api/auth/otp/request') {
-      if (options.requestStatus) return route.fulfill({ status: options.requestStatus, contentType: 'application/json', headers: { 'Retry-After': options.retryAfter ?? '42' }, body: '{"detail":"no"}' });
-      return json(202, { mobile: JSON.parse(raw ?? '{}').mobile, code_length: 6, expires_in: 120, resend_after: 60 });
+      if (options.requestStatus) return route.fulfill({ status: options.requestStatus, contentType: 'application/json', headers: { 'Retry-After': options.retryAfter ?? '42' }, body: JSON.stringify({ detail: 'no', code: options.requestCode }) });
+      return json(202, { mobile: JSON.parse(raw ?? '{}').mobile, code_length: 6, expires_in: 120, resend_after: 60, delivery: options.uncertain ? 'uncertain' : 'sent' });
     }
     if (path === '/api/auth/otp/verify') {
       if (options.verifyAbort) return route.abort('failed');
@@ -128,6 +131,22 @@ async function signInWithCode(page: Page, mobile: string = MOBILE, code: string 
 }
 
 test.describe('direct attendee sign-in', () => {
+  test('an unconfirmed send says the code may still arrive; a platform SMS cap is named', async ({ page }) => {
+    await fixture(page, { uncertain: true });
+    await anonymous(page);
+    await page.goto('/c/alpha/sign-in');
+    await page.getByLabel('Mobile number').fill(MOBILE);
+    await page.getByRole('button', { name: 'Send code' }).click();
+    await expect(page.getByTestId('otp-delivery-uncertain')).toContainText('The code may still arrive');
+
+    await page.unrouteAll();
+    await fixture(page, { requestStatus: 503, requestCode: 'SMS_HOURLY_CAP_REACHED' });
+    await page.goto('/c/alpha/sign-in');
+    await page.getByLabel('Mobile number').fill(MOBILE);
+    await page.getByRole('button', { name: 'Send code' }).click();
+    await expect(page.getByRole('alert')).toContainText('SMS limit for this hour');
+  });
+
   test('signed-out portal page leads to sign-in and returns to the same destination', async ({ page }) => {
     const requests = await fixture(page);
     await anonymous(page);

@@ -2,30 +2,38 @@
 
 A message is queued in the same transaction as the business change it reports (a ticket), so it is sent if
 and only if that change committed, and the change never waits for or fails because of the SMS provider.
-One asyncio task per API process polls due rows (the deployment runs a single process; FOR UPDATE SKIP
-LOCKED keeps it correct even if that ever changes).
+One asyncio task per API process polls due rows (FOR UPDATE SKIP LOCKED and the claim keep several processes
+from sending the same message).
 
 Retries: a definite "not accepted" that is retryable (network, 429, 5xx) is tried again with exponential
-backoff; a timeout after sending is marked `unknown` and never resent, so nobody receives a message twice.
+backoff; a timeout after sending is marked `unknown` and never resent, so nobody receives a message twice. A
+message the gateway could not even attempt (not configured, a platform cap, busy) waits without using an attempt.
+A pass claims its messages (`sending`, `lease_until`) before sending; if it dies before recording an outcome, the
+next pass marks them `unknown` once the lease has run out. The organizer can retry a failed message, and retry
+or resolve an unknown one, by hand (app/routes/sms.py).
 """
 
 import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.config import Settings
 from app.models import Event, SmsMessage, Ticket, TicketTier, User
 from app.sms.phone import mask_mobile
-from app.sms.provider import SmsProvider
+from app.sms.gateway import DEFERRED_ERRORS
+from app.sms.provider import SmsProvider, SmsResult
 from app.sms.templates import effective_body, render
 
 logger = logging.getLogger("congress.sms")
 
 MAX_ATTEMPTS = 6
 BATCH_SIZE = 20
+# Longer than a whole batch can take (BATCH_SIZE sends, each bounded by the provider timeout and a free slot).
+LEASE = timedelta(minutes=10)
+LEASE_EXPIRED = "LEASE_EXPIRED"
 
 
 def backoff(attempts: int) -> timedelta:
@@ -88,43 +96,88 @@ async def queue_ticket_confirmation(
     )
 
 
+def unconfigured_delay(waited: timedelta) -> timedelta:
+    """Backoff for a message that could not be attempted at all (gateway unconfigured, cap reached, busy): about
+    half the time it has waited so far, between 30 s and 15 min, without using up an attempt."""
+    return min(max(waited / 2, timedelta(seconds=30)), timedelta(minutes=15))
+
+
+async def expire_leases(session: AsyncSession, now: datetime) -> int:
+    """A claimed message whose pass died mid-send may or may not have gone out: `unknown`, never resent."""
+    result = await session.execute(
+        update(SmsMessage)
+        .where(SmsMessage.status == "sending", SmsMessage.lease_until < now)
+        .values(status="unknown", last_error=LEASE_EXPIRED, lease_until=None)
+    )
+    expired: int = result.rowcount  # type: ignore[attr-defined]
+    if expired:
+        logger.warning("%d SMS left unknown: their outbox pass stopped before recording the outcome", expired)
+    return expired
+
+
+async def _claim(sessionmaker: async_sessionmaker[AsyncSession], now: datetime) -> list[SmsMessage]:
+    async with sessionmaker() as session:
+        await expire_leases(session, now)
+        due = (
+            select(SmsMessage.id)
+            .where(SmsMessage.status == "pending", SmsMessage.send_after <= now)
+            .order_by(SmsMessage.send_after)
+            .limit(BATCH_SIZE)
+            .with_for_update(skip_locked=True)
+        )
+        claimed = list(
+            await session.scalars(
+                update(SmsMessage)
+                .where(SmsMessage.id.in_(due.scalar_subquery()))
+                .values(status="sending", lease_until=datetime.now(timezone.utc) + LEASE)
+                .returning(SmsMessage)
+            )
+        )
+        await session.commit()
+    return sorted(claimed, key=lambda m: m.send_after)
+
+
+async def _record(
+    sessionmaker: async_sessionmaker[AsyncSession], message: SmsMessage, result: SmsResult, now: datetime
+) -> None:
+    values: dict[str, object] = {"lease_until": None, "last_error": result.error}
+    if result.ok:
+        values |= {"status": "sent", "sent_at": datetime.now(timezone.utc), "provider_message_id": result.message_id,
+                   "attempts": message.attempts + 1}
+    elif result.unknown:
+        values |= {"status": "unknown", "attempts": message.attempts + 1}
+    elif result.error in DEFERRED_ERRORS:
+        # Nothing was attempted: wait for the gateway (configuration, cap, a free slot) without using an attempt.
+        values |= {"status": "pending", "send_after": now + unconfigured_delay(now - message.created_at)}
+    elif result.retryable and message.attempts + 1 < MAX_ATTEMPTS:
+        values |= {"status": "pending", "send_after": now + backoff(message.attempts + 1),
+                   "attempts": message.attempts + 1}
+    else:
+        values |= {"status": "failed", "attempts": message.attempts + 1}
+        logger.warning("SMS %s to %s failed permanently: %s", message.kind, mask_mobile(message.mobile), result.error)
+    async with sessionmaker() as session:
+        # Only while still ours: a lease that ran out meanwhile has already made it `unknown`.
+        await session.execute(
+            update(SmsMessage).where(SmsMessage.id == message.id, SmsMessage.status == "sending").values(**values)
+        )
+        await session.commit()
+
+
 async def deliver_due(
     sessionmaker: async_sessionmaker[AsyncSession], provider: SmsProvider, *, now: datetime | None = None
 ) -> int:
-    """Send one batch of due messages; returns how many were attempted."""
+    """Send one batch of due messages; returns how many were claimed.
+
+    Claimed in one short transaction (`sending` with a lease), sent with no transaction open, and each outcome
+    recorded in its own short transaction, so no row lock or connection is held while the provider answers and
+    a failure after sending never repeats the messages already sent.
+    """
     now = now or datetime.now(timezone.utc)
-    async with sessionmaker() as session:
-        messages = list(
-            await session.scalars(
-                select(SmsMessage)
-                .where(SmsMessage.status == "pending", SmsMessage.send_after <= now)
-                .order_by(SmsMessage.send_after)
-                .limit(BATCH_SIZE)
-                .with_for_update(skip_locked=True)
-            )
-        )
-        for message in messages:
-            result = await provider.send_text(message.mobile, message.body or "", kind=message.kind)
-            message.attempts += 1
-            if result.ok:
-                message.status = "sent"
-                message.sent_at = datetime.now(timezone.utc)
-                message.provider_message_id = result.message_id
-                message.last_error = None
-            elif result.unknown:
-                message.status = "unknown"
-                message.last_error = result.error
-            elif result.retryable and message.attempts < MAX_ATTEMPTS:
-                message.send_after = now + backoff(message.attempts)
-                message.last_error = result.error
-            else:
-                message.status = "failed"
-                message.last_error = result.error
-                logger.warning(
-                    "SMS %s to %s failed permanently: %s", message.kind, mask_mobile(message.mobile), result.error
-                )
-        await session.commit()
-        return len(messages)
+    messages = await _claim(sessionmaker, now)
+    for message in messages:
+        result = await provider.send_text(message.mobile, message.body or "", kind=message.kind)
+        await _record(sessionmaker, message, result, now)
+    return len(messages)
 
 
 async def run_outbox(

@@ -108,10 +108,10 @@ async def resolve_pass_link(
     throttle = limiter(request)
     ip = client_ip(request)
     failures, opens = f"link:fail:ip:{ip}", f"link:open:ip:{ip}"
-    throttle.check(
+    await throttle.check(
         (failures, LINK_FAILURES_PER_IP), (opens, LINK_OPENS_PER_IP), detail="Too many attempts. Try again later."
     )
-    throttle.hit(opens)
+    await throttle.hit(opens)
 
     code = normalize_code(body.code)
     row = (
@@ -126,12 +126,12 @@ async def resolve_pass_link(
         )
     ).first() if code else None
     if row is None:
-        throttle.fail(failures)
+        await throttle.fail(failures)
         return _refuse("LINK_NOT_FOUND")
     link, ticket, event, tier, user, qr_secret = row
     refusal = _refusal(link, ticket)
     if refusal is not None:
-        throttle.fail(failures)
+        await throttle.fail(failures)
         return _refuse(refusal, event.slug)
 
     await session.execute(

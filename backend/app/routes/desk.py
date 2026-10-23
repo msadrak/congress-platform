@@ -889,13 +889,13 @@ async def resend_pass_sms(
         f"sms:pass:{ticket.id}",
         f"sms:pass:event:{event.id}",
     )
-    throttle.check(
+    await throttle.check(
         (cooldown, PASS_SMS_COOLDOWN),
         (per_ticket, PASS_SMS_PER_TICKET),
         (per_event, PASS_SMS_PER_EVENT),
         detail="The pass link was sent recently. Try again later.",
     )
-    throttle.hit(cooldown, per_ticket, per_event)
+    await throttle.hit(cooldown, per_ticket, per_event)
 
     link = await active_ticket_link(session, ticket, event)
     text = await ticket_confirmation_text(

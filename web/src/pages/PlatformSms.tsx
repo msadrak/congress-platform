@@ -1,5 +1,12 @@
-import { useEffect, useState, type FormEvent } from "react";
-import { formatApiError, type SmsCheckOut, type SmsSettingsOut, type SmsTemplateOut } from "../api/client";
+import { useCallback, useEffect, useState, type FormEvent } from "react";
+import {
+  formatApiError,
+  localizedApiError,
+  type SmsCheckOut,
+  type SmsSettingsOut,
+  type SmsTemplateOut,
+} from "../api/client";
+import type { components } from "../api/schema";
 import { asciiDigits } from "../lib/mobile";
 import { formatLocalizedNumber } from "../lib/i18n";
 import { networkErrorMessage } from "../lib/errorMessages";
@@ -258,6 +265,8 @@ export default function PlatformSms() {
         </form>
       </section>
 
+      <OutboxSection sms={sms} onSaved={(data) => { setSms(data); void refreshStatus(); }} />
+
       {templatesError && <FormAlert>{templatesError}</FormAlert>}
       {templatesOffline && <FormAlert>{networkErrorMessage[locale]}</FormAlert>}
       {templates?.map((template) => (
@@ -289,8 +298,7 @@ export default function PlatformSms() {
           onTest={async (mobile, body) => {
             const { data, error, response } = await client.POST("/api/platform/sms/test", { body: { mobile, kind: template.kind, body } });
             checkResponse(response.status);
-            if (response.status === 429) return { error: isRtl ? "پیامک آزمایشی زیادی ارسال شد." : "Too many test messages; try again later." };
-            return { data, error: error ? formatApiError(error) : undefined };
+            return { data, error: error ? localizedApiError(error, locale) : undefined };
           }}
         />
       ))}
@@ -313,5 +321,179 @@ export default function PlatformSms() {
         }}
       />
     </div>
+  );
+}
+
+type SmsOutboxOut = components["schemas"]["SmsOutboxOut"];
+type CapField = "hourly_cap" | "daily_cap";
+const OUTBOX_STATUSES = ["pending", "sending", "sent", "failed", "unknown", "resolved"] as const;
+
+/** Delivery health (counts only, no numbers or text) and the platform-wide hourly and daily SMS caps. */
+function OutboxSection({ sms, onSaved }: { sms: SmsSettingsOut; onSaved: (data: SmsSettingsOut) => void }) {
+  const { client, checkResponse, locale, isRtl } = usePlatform();
+  const [outbox, setOutbox] = useState<SmsOutboxOut | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [caps, setCaps] = useState<Record<CapField, string>>({
+    hourly_cap: String(sms.hourly_cap),
+    daily_cap: String(sms.daily_cap),
+  });
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+  const request = useMutation(locale);
+  const number = (n: number) => formatLocalizedNumber(n, locale);
+
+  /** Fetches the counts; `isCurrent` drops an answer that arrives after the section is gone. */
+  const load = useCallback(
+    (isCurrent: () => boolean = () => true) =>
+      client
+        .GET("/api/platform/sms/outbox")
+        .then(({ data, error, response }) => {
+          checkResponse(response.status);
+          if (!isCurrent()) return;
+          if (data) {
+            setOutbox(data);
+            setLoadError(null);
+          } else setLoadError(error ? formatApiError(error) : "—");
+        })
+        .catch(() => {
+          if (isCurrent()) setLoadError(networkErrorMessage[locale]);
+        }),
+    [client, checkResponse, locale],
+  );
+
+  useEffect(() => {
+    let active = true;
+    void load(() => active);
+    return () => {
+      active = false;
+    };
+  }, [load]);
+
+  const parsed = (field: CapField) => {
+    const digits = asciiDigits(caps[field].trim());
+    return /^\d+$/.test(digits) ? Number(digits) : null;
+  };
+  const invalid = parsed("hourly_cap") === null || parsed("daily_cap") === null;
+
+  const send = async (body: { hourly_cap?: number; daily_cap?: number; reset: CapField[] }) => {
+    setSaveError(null);
+    setSaved(false);
+    const result = await request.run(() => client.PUT("/api/platform/sms", { body }));
+    if (!result.ok) return;
+    const { data, error, response } = result.value;
+    checkResponse(response.status);
+    if (data) {
+      setCaps({ hourly_cap: String(data.hourly_cap), daily_cap: String(data.daily_cap) });
+      setSaved(true);
+      onSaved(data);
+      void load();
+    } else setSaveError(error ? localizedApiError(error, locale) : isRtl ? "ذخیره نشد." : "Not saved.");
+  };
+
+  const saveCaps = (e: FormEvent) => {
+    e.preventDefault();
+    if (request.busy || invalid) return;
+    void send({ hourly_cap: parsed("hourly_cap") ?? 0, daily_cap: parsed("daily_cap") ?? 0, reset: [] });
+  };
+
+  const statusLabel: Record<(typeof OUTBOX_STATUSES)[number], string> = {
+    pending: isRtl ? "در صف" : "Queued",
+    sending: isRtl ? "در حال ارسال" : "Sending",
+    sent: isRtl ? "ارسال‌شده" : "Sent",
+    failed: isRtl ? "ناموفق" : "Failed",
+    unknown: isRtl ? "نامعلوم" : "Unknown",
+    resolved: isRtl ? "حل‌شده" : "Resolved",
+  };
+  const usage = (used: number, cap: number) =>
+    cap > 0 ? `${number(used)} / ${number(cap)}` : `${number(used)} · ${isRtl ? "بدون سقف" : "no cap"}`;
+  const source = (field: CapField) =>
+    sms.caps_source[field] === "console" ? (isRtl ? "از این پنل" : "set here") : isRtl ? "از فایل .env" : "from .env";
+
+  return (
+    <section aria-labelledby="outbox-title" className="overflow-hidden rounded-2xl border border-border-default bg-surface-panel shadow-soft">
+      <div className="flex items-center justify-between gap-3 border-b border-border-subtle px-5 py-4 sm:px-6">
+        <h2 id="outbox-title" className="text-base font-bold">{isRtl ? "صف ارسال و سقف پیامک" : "Outbox and SMS caps"}</h2>
+        <Button type="button" variant="ghost" size="sm" onClick={() => void load()}>
+          <Icon name="sync" size={15} />
+          {isRtl ? "به‌روزرسانی" : "Refresh"}
+        </Button>
+      </div>
+      <div className="space-y-5 p-5 sm:p-6">
+        {loadError && <FormAlert>{loadError}</FormAlert>}
+        {outbox && (
+          <>
+            <dl data-testid="outbox-counts" className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+              {OUTBOX_STATUSES.map((status) => (
+                <div key={status} className="rounded-xl border border-border-subtle px-3.5 py-2.5">
+                  <dt className="text-xs text-text-muted">{statusLabel[status]}</dt>
+                  <dd className={`font-mono text-lg font-semibold tabular-nums ${status === "failed" || status === "unknown" ? (outbox.counts[status] ? "text-status-danger-text" : "") : ""}`}>
+                    {number(outbox.counts[status] ?? 0)}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+            <p className="text-sm text-text-secondary">
+              {isRtl ? "ارسال در یک ساعت گذشته: " : "Sent in the last hour: "}
+              <bdi dir="ltr" className="font-mono">{usage(outbox.sent_last_hour, outbox.hourly_cap)}</bdi>
+              {" · "}
+              {isRtl ? "در ۲۴ ساعت گذشته: " : "last 24 hours: "}
+              <bdi dir="ltr" className="font-mono">{usage(outbox.sent_last_day, outbox.daily_cap)}</bdi>
+              {outbox.oldest_pending_at && (
+                <>
+                  {" · "}
+                  {isRtl ? "قدیمی‌ترین پیامک در صف: " : "oldest queued: "}
+                  {new Intl.DateTimeFormat(locale === "fa" ? "fa-IR-u-ca-persian" : "en-US", { timeStyle: "short", dateStyle: "short" }).format(new Date(outbox.oldest_pending_at))}
+                </>
+              )}
+            </p>
+          </>
+        )}
+        <form onSubmit={saveCaps} noValidate className="space-y-4">
+          <div className="grid gap-5 sm:grid-cols-2">
+            {(["hourly_cap", "daily_cap"] as const).map((field) => (
+              <Field
+                key={field}
+                label={field === "hourly_cap" ? (isRtl ? "سقف پیامک در ساعت" : "SMS per hour (cap)") : isRtl ? "سقف پیامک در روز" : "SMS per day (cap)"}
+                hint={parsed(field) === null ? (isRtl ? "فقط رقم وارد کنید؛ ۰ یعنی بدون سقف." : "Digits only; 0 means no cap.") : source(field)}
+              >
+                <input
+                  type="text"
+                  dir="ltr"
+                  inputMode="numeric"
+                  autoComplete="off"
+                  value={caps[field]}
+                  onChange={(e) => setCaps((current) => ({ ...current, [field]: e.target.value }))}
+                  aria-invalid={parsed(field) === null}
+                  className="ui-input font-mono"
+                />
+              </Field>
+            ))}
+          </div>
+          <p className="text-xs text-text-muted">
+            {isRtl
+              ? "همهٔ پیامک‌های سامانه (کد ورود، تأیید ثبت‌نام، آزمایشی) شمرده می‌شوند. بالای سقف، کد ورود داده نمی‌شود و پیامک‌های تأیید در صف می‌مانند؛ در ۸۰٪ هشدار ثبت می‌شود."
+              : "Every SMS the platform sends counts (sign-in codes, confirmations, tests). Above a cap no sign-in code is sent and confirmations wait in the queue; a warning is logged at 80%."}
+          </p>
+          {(saveError ?? request.error) && <FormAlert>{saveError ?? request.error}</FormAlert>}
+          {saved && <p role="status" className="text-sm font-medium text-status-success-text">{isRtl ? "سقف‌ها ذخیره و بلافاصله اعمال شد." : "Caps saved and applied immediately."}</p>}
+          <div className="flex flex-wrap items-center gap-3">
+            <Button type="submit" variant="primary" size="md" disabled={request.busy || invalid} aria-busy={request.busy}>
+              <Icon name="check" size={16} />
+              {isRtl ? "ذخیره سقف‌ها" : "Save caps"}
+            </Button>
+            {(sms.caps_source.hourly_cap === "console" || sms.caps_source.daily_cap === "console") && (
+              <button
+                type="button"
+                disabled={request.busy}
+                onClick={() => void send({ reset: (["hourly_cap", "daily_cap"] as const).filter((f) => sms.caps_source[f] === "console") })}
+                className="text-xs font-semibold text-action-primary hover:underline cursor-pointer disabled:cursor-wait disabled:opacity-60"
+              >
+                {isRtl ? "استفاده از مقادیر .env" : "Use the .env values"}
+              </button>
+            )}
+          </div>
+        </form>
+      </div>
+    </section>
   );
 }

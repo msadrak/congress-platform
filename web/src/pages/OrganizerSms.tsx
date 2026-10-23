@@ -3,6 +3,7 @@ import { useOutletContext, useParams } from "react-router-dom";
 import {
   createApiClient,
   formatApiError,
+  localizedApiError,
   type EventOut,
   type SmsMessageOut,
   type SmsPanelOut,
@@ -10,17 +11,24 @@ import {
 import type { OrganizerOutletContext } from "./OrganizerLayout";
 import { Badge } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
+import { ConfirmDialog } from "../components/ui/ConfirmDialog";
 import { Icon } from "../components/ui/Icon";
 import { EmptyState, FormAlert, SectionHeader } from "../components/organizer/WorkspaceUi";
 import { SmsTemplateEditor } from "../components/sms/SmsTemplateEditor";
+import { networkErrorMessage } from "../lib/errorMessages";
 import { eventSectionNumber } from "../lib/organizerWorkspace";
 
 const STATUS_BADGE: Record<string, "success" | "warning" | "danger" | "neutral"> = {
   sent: "success",
   pending: "warning",
+  sending: "warning",
   failed: "danger",
   unknown: "neutral",
+  resolved: "neutral",
 };
+
+/** A message action awaiting the organizer's confirmation: retrying an unknown message may deliver it twice. */
+type PendingRetry = SmsMessageOut | null;
 
 // Remount per event so a late response for event A can never write into event B's state.
 export default function OrganizerSms() {
@@ -37,6 +45,9 @@ function OrganizerSmsContent() {
   const [messages, setMessages] = useState<SmsMessageOut[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [pendingRetry, setPendingRetry] = useState<PendingRetry>(null);
+  const [actionBusy, setActionBusy] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const client = useMemo(() => (apiKey ? createApiClient({ kind: "organizer", token: apiKey }) : null), [apiKey]);
   const rejected = useCallback((status: number) => {
@@ -88,14 +99,40 @@ function OrganizerSmsContent() {
 
   const template = panel?.templates.find((t) => t.kind === "ticket_confirmation") ?? null;
 
+  /** Retry (queue again) or resolve one message; the row is replaced with the server's answer. */
+  const act = async (message: SmsMessageOut, action: "retry" | "resolve", confirmDuplicate = false) => {
+    if (!client || !eventId || actionBusy) return;
+    setActionBusy(message.id);
+    setActionError(null);
+    try {
+      const path = { event_id: eventId, message_id: message.id };
+      const { data, error, response } =
+        action === "retry"
+          ? await client.POST("/api/events/{event_id}/sms/messages/{message_id}/retry", {
+              params: { path },
+              body: { confirm_duplicate: confirmDuplicate },
+            })
+          : await client.POST("/api/events/{event_id}/sms/messages/{message_id}/resolve", { params: { path } });
+      rejected(response.status);
+      if (data) setMessages((current) => current.map((m) => (m.id === data.id ? data : m)));
+      else setActionError(localizedApiError(error, locale));
+    } catch {
+      setActionError(networkErrorMessage[locale]);
+    } finally {
+      setActionBusy(null);
+    }
+  };
+
   const kindLabel = (kind: string) =>
     kind === "ticket_confirmation" ? (isRtl ? "تأیید ثبت‌نام" : "Ticket confirmation") : kind === "ticket_resend" ? (isRtl ? "ارسال دوباره از پذیرش" : "Resent from reception") : kind === "test" ? (isRtl ? "آزمایشی" : "Test") : kind;
   const statusLabel = (status: string) =>
     ({
       sent: isRtl ? "ارسال شد" : "Sent",
       pending: isRtl ? "در صف" : "Queued",
+      sending: isRtl ? "در حال ارسال" : "Sending",
       failed: isRtl ? "ناموفق" : "Failed",
       unknown: isRtl ? "نامشخص" : "Unknown",
+      resolved: isRtl ? "حل‌شده" : "Resolved",
     })[status] ?? status;
   const when = (iso: string) =>
     new Intl.DateTimeFormat(locale === "fa" ? "fa-IR-u-ca-persian" : "en-US", { dateStyle: "medium", timeStyle: "short" }).format(new Date(iso));
@@ -130,19 +167,25 @@ function OrganizerSmsContent() {
         role="note"
         data-testid="sms-delivery"
         className={`flex items-start gap-2.5 rounded-xl border px-4 py-3 text-sm leading-relaxed ${
-          panel.delivery === "console"
-            ? "border-status-warning-border bg-status-warning-bg text-status-warning-text"
-            : "border-status-success-border bg-status-success-bg text-status-success-text"
+          panel.delivery === "smsir"
+            ? "border-status-success-border bg-status-success-bg text-status-success-text"
+            : panel.delivery === "console"
+              ? "border-status-warning-border bg-status-warning-bg text-status-warning-text"
+              : "border-status-danger-border bg-status-danger-bg text-status-danger-text"
         }`}
       >
-        <Icon name={panel.delivery === "console" ? "alert" : "check-circle"} size={18} className="mt-0.5 shrink-0" />
+        <Icon name={panel.delivery === "smsir" ? "check-circle" : "alert"} size={18} className="mt-0.5 shrink-0" />
         {panel.delivery === "console"
           ? isRtl
             ? "حالت آزمایشی: پیامکی واقعاً ارسال نمی‌شود (مدیر سامانه آن را در پنل سامانه تنظیم می‌کند)."
             : "Test mode: no SMS is actually sent (the platform administrator sets this in the platform console)."
-          : isRtl
-            ? "پیامک‌ها از طریق sms.ir و خط خدماتی سامانه ارسال می‌شوند."
-            : "Messages are delivered through sms.ir from the platform's service line."}
+          : panel.delivery === "smsir"
+            ? isRtl
+              ? "پیامک‌ها از طریق sms.ir و خط خدماتی سامانه ارسال می‌شوند."
+              : "Messages are delivered through sms.ir from the platform's service line."
+            : isRtl
+              ? "ارسال پیامک هنوز راه‌اندازی نشده است: پیامک‌های تأیید در صف می‌مانند و پس از راه‌اندازی توسط مدیر سامانه ارسال می‌شوند."
+              : "SMS delivery is not set up yet: confirmations wait in the queue and go out once the platform administrator configures it."}
       </p>
 
       <SmsTemplateEditor
@@ -160,8 +203,8 @@ function OrganizerSmsContent() {
         savedMessage={isRtl ? "متن پیامک ذخیره شد. پیامک‌های بعدی با این متن ارسال می‌شوند." : "Saved. New confirmations use this text."}
         note={
           isRtl
-            ? "متن ورود (کد یک‌بارمصرف) برای همه همایش‌ها یکسان است و مدیر سامانه آن را در پنل سامانه تنظیم می‌کند. حداکثر ۱۰ پیامک آزمایشی در ساعت."
-            : "The sign-in code message is the same for every congress and is set by the platform administrator in the platform console. Up to 10 test messages per hour."
+            ? "متن ورود (کد یک‌بارمصرف) برای همه همایش‌ها یکسان است و مدیر سامانه آن را در پنل سامانه تنظیم می‌کند. پیامک آزمایشی فقط به اپراتورهای پذیرش، کارکنان غرفه‌ها یا دارندگان کارت ورود همین همایش فرستاده می‌شود؛ حداکثر ۱۰ پیامک در ساعت."
+            : "The sign-in code message is the same for every congress and is set by the platform administrator in the platform console. Test messages go only to this congress's desk operators, booth staff or pass holders; up to 10 per hour."
         }
         onSave={async (body) => {
           const { data, error, response } = await client.PUT("/api/events/{event_id}/sms/templates/{kind}", { params: { path }, body: { body } });
@@ -179,8 +222,7 @@ function OrganizerSmsContent() {
             body: { mobile, kind: "ticket_confirmation", body },
           });
           rejected(response.status);
-          if (response.status === 429) return { error: isRtl ? "پیامک آزمایشی زیادی ارسال شد؛ کمی بعد دوباره تلاش کنید." : "Too many test messages; try again later." };
-          return { data, error: error ? formatApiError(error) : undefined };
+          return { data, error: error ? localizedApiError(error, locale) : undefined };
         }}
         onTested={() => void loadMessages()}
       />
@@ -195,6 +237,7 @@ function OrganizerSmsContent() {
             {isRtl ? "به‌روزرسانی" : "Refresh"}
           </Button>
         </div>
+        {actionError && <FormAlert>{actionError}</FormAlert>}
         {messages.length === 0 ? (
           <EmptyState icon="mail" title={isRtl ? "هنوز پیامکی برای این همایش ارسال نشده است." : "No message has been sent for this congress yet."} />
         ) : (
@@ -230,12 +273,61 @@ function OrganizerSmsContent() {
                       <span className="text-[11px] text-text-muted">{isRtl ? "پیوند هنوز باز نشده" : "Link not opened yet"}</span>
                     )
                   )}
+                  {(m.can_retry || m.can_resolve) && (
+                    <div className="flex flex-wrap justify-end gap-1.5" data-testid="sms-message-actions">
+                      {m.can_retry && (
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          size="sm"
+                          aria-busy={actionBusy === m.id}
+                          disabled={actionBusy !== null}
+                          onClick={() => (m.status === "unknown" ? setPendingRetry(m) : void act(m, "retry"))}
+                        >
+                          <Icon name="sync" size={14} />
+                          {isRtl ? "ارسال دوباره" : "Send again"}
+                        </Button>
+                      )}
+                      {m.can_resolve && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          disabled={actionBusy !== null}
+                          title={isRtl ? "پیامک رسیده است؛ دیگر ارسال نشود" : "It arrived; do not send it again"}
+                          onClick={() => void act(m, "resolve")}
+                        >
+                          <Icon name="check-circle" size={14} />
+                          {isRtl ? "حل‌شده" : "Mark resolved"}
+                        </Button>
+                      )}
+                    </div>
+                  )}
                 </div>
               </li>
             ))}
           </ul>
         )}
       </section>
+
+      <ConfirmDialog
+        isOpen={pendingRetry !== null}
+        tone="danger"
+        title={isRtl ? "پیامک دوباره ارسال شود؟" : "Send this message again?"}
+        description={
+          isRtl
+            ? "وضعیت تحویل این پیامک نامعلوم است و شاید پیش‌تر به شرکت‌کننده رسیده باشد. با ارسال دوباره ممکن است آن را دو بار دریافت کند."
+            : "This message's delivery is unknown: it may already have reached the attendee. Sending it again may deliver it twice."
+        }
+        confirmLabel={isRtl ? "ارسال دوباره" : "Send again"}
+        cancelLabel={isRtl ? "انصراف" : "Cancel"}
+        onCancel={() => setPendingRetry(null)}
+        onConfirm={() => {
+          const message = pendingRetry;
+          setPendingRetry(null);
+          if (message) void act(message, "retry", true);
+        }}
+      />
     </div>
   );
 }

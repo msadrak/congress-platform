@@ -97,6 +97,14 @@ server error), but the `otp_accepted` threshold then fails, so choose one:
   Caddy replaces the header.
 - `-e ACCEPTED_RATE=0` to measure throttled behaviour only (5xx still fail the run).
 
+The budgets are counted in PostgreSQL (`rate_limit_counters`), so they hold across API workers and restarts.
+Every SMS the platform sends, test mode included, also counts against the platform-wide caps (default 2000 per
+hour and 20000 per day; above a cap sign-in codes answer 503 `SMS_HOURLY_CAP_REACHED`). A full run (setup
+sign-ins, their confirmations and the 1000-request burst) can come close to the hourly cap: raise it for the run
+with `PUT /api/platform/sms {"hourly_cap": 0, "reset": []}` (0 = no cap) and reset it afterwards with
+`{"reset": ["hourly_cap"]}`. Venue networks (`CONGRESS_OTP_TRUSTED_NETWORKS` or the console) get their own
+per-IP budget (`otp_sends_per_trusted_ip_per_hour`).
+
 With the `console` provider nothing is sent; codes appear in the API log and the outbox.
 
 ## Smoke results (2026-10-22, disposable stack on a MacBook / Docker Desktop, image `congress-platform/api:staging`)

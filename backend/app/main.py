@@ -16,7 +16,7 @@ from app.logging_setup import configure_logging
 from app.observability import install_observability
 from app.rate_limit import FailureLimiter
 from app.schema_guard import assert_schema_current
-from app.platform_config import apply_platform, environment_config, keep_loading_platform, reload_platform
+from app.platform_config import apply_platform, environment_config, keep_platform_fresh, reload_platform
 from app.sms import build_gateway
 from app.sms.outbox import run_outbox
 from app.retention import run_retention
@@ -53,14 +53,14 @@ def create_app(settings: Settings) -> FastAPI:
         if settings.environment in STRICT_ENVIRONMENTS:
             await assert_schema_current(engine)
         app.state.sessionmaker = async_sessionmaker(engine, expire_on_commit=False)
-        platform_loader = None
         try:
             async with app.state.sessionmaker() as session:
                 await reload_platform(app, session)
         except (OSError, SQLAlchemyError):
             # The API still starts (readiness reports the database); saved settings apply once it is reachable.
             apply_platform(app, environment_config(settings))
-            platform_loader = asyncio.create_task(keep_loading_platform(app))
+        # Also picks up console changes saved by another API process.
+        platform_loader = asyncio.create_task(keep_platform_fresh(app, settings.platform_settings_refresh_seconds))
         outbox = (
             asyncio.create_task(
                 run_outbox(app.state.sessionmaker, app.state.sms, settings.sms_outbox_poll_seconds)

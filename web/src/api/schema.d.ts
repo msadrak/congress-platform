@@ -56,6 +56,9 @@ export interface paths {
         /**
          * Request Otp
          * @description Send a one-time code by SMS. The answer never reveals whether the number has an account.
+         *
+         *     The code is committed and the database connection released before sms.ir is called, so a slow provider
+         *     never holds connections the rest of the platform (check-in) needs.
          */
         post: operations["request_otp_api_auth_otp_request_post"];
         delete?: never;
@@ -92,7 +95,7 @@ export interface paths {
         put?: never;
         /**
          * Complete Signup
-         * @description Create the account for a number verified by /otp/verify.
+         * @description Create the account for a number verified by /otp/verify. A signup token works once.
          */
         post: operations["complete_signup_api_auth_otp_complete_post"];
         delete?: never;
@@ -1699,7 +1702,8 @@ export interface paths {
         put?: never;
         /**
          * Send Test Sms
-         * @description Send the message, filled with sample values, to one number (a real SMS from the service line).
+         * @description Send the message, filled with sample values, to one of this event's own people (a real SMS from the
+         *     platform's service line, so never to arbitrary numbers). Limited per event and per organizer per day.
          */
         post: operations["send_test_sms_api_events__event_id__sms_test_post"];
         delete?: never;
@@ -1722,6 +1726,46 @@ export interface paths {
         get: operations["list_event_sms_api_events__event_id__sms_messages_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/events/{event_id}/sms/messages/{message_id}/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Retry Event Sms
+         * @description Queue a failed (or, confirmed, an unknown) notice again; the outbox sends it with a fresh set of attempts.
+         */
+        post: operations["retry_event_sms_api_events__event_id__sms_messages__message_id__retry_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/events/{event_id}/sms/messages/{message_id}/resolve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Resolve Event Sms
+         * @description Settle a message whose delivery is unknown (e.g. the attendee confirmed it arrived); it is never resent.
+         */
+        post: operations["resolve_event_sms_api_events__event_id__sms_messages__message_id__resolve_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1815,6 +1859,23 @@ export interface paths {
          * @description Ask sms.ir for the account credit and lines with the given (or current) key; sends nothing.
          */
         post: operations["check_sms_connection_api_platform_sms_check_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/platform/sms/outbox": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Sms Outbox Health */
+        get: operations["sms_outbox_health_api_platform_sms_outbox_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -3585,6 +3646,12 @@ export interface components {
             expires_in: number;
             /** Resend After */
             resend_after: number;
+            /**
+             * Delivery
+             * @default sent
+             * @enum {string}
+             */
+            delivery: "sent" | "uncertain";
         };
         /** OtpVerify */
         OtpVerify: {
@@ -4502,6 +4569,10 @@ export interface components {
             otp_sends_per_mobile_per_hour: number;
             /** Otp Sends Per Ip Per Hour */
             otp_sends_per_ip_per_hour: number;
+            /** Otp Sends Per Trusted Ip Per Hour */
+            otp_sends_per_trusted_ip_per_hour: number;
+            /** Otp Trusted Networks */
+            otp_trusted_networks: string[];
             /** Sources */
             sources: {
                 [key: string]: "console" | "environment";
@@ -4519,11 +4590,15 @@ export interface components {
             otp_sends_per_mobile_per_hour?: number | null;
             /** Otp Sends Per Ip Per Hour */
             otp_sends_per_ip_per_hour?: number | null;
+            /** Otp Sends Per Trusted Ip Per Hour */
+            otp_sends_per_trusted_ip_per_hour?: number | null;
+            /** Otp Trusted Networks */
+            otp_trusted_networks?: string[] | null;
             /**
              * Reset
              * @default []
              */
-            reset: ("otp_length" | "otp_ttl_seconds" | "otp_resend_cooldown_seconds" | "otp_sends_per_mobile_per_hour" | "otp_sends_per_ip_per_hour")[];
+            reset: ("otp_length" | "otp_ttl_seconds" | "otp_resend_cooldown_seconds" | "otp_sends_per_mobile_per_hour" | "otp_sends_per_ip_per_hour" | "otp_sends_per_trusted_ip_per_hour" | "otp_trusted_networks")[];
         };
         /** SmsCheckOut */
         SmsCheckOut: {
@@ -4576,6 +4651,36 @@ export interface components {
             sent_at: string | null;
             /** Link Opened At */
             link_opened_at?: string | null;
+            /**
+             * Can Retry
+             * @default false
+             */
+            can_retry: boolean;
+            /**
+             * Can Resolve
+             * @default false
+             */
+            can_resolve: boolean;
+        };
+        /**
+         * SmsOutboxOut
+         * @description Delivery health for the console: counts only, no numbers or message text.
+         */
+        SmsOutboxOut: {
+            /** Counts */
+            counts: {
+                [key: string]: number;
+            };
+            /** Oldest Pending At */
+            oldest_pending_at: string | null;
+            /** Sent Last Hour */
+            sent_last_hour: number;
+            /** Sent Last Day */
+            sent_last_day: number;
+            /** Hourly Cap */
+            hourly_cap: number;
+            /** Daily Cap */
+            daily_cap: number;
         };
         /** SmsPanelOut */
         SmsPanelOut: {
@@ -4583,13 +4688,21 @@ export interface components {
              * Delivery
              * @enum {string}
              */
-            delivery: "smsir" | "console";
+            delivery: "smsir" | "console" | "unconfigured";
             /** Templates */
             templates: components["schemas"]["SmsTemplateOut"][];
             /** Sample */
             sample: {
                 [key: string]: string;
             };
+        };
+        /** SmsRetryRequest */
+        SmsRetryRequest: {
+            /**
+             * Confirm Duplicate
+             * @default false
+             */
+            confirm_duplicate: boolean;
         };
         /** SmsSettingsOut */
         SmsSettingsOut: {
@@ -4622,6 +4735,14 @@ export interface components {
             line_number_source: ("console" | "environment") | null;
             /** Console Allowed */
             console_allowed: boolean;
+            /** Hourly Cap */
+            hourly_cap: number;
+            /** Daily Cap */
+            daily_cap: number;
+            /** Caps Source */
+            caps_source: {
+                [key: string]: "console" | "environment";
+            };
         };
         /** SmsSettingsUpdate */
         SmsSettingsUpdate: {
@@ -4631,11 +4752,15 @@ export interface components {
             api_key?: string | null;
             /** Line Number */
             line_number?: number | null;
+            /** Hourly Cap */
+            hourly_cap?: number | null;
+            /** Daily Cap */
+            daily_cap?: number | null;
             /**
              * Reset
              * @default []
              */
-            reset: ("mode" | "api_key" | "line_number")[];
+            reset: ("mode" | "api_key" | "line_number" | "hourly_cap" | "daily_cap")[];
         };
         /** SmsTemplateOut */
         SmsTemplateOut: {
@@ -5031,6 +5156,24 @@ export interface operations {
                     "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
         };
     };
     verify_otp_api_auth_otp_verify_post: {
@@ -5055,6 +5198,15 @@ export interface operations {
                     "application/json": components["schemas"]["OtpVerifyOut"];
                 };
             };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description Validation Error */
             422: {
                 headers: {
@@ -5062,6 +5214,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
         };
@@ -5086,6 +5247,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AuthResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
             /** @description Validation Error */
@@ -9032,13 +9202,13 @@ export interface operations {
                     "application/json": components["schemas"]["SmsTemplateOut"];
                 };
             };
-            /** @description Validation Error */
+            /** @description Unprocessable Entity */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
         };
@@ -9099,13 +9269,31 @@ export interface operations {
                     "application/json": components["schemas"]["SmsTestOut"];
                 };
             };
-            /** @description Validation Error */
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Entity */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
         };
@@ -9130,6 +9318,110 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SmsMessageOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    retry_event_sms_api_events__event_id__sms_messages__message_id__retry_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                message_id: string;
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SmsRetryRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SmsMessageOut"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    resolve_event_sms_api_events__event_id__sms_messages__message_id__resolve_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                message_id: string;
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SmsMessageOut"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
             /** @description Validation Error */
@@ -9200,13 +9492,13 @@ export interface operations {
                     "application/json": components["schemas"]["SmsTemplateOut"];
                 };
             };
-            /** @description Validation Error */
+            /** @description Unprocessable Entity */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
         };
@@ -9330,13 +9622,13 @@ export interface operations {
                     "application/json": components["schemas"]["SmsSettingsOut"];
                 };
             };
-            /** @description Validation Error */
+            /** @description Unprocessable Entity */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
         };
@@ -9376,6 +9668,37 @@ export interface operations {
             };
         };
     };
+    sms_outbox_health_api_platform_sms_outbox_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-admin-token"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SmsOutboxOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     send_platform_test_sms_api_platform_sms_test_post: {
         parameters: {
             query?: never;
@@ -9400,13 +9723,22 @@ export interface operations {
                     "application/json": components["schemas"]["PlatformSmsTestOut"];
                 };
             };
-            /** @description Validation Error */
+            /** @description Unprocessable Entity */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
         };
@@ -9466,13 +9798,13 @@ export interface operations {
                     "application/json": components["schemas"]["SignInOut"];
                 };
             };
-            /** @description Validation Error */
+            /** @description Unprocessable Entity */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
         };

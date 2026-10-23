@@ -428,6 +428,49 @@ test('SMS: the organizer edits the confirmation with placeholders, sees the prev
   expect(requests.every(r => r.auth === bearer)).toBe(true);
 });
 
+test('SMS: a failed confirmation is sent again; an unknown one is resent only after a warning, or resolved', async ({ page }) => {
+  await fixture(page);
+  await seed(page);
+  const actions: { path: string; body: unknown }[] = [];
+  await page.route('**/api/events/event-a/sms/messages?*', route => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify([
+      { id: 'm-failed', kind: 'ticket_confirmation', mobile: '0912***0001', body: 'A عزیز…', status: 'failed', attempts: 6, last_error: 'HTTP_400', created_at: '2099-01-01T00:00:00Z', sent_at: null, can_retry: true, can_resolve: false },
+      { id: 'm-unknown', kind: 'ticket_confirmation', mobile: '0912***0002', body: 'B عزیز…', status: 'unknown', attempts: 1, last_error: 'TIMEOUT', created_at: '2099-01-01T00:00:00Z', sent_at: null, can_retry: true, can_resolve: true },
+    ]),
+  }));
+  await page.route('**/api/events/event-a/sms/messages/*/*', route => {
+    const path = new URL(route.request().url()).pathname;
+    const raw = route.request().postData();
+    actions.push({ path, body: raw ? JSON.parse(raw) : undefined });
+    const [, id, action] = path.match(/messages\/([^/]+)\/(retry|resolve)$/) ?? [];
+    const status = action === 'resolve' ? 'resolved' : 'pending';
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ id, kind: 'ticket_confirmation', mobile: id === 'm-failed' ? '0912***0001' : '0912***0002', body: '…', status, attempts: 0, last_error: null, created_at: '2099-01-01T00:00:00Z', sent_at: null, can_retry: false, can_resolve: false }),
+    });
+  });
+  await page.goto('/organizer/events/event-a/sms');
+  const failed = page.getByRole('listitem').filter({ hasText: '0912***0001' });
+  const unknown = page.getByRole('listitem').filter({ hasText: '0912***0002' });
+
+  await failed.getByRole('button', { name: 'Send again' }).click();
+  await expect(failed.getByText('Queued')).toBeVisible();
+  expect(actions.find(a => a.path.endsWith('/m-failed/retry'))?.body).toEqual({ confirm_duplicate: false });
+
+  await unknown.getByRole('button', { name: 'Send again' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Send this message again?' });
+  await expect(dialog).toContainText('may deliver it twice');
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+  expect(actions.some(a => a.path.endsWith('/m-unknown/retry'))).toBe(false);
+
+  await unknown.getByRole('button', { name: 'Mark resolved' }).click();
+  await expect(unknown.getByText('Resolved')).toBeVisible();
+  await expect(unknown.getByRole('button', { name: 'Send again' })).toHaveCount(0);
+});
+
 test('program: sessions are grouped by day, added in local time, and a CSV timetable is checked before it is imported', async ({ page }) => {
   const requests = await fixture(page);
   await seed(page);

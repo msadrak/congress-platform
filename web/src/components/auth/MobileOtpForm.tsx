@@ -42,6 +42,7 @@ const COPY = {
     announceVerify: (s: string) => `Too many attempts. You can try again in ${s} seconds.`,
     unlocked: "You can try again now.",
     smsFailed: "The SMS could not be sent. Please try again in a moment.",
+    mayStillArrive: "The SMS service has not confirmed the message yet. The code may still arrive in a minute; if it does not, ask for a new one.",
     expired: "The verification expired. Request a new code.",
     network: "Could not reach the server. Check your connection and try again.",
     server: "Sign-in is temporarily unavailable. Please try again shortly.",
@@ -76,6 +77,7 @@ const COPY = {
     announceVerify: (s: string) => `تعداد تلاش‌ها بیش از حد مجاز بود. ${s} ثانیه دیگر می‌توانید دوباره تلاش کنید.`,
     unlocked: "اکنون می‌توانید دوباره تلاش کنید.",
     smsFailed: "ارسال پیامک ممکن نشد. لطفاً کمی بعد دوباره تلاش کنید.",
+    mayStillArrive: "سامانهٔ پیامک هنوز ارسال را تأیید نکرده است. ممکن است کد تا یک دقیقهٔ دیگر برسد؛ اگر نرسید، کد تازه بگیرید.",
     expired: "زمان تأیید تمام شد. کد تازه بگیرید.",
     network: "اتصال به سرور برقرار نشد. اینترنت خود را بررسی کنید و دوباره تلاش کنید.",
     server: "ورود فعلاً ممکن نیست. لطفاً کمی بعد دوباره تلاش کنید.",
@@ -165,6 +167,8 @@ export function MobileOtpForm({
   const [mobile, setMobile] = useState("");
   const [code, setCode] = useState("");
   const [codeLength, setCodeLength] = useState(6);
+  // sms.ir did not confirm the send in time: the code may still arrive.
+  const [deliveryUncertain, setDeliveryUncertain] = useState(false);
   const [resendAt, setResendAt] = useState(0);
   const [now, setNow] = useState(() => Date.now());
   const [locks, setLocks] = useState<Partial<Record<LockScope, number>>>({});
@@ -258,6 +262,7 @@ export function MobileOtpForm({
       if (data) {
         setMobile(data.mobile);
         setCodeLength(data.code_length);
+        setDeliveryUncertain(data.delivery === "uncertain");
         setResendAt(Date.now() + data.resend_after * 1000);
         setNow(Date.now());
         setCode("");
@@ -268,7 +273,9 @@ export function MobileOtpForm({
       } else if (response.status === 429) {
         lock("request", response);
       } else if (response.status === 503) {
-        setFormError(copyProblem("smsFailed"));
+        // Not configured or a platform SMS cap reached have their own text; anything else is a failed send.
+        const known = apiProblem(error);
+        setFormError(known.kind === "api" ? known : copyProblem("smsFailed"));
       } else {
         setFormError(apiProblem(error));
       }
@@ -453,6 +460,12 @@ export function MobileOtpForm({
         {alert}
         {lockNotice}
         {liveRegion}
+        {deliveryUncertain && (
+          <p role="status" data-testid="otp-delivery-uncertain" className="flex items-start gap-2.5 rounded-xl border border-status-warning-border bg-status-warning-bg p-3.5 text-sm text-status-warning-text">
+            <Icon name="clock" size={18} className="mt-px shrink-0" />
+            <span>{copy.mayStillArrive}</span>
+          </p>
+        )}
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-surface-panel-subtle px-3.5 py-3 text-sm">
           <span className="text-text-secondary">
             {copy.codeSentTo}{" "}

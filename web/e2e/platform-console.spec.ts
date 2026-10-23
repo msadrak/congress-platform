@@ -12,8 +12,8 @@ type Recorded = { method: string; path: string; auth: string | undefined; admin:
 
 async function fixture(page: Page, options: { statusCode?: number } = {}) {
   const requests: Recorded[] = [];
-  let sms = { mode: 'console', mode_source: 'environment', effective: 'console', api_key_set: false, api_key_hint: null as string | null, api_key_source: null as string | null, api_key_unreadable: false, line_number: null as number | null, line_number_source: null as string | null, console_allowed: true };
-  let signIn = { otp_length: 6, otp_ttl_seconds: 120, otp_resend_cooldown_seconds: 60, otp_sends_per_mobile_per_hour: 5, otp_sends_per_ip_per_hour: 100, sources: { otp_length: 'environment', otp_ttl_seconds: 'environment', otp_resend_cooldown_seconds: 'environment', otp_sends_per_mobile_per_hour: 'environment', otp_sends_per_ip_per_hour: 'environment' } as Record<string, string> };
+  let sms = { mode: 'console', mode_source: 'environment', effective: 'console', api_key_set: false, api_key_hint: null as string | null, api_key_source: null as string | null, api_key_unreadable: false, line_number: null as number | null, line_number_source: null as string | null, console_allowed: true, hourly_cap: 2000, daily_cap: 20000, caps_source: { hourly_cap: 'environment', daily_cap: 'environment' } as Record<string, string> };
+  let signIn = { otp_length: 6, otp_ttl_seconds: 120, otp_resend_cooldown_seconds: 60, otp_sends_per_mobile_per_hour: 5, otp_sends_per_ip_per_hour: 100, otp_sends_per_trusted_ip_per_hour: 2000, otp_trusted_networks: [] as string[], sources: { otp_length: 'environment', otp_ttl_seconds: 'environment', otp_resend_cooldown_seconds: 'environment', otp_sends_per_mobile_per_hour: 'environment', otp_sends_per_ip_per_hour: 'environment', otp_sends_per_trusted_ip_per_hour: 'environment', otp_trusted_networks: 'environment' } as Record<string, string> };
   const templates: Record<string, Record<string, unknown>> = {
     otp: { kind: 'otp', body: OTP_DEFAULT, is_custom: false, default_body: OTP_DEFAULT, placeholders: ['code', 'minutes'], required: ['code'] },
     ticket_confirmation: { kind: 'ticket_confirmation', body: CONFIRMATION_DEFAULT, is_custom: false, default_body: CONFIRMATION_DEFAULT, placeholders: ['name', 'event', 'tier', 'location', 'link'], required: [] },
@@ -35,9 +35,14 @@ async function fixture(page: Page, options: { statusCode?: number } = {}) {
       if (body.mode) sms = { ...sms, mode: body.mode, mode_source: 'console' };
       if (body.api_key) sms = { ...sms, api_key_set: true, api_key_hint: `…${body.api_key.slice(-4)}`, api_key_source: 'console' };
       if (body.line_number) sms = { ...sms, line_number: body.line_number, line_number_source: 'console' };
+      for (const cap of ['hourly_cap', 'daily_cap'] as const) {
+        if (body[cap] !== undefined) sms = { ...sms, [cap]: body[cap], caps_source: { ...sms.caps_source, [cap]: 'console' } };
+        if ((body.reset as string[]).includes(cap)) sms = { ...sms, [cap]: cap === 'hourly_cap' ? 2000 : 20000, caps_source: { ...sms.caps_source, [cap]: 'environment' } };
+      }
       sms = { ...sms, effective: sms.mode === 'console' ? 'console' : sms.api_key_set && sms.line_number ? 'smsir' : 'unconfigured' };
       return json(200, sms);
     }
+    if (path === '/api/platform/sms/outbox') return json(200, { counts: { pending: 3, sending: 0, sent: 41, failed: 2, unknown: 1, resolved: 0 }, oldest_pending_at: '2099-01-01T08:00:00Z', sent_last_hour: 12, sent_last_day: 44, hourly_cap: sms.hourly_cap, daily_cap: sms.daily_cap });
     if (path === '/api/platform/sms/check') return json(200, { ok: true, credit: 125000, lines: [30001234, 50002222], line_ok: body.line_number === 30001234, error: null });
     if (path === '/api/platform/sms/test') return json(200, { status: 'sent', text: String(body.body).replace('{code}', '111111'), error: null, test_mode: false });
     if (path === '/api/platform/sms-templates') return json(200, Object.values(templates));
@@ -160,6 +165,34 @@ test('sign-in rules are saved and can go back to the .env value', async ({ page 
   await page.getByRole('button', { name: 'Use .env' }).click();
   await expect(page.getByLabel('Code digits')).toHaveValue('6');
   await expect(page.getByRole('status').filter({ hasText: '“Code digits” now follows the .env value.' })).toBeVisible();
+});
+
+test('venue networks get their own budget from the sign-in rules', async ({ page }) => {
+  const requests = await fixture(page);
+  await openConsole(page);
+  await page.getByRole('link', { name: 'Sign-in' }).click();
+  await page.getByTestId('trusted-networks').fill('203.0.113.0/24\n192.0.2.7');
+  await page.getByLabel('Codes per venue network address per hour').fill('3000');
+  await page.getByRole('button', { name: 'Save rules' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Saved and applied.' })).toBeVisible();
+  expect(requests.find(r => r.method === 'PUT' && r.path === '/api/platform/sign-in')?.body).toEqual({
+    otp_sends_per_trusted_ip_per_hour: 3000, otp_trusted_networks: ['203.0.113.0/24', '192.0.2.7'], reset: [],
+  });
+});
+
+test('the SMS page shows outbox counts and saves the platform caps', async ({ page }) => {
+  const requests = await fixture(page);
+  await openConsole(page);
+  await page.getByRole('link', { name: 'SMS' }).click();
+  const outbox = page.getByRole('region', { name: 'Outbox and SMS caps' });
+  await expect(outbox.getByTestId('outbox-counts')).toContainText('Failed2');
+  await expect(outbox).toContainText('12 / 2,000');
+  await outbox.getByLabel('SMS per hour (cap)').fill('500');
+  await outbox.getByRole('button', { name: 'Save caps' }).click();
+  await expect(outbox.getByRole('status').filter({ hasText: 'Caps saved and applied immediately.' })).toBeVisible();
+  expect(requests.find(r => r.method === 'PUT' && r.path === '/api/platform/sms')?.body).toEqual({ hourly_cap: 500, daily_cap: 20000, reset: [] });
+  await outbox.getByRole('button', { name: 'Use the .env values' }).click();
+  await expect(outbox.getByLabel('SMS per hour (cap)')).toHaveValue('2000');
 });
 
 test('organizers are created, rotated and revoked from the console; keys are shown once', async ({ page }) => {
