@@ -3,12 +3,14 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
-  alertDecision, alertFingerprint, alertText, buildProxyArgs, CDN_IPS_VENDORED, cdnProblems, chooseBackupType, encryptionProblems,
-  EVENT_MODE_CONF, loadParsPackCdnIpListText, nextReleases, offsiteConfigured, parseAddressRanges, parseEnvText, pgbackrestTime,
-  prefixOf, rcloneEnv, releaseId, rollbackTarget, selectExpired, timerPlan, walComposeEnv, walEnabled, walProblems,
-  writeVendoredCdnIpList,
+  alertDecision, alertFingerprint, alertText, buildProxyArgs, CDN_IPS_VENDORED, cdnProblems, certFinding, certTarget, chooseBackupType,
+  dataDirWarnings, DRILL_API_ENV, encryptionProblems, EVENT_MODE_CONF, fillTemplate, freshSecrets, loadParsPackCdnIpListText,
+  missingMediaKeys, missingSecrets, nextReleases, offsiteConfigured, parseAddressRanges, parseEnvText, pgbackrestTime, prefixOf,
+  rcloneEnv, releaseId, rollbackTarget, selectExpired, smsFindings, SNAPSHOT_BACKUP_SCRIPT, SNAPSHOT_FACTS_SQL, timerPlan,
+  walComposeEnv, walEnabled, walProblems, writeVendoredCdnIpList,
 } from './stack.mjs';
-import { readdirSync, readFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -195,4 +197,131 @@ test('base backups: full weekly, differential otherwise; pitr targets in pgBackR
   assert.equal(prefixOf({}), 'congress');
   assert.equal(offsiteConfigured(S3), true);
   assert.deepEqual(parseEnvText('# c\nA=1\nB=x=y\n\nnot a pair\n'), { A: '1', B: 'x=y' });
+});
+
+// ── Settings forwarded and documented, secrets, data folder (OPS-FIX-A) ─────────────────────────────
+
+const REPO = join(dirname(fileURLToPath(import.meta.url)), '../..');
+const read = (p) => readFileSync(join(REPO, p), 'utf8');
+
+/** Field names of `class Settings` in backend/app/config.py (annotated attributes before its first method). */
+function settingsFields() {
+  const body = read('backend/app/config.py').split('class Settings(BaseSettings):')[1].split(/\n {4}(?:@|def )/)[0];
+  return [...body.matchAll(/^ {4}([a-z_][a-z0-9_]*): /gm)].map((m) => m[1]);
+}
+
+test('compose forwards every API setting, and both env templates document every variable compose reads', () => {
+  const fields = settingsFields();
+  assert.ok(fields.length >= 40 && fields.includes('secret_box_key') && fields.includes('sms_daily_cap'), fields.join());
+  const compose = read('deploy/staging/compose.yaml');
+  const examples = ['deploy/staging/.env.staging.example', 'deploy/hosted/.env.hosted.example'].map((p) => [p, read(p)]);
+  // Set by compose itself from other values.
+  const derived = new Set(['database_url', 'media_root', 'cors_origins']);
+  for (const field of fields) {
+    const name = `CONGRESS_${field.toUpperCase()}`;
+    assert.match(compose, new RegExp(`^ {4}${name}: `, 'm'), `${name} is not forwarded by compose.yaml`);
+    if (derived.has(field)) continue;
+    for (const [path, text] of examples) assert.ok(new RegExp(`\\b${name}\\b`).test(text), `${name} is not documented in ${path}`);
+  }
+  for (const [, name] of compose.split('\n').filter((l) => !l.trim().startsWith('#')).join('\n').matchAll(/\$\{([A-Z_]+)[:}]/g)) {
+    for (const [path, text] of examples) assert.ok(new RegExp(`\\b${name}\\b`).test(text), `${name} (read by compose.yaml) is not documented in ${path}`);
+  }
+  // Optional settings are forwarded empty when unset: the API then applies its own default.
+  assert.match(compose, /^ {4}CONGRESS_SECRET_BOX_KEY: \$\{CONGRESS_SECRET_BOX_KEY:-\}$/m);
+  assert.match(compose, /^ {4}CONGRESS_SMS_DAILY_CAP: \$\{CONGRESS_SMS_DAILY_CAP:-\}$/m);
+});
+
+test('init fills every generated secret; the secret-box key is long and differs from the JWT secret', () => {
+  const secrets = freshSecrets();
+  for (const [k, v] of Object.entries(secrets)) assert.ok(v.length >= 32, k);
+  assert.notEqual(secrets.CONGRESS_SECRET_BOX_KEY, secrets.CONGRESS_JWT_SECRET);
+  const filled = parseEnvText(fillTemplate(read('deploy/staging/.env.staging.example'), { ...secrets, CONGRESS_PERSISTENT_DATA_ROOT: '/srv/x$1' }));
+  for (const k of Object.keys(secrets)) assert.equal(filled[k], secrets[k]);
+  assert.equal(filled.CONGRESS_PERSISTENT_DATA_ROOT, '/srv/x$1');
+  assert.ok(!Object.values(filled).some((v) => v.includes('<generate') || v.includes('<set by')), 'a placeholder is left');
+});
+
+test('init --add-missing adds only the secret-box key and never generates secrets an install already depends on', () => {
+  const existing = { POSTGRES_PASSWORD: 'p'.repeat(48), CONGRESS_PLATFORM_ADMIN_TOKEN: 'a'.repeat(43), CONGRESS_JWT_SECRET: 'j'.repeat(64) };
+  const { add, problems } = missingSecrets({ ...existing, CONGRESS_SECRET_BOX_KEY: '  ' });
+  assert.deepEqual(Object.keys(add), ['CONGRESS_SECRET_BOX_KEY']);
+  assert.ok(add.CONGRESS_SECRET_BOX_KEY.length >= 32 && add.CONGRESS_SECRET_BOX_KEY !== existing.CONGRESS_JWT_SECRET);
+  assert.deepEqual(problems, []);
+  assert.deepEqual(missingSecrets({ ...existing, CONGRESS_SECRET_BOX_KEY: 'b'.repeat(64) }).add, {});
+  const broken = missingSecrets({ CONGRESS_JWT_SECRET: 'j'.repeat(64), CONGRESS_SECRET_BOX_KEY: 'j'.repeat(64) });
+  assert.deepEqual(broken.add, {});
+  assert.match(broken.problems.join('\n'), /POSTGRES_PASSWORD is not set.*\n.*ADMIN_TOKEN is not set.*\n.*equals CONGRESS_JWT_SECRET/);
+});
+
+test('init warns when the data folder already holds a database or other containers use it', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'opsfixa-'));
+  try {
+    const paths = { postgres: join(dir, 'data/postgres') };
+    assert.deepEqual(dataDirWarnings(paths, []), []);
+    mkdirSync(paths.postgres, { recursive: true });
+    assert.deepEqual(dataDirWarnings(paths, []), []);
+    writeFileSync(join(paths.postgres, 'PG_VERSION'), '16\n');
+    assert.match(dataDirWarnings(paths, []).join(), /already holds a PostgreSQL data directory/);
+    assert.match(dataDirWarnings(paths, ['congress-postgres-1 (running)']).join('\n'), /containers already use it: congress-postgres-1/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+  // The development database has its own default folder.
+  assert.match(read('docker-compose.yml'), /\$\{CONGRESS_DEV_DATA_ROOT:-\$\{HOME\}\/congress-dev-data\}\/postgres:/);
+  assert.doesNotMatch(read('docker-compose.yml'), /\$\{CONGRESS_PERSISTENT_DATA_ROOT/);
+});
+
+// ── check: SMS delivery, certificate ──────────────────────────────────────────────────────────────────
+
+const healthyOutbox = { counts: { pending: 0, sending: 0, sent: 40, failed: 0, unknown: 0, resolved: 0 }, oldest_pending_at: null, sent_last_hour: 12, sent_last_day: 40, hourly_cap: 2000, daily_cap: 20000 };
+const levels = (findings) => findings.map((f) => f.level);
+
+test('smsFindings: healthy delivery is OK; lag, failures, caps and configuration problems are flagged', () => {
+  const now = Date.parse('2026-10-23T10:00:00Z');
+  const live = { effective: 'smsir' };
+  assert.ok(levels(smsFindings({ outbox: healthyOutbox, sms: live }, {}, { now })).every((l) => l === 'OK'));
+  const lagging = (min) => ({ ...healthyOutbox, counts: { ...healthyOutbox.counts, pending: 7 }, oldest_pending_at: new Date(now - min * 60_000).toISOString() });
+  assert.match(smsFindings({ outbox: lagging(12), sms: live }, {}, { now }).find((f) => f.level === 'WARNING').text, /7 queued, oldest waiting 12\.0 min/);
+  assert.ok(levels(smsFindings({ outbox: lagging(31), sms: live }, {}, { now })).includes('CRITICAL'));
+  assert.ok(levels(smsFindings({ outbox: lagging(12), sms: live }, { ALERT_SMS_LAG_MINUTES: '15' }, { now })).every((l) => l === 'OK'));
+  // A message scheduled for later is not lag.
+  assert.ok(levels(smsFindings({ outbox: lagging(-5), sms: live }, {}, { now })).every((l) => l === 'OK'));
+  const failed = { ...healthyOutbox, counts: { ...healthyOutbox.counts, failed: 2, unknown: 1 } };
+  assert.match(smsFindings({ outbox: failed, sms: live }, {}, { now }).find((f) => f.level === 'WARNING').text, /2 failed and 1 unconfirmed/);
+  assert.ok(levels(smsFindings({ outbox: failed, sms: live }, { ALERT_SMS_FAILED_MAX: '5' }, { now })).every((l) => l === 'OK'));
+  const capped = smsFindings({ outbox: { ...healthyOutbox, sent_last_hour: 2000, sent_last_day: 16500 }, sms: live }, {}, { now });
+  assert.match(capped.find((f) => f.level === 'CRITICAL').text, /hourly cap reached \(2000 of 2000\)/);
+  assert.match(capped.find((f) => f.level === 'WARNING').text, /daily cap at 16500 of 20000/);
+  assert.ok(levels(smsFindings({ outbox: { ...healthyOutbox, hourly_cap: 0, sent_last_hour: 99999 }, sms: live }, {}, { now })).every((l) => l === 'OK'), 'no cap, no alarm');
+  assert.ok(levels(smsFindings({ outbox: healthyOutbox, sms: live }, {}, { now, capRefusals: 3 })).includes('WARNING'));
+  assert.ok(levels(smsFindings({ outbox: healthyOutbox, sms: { effective: 'unconfigured' } }, {}, { now })).includes('CRITICAL'));
+  assert.ok(levels(smsFindings({ outbox: healthyOutbox, sms: { effective: 'console' } }, { CONGRESS_ENVIRONMENT: 'production' }, { now })).includes('CRITICAL'));
+  assert.deepEqual(levels(smsFindings({ outbox: healthyOutbox, sms: { effective: 'console' } }, { CONGRESS_ENVIRONMENT: 'staging' }, { now })).filter((l) => l !== 'OK'), ['INFO']);
+  // The alert fingerprint ignores the numbers, so a growing queue is one alert, not one per check.
+  assert.equal(alertFingerprint(smsFindings({ outbox: lagging(12), sms: live }, {}, { now })), alertFingerprint(smsFindings({ outbox: lagging(14), sms: live }, {}, { now })));
+});
+
+test('certificate expiry: which certificate is watched and how close to expiry is a problem', () => {
+  const now = Date.parse('2026-10-23T00:00:00Z');
+  const day = 86_400_000;
+  assert.equal(certFinding(new Date(now + 60 * day).toUTCString(), 'ACME', now).level, 'OK');
+  assert.equal(certFinding(new Date(now + 10 * day).toUTCString(), 'ACME', now).level, 'WARNING');
+  assert.equal(certFinding(new Date(now + 2 * day).toUTCString(), 'ACME', now).level, 'CRITICAL');
+  assert.match(certFinding(new Date(now - day).toUTCString(), 'ACME', now).text, /EXPIRED/);
+  assert.equal(certFinding(new Date(now + 20 * day).toUTCString(), 'ACME', now, 30).level, 'WARNING');
+  assert.equal(certTarget({ CONGRESS_PUBLIC_ORIGIN: 'https://localhost:8443', CONGRESS_TLS: 'internal' }), null, 'local CA: Caddy renews it');
+  assert.deepEqual(certTarget({ CONGRESS_PUBLIC_ORIGIN: 'https://c.example.org', CONGRESS_TLS: 'ops@example.org', CONGRESS_HTTPS_PORT: '443' }),
+    { host: '127.0.0.1', port: 443, servername: 'c.example.org', label: 'ACME (c.example.org)' });
+  assert.equal(certTarget({ CONGRESS_PUBLIC_ORIGIN: 'https://c.example.org', CONGRESS_TLS: 'internal', CONGRESS_CDN: 'on' }).host, 'c.example.org');
+});
+
+// ── Backups: every table counted, every referenced file checked, drills never send SMS ─────────────
+
+test('backups count every table and check every storage_key column inside the dump snapshot', () => {
+  assert.match(SNAPSHOT_BACKUP_SCRIPT, /^begin isolation level repeatable read read only;\nselect pg_export_snapshot\(\) as snap \\gset\n\\setenv CONGRESS_SNAPSHOT :snap\n\\! pg_dump .*--snapshot="\$CONGRESS_SNAPSHOT"/);
+  assert.match(SNAPSHOT_FACTS_SQL, /information_schema\.tables where table_schema = 'public' and table_type = 'BASE TABLE'/);
+  assert.match(SNAPSHOT_FACTS_SQL, /information_schema\.columns where table_schema = 'public' and column_name = 'storage_key'/);
+  assert.match(SNAPSHOT_BACKUP_SCRIPT, /commit;\n$/);
+  assert.deepEqual(missingMediaKeys(['e1/a.webp', 'e1/program/f.pdf', './e2/b.png'], new Set(['e1/a.webp', 'e2/b.png'])), ['e1/program/f.pdf']);
+  assert.deepEqual(DRILL_API_ENV, { CONGRESS_SMS_OUTBOX_ENABLED: 'false', CONGRESS_RETENTION_ENABLED: 'false' });
 });
