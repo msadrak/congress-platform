@@ -1,5 +1,17 @@
 # Project Delivery Report: Congress Management Platform
 
+> **Historical delivery report (2026-10-06). Its status line is superseded: the platform is NOT "production-ready" or
+> "100% verified".** `docs/pilot/MASTER-PILOT-READINESS.md` rates it a **conditional GO for a controlled on-premise
+> pilot (up to 1,000 attendees)** and **NO-GO for unrestricted production**.
+>
+> **Current sources of truth:** the ADRs in `docs/adr/` (with their "Status / Implementation notes" sections where present),
+> `GLOSSARY.md`, `AGENTS.md`, and `docs/pilot/MASTER-PILOT-READINESS.md` for what the platform is cleared to run.
+>
+> Also outdated here: PBKDF2 **password** hashing and e-mail accounts (removed; mobile + SMS code, ADR 0012);
+> **Redis** in the stack (not used; ADR 0006 status); the decoupled **Order** of ADR 0003/0005 (not implemented, tickets
+> are bound to the reserving user); and the **Flutter / Dart mobile app** with ML Kit and SQLite (only a pure-Dart engine
+> with tests exists, now parked: `mobile/README.md`). Test counts are those of that date.
+
 **Date:** October 6, 2026  
 **Repository:** [github.com/msadrak/congress-platform](https://github.com/msadrak/congress-platform)  
 **Status:** Milestones V1 & V2 Complete — 100% Verified Across All Stacks

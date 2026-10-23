@@ -12,3 +12,17 @@ We adopt a **modular monolith** with **row-level multi-tenancy** (tenant/organiz
 ## Consequences
 - Operational overhead remains low: one codebase, one database migration stream, one deployment pipeline.
 - Scalability is achieved by scaling stateless application containers and offloading slow tasks (emails, badge rasterization, reports) to background workers.
+
+## Status / Implementation notes (2026-10-23)
+
+The decision above stands as history; this section records how far the code follows it.
+
+- **Implemented:** one FastAPI codebase, one PostgreSQL database, one Alembic migration stream, and organizer scoping
+  on every event-owned query (row-level tenancy).
+- **Not implemented: Redis and Celery.** Neither is a dependency. Ticket inventory is an atomic conditional `UPDATE`
+  of `ticket_tiers.reserved_count` in PostgreSQL; the SMS outbox (ADR 0012) is an asyncio task inside the API process
+  polling a PostgreSQL table; sign-in and SMS throttling are in-process counters (`app/rate_limit.py`), which another
+  workstream is moving to PostgreSQL.
+- **Not horizontally scaled yet.** The in-process throttles, the outbox loop and the platform settings cache
+  (ADR 0013) assume **one API process per deployment**. Several replicas need shared throttling state and a settings
+  change notification first. The supported pilot size is in `docs/pilot/MASTER-PILOT-READINESS.md`.

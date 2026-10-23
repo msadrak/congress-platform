@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Product-reality probe (diagnostic, disposable): `node scripts/integration/reality-probe.mjs`.
- * Requires Docker, the local backend image used by congress-e2e.mjs, postgres:16, a built `web/dist` and Edge. Fresh PostgreSQL in a private Docker network with a
+ * Requires Docker, the local backend image used by congress-e2e.mjs, postgres:16, a built `web/dist` and Edge (or the browser named by CONGRESS_BROWSER_CHANNEL). Fresh PostgreSQL in a private Docker network with a
  * named volume, API published on 127.0.0.1 (from the existing local backend image), production web build
  * served by `vite preview` on 127.0.0.1 — both on free ports picked per run. No seed data. Everything is removed at the end.
  */
@@ -99,7 +99,7 @@ try {
 
   preview = startPreview({ port: WEB_PORT, apiOrigin: API_URL });
   await wait('preview', async () => (await fetch(BASE)).ok);
-  browser = await chromium.launch({ channel: 'msedge' });
+  browser = await chromium.launch({ channel: process.env.CONGRESS_BROWSER_CHANNEL ?? 'msedge' });
   const page = async (vw = { width: 1280, height: 900 }) => { const c = await browser.newContext({ viewport: vw, serviceWorkers: 'block' }); await c.addInitScript(() => localStorage.setItem('congress_attendee_locale', 'en')); return c.newPage(); };
 
   // ── Organizer onboarding ──
