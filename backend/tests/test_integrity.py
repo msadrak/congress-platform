@@ -24,10 +24,10 @@ from sqlalchemy.exc import DBAPIError
 
 from app.main import create_app
 from tests.conftest import BACKEND_DIR, TEST_URL, _truncate_all, alembic_config, make_test_settings
-from tests.helpers import bearer, desk_sign_in, provision_organizer
+from tests.helpers import bearer, desk_sign_in, provision_organizer, publish_page
 from tests.test_booths import BOOTH_PAYLOAD
 from tests.test_events import EVENT
-from tests.test_ticket_tiers import create_event, tier
+from tests.test_ticket_tiers import create_event as create_draft_event, tier
 from tests.test_tickets import register_user
 
 PLAIN_URL = TEST_URL.replace("+asyncpg", "")
@@ -54,12 +54,20 @@ async def scalar(sql: str, *args: Any) -> Any:
         await conn.close()
 
 
+async def create_event(client: AsyncClient, organizer: dict[str, str]) -> str:
+    """A new event with its page published, so attendees can reserve tickets."""
+    event_id = await create_draft_event(client, organizer)
+    await publish_page(client, organizer, event_id)
+    return event_id
+
+
 async def second_event(client: AsyncClient, organizer: dict[str, str]) -> str:
     response = await client.post(
         "/api/events", json={**EVENT, "slug": f"event-b-{uuid.uuid4().hex[:6]}"}, headers=bearer(organizer)
     )
     assert response.status_code == 201, response.text
     event_id: str = response.json()["id"]
+    await publish_page(client, organizer, event_id)
     return event_id
 
 
