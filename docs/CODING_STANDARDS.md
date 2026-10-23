@@ -30,6 +30,10 @@ Mechanical rules live in checks, not here: no `any` (oxlint `typescript/no-expli
 - **Checks:** `web/tests/glossary.test.ts` (banned terms, with a per-file allowlist that only shrinks), `web/tests/copyGuard.test.ts` (per-file counts of inline locale ternaries, Persian text in `.tsx`, developer terms and "..." in Persian strings, against `tests/copy-baseline.json`, which only goes down), `web/tests/apiErrorCodes.test.ts` (every backend code has fa and en messages; Persian readers never see English).
 - **Why:** One place per string keeps the wording reviewable and consistent; the type makes a missing translation a build error.
 
+### F. Design Tokens, Dates and Icons
+- **Rule:** Sizes, radii and colours come from the tokens in `web/src/index.css` (`text-caption` … `text-display`, `rounded-control` / `rounded-card`, `h-(--control-sm|md|lg)`, the colour tokens) and the shared `components/ui` primitives. Dates, times, numbers and zones go through `lib/format.ts` (the only module with `Intl.DateTimeFormat`); date entry uses `ui/DateTimeField`; whole numbers use `ui/Input`'s `NumberInput`. Directional icons are passed by their logical name and `ui/Icon` mirrors them in RTL.
+- **Checks:** `web/tests/designGuard.test.ts` fails on `rounded-[`, `text-[N`, `font-[N` and `[#hex]` in `.tsx`, `isRtl ? "chevron-…"` / `dir === "rtl" ? "arrow-…"`, `bg-meridian`, `SectionIndex`, the `.eyebrow` class, `type="datetime-local"` and `new Intl.DateTimeFormat` outside `lib/format.ts`, with a per-file allowlist that only shrinks.
+
 ---
 
 ## 2. Python & FastAPI Standards (`backend/`)
