@@ -17,18 +17,11 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import DateTime, String, func, literal, select
 
+from app.csv_export import AnyRow, csv_response, csv_stream
 from app.db import SessionDep
 from app.errors import ApiError, error_responses
 from app.models import CheckIn, CheckInPoint, Event, EventSession, Ticket, TicketTier, User
-from app.routes.analytics import (
-    ATTENDEE_HEADERS,
-    AnyRow,
-    _csv_response,
-    _csv_stream,
-    attendee_columns,
-    event_timezone,
-    local_iso,
-)
+from app.routes.analytics import ATTENDEE_HEADERS, attendee_columns, event_timezone, local_iso
 from app.routes.checkin import _latest_presence, admission_window
 from app.routes.events import OwnedEventDep, event_zone
 
@@ -245,5 +238,5 @@ async def export_session_attendance_csv(
             local_iso(first, first_utc), local_iso(last, last_utc), admissions, exits,
         ]
 
-    body = _csv_stream(request.app.state.sessionmaker, header, statement, cells)
-    return _csv_response(f"{event.slug}-session-attendance.csv", body)
+    body = csv_stream(request.app.state.sessionmaker, header, statement, cells)
+    return csv_response(f"{event.slug}-session-attendance.csv", body)

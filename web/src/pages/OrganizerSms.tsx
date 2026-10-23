@@ -27,6 +27,9 @@ const STATUS_BADGE: Record<string, "success" | "warning" | "danger" | "neutral">
   resolved: "neutral",
 };
 
+/** Messages per page of the log; a shorter page is the last one. */
+const LOG_PAGE = 50;
+
 /** A message action awaiting the organizer's confirmation: retrying an unknown message may deliver it twice. */
 type PendingRetry = SmsMessageOut | null;
 
@@ -45,6 +48,8 @@ function OrganizerSmsContent() {
   const [event, setEvent] = useState<EventOut | null>(null);
   const [panel, setPanel] = useState<SmsPanelOut | null>(null);
   const [messages, setMessages] = useState<SmsMessageOut[]>([]);
+  const [hasOlder, setHasOlder] = useState(false);
+  const [loadingOlder, setLoadingOlder] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [pendingRetry, setPendingRetry] = useState<PendingRetry>(null);
@@ -57,10 +62,34 @@ function OrganizerSmsContent() {
   const loadMessages = useCallback(async () => {
     if (!client || !eventId || !canManage) return;
     const { data } = await client.GET("/api/events/{event_id}/sms/messages", {
-      params: { path: { event_id: eventId }, query: { limit: 50 } },
+      params: { path: { event_id: eventId }, query: { limit: LOG_PAGE } },
     });
-    if (data) setMessages(data);
+    if (data) {
+      setMessages(data);
+      setHasOlder(data.length === LOG_PAGE);
+    }
   }, [client, eventId, canManage]);
+
+  /** The next page of older messages, after the last one shown. */
+  const loadOlder = async () => {
+    const last = messages.at(-1);
+    if (!client || !eventId || !canManage || !last || loadingOlder) return;
+    setLoadingOlder(true);
+    setActionError(null);
+    try {
+      const { data, error } = await client.GET("/api/events/{event_id}/sms/messages", {
+        params: { path: { event_id: eventId }, query: { limit: LOG_PAGE, before: last.id } },
+      });
+      if (data) {
+        setMessages((current) => [...current, ...data.filter((m) => !current.some((c) => c.id === m.id))]);
+        setHasOlder(data.length === LOG_PAGE);
+      } else setActionError(localizedApiError(error, locale));
+    } catch {
+      setActionError(networkErrorMessage[locale]);
+    } finally {
+      setLoadingOlder(false);
+    }
+  };
 
   useEffect(() => {
     // Without an organizer key nothing is dispatched; the layout shows the key gate.
@@ -71,14 +100,17 @@ function OrganizerSmsContent() {
         client.GET("/api/events/{event_id}", { params: { path: { event_id: eventId } } }),
         client.GET("/api/events/{event_id}/sms", { params: { path: { event_id: eventId } } }),
         canManage
-          ? client.GET("/api/events/{event_id}/sms/messages", { params: { path: { event_id: eventId }, query: { limit: 50 } } })
+          ? client.GET("/api/events/{event_id}/sms/messages", { params: { path: { event_id: eventId }, query: { limit: LOG_PAGE } } })
           : Promise.resolve({ data: undefined }),
       ]);
       if (!active) return;
       if (ev.data) setEvent(ev.data);
       if (sms.data) setPanel(sms.data);
       else setLoadError(sms.error ? localizedApiError(sms.error, locale) : null);
-      if (log.data) setMessages(log.data);
+      if (log.data) {
+        setMessages(log.data);
+        setHasOlder(log.data.length === LOG_PAGE);
+      }
       setLoading(false);
     })().catch(() => {
       if (active) {
@@ -338,6 +370,13 @@ function OrganizerSmsContent() {
                 </li>
               ))}
             </ul>
+          )}
+          {hasOlder && messages.length > 0 && (
+            <div className="flex justify-center">
+              <Button type="button" variant="secondary" size="sm" aria-busy={loadingOlder} disabled={loadingOlder} onClick={() => void loadOlder()}>
+                {isRtl ? "پیامک‌های قدیمی‌تر" : "Older messages"}
+              </Button>
+            </div>
           )}
         </section>
       )}

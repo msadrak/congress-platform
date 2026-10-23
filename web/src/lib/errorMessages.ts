@@ -39,7 +39,7 @@ export const errorMessages: Record<AttendeeLocale, Record<string, string>> = {
     PROGRAM_FILE_TOO_LARGE: "حجم فایل برنامه حداکثر ۸ مگابایت است.",
     PROGRAM_FILE_EMPTY: "فایل خالی است.",
     PROGRAM_FILE_LIMIT_REACHED: "هر همایش حداکثر ۲۰ فایل برنامه دارد؛ ابتدا یکی را حذف کنید.",
-    PROGRAM_FILE_PDF_REJECTED: "این PDF پذیرفته نشد: یا PDF معتبر نیست یا اسکریپت، فایل پیوست یا فرم فعال دارد.",
+    PROGRAM_FILE_PDF_REJECTED: "این PDF پذیرفته نشد: یا PDF معتبر نیست، یا اسکریپت، کنش خودکار، پیوند وب، فرم یا فایل پیوست دارد، یا محتوایش قابل بررسی نیست. فایل را بدون پیوند دوباره به‌صورت PDF ذخیره یا چاپ کنید.",
     PROGRAM_FILE_IMAGE_REJECTED: "این تصویر خوانده نشد یا ابعادش بیش از حد مجاز است.",
     OPERATOR_ALREADY_ASSIGNED: "این شماره پیش‌تر اپراتور پذیرش این همایش است.",
     IDEMPOTENCY_KEY_REUSED: "این ثبت با اطلاعات دیگری فرستاده شده بود. اطلاعات را بررسی و دوباره ثبت کنید.",
@@ -117,6 +117,14 @@ export const errorMessages: Record<AttendeeLocale, Record<string, string>> = {
     SCANNER_REVOKED: "دسترسی این دستگاه لغو شده است؛ برای ادامه دوباره آن را متصل کنید.",
     SCANNER_SCOPE_MISMATCH: "توکن این دستگاه برای نقطه ورود یا همایش دیگری صادر شده است.",
     SCANNER_DEVICE_NOT_FOUND: "این دستگاه یافت نشد؛ فهرست را تازه کنید.",
+    // Organizer credentials, events and booths (backend/app/auth.py, routes/events.py, booths.py, organizer_console.py)
+    API_KEY_MISSING: "برای ادامه وارد پنل برگزارکننده شوید.",
+    API_KEY_INVALID: "کلید دسترسی نامعتبر است یا نشست شما به پایان رسیده است. دوباره وارد شوید.",
+    EVENT_SLUG_TAKEN: "این نشانی (اسلاگ) را همایش دیگری استفاده می‌کند. نشانی دیگری انتخاب کنید.",
+    BOOTH_SLUG_TAKEN: "این نشانی (اسلاگ) را غرفهٔ دیگری در این همایش استفاده می‌کند. نشانی دیگری انتخاب کنید.",
+    EVENT_TIMES_INVALID: "زمان پایان همایش باید پس از زمان آغاز آن باشد.",
+    REGISTRATION_WINDOW_INVALID: "زمان بسته‌شدن ثبت‌نام باید پس از زمان بازشدن آن باشد.",
+    MEMBER_NOT_FOUND: "این عضو یافت نشد. فهرست را به‌روز کنید.",
   },
   en: {
     EVENT_NOT_FOUND: "This congress could not be found.",
@@ -151,7 +159,7 @@ export const errorMessages: Record<AttendeeLocale, Record<string, string>> = {
     PROGRAM_FILE_TOO_LARGE: "Schedule files are limited to 8 MB.",
     PROGRAM_FILE_EMPTY: "The file is empty.",
     PROGRAM_FILE_LIMIT_REACHED: "A congress can have at most 20 schedule files; delete one first.",
-    PROGRAM_FILE_PDF_REJECTED: "This PDF was refused: it is not a valid PDF, or it has scripts, attachments or active forms.",
+    PROGRAM_FILE_PDF_REJECTED: "This PDF was refused: it is not a valid PDF, it has scripts, automatic actions, web links, forms or attachments, or its content cannot be checked. Save or print it again as a PDF without links.",
     PROGRAM_FILE_IMAGE_REJECTED: "This image could not be read or is too large in pixels.",
     OPERATOR_ALREADY_ASSIGNED: "This number is already a reception operator for this congress.",
     IDEMPOTENCY_KEY_REUSED: "This submission was already sent with different details. Check the entry and submit again.",
@@ -229,6 +237,14 @@ export const errorMessages: Record<AttendeeLocale, Record<string, string>> = {
     SCANNER_REVOKED: "This device's access was revoked; pair it again to continue.",
     SCANNER_SCOPE_MISMATCH: "This device's token was issued for another check-in point or congress.",
     SCANNER_DEVICE_NOT_FOUND: "This device could not be found; reload the list.",
+    // Organizer credentials, events and booths (backend/app/auth.py, routes/events.py, booths.py, organizer_console.py)
+    API_KEY_MISSING: "Sign in to the organizer console to continue.",
+    API_KEY_INVALID: "The access key is invalid or your session has ended. Sign in again.",
+    EVENT_SLUG_TAKEN: "Another congress already uses this address (slug). Choose a different one.",
+    BOOTH_SLUG_TAKEN: "Another booth of this congress already uses this address (slug). Choose a different one.",
+    EVENT_TIMES_INVALID: "The congress must end after it starts.",
+    REGISTRATION_WINDOW_INVALID: "Registration must close after it opens.",
+    MEMBER_NOT_FOUND: "This member could not be found. Refresh the list.",
   },
 };
 

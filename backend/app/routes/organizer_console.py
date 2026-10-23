@@ -10,7 +10,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, HTTPException, Query, Request, Response, status
+from fastapi import APIRouter, Query, Request, Response, status
 from pydantic import BaseModel, ConfigDict, StringConstraints
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
@@ -319,13 +319,26 @@ async def add_member(
 
 
 async def _organizer_member(session: SessionDep, organizer_id: uuid.UUID, member_id: uuid.UUID) -> OrganizerMember:
+    """The member, locked for a change. The organizer's active owners are locked first, always in the same order,
+    so two changes that could each remove an owner (two owners demoting or removing each other) run one after
+    the other and the second one counts what the first left (`_refuse_last_owner`)."""
+    await session.execute(
+        select(OrganizerMember.id)
+        .where(
+            OrganizerMember.organizer_id == organizer_id,
+            OrganizerMember.role == "owner",
+            OrganizerMember.revoked_at.is_(None),
+        )
+        .order_by(OrganizerMember.id)
+        .with_for_update()
+    )
     member = await session.scalar(
         select(OrganizerMember)
         .where(OrganizerMember.id == member_id, OrganizerMember.organizer_id == organizer_id)
         .with_for_update()
     )
     if member is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Member not found")
+        raise ApiError(status.HTTP_404_NOT_FOUND, "MEMBER_NOT_FOUND", "Member not found")
     return member
 
 
@@ -364,7 +377,9 @@ async def invite_member(
     return await add_member(session, request, principal.organizer, body, principal.label)
 
 
-@router.patch("/members/{member_id}", responses=error_responses(status.HTTP_409_CONFLICT))
+@router.patch(
+    "/members/{member_id}", responses=error_responses(status.HTTP_404_NOT_FOUND, status.HTTP_409_CONFLICT)
+)
 async def update_member(
     member_id: uuid.UUID, body: MemberUpdate, principal: OrganizerPrincipalDep, request: Request, session: SessionDep
 ) -> MemberOut:
@@ -391,7 +406,9 @@ async def update_member(
     return _member_out(member, await _mobile(session, member))
 
 
-@router.post("/members/{member_id}/revoke", responses=error_responses(status.HTTP_409_CONFLICT))
+@router.post(
+    "/members/{member_id}/revoke", responses=error_responses(status.HTTP_404_NOT_FOUND, status.HTTP_409_CONFLICT)
+)
 async def revoke_member(
     member_id: uuid.UUID, principal: OrganizerPrincipalDep, request: Request, session: SessionDep
 ) -> MemberOut:
