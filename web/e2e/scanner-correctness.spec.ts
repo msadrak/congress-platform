@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import type { BrowserContext, Page } from '@playwright/test';
-import { manifestExists, storedScans, wireManifest, type FixtureManifest, type FixtureTicket } from './scannerFixtures';
+import { expectScannerOnline, manifestExists, manualScan, storedScans, unpairFromMenu, verdictReason, verdictTitle, wireManifest, type FixtureManifest, type FixtureTicket } from './scannerFixtures';
 
 /**
  * Gate scanner correctness: server-decided online scans, device verdicts that survive a sync, conflicts
@@ -104,15 +104,11 @@ async function openScanner(page: Page, server: FakeServer, { fakeClock = false }
   if (fakeClock) await page.clock.install();
   await server.install(page);
   await page.goto(`/scan/${POINT_ID}?token=${TOKEN}`);
-  await expect(page.getByText('Correctness Gate')).toBeVisible();
-  await expect(page.getByText(/Manifest synced/)).toBeVisible();
+  await expectScannerOnline(page, 'Correctness Gate');
   if (fakeClock) await page.clock.pauseAt(Date.now() + 1000);
 }
 
-const manual = async (page: Page, value: string) => {
-  await page.getByPlaceholder("Paste the badge's QR code").fill(value);
-  await page.getByRole('button', { name: 'Check Ticket' }).click();
-};
+const manual = manualScan;
 const goOffline = async (context: BrowserContext, page: Page) => {
   await context.setOffline(true);
   await expect.poll(() => page.evaluate(() => navigator.onLine)).toBe(false);
@@ -125,7 +121,8 @@ test('an online scan shows the server verdict, even when the cached manifest wou
   server.state.inactive.add(code(2)); // cancelled after the manifest was cached
 
   await manual(page, code(2));
-  await expect(page.locator('.scanner-takeover-reason')).toHaveText('Ticket cancelled or QR code deactivated');
+  await expect(verdictTitle(page)).toHaveText('Rejected');
+  await expect(verdictReason(page)).toHaveText('Pass cancelled');
   await expect.poll(async () => (await scansOf(page, code(2)))[0]).toMatchObject({ status: 'REJECTED', rejection_reason: 'TICKET_INACTIVE', synced: true });
   expect(server.state.singleScans).toHaveLength(1);
   expect(server.state.batches).toHaveLength(0);
@@ -137,7 +134,7 @@ test('a scan the server is too slow to answer is admitted provisionally and uplo
   server.state.scanMode = 'slow';
 
   await manual(page, code(1));
-  await expect(page.getByText('Admitted (offline)')).toBeVisible({ timeout: 5000 });
+  await expect(verdictTitle(page)).toHaveText('Admitted (offline)', { timeout: 5000 });
   await expect.poll(() => server.state.batches.length, { timeout: 10000 }).toBeGreaterThan(0);
   const [single] = server.state.singleScans;
   const uploaded = server.state.batches.flat().find((s) => s.qr_secret === code(1));
@@ -157,7 +154,7 @@ test('a scan the device rejected offline stays rejected after sync, and is never
   await expect.poll(async () => (await scansOf(page, 'secnotonlist01'))[0]?.synced, { timeout: 10000 }).toBe(true);
   expect(server.state.batches.flat()[0]).toMatchObject({ qr_secret: 'secnotonlist01', client_verdict: 'REJECTED', client_rejection_reason: 'NOT_IN_LOCAL_MANIFEST' });
   expect((await scansOf(page, 'secnotonlist01'))[0]).toMatchObject({ status: 'REJECTED', sync_state: 'LOCAL_REJECTED', rejection_reason: 'NOT_IN_LOCAL_MANIFEST' });
-  await expect(page.getByRole('button', { name: /Conflicts/ })).toHaveCount(0);
+  await expect(page.locator('[data-status="conflicts"]')).toHaveCount(0);
 });
 
 test('after a conflict, a re-scan of the single-use ticket is rejected', async ({ context, page }) => {
@@ -171,7 +168,7 @@ test('after a conflict, a re-scan of the single-use ticket is rejected', async (
   server.state.admitted.add(code(1));
   await context.setOffline(false);
   await expect.poll(async () => (await scansOf(page, code(1)))[0]?.sync_state, { timeout: 10000 }).toBe('CONFLICT');
-  await expect(page.getByRole('button', { name: /1 Conflicts/ })).toBeVisible();
+  await expect(page.locator('[data-status="conflicts"]')).toHaveText('1 conflict');
 
   // The device's own admission did not count, but the ticket is admitted: presenting it again is refused.
   await goOffline(context, page);
@@ -226,9 +223,8 @@ test('a confirmed unpair wipes the cached manifest and the scans from the device
   await expect.poll(async () => (await scansOf(page, code(1)))[0]?.sync_state).toBe('CONFIRMED');
   expect(await manifestExists(page, POINT_ID)).toBe(true);
 
-  await page.getByRole('button', { name: /Unpair This Scanner/i }).click();
-  await page.getByRole('button', { name: /Confirm Unpair/i }).click();
-  await expect(page.getByText(/Server revocation confirmed/i)).toBeVisible({ timeout: 10000 });
+  await unpairFromMenu(page);
+  await expect(page.getByRole('heading', { name: 'Unpaired' })).toBeVisible({ timeout: 10000 });
   expect(await manifestExists(page, POINT_ID)).toBe(false);
   expect(await storedScans(page)).toEqual([]);
   await expect(page.getByText('Correctness Gate')).toHaveCount(0);
@@ -241,11 +237,11 @@ test('a check-in point scans in one tab only; a second tab takes over when the f
   const second = await context.newPage();
   await server.install(second);
   await second.goto(`/scan/${POINT_ID}`);
-  await expect(second.getByText('This gate is open in another tab')).toBeVisible();
+  await expect(second.getByRole('heading', { name: 'Open in another tab' })).toBeVisible();
   await expect(second.getByText('Correctness Gate')).toHaveCount(0);
 
   await page.close();
   await expect(second.getByText('Correctness Gate')).toBeVisible({ timeout: 10000 });
-  await expect(second.getByText('This gate is open in another tab')).toHaveCount(0);
+  await expect(second.getByRole('heading', { name: 'Open in another tab' })).toHaveCount(0);
   await second.close();
 });

@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import type { BrowserContext, Page } from '@playwright/test';
-import { storedScans, wireManifest } from './scannerFixtures';
+import { expectScannerOnline, gateScreen, manualScan, pickMenuItem, storedScans, wireManifest } from './scannerFixtures';
 
 /**
  * Scanner synchronization and capacity regressions.
@@ -115,16 +115,12 @@ async function openScanner(page: Page, server: FakeServer, { fakeClock = false }
   if (fakeClock) await page.clock.install();
   await server.install(page);
   await page.goto(`/scan/${POINT_ID}?token=${TOKEN}`);
-  await expect(page.getByText('Sync Gate')).toBeVisible();
-  await expect(page.getByText(/Manifest synced/)).toBeVisible();
+  await expectScannerOnline(page, 'Sync Gate');
   // From here on page timers (the 5 s sync timer included) only fire when the test advances time.
   if (fakeClock) await page.clock.pauseAt(Date.now() + 1000);
 }
 
-const manual = async (page: Page, n: number) => {
-  await page.getByPlaceholder("Paste the badge's QR code").fill(code(n));
-  await page.getByRole('button', { name: 'Check Ticket' }).click();
-};
+const manual = (page: Page, n: number) => manualScan(page, code(n));
 /** A USB/Bluetooth HID reader: a burst of keystrokes ending in Enter, outside any input field. */
 const hid = async (page: Page, n: number) => {
   await page.evaluate(() => { if (document.activeElement instanceof HTMLElement) document.activeElement.blur(); });
@@ -143,7 +139,7 @@ test.describe('scanner synchronization', () => {
     await openScanner(page, server, { fakeClock: true });
     server.state.mode = 'revoked';
     await manual(page, 1);
-    await expect(page.getByText(/device deauthorized/i)).toBeVisible();
+    await expect(gateScreen(page, 'revoked')).toBeVisible();
     expect(server.state.batches).toHaveLength(1);
 
     for (let i = 0; i < 3; i++) await timerTick(page);
@@ -203,7 +199,7 @@ test.describe('scanner synchronization', () => {
     server.state.mode = 'ok';
     await timerTick(page);
     await expect.poll(async () => (await scanOf(page, 1))[0]?.sync_state).toBe('CONFIRMED');
-    await expect(page.getByText(/device deauthorized/i)).toHaveCount(0);
+    await expect(gateScreen(page, 'revoked')).toHaveCount(0);
   });
 
   test('revocation with queued offline scans keeps every record unsynced and stops retrying', async ({ context, page }) => {
@@ -216,7 +212,7 @@ test.describe('scanner synchronization', () => {
 
     server.state.mode = 'revoked';
     await context.setOffline(false);
-    await expect(page.getByText(/device deauthorized/i)).toBeVisible();
+    await expect(gateScreen(page, 'revoked')).toBeVisible();
     for (let i = 0; i < 3; i++) await timerTick(page);
 
     expect(server.state.batches).toHaveLength(1);
@@ -259,9 +255,11 @@ test.describe('scanner capacity', () => {
     await openScanner(page, server);
     // Another gate admitted ticket 1; the refreshed manifest says so.
     server.state.manifest = manifestFor('SINGLE_USE', null, [1]);
-    const refresh = page.getByRole('button', { name: /Refresh Cache/i });
-    await refresh.click();
-    await expect(refresh).toBeEnabled(); // the refresh (fetch, cache, rebuild) has finished
+    await pickMenuItem(page, 'Refresh list');
+    // The item is enabled again once the refresh (fetch, cache, rebuild) has finished.
+    await page.getByRole('button', { name: 'Menu' }).click();
+    await expect(page.getByRole('menuitem', { name: 'Refresh list' })).not.toHaveAttribute('aria-disabled', 'true');
+    await page.keyboard.press('Escape');
 
     // Hold the server's answers so every record below shows the scanner's own local decision.
     server.holdBatches();
@@ -294,7 +292,7 @@ test.describe('scanner capacity', () => {
       };
     });
     await openScanner(page, server);
-    await page.getByRole('button', { name: /camera/i }).first().click();
+    await page.getByRole('button', { name: 'Turn on camera' }).click();
 
     await manual(page, 1);
     await expect.poll(async () => (await storedScans(page)).length).toBe(1);

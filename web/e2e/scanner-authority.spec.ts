@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
-import { wireManifest } from './scannerFixtures';
+import { gateScreen, unpairFromMenu, wireManifest } from './scannerFixtures';
 
 // Shipping /scan/:pointId page + synthetic, intercepted /api/ responses: not FastAPI/PostgreSQL E2E.
 // Offline reload, queue and reconciliation behavior stays covered by scanner-offline.spec.ts.
@@ -90,10 +90,7 @@ async function pair(page: Page) {
   await expect(page.getByText('Authority Gate')).toBeVisible();
 }
 
-async function unpair(page: Page) {
-  await page.getByRole('button', { name: /Unpair This Scanner/i }).click();
-  await page.getByRole('button', { name: /Confirm Unpair/i }).click();
-}
+const unpair = unpairFromMenu;
 
 test('manifest, batch and self-revoke send only the scanner token, with the device verdict and unchanged URL', async ({ page }) => {
   const requests = await fixture(page);
@@ -102,7 +99,7 @@ test('manifest, batch and self-revoke send only the scanner token, with the devi
   await pair(page);
   await injectScan(page, 'authority-scan-001');
   await unpair(page);
-  await expect(page.getByText(/Server revocation confirmed/i)).toBeVisible({ timeout: 15000 });
+  await expect(page.getByRole('heading', { name: /^(Unpaired|اتصال قطع شد)$/ })).toBeVisible({ timeout: 15000 });
   const paths = requests.map(r => `${r.method} ${r.path.replace(POINT_ID, ':point')}`);
   expect(paths).toEqual(expect.arrayContaining(['GET /api/checkin-points/:point/manifest', 'POST /api/checkin-points/:point/scans/batch', 'POST /api/checkin-points/:point/devices/self/revoke']));
   expect(requests.every(r => r.auth === bearer(SCANNER_TOKEN))).toBe(true);
@@ -121,7 +118,8 @@ test('without a scanner credential no request is sent and human sessions are nev
   await seedHumanSessions(page);
   requests.length = 0;
   await page.goto(`/scan/${POINT_ID}`);
-  await expect(page.getByText(/Pair this scanner with a valid device token/i)).toBeVisible();
+  await expect(gateScreen(page, 'unpaired')).toBeVisible();
+  await expect(page.getByRole('button', { name: /^(Scan pairing QR code|اسکن کد QR اتصال)$/ })).toBeVisible();
   // A queued scan makes the background sync try to send; with no device credential it must not.
   await injectScan(page, 'authority-scan-003');
   await page.waitForTimeout(6500);
@@ -134,7 +132,7 @@ test('a revoked device (401) blocks admissions and never retries with another cr
   await seedHumanSessions(page);
   requests.length = 0;
   await page.goto(`/scan/${POINT_ID}?token=${SCANNER_TOKEN}`);
-  await expect(page.getByText(/revoked/i).first()).toBeVisible();
+  await expect(gateScreen(page, 'revoked')).toBeVisible();
   expect(requests.length).toBeGreaterThan(0);
   expect(requests.every(r => r.auth === bearer(SCANNER_TOKEN))).toBe(true);
   expect(await storedScannerToken(page)).toBe(SCANNER_TOKEN);
@@ -147,7 +145,9 @@ test('failed self-revoke keeps the credential and the scan records and sends onl
   await pair(page);
   await injectScan(page, 'authority-scan-002');
   await unpair(page);
-  await expect(page.getByText(/server revocation was not confirmed \(HTTP 500\)/i)).toBeVisible({ timeout: 15000 });
+  await expect(gateScreen(page, 'suspended')).toBeVisible({ timeout: 15000 });
+  // The status code is for supervisors: folded under the technical details.
+  await expect(gateScreen(page, 'suspended')).toContainText('HTTP 500');
   expect(await storedScannerToken(page)).toBe(SCANNER_TOKEN);
   expect(await scanCount(page)).toBe(1);
   const revoke = requests.filter(r => r.path.endsWith('/devices/self/revoke'));

@@ -66,7 +66,6 @@ const ALLOWED: Readonly<Record<string, readonly string[]>> = {
   "web/src/components/reception/ReceptionStation.tsx": ["تلاش مجدد"],
   "web/src/components/reception/ResendPassSms.tsx": ["لینک"],
   "web/src/components/reception/WalkInForm.tsx": ["لینک"],
-  "web/src/components/scanner/copy.ts": ["توکن", "ابطال", "کنسول"],
   "web/src/components/sms/SmsTemplateEditor.tsx": ["رده", "بلیت", "لینک"],
   "web/src/lib/attendeeSession.ts": ["نشست"],
   "web/src/lib/organizerConsole.ts": ["جست‌وجو", "کنسول", "نشست", "بارگیری"],

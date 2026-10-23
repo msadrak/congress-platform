@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
-import { storedScans, wireManifest } from './scannerFixtures';
+import { expectScannerOnline, manualScan, storedScans, wireManifest } from './scannerFixtures';
 
 // Synthetic, intercepted /api/ responses: not FastAPI/PostgreSQL. The real-backend scanner
 // journey is scripts/integration/congress-e2e.mjs.
@@ -37,16 +37,12 @@ async function openScanner(page: Page) {
     return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(decide(posted)) });
   });
   await page.goto(`/scan/${POINT_ID}?token=${TOKEN}`);
-  await expect(page.getByText('Rapid Gate')).toBeVisible();
-  await expect(page.getByText(/Manifest synced/)).toBeVisible();
+  await expectScannerOnline(page, 'Rapid Gate');
   await page.waitForLoadState('networkidle');
   return admitted;
 }
 
-const submit = async (page: Page, code: string) => {
-  await page.getByPlaceholder("Paste the badge's QR code").fill(code);
-  await page.getByRole('button', { name: 'Check Ticket' }).click();
-};
+const submit = manualScan;
 
 test('a different badge scanned right after another is evaluated and recorded, never dropped', async ({ page }) => {
   await openScanner(page);
@@ -76,5 +72,5 @@ test('a duplicate the gate rejected and the server confirms is not reported as a
   await page.waitForTimeout(2000); // let the first result clear before presenting the badge again
   await submit(page, 'secalice0001');
   await expect.poll(async () => (await storedScans(page)).map((s) => s.sync_state).sort(), { timeout: 15000 }).toEqual(['CONFIRMED', 'LOCAL_REJECTED']);
-  await expect(page.getByRole('button', { name: /Conflicts|تداخل/ })).toHaveCount(0);
+  await expect(page.locator('[data-status="conflicts"]')).toHaveCount(0);
 });

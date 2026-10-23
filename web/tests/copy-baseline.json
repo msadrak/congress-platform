@@ -196,18 +196,6 @@
     "persian": 15,
     "asciiEllipsis": 1
   },
-  "src/components/scanner/copy.ts": {
-    "devTerm": 2,
-    "asciiEllipsis": 1
-  },
-  "src/components/scanner/ScannerChrome.tsx": {
-    "ternary": 3,
-    "persian": 1
-  },
-  "src/components/scanner/ScannerHeader.tsx": {
-    "ternary": 1,
-    "persian": 1
-  },
   "src/components/sms/SmsTemplateEditor.tsx": {
     "persian": 43,
     "ternary": 34,
@@ -256,9 +244,6 @@
   "src/pages/ExhibitorPortal.tsx": {
     "ternary": 19,
     "persian": 18
-  },
-  "src/pages/GateScanner.tsx": {
-    "ternary": 1
   },
   "src/pages/Home.tsx": {
     "ternary": 1,
