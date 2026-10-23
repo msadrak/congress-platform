@@ -125,6 +125,34 @@ async def locked_status(session: AsyncSession, ticket: Ticket) -> str | None:
     return status
 
 
+async def take_tier_place(session: AsyncSession, tier_id: uuid.UUID, event_id: uuid.UUID) -> str | None:
+    """Take one place in an open tier of the event; returns the tier's name, or None when it is closed, full or
+    not this event's (nothing is taken then, and the caller rolls back).
+
+    Call it LAST, right before commit. The conditional UPDATE locks the tier row until the transaction ends, and
+    every reservation of the tier queues on that one row: taken first, the lock would be held while the ticket,
+    pass, short link and SMS rows are written, which serialises a registration burst (PERF-1). Pending rows are
+    flushed first so that nothing but the commit runs under the lock. It stays the only gate: a reservation that
+    waited re-checks `reserved_count < quota` against the newest committed count (PostgreSQL re-evaluates the
+    WHERE clause of an UPDATE after a row-lock wait), so a tier is never oversold.
+    """
+    await session.flush()
+    result = await session.execute(
+        update(TicketTier)
+        .where(
+            TicketTier.id == tier_id,
+            TicketTier.event_id == event_id,
+            TicketTier.is_open.is_(True),
+            TicketTier.reserved_count < TicketTier.quota,
+        )
+        .values(reserved_count=TicketTier.reserved_count + 1)
+        .returning(TicketTier.name)
+        .execution_options(synchronize_session=False)
+    )
+    name: str | None = result.scalar_one_or_none()
+    return name
+
+
 async def _release_quota(session: AsyncSession, tier_id: uuid.UUID) -> None:
     await session.execute(
         update(TicketTier)
@@ -204,24 +232,17 @@ async def reactivate_ticket(
 
     One person holds at most one ticket row per congress, so registering again after a cancellation reuses
     the row. With `reserve_quota` the tier's place is taken atomically (the caller has already checked the
-    tier exists and maps a failure to the right answer by raising TicketStateError("quota")).
+    tier exists and maps a failure to the right answer by raising TicketStateError("quota")). The place is taken
+    after the new pass is written (`take_tier_place`); a caller that writes more afterwards passes
+    `reserve_quota=False` and calls `take_tier_place` itself, last.
     """
     if await locked_status(session, ticket) != "cancelled":
         raise TicketStateError("This ticket is still active.")
-    if reserve_quota:
-        reserved = await session.execute(
-            update(TicketTier)
-            .where(
-                TicketTier.id == tier_id,
-                TicketTier.event_id == ticket.event_id,
-                TicketTier.is_open.is_(True),
-                TicketTier.reserved_count < TicketTier.quota,
-            )
-            .values(reserved_count=TicketTier.reserved_count + 1)
-            .returning(TicketTier.id)
-        )
-        if reserved.first() is None:
-            raise TicketStateError("quota")
+    # The row is written before the place is taken, so a tier of another event must be refused up front.
+    if reserve_quota and await session.scalar(select(TicketTier.event_id).where(TicketTier.id == tier_id)) != (
+        ticket.event_id
+    ):
+        raise TicketStateError("quota")
     ticket.status = "active"
     ticket.ticket_tier_id = tier_id
     ticket.user_id = user.id
@@ -230,7 +251,10 @@ async def reactivate_ticket(
     ticket.cancelled_by = None
     for column, value in attendee_snapshot(user).items():
         setattr(ticket, column, value)
-    return await _new_pass(session, ticket, event)
+    secret, code = await _new_pass(session, ticket, event)
+    if reserve_quota and await take_tier_place(session, tier_id, ticket.event_id) is None:
+        raise TicketStateError("quota")
+    return secret, code
 
 
 async def transfer_ticket(

@@ -6,21 +6,13 @@ One Docker Compose project (`congress-staging`, file `deploy/staging/compose.yam
 |---|---|---|---|
 | `db` | `postgres:16-alpine`; with `BACKUP_WAL=on`, `congress-platform/db` (the same image plus pgBackRest, `deploy/db/Dockerfile`) | PostgreSQL; host `${CONGRESS_PERSISTENT_DATA_ROOT}/data/postgres` | internal network only (with WAL archiving also the outbound-only `egress` network, to reach the bucket) |
 | `migrate` | `congress-platform/api` | One-shot `python -m app.schema_guard migrate` (`alembic upgrade head`, then records the revision chain), then exits 0 | — |
-| `api` | `congress-platform/api` | FastAPI/uvicorn as uid 10001, **one process**; host `…/data/media` → `/data/media` | internal network only |
+| `api` | `congress-platform/api` | FastAPI/uvicorn as uid 10001, `CONGRESS_API_WORKERS` processes (default 1, see [Scaling](#scaling)); host `…/data/media` → `/data/media` | internal network only |
 | `web` | `congress-platform/web` | Caddy; host `…/data/caddy/data` and `…/data/caddy/config` | `127.0.0.1:8443` (HTTPS), `127.0.0.1:18080` (HTTP, localhost) |
 
 - **Start order:** `db` healthy (checked over TCP, so the image's temporary init-only server never counts) → `migrate` exits 0 → `api` healthy → `web`.
 - **Schema guard:** in `staging`/`production` the API refuses to start unless the database is at the Alembic head of its own build, or ahead of it **only** by migrations marked `backward_compatible = True` (see [Releases and rollback](#releases-and-rollback) and `docs/CODING_STANDARDS.md` §2.D).
 - **Migration lock:** migrations take a PostgreSQL advisory lock, so concurrent runs serialise.
-- **One API process.** The image runs one uvicorn process and the stack one `api` replica; that is the only configuration that has been run and load-tested. Rate limits and the platform SMS caps no longer depend on it: they are counted in PostgreSQL (`rate_limit_counters`, `app/rate_limit.py`), shared by every process and kept across restarts. What is still per process, to know before adding `--workers` or replicas:
-  - the HTTP counters of `/api/metrics` (each scrape reaches one process; database-derived metrics are global);
-  - the limit on concurrent sms.ir calls (`CONGRESS_SMS_MAX_CONCURRENT_SENDS`, 8 per process);
-  - the platform settings cache (another process's console change is picked up within `CONGRESS_PLATFORM_SETTINGS_REFRESH_SECONDS`, 3 s);
-  - the rate limiter's two shortcuts: a key found over budget is refused locally until its Retry-After, and when the database cannot be reached the limiter falls back to process memory (looser across several processes);
-  - the database pool: `(CONGRESS_DB_POOL_SIZE + CONGRESS_DB_MAX_OVERFLOW)` (10 + 10) per process must stay below PostgreSQL's `max_connections`;
-  - the media directory on the host disk (a replica on another host needs the same files);
-  - the console SMS provider (development, tests and automated staging checks only) keeps "sent" messages in the memory of the process that sent them, so `stack.mjs sms-code` sees only that process's.
-  The SMS outbox and the retention job run in every process and are safe to overlap (`FOR UPDATE SKIP LOCKED`, claims, idempotent deletes).
+- **API workers.** The image runs `python -m app.serve`, which starts uvicorn with `CONGRESS_API_WORKERS` worker processes (default **1**); see [Scaling](#scaling) before raising it.
 
 ## Prerequisites
 
@@ -205,7 +197,7 @@ The `congress-check.timer` runs `check` every 5 minutes; exits 1 and 2 count as 
 
 **Alert rules.** [`deploy/monitoring/alerts.yml`](../../deploy/monitoring/alerts.yml) holds example Prometheus rules for these metrics (API down, 5xx rate, slow requests, SMS outbox lag and failures, SMS caps, OTP 429 surges, limiter fallback, pool saturation, retention stalled, scanners silent after earlier traffic). Load it with `rule_files: [alerts.yml]` in your Prometheus and route the alerts through Alertmanager (Telegram receiver); thresholds are starting points for a single-server congress and should be tuned after the first event. `promtool check rules deploy/monitoring/alerts.yml` validates it.
 
-Database-derived values are read at scrape time, so they survive restarts. The HTTP counters are per process and restart at zero.
+Database-derived values are read at scrape time, so they survive restarts. The in-process counters restart at zero with the API; with several workers they are summed over the workers at every scrape ([Scaling](#scaling)).
 
 **Error reporting (optional).** `CONGRESS_SENTRY_DSN` sends unhandled errors to Sentry or GlitchTip, tagged with the request id. No request bodies, headers, cookies, query strings, user or local variables are sent, and mobile numbers, bearer tokens, JWTs and `token=`/`code=`-style values are masked in every string. Tracing is off. **Untested** against a real Sentry/GlitchTip endpoint.
 
@@ -518,6 +510,27 @@ docker compose -p congress-staging exec -e CONGRESS_AUDIT_RETENTION_DAYS=730 api
 
 It refuses to run without `CONGRESS_AUDIT_RETENTION_DAYS`, disables the trigger only inside its own transaction (other sessions wait on the table lock and never see it off), and records itself as an `audit.purged` entry. Take a backup first; deleted entries come back only from a backup.
 
+## Scaling
+
+One API container runs `CONGRESS_API_WORKERS` uvicorn worker processes (default 1, at most 32), set in `.staging/staging.env` and applied by `stack.mjs start`. Measured on a laptop (`scripts/load/README.md`, *Results PERF-1*): one worker takes the 50 reservations/s target with p95 ≈ 11-50 ms and saturates around 250-300/s (CPU); 4 workers held 300/s under 1 s in two of three runs. Raise it for CPU headroom (about one worker per spare vCPU, leaving room for PostgreSQL and Caddy), not by default on a 1-2 vCPU server.
+
+**Shared by every worker** (safe with several workers or replicas):
+- rate limits, OTP budgets and the platform SMS caps: PostgreSQL `rate_limit_counters` (ADR 0019);
+- tier places: a reservation takes its place with one conditional `UPDATE` just before commit (`take_tier_place`), so tiers are never oversold and the tier row is locked only for the commit;
+- the SMS outbox: every worker polls it, but a pass claims due rows with `FOR UPDATE SKIP LOCKED` and marks them `sending` with a lease in one short transaction, so no message is claimed twice, and a lease that ran out turns `unknown` (never resent);
+- the retention job: every worker schedules a pass, but a pass first takes a PostgreSQL advisory lock without waiting (`pg_try_advisory_xact_lock`), so only one runs at a time and the others skip; every statement is idempotent anyway;
+- `/api/metrics`: with more than one worker `app.serve` sets `PROMETHEUS_MULTIPROC_DIR` (`/tmp/congress-metrics`, emptied at start) and a scrape sums every worker's counters and histograms, so totals no longer depend on which worker answers. `congress_retention_last_success_timestamp_seconds` reports the newest pass of any worker; the `congress_db_pool_*` gauges and the database-derived values are those of the worker that answers (database values are global anyway).
+
+**Still per worker** (multiply or keep in mind):
+- the database pool: every worker opens up to `CONGRESS_DB_POOL_SIZE + CONGRESS_DB_MAX_OVERFLOW` (10 + 10) connections, so keep `workers × (pool + overflow)` plus the migrate, backup and admin sessions below PostgreSQL's `max_connections` (100): for 4 workers set pool 5 + overflow 5 (40), or 10 + 10 (80) only if nothing else connects. Past capacity a request waits up to `CONGRESS_DB_POOL_TIMEOUT_SECONDS` for a connection and then fails with 500;
+- concurrent sms.ir calls: `CONGRESS_SMS_MAX_CONCURRENT_SENDS` (8) per worker, so up to `8 × workers` at once;
+- the platform settings cache: a console change reaches the other workers within `CONGRESS_PLATFORM_SETTINGS_REFRESH_SECONDS` (3 s);
+- the rate limiter's two shortcuts: a key found over budget is refused locally until its Retry-After (only tighter), and if the database cannot be reached each worker falls back to its own memory (then budgets are per worker, i.e. looser by the worker count, until the database is back);
+- the console SMS provider (development, tests, automated staging checks only) keeps "sent" messages in the memory of the worker that sent them: `stack.mjs sms-code`, `verify.mjs` and `scripts/load/setup.mjs` may ask another worker and find nothing, so keep **1 worker** while `CONGRESS_SMS_PROVIDER=console` (`scripts/load/local-stack.mjs workers N` switches after signing in);
+- the media directory is on the host disk: a replica on another host needs the same files (several workers in one container share it).
+
+Desk walk-ins (`POST /api/events/{id}/desk-registrations`) still take the tier place before writing the ticket; they are a trickle compared with self-registration, and the same reordering is planned with the desk rework.
+
 ## Moving to a real domain (Linux VPS)
 
 1. Install Docker Engine and the Compose plugin; clone the repository; run `node scripts/staging/stack.mjs init`. Then edit `.staging/staging.env`:
@@ -538,7 +551,7 @@ The full hosted procedure is in [`HOSTED_STAGING_READINESS.md`](HOSTED_STAGING_R
 ## Known release blockers / limitations
 
 - **Organizer access** is an API key per organizer (rotation and revocation exist: `organizer rotate|revoke`) plus organizer members with roles who sign in by SMS code (ADR 0016); there is no `stack.mjs` command for members yet (use the admin API above).
-- **One API process** is the only tested configuration. Rate limits are shared in PostgreSQL; the remaining per-process parts are listed at the top of this guide. A load test with several processes has not been run.
+- **Several API workers** (`CONGRESS_API_WORKERS`) were load-tested on a laptop only (1 and 4 workers, `scripts/load/README.md`); what stays per worker is listed under [Scaling](#scaling). Re-run the load scenarios on the real server before choosing more than one.
 - **Untested for real:** ACME issuance on the real domain, a real S3 provider (drills used a stand-in), systemd timers on Linux, a Sentry/GlitchTip endpoint, Telegram delivery (or a relay) from Iran.
 - **Caddy runs as root** inside its container (official image); the API runs as uid 10001.
 - **CSP** allows `'unsafe-inline'` styles (React style attributes); scripts are `'self'` only.

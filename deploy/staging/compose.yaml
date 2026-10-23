@@ -42,6 +42,8 @@ x-backend: &backend
     CONGRESS_DB_POOL_TIMEOUT_SECONDS: ${CONGRESS_DB_POOL_TIMEOUT_SECONDS:-}
     CONGRESS_DB_POOL_PRE_PING: ${CONGRESS_DB_POOL_PRE_PING:-}
     CONGRESS_DB_STATEMENT_TIMEOUT_MS: ${CONGRESS_DB_STATEMENT_TIMEOUT_MS:-}
+    # uvicorn worker processes of the API (default 1); each has its own pool (docs/deployment/STAGING_OPERATIONS.md → Scaling).
+    CONGRESS_API_WORKERS: ${CONGRESS_API_WORKERS:-}
     # SMS delivery, sign-in codes and their limits (the platform console overrides the caps and sign-in rules).
     CONGRESS_SMS_PROVIDER: ${CONGRESS_SMS_PROVIDER:?set CONGRESS_SMS_PROVIDER (smsir or console)}
     CONGRESS_SMSIR_API_KEY: ${CONGRESS_SMSIR_API_KEY:-}

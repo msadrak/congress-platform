@@ -102,6 +102,21 @@ const skip = (name, reason) => {
   results.push({ ok: true, skipped: true, name, note: reason });
   console.log(`SKIP ${name} — ${reason}`);
 };
+/** The single Alembic head of this checkout, from backend/migrations/versions (the revision nothing builds on). */
+function alembicHead(dir = join(root, 'backend/migrations/versions')) {
+  const chain = Object.fromEntries(readdirSync(dir).filter((n) => n.endsWith('.py')).map((n) => {
+    const text = readFileSync(join(dir, n), 'utf8');
+    const value = (name) => text.match(new RegExp(`^${name}(?::[^=]*)? = (?:['"]([^'"]+)['"]|None)`, 'm'));
+    const revision = value('revision')?.[1];
+    if (!revision) throw new Error(`${n}: no revision`);
+    return [revision, value('down_revision')?.[1] ?? null];
+  }));
+  const parents = new Set(Object.values(chain));
+  const heads = Object.keys(chain).filter((r) => !parents.has(r));
+  if (heads.length !== 1) throw new Error(`expected one Alembic head in ${dir}, found ${heads.join(', ') || 'none'}`);
+  return heads[0];
+}
+
 const S = {};
 let browser;
 try {
@@ -110,10 +125,11 @@ try {
     const by = Object.fromEntries(rows.map((r) => [r.Service, r]));
     for (const s of ['db', 'api', 'web']) eq(by[s]?.Health, 'healthy', `${s} health`);
     eq([by.migrate?.State, by.migrate?.ExitCode], ['exited', 0], 'migrate');
-    eq(q('select version_num from alembic_version'), '0014', 'schema');
+    const head = alembicHead();
+    eq(q('select version_num from alembic_version'), head, 'schema');
     const ports = rows.flatMap((r) => (r.Publishers ?? []).filter((p) => p.PublishedPort).map((p) => `${r.Service}:${p.URL}:${p.PublishedPort}`));
     assert(ports.every((p) => p.startsWith('web:127.0.0.1:')), `published ports ${ports}`);
-    return `alembic 0014; published only ${ports.join(', ')}`;
+    return `alembic ${head}; published only ${ports.join(', ')}`;
   });
 
   if (fresh) {
