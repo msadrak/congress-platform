@@ -108,7 +108,7 @@ test('manifest, batch and self-revoke send only the scanner token, with the devi
   expect(requests.every(r => r.auth === bearer(SCANNER_TOKEN))).toBe(true);
   const batch = requests.find(r => r.path.endsWith('/scans/batch'));
   expect(batch?.body).toEqual({
-    scans: [{ scan_id: 'authority-scan-001', qr_secret: 'ticket-a-001', scanned_at: '2027-01-01T10:00:00.000Z', client_verdict: 'PROVISIONAL', client_rejection_reason: null }],
+    scans: [{ scan_id: 'authority-scan-001', qr_secret: 'ticket-a-001', scanned_at: '2027-01-01T10:00:00.000Z', direction: 'IN', client_verdict: 'PROVISIONAL', client_rejection_reason: null }],
   });
   expect(page.url()).toContain(`/scan/${POINT_ID}`);
   // Revocation confirmed: the device token is gone, and so is the uploaded scan history.

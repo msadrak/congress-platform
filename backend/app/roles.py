@@ -64,6 +64,10 @@ ROUTE_ROLES: dict[tuple[str, str], Role] = {
     ("POST", f"{E}/checkin-points"): MANAGER,
     ("GET", f"{E}/checkin-points"): VIEWER,
     ("PATCH", f"{E}/checkin-points/{{point_id}}"): MANAGER,
+    ("POST", f"{E}/checkin-points/{{point_id}}/archive"): MANAGER,
+    ("POST", f"{E}/checkin-points/{{point_id}}/unarchive"): MANAGER,
+    # Succeeds only for a point without scans (otherwise archive): a setup change.
+    ("DELETE", f"{E}/checkin-points/{{point_id}}"): MANAGER,
     ("POST", f"{P}/token"): STAFF,
     ("GET", f"{P}/devices"): STAFF,
     ("POST", f"{P}/devices/{{device_id}}/revoke"): STAFF,
@@ -116,6 +120,9 @@ ROUTE_ROLES: dict[tuple[str, str], Role] = {
     ("POST", f"{E}/sessions/import"): MANAGER,
     ("PATCH", f"{E}/sessions/{{session_id}}"): MANAGER,
     ("DELETE", f"{E}/sessions/{{session_id}}"): MANAGER,
+    # Session attendance names attendees (staff and up); its CSV adds mobile numbers (an export: managers).
+    ("GET", f"{E}/sessions/{{session_id}}/attendance"): STAFF,
+    ("GET", f"{E}/sessions/{{session_id}}/attendance-csv"): MANAGER,
     ("GET", f"{E}/program-files"): VIEWER,
     ("POST", f"{E}/program-files"): MANAGER,
     ("PATCH", f"{E}/program-files/{{file_id}}"): MANAGER,

@@ -1,3 +1,4 @@
+import { execSync } from 'node:child_process'
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vite'
@@ -6,7 +7,23 @@ import { VitePWA } from 'vite-plugin-pwa'
 // Overridable so disposable stacks (scripts/integration/*) can point a preview at their own API port.
 const apiOrigin = process.env.CONGRESS_API_ORIGIN ?? 'http://127.0.0.1:8000'
 
+// The build id gate devices show and report (heartbeat), so staff can see that every scanner runs the same
+// build: CONGRESS_APP_BUILD (e.g. the commit, passed by the image build), else the checkout's short commit, else
+// the build time.
+function appBuild(): string {
+  const given = process.env.CONGRESS_APP_BUILD?.trim()
+  if (given) return given.slice(0, 24)
+  try {
+    return execSync('git rev-parse --short=10 HEAD', { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim()
+  } catch {
+    return new Date().toISOString().slice(0, 16).replace(/[-:T]/g, '')
+  }
+}
+
 export default defineConfig({
+  define: {
+    __APP_BUILD__: JSON.stringify(appBuild()),
+  },
   plugins: [
     react(),
     tailwindcss(),

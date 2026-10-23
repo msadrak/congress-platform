@@ -26,7 +26,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.db import SessionDep
 from app.errors import ApiError, error_responses
 from app.models import CheckIn, CheckInPoint, Event, Ticket, TicketTier, User
-from app.routes.events import OwnedEventDep
+from app.routes.checkin import _inside_count, admission_window
+from app.routes.events import OwnedEventDep, event_zone
 from app.security import sanitize_csv_cell
 
 router = APIRouter(tags=["analytics"])
@@ -56,8 +57,8 @@ class HourlyScanCount(BaseModel):
     day: date = Field(description="Local date in the event's timezone.")
     hour: str = Field(description='Local hour, "HH:00".')
     starts_at: str = Field(description="Start of the hour as an ISO 8601 local time with the event's UTC offset.")
-    count: int
-    admitted: int
+    count: int = Field(description="Every scan: admitted entries, rejections and accepted exits.")
+    admitted: int = Field(description="Admitted entries.")
     rejected: int
 
 
@@ -68,10 +69,16 @@ class GateMetric(BaseModel):
     policy_type: str
     total_admitted: int
     total_rejected: int
-    admissions: int = Field(description="Cumulative admissions at this point; exits are not tracked.")
+    admissions: int = Field(description="Cumulative admitted entries at this point (exits are not admissions).")
     current_occupancy: int = Field(
         deprecated=True,
-        description="Deprecated: the cumulative admissions (same as `admissions`), not who is inside now.",
+        description="Deprecated: the cumulative admissions (same as `admissions`), not who is inside now; "
+        "read `occupancy` for that.",
+    )
+    occupancy: int | None = Field(
+        default=None,
+        description="People inside now (points that track occupancy, in the current admission window); "
+        "null for points without entry and exit scans. Not scoped by the date or tier filters.",
     )
     hourly_scans: list[HourlyScanCount]
 
@@ -235,15 +242,17 @@ async def get_attendance_analytics(filters: FiltersDep, session: SessionDep) -> 
     scans = filters.scans(
         CheckIn.checkin_point_id.label("point_id"),
         CheckIn.status.label("status"),
+        CheckIn.direction.label("direction"),
         func.date_trunc(literal_column("'hour'"), filters.local(CheckIn.scanned_at), type_=DateTime()).label(
             "bucket"
         ),
     ).subquery()
     bucket_utc = func.timezone(literal("UTC", String), func.timezone(literal(tz, String), scans.c.bucket))
-    admitted_count = func.count().filter(scans.c.status == ADMITTED)
+    admitted_count = func.count().filter(scans.c.status == ADMITTED, scans.c.direction == "IN")
+    rejected_count = func.count().filter(scans.c.status != ADMITTED)
     bucket_rows = (
         await session.execute(
-            select(scans.c.point_id, scans.c.bucket, bucket_utc, admitted_count, func.count())
+            select(scans.c.point_id, scans.c.bucket, bucket_utc, admitted_count, rejected_count, func.count())
             .group_by(scans.c.point_id, scans.c.bucket)
             .order_by(scans.c.bucket)
         )
@@ -252,7 +261,7 @@ async def get_attendance_analytics(filters: FiltersDep, session: SessionDep) -> 
     unique_admitted = (
         await session.scalar(
             filters.scans(func.count(CheckIn.ticket_id.distinct())).where(
-                CheckIn.status == ADMITTED, CheckIn.ticket_id.is_not(None)
+                CheckIn.status == ADMITTED, CheckIn.direction == "IN", CheckIn.ticket_id.is_not(None)
             )
         )
     ) or 0
@@ -280,23 +289,25 @@ async def get_attendance_analytics(filters: FiltersDep, session: SessionDep) -> 
 
     gate_hourly: dict[uuid.UUID, list[HourlyScanCount]] = defaultdict(list)
     event_hourly: dict[datetime, HourlyScanCount] = {}
-    for point_id, bucket, utc, admitted, count in bucket_rows:
+    for point_id, bucket, utc, admitted, rejected, count in bucket_rows:
         hour = HourlyScanCount(
             day=bucket.date(),
             hour=bucket.strftime("%H:00"),
             starts_at=local_iso(bucket, utc),
             count=count,
             admitted=admitted,
-            rejected=count - admitted,
+            rejected=rejected,
         )
         gate_hourly[point_id].append(hour)
         total = event_hourly.setdefault(bucket, hour.model_copy(update={"count": 0, "admitted": 0, "rejected": 0}))
         total.count += count
         total.admitted += admitted
-        total.rejected += count - admitted
+        total.rejected += rejected
 
     gate_breakdown: list[GateMetric] = []
     catering_metrics: list[CateringMetric] = []
+    zone = event_zone(event)
+    now = datetime.now(UTC)  # occupancy is "now": the current admission window, no extra statement
     for point in points:
         hourly = gate_hourly[point.id]
         admitted = sum(h.admitted for h in hourly)
@@ -310,6 +321,11 @@ async def get_attendance_analytics(filters: FiltersDep, session: SessionDep) -> 
                 total_rejected=sum(h.rejected for h in hourly),
                 admissions=admitted,
                 current_occupancy=admitted,
+                occupancy=(
+                    await _inside_count(session, point, admission_window(point, zone, now))
+                    if point.tracks_occupancy
+                    else None
+                ),
                 hourly_scans=hourly,
             )
         )
@@ -404,6 +420,7 @@ async def export_attendance_csv(request: Request, filters: FiltersDep) -> Stream
             *attendee_columns(),
             TicketTier.name.label("tier_name"),
             Ticket.status.label("ticket_status"),
+            CheckIn.direction,
             by_tier=False,
         )
         .outerjoin(Ticket, CheckIn.ticket_id == Ticket.id)
@@ -424,6 +441,7 @@ async def export_attendance_csv(request: Request, filters: FiltersDep) -> Stream
         *ATTENDEE_HEADERS,
         "Ticket Tier",
         "Ticket Status",
+        "Direction",
     ]
 
     def cells(row: AnyRow) -> Sequence[object]:
@@ -451,7 +469,7 @@ async def export_registrations_csv(request: Request, filters: FiltersDep) -> Str
             func.count().label("admissions"),
             by_tier=False,
         )
-        .where(CheckIn.status == ADMITTED, CheckIn.ticket_id.is_not(None))
+        .where(CheckIn.status == ADMITTED, CheckIn.direction == "IN", CheckIn.ticket_id.is_not(None))
         .group_by(CheckIn.ticket_id)
         .subquery()
     )

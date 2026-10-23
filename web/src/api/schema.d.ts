@@ -719,7 +719,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List Checkin Points */
+        /**
+         * List Checkin Points
+         * @description Every point of the event, archived ones included (with `archived_at`).
+         */
         get: operations["list_checkin_points_api_events__event_id__checkin_points_get"];
         put?: never;
         /** Create Checkin Point */
@@ -740,11 +743,53 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
-        delete?: never;
+        /**
+         * Delete Checkin Point
+         * @description Only a point without scans is deleted (with its paired devices); a point with scans is archived instead.
+         */
+        delete: operations["delete_checkin_point_api_events__event_id__checkin_points__point_id__delete"];
         options?: never;
         head?: never;
         /** Update Checkin Point */
         patch: operations["update_checkin_point_api_events__event_id__checkin_points__point_id__patch"];
+        trace?: never;
+    };
+    "/api/events/{event_id}/checkin-points/{point_id}/archive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Archive Checkin Point
+         * @description Hide the point from scanners and pairing; its scans stay in analytics. Its devices stop working until it is
+         *     unarchived.
+         */
+        post: operations["archive_checkin_point_api_events__event_id__checkin_points__point_id__archive_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/events/{event_id}/checkin-points/{point_id}/unarchive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Unarchive Checkin Point */
+        post: operations["unarchive_checkin_point_api_events__event_id__checkin_points__point_id__unarchive_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/checkin-points/{point_id}/token": {
@@ -771,10 +816,30 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List registered scanner devices for a check-in point */
+        /**
+         * List registered scanner devices for a check-in point
+         * @description Newest first, with what each device last reported: last contact, unsynced scans, app version, staleness.
+         */
         get: operations["list_checkin_point_devices_api_checkin_points__point_id__devices_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/checkin-points/{point_id}/devices/self/heartbeat": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Report the scanner's state (unsynced scans, app version) for the organizer's device list */
+        post: operations["scanner_device_heartbeat_api_checkin_points__point_id__devices_self_heartbeat_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -846,7 +911,8 @@ export interface paths {
         put?: never;
         /**
          * Ingest Scans Batch
-         * @description Queued scans (at most 200 per request, in order), idempotent by scan_id.
+         * @description Queued scans (at most 200 per request, in order), idempotent by scan_id. Accepted at an archived point
+         *     too, so scans recorded offline before the archive still arrive (later ones are rejected POINT_ARCHIVED).
          */
         post: operations["ingest_scans_batch_api_checkin_points__point_id__scans_batch_post"];
         delete?: never;
@@ -1917,6 +1983,43 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/events/{event_id}/sessions/{session_id}/attendance": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Session Attendance */
+        get: operations["get_session_attendance_api_events__event_id__sessions__session_id__attendance_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/events/{event_id}/sessions/{session_id}/attendance-csv": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export Session Attendance Csv
+         * @description The attendance list with mobile numbers, earliest entry first.
+         */
+        get: operations["export_session_attendance_csv_api_events__event_id__sessions__session_id__attendance_csv_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/public/events": {
         parameters: {
             query?: never;
@@ -2918,7 +3021,7 @@ export interface components {
             generated_at: string;
             /**
              * Tickets
-             * @description Full manifest: every admissible ticket. Delta: tickets added or whose admission state at this point changed since the cursor (upsert by qr_hash).
+             * @description Full manifest: every admissible ticket. Delta: tickets added or whose admission state at this point (or at its required point) changed since the cursor (upsert by qr_hash).
              */
             tickets: components["schemas"]["ManifestTicket"][];
             /**
@@ -2936,6 +3039,23 @@ export interface components {
              * @description Delta only: tickets that are no longer admissible (cancelled ticket or deactivated QR)
              */
             removed_qr_hashes?: string[];
+            /**
+             * Admission Window
+             * @description The window is_admitted and is_inside refer to: 'event' or today's local date
+             * @default event
+             */
+            admission_window: string;
+            /**
+             * Event Timezone
+             * @description IANA zone that DAY windows are dates in
+             * @default Asia/Tehran
+             */
+            event_timezone: string;
+            /**
+             * Occupancy
+             * @description People inside now (occupancy points only)
+             */
+            occupancy?: number | null;
         };
         /** CheckInPointCreate */
         CheckInPointCreate: {
@@ -2948,14 +3068,40 @@ export interface components {
             location: string;
             /**
              * Policy Type
-             * @description MULTI_ENTRY, SINGLE_USE, TIER_RESTRICTED, CAPACITY_CAPPED
+             * @description MULTI_ENTRY, SINGLE_USE, CAPACITY_CAPPED, or TIER_RESTRICTED (kept for compatibility: MULTI_ENTRY with a required tier filter)
              * @default MULTI_ENTRY
              */
             policy_type: string;
-            /** Allowed Tier Ids */
+            /**
+             * Allowed Tier Ids
+             * @description Tier filter for every policy; empty admits every tier
+             */
             allowed_tier_ids?: string[];
             /** Max Capacity */
             max_capacity?: number | null;
+            /**
+             * Reset Window
+             * @description SINGLE_USE admits once per window: the event, or each calendar day in the event's time zone
+             * @default EVENT
+             * @enum {string}
+             */
+            reset_window: "EVENT" | "DAY";
+            /**
+             * Tracks Occupancy
+             * @description Entry and exit scans; a capped point caps the people inside
+             * @default false
+             */
+            tracks_occupancy: boolean;
+            /**
+             * Requires Point Id
+             * @description A ticket must have been admitted at this point (same event) first
+             */
+            requires_point_id?: string | null;
+            /**
+             * Session Id
+             * @description The programme session this point is the door of
+             */
+            session_id?: string | null;
         };
         /** CheckInPointOut */
         CheckInPointOut: {
@@ -2984,8 +3130,28 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+            /**
+             * Reset Window
+             * @default EVENT
+             */
+            reset_window: string;
+            /**
+             * Tracks Occupancy
+             * @default false
+             */
+            tracks_occupancy: boolean;
+            /** Requires Point Id */
+            requires_point_id?: string | null;
+            /** Session Id */
+            session_id?: string | null;
+            /** Archived At */
+            archived_at?: string | null;
         };
-        /** CheckInPointUpdate */
+        /**
+         * CheckInPointUpdate
+         * @description Partial update: omitted fields keep their value; an explicit null clears max_capacity, requires_point_id
+         *     and session_id. The policy, window and occupancy are locked once the point has scans.
+         */
         CheckInPointUpdate: {
             /** Name */
             name?: string | null;
@@ -2993,13 +3159,21 @@ export interface components {
             location?: string | null;
             /**
              * Policy Type
-             * @description MULTI_ENTRY, SINGLE_USE, TIER_RESTRICTED, CAPACITY_CAPPED
+             * @description MULTI_ENTRY, SINGLE_USE, CAPACITY_CAPPED, or TIER_RESTRICTED
              */
             policy_type?: string | null;
             /** Allowed Tier Ids */
             allowed_tier_ids?: string[] | null;
             /** Max Capacity */
             max_capacity?: number | null;
+            /** Reset Window */
+            reset_window?: ("EVENT" | "DAY") | null;
+            /** Tracks Occupancy */
+            tracks_occupancy?: boolean | null;
+            /** Requires Point Id */
+            requires_point_id?: string | null;
+            /** Session Id */
+            session_id?: string | null;
         };
         /** ConnectionOut */
         ConnectionOut: {
@@ -3225,6 +3399,13 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+        };
+        /** DeviceHeartbeat */
+        DeviceHeartbeat: {
+            /** Unsynced Count */
+            unsynced_count: number;
+            /** App Version */
+            app_version?: string | null;
         };
         /** ErrorResponse */
         ErrorResponse: {
@@ -3784,15 +3965,20 @@ export interface components {
             total_rejected: number;
             /**
              * Admissions
-             * @description Cumulative admissions at this point; exits are not tracked.
+             * @description Cumulative admitted entries at this point (exits are not admissions).
              */
             admissions: number;
             /**
              * Current Occupancy
              * @deprecated
-             * @description Deprecated: the cumulative admissions (same as `admissions`), not who is inside now.
+             * @description Deprecated: the cumulative admissions (same as `admissions`), not who is inside now; read `occupancy` for that.
              */
             current_occupancy: number;
+            /**
+             * Occupancy
+             * @description People inside now (points that track occupancy, in the current admission window); null for points without entry and exit scans. Not scoped by the date or tier filters.
+             */
+            occupancy?: number | null;
             /** Hourly Scans */
             hourly_scans: components["schemas"]["HourlyScanCount"][];
         };
@@ -3885,9 +4071,15 @@ export interface components {
              * @description Start of the hour as an ISO 8601 local time with the event's UTC offset.
              */
             starts_at: string;
-            /** Count */
+            /**
+             * Count
+             * @description Every scan: admitted entries, rejections and accepted exits.
+             */
             count: number;
-            /** Admitted */
+            /**
+             * Admitted
+             * @description Admitted entries.
+             */
             admitted: number;
             /** Rejected */
             rejected: number;
@@ -4144,10 +4336,38 @@ export interface components {
             ticket_tier_id: string;
             /** Ticket Tier Name */
             ticket_tier_name: string;
-            /** Admission Count */
+            /**
+             * Admission Count
+             * @description Entries admitted at this point, in every window
+             */
             admission_count: number;
-            /** Is Admitted */
+            /**
+             * Is Admitted
+             * @description Admitted at this point in the manifest's admission_window
+             */
             is_admitted: boolean;
+            /**
+             * Last Admitted Window
+             * @description Window of the latest admission ('event' or a local date). A scanner compares it with the window it is in now, so a manifest from yesterday does not count yesterday's meal today.
+             */
+            last_admitted_window?: string | null;
+            /**
+             * Is Inside
+             * @description Occupancy points: inside in the manifest's admission_window
+             * @default false
+             */
+            is_inside: boolean;
+            /**
+             * Presence At
+             * @description Occupancy points: scan time of the entry or exit that decided is_inside; a device replays only its own scans later than this
+             */
+            presence_at?: string | null;
+            /**
+             * Prerequisite Met
+             * @description Admitted at the required point (always true without one)
+             * @default true
+             */
+            prerequisite_met: boolean;
         };
         /** MediaAssetOut */
         MediaAssetOut: {
@@ -5180,6 +5400,11 @@ export interface components {
              * @default false
              */
             clock_skew: boolean;
+            /**
+             * Direction
+             * @default IN
+             */
+            direction: string;
         };
         /** ScanSubmission */
         ScanSubmission: {
@@ -5206,6 +5431,13 @@ export interface components {
             client_verdict?: ("ADMITTED" | "PROVISIONAL" | "REJECTED") | null;
             /** Client Rejection Reason */
             client_rejection_reason?: string | null;
+            /**
+             * Direction
+             * @description Entry or exit; exits only at points that track occupancy
+             * @default IN
+             * @enum {string}
+             */
+            direction: "IN" | "OUT";
         };
         /** ScannerDeviceCreate */
         ScannerDeviceCreate: {
@@ -5245,6 +5477,21 @@ export interface components {
             created_at: string;
             /** Last Seen At */
             last_seen_at: string | null;
+            /**
+             * Unsynced Count
+             * @description Scans waiting on the device, as last reported
+             */
+            unsynced_count?: number | null;
+            /** App Version */
+            app_version?: string | null;
+            /** Last Heartbeat At */
+            last_heartbeat_at?: string | null;
+            /**
+             * Stale
+             * @description Active device last seen more than 10 minutes ago (never seen: not stale)
+             * @default false
+             */
+            stale: boolean;
         };
         /** ScannerTokenOut */
         ScannerTokenOut: {
@@ -5282,6 +5529,105 @@ export interface components {
             description?: components["schemas"]["LocalizedLine"];
             /** Share Image Asset Id */
             share_image_asset_id?: string | null;
+        };
+        /** SessionAttendanceReport */
+        SessionAttendanceReport: {
+            /**
+             * Session Id
+             * Format: uuid
+             */
+            session_id: string;
+            /** Title */
+            title: string;
+            /**
+             * Starts At
+             * Format: date-time
+             */
+            starts_at: string;
+            /**
+             * Ends At
+             * Format: date-time
+             */
+            ends_at: string;
+            /**
+             * Timezone
+             * @description IANA zone of every local time in this report
+             */
+            timezone: string;
+            /**
+             * Points
+             * @description Check-in points linked to this session
+             */
+            points: components["schemas"]["SessionDoor"][];
+            /** Unique Attendees */
+            unique_attendees: number;
+            /** Admissions */
+            admissions: number;
+            /** Rejected */
+            rejected: number;
+            /**
+             * Inside
+             * @description People inside now; null when no door tracks occupancy
+             */
+            inside: number | null;
+            /**
+             * Attendees
+             * @description Earliest entry first
+             */
+            attendees: components["schemas"]["SessionAttendee"][];
+        };
+        /** SessionAttendee */
+        SessionAttendee: {
+            /**
+             * Ticket Id
+             * Format: uuid
+             */
+            ticket_id: string;
+            /** Attendee Name */
+            attendee_name: string;
+            /** Organization */
+            organization: string;
+            /** Ticket Tier Name */
+            ticket_tier_name: string;
+            /**
+             * Admissions
+             * @description Entries admitted at the session's doors
+             */
+            admissions: number;
+            /**
+             * Exits
+             * @description Exits accepted (doors that track occupancy)
+             */
+            exits: number;
+            /**
+             * First Admission At
+             * @description ISO 8601 local time with the event's UTC offset
+             */
+            first_admission_at: string | null;
+            /**
+             * Last Scan At
+             * @description Latest accepted entry or exit, ISO 8601 local time
+             */
+            last_scan_at: string | null;
+            /**
+             * Inside
+             * @description Inside now; null when no door tracks occupancy
+             */
+            inside: boolean | null;
+        };
+        /** SessionDoor */
+        SessionDoor: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /** Tracks Occupancy */
+            tracks_occupancy: boolean;
+            /** Archived At */
+            archived_at: string | null;
         };
         /** SignInOut */
         SignInOut: {
@@ -7831,8 +8177,92 @@ export interface operations {
                     "application/json": components["schemas"]["CheckInPointOut"];
                 };
             };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description ROLE_FORBIDDEN: needs the manager role */
             403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    delete_checkin_point_api_events__event_id__checkin_points__point_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                point_id: string;
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description ROLE_FORBIDDEN: needs the manager role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -7876,8 +8306,153 @@ export interface operations {
                     "application/json": components["schemas"]["CheckInPointOut"];
                 };
             };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description ROLE_FORBIDDEN: needs the manager role */
             403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    archive_checkin_point_api_events__event_id__checkin_points__point_id__archive_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                point_id: string;
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CheckInPointOut"];
+                };
+            };
+            /** @description ROLE_FORBIDDEN: needs the manager role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    unarchive_checkin_point_api_events__event_id__checkin_points__point_id__unarchive_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                point_id: string;
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CheckInPointOut"];
+                };
+            };
+            /** @description ROLE_FORBIDDEN: needs the manager role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -7929,6 +8504,24 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description Validation Error */
             422: {
                 headers: {
@@ -7961,6 +8554,50 @@ export interface operations {
                 };
             };
             /** @description ROLE_FORBIDDEN: needs the staff role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    scanner_device_heartbeat_api_checkin_points__point_id__devices_self_heartbeat_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                point_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeviceHeartbeat"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScannerDeviceOut"];
+                };
+            };
+            /** @description Forbidden */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -8075,7 +8712,7 @@ export interface operations {
                     "application/json": components["schemas"]["CheckInManifest"];
                 };
             };
-            /** @description ROLE_FORBIDDEN: needs the staff role */
+            /** @description Forbidden */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -8163,7 +8800,7 @@ export interface operations {
                     "application/json": components["schemas"]["ScanResult"];
                 };
             };
-            /** @description ROLE_FORBIDDEN: needs the staff role */
+            /** @description Forbidden */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -11305,6 +11942,104 @@ export interface operations {
                 content: {
                     "application/pdf": unknown;
                     "image/*": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_session_attendance_api_events__event_id__sessions__session_id__attendance_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                event_id: string;
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionAttendanceReport"];
+                };
+            };
+            /** @description ROLE_FORBIDDEN: needs the staff role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    export_session_attendance_csv_api_events__event_id__sessions__session_id__attendance_csv_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                event_id: string;
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description ROLE_FORBIDDEN: needs the manager role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
             /** @description Validation Error */

@@ -8,14 +8,14 @@ import type { LocalScanResult } from "../../lib/scannerEngine";
  */
 export const scannerCopy = {
   fa: {
-    product: "اسکنر گیت",
+    product: "اسکنر نقطه ورود",
     /** Two-digit section index in the locale's digits ("۰۱"). */
     sectionIndex: (n: number) => formatLocalizedNumber(n, "fa").padStart(2, "۰"),
-    loading: "در حال بارگذاری فهرست گیت…",
+    loading: "در حال بارگذاری فهرست نقطه ورود…",
     policy: {
       MULTI_ENTRY: "ورود مجدد مجاز",
       SINGLE_USE: "فقط یک بار ورود",
-      TIER_RESTRICTED: "فقط رده‌های مجاز",
+      TIER_RESTRICTED: "فقط انواع کارت ورود مجاز",
       CAPACITY_CAPPED: "ظرفیت محدود",
     } as Record<string, string>,
     defaultLocation: "درب اصلی",
@@ -53,10 +53,10 @@ export const scannerCopy = {
     manualTitle: "ورود دستی",
     manualLabel: "رمز کد QR کارت",
     manualHint:
-      "برای ورود دستی، محتوای رمزشده داخل کد QR لازم است. شناسه رهگیری عمومی بلیت (Tracking ID) کلید ورود معتبر نیست.",
+      "برای ورود دستی، محتوای رمزشده داخل کد QR لازم است. شناسه رهگیری عمومی کارت ورود (Tracking ID) کلید ورود معتبر نیست.",
     manualPlaceholder: "کد QR کارت را اینجا بچسبانید",
     trackingIdWarning:
-      "شناسه وارد شده شماره رهگیری بلیت است، نه رمز کد QR. کارت را مقابل دوربین بگیرید یا محتوای کد QR را وارد کنید.",
+      "شناسه وارد شده شماره رهگیری کارت ورود است، نه رمز کد QR. کارت را مقابل دوربین بگیرید یا محتوای کد QR را وارد کنید.",
     // Results
     duplicateTitle: "تکراری — ورود ممنوع",
     // Buffer
@@ -66,7 +66,7 @@ export const scannerCopy = {
     syncingNow: "در حال ارسال…",
     refreshCache: { fa: "تازه‌سازی فهرست", en: "Refresh Cache" },
     // Log
-    logTitle: "آخرین اسکن‌های این گیت",
+    logTitle: "آخرین اسکن‌های این نقطه ورود",
     logEmpty: "آماده پذیرش. هنوز اسکنی ثبت نشده است.",
     admitted: "مجاز",
     rejected: "رد شد",
@@ -102,7 +102,7 @@ export const scannerCopy = {
       "اسکنر به‌صورت محلی غیرفعال شد، اما ابطال در سرور تأیید نشد. اعتبار و سوابق اسکن نگه داشته می‌شوند؛ دوباره متصل شوید و تلاش کنید یا از برگزارکننده بخواهید آن را ابطال کند.",
     // Conflicts
     conflictsBody:
-      "سرور این اسکن‌ها را رد کرده است (مثلاً پذیرش در گیت دیگر). سوابق برای ممیزی حفظ می‌شوند؛ تأیید فقط آن‌ها را بازبینی‌شده علامت می‌زند.",
+      "سرور این اسکن‌ها را رد کرده است (مثلاً پذیرش در نقطه ورود دیگر). سوابق برای ممیزی حفظ می‌شوند؛ تأیید فقط آن‌ها را بازبینی‌شده علامت می‌زند.",
     close: "بستن",
     scannedAt: "اسکن",
     reconciledAt: "تطبیق",
@@ -117,7 +117,7 @@ export const scannerCopy = {
     // Setup / pairing
     setupEyebrow: "جفت‌سازی دستگاه",
     point: "نقطه کنترل",
-    pairTitle: "اتصال این اسکنر به گیت",
+    pairTitle: "اتصال این اسکنر به نقطه ورود",
     pairBody:
       "این دستگاه هنوز اعتبار اسکنر ندارد. توکن اختصاصی دستگاه را از سرپرست بگیرید و وارد کنید. اطلاعات شرکت‌کنندگان فقط پس از احراز هویت بارگذاری می‌شود.",
     unavailableTitle: "نقطه کنترل در دسترس نیست",
@@ -126,7 +126,7 @@ export const scannerCopy = {
     revokedBody: (n: number) =>
       `برگزارکننده این دستگاه را ابطال کرده است. توکن تازه از سرپرست بگیرید و دوباره جفت کنید. ${n} اسکن همگام‌نشده برای بازیابی روی این دستگاه حفظ شده است.`,
     forbiddenTitle: "نقطه کنترل اشتباه است",
-    forbiddenBody: "این توکن برای این نقطه کنترل یا رویداد مجاز نیست. نشانی گیت را با سرپرست بررسی کنید و با توکن درست جفت کنید.",
+    forbiddenBody: "این توکن برای این نقطه ورود یا رویداد مجاز نیست. نشانی نقطه ورود را با سرپرست بررسی کنید و با توکن درست جفت کنید.",
     expiredTitle: "اعتبار منقضی شده است",
     expiredBody: "اعتبار اسکنر منقضی شده است. توکن تازه از سرپرست بگیرید و دوباره جفت کنید.",
     systemDetail: "جزئیات سیستم",
@@ -147,16 +147,35 @@ export const scannerCopy = {
     repairPlaceholder: "توکن تازه صادرشده اسکنر را وارد کنید…",
     repairAction: "جفت‌سازی با توکن تازه",
     // Rejection codes the shared dictionary has no wording for
-    reasonTicketInactive: "بلیت لغو شده یا کد QR آن غیرفعال است",
-    reasonEventMismatch: "این بلیت برای رویداد دیگری است",
+    reasonTicketInactive: "کارت ورود لغو شده یا کد QR آن غیرفعال است",
+    reasonEventMismatch: "این کارت ورود برای رویداد دیگری است",
     reasonLocalRejected: "رد شده در همین دستگاه",
+    reasonNotInside: "این شخص داخل نیست؛ خروج ثبت نشد",
+    initNoToken: "پیش از بارگذاری فهرست شرکت‌کنندگان، این اسکنر را با توکن معتبر دستگاه جفت کنید.",
+    initStorageUnavailable: "حافظهٔ اسکنر روی این دستگاه در دسترس نیست.",
+    initStorageBlocked: "حافظهٔ اسکنر در حال به‌روزرسانی است: زبانه‌ها یا پنجره‌های دیگر اسکنر را ببندید و صفحه را دوباره بارگذاری کنید.",
+    initConnectFailed: "اتصال به سرور رویداد برقرار نشد.",
+    initManifestMissing: "فهرست نقطه ورود یافت نشد.",
+    reasonExitNotTracked: "این نقطه ورود خروج ثبت نمی‌کند",
+    reasonRequiredPoint: "ابتدا باید از نقطه ورود پیش‌نیاز وارد شود",
+    reasonPointArchived: "این نقطه ورود بایگانی شده است",
+    // Entry / exit (points that track occupancy)
+    directionLabel: "حالت اسکن",
+    entryMode: "ورود",
+    exitMode: "خروج",
+    exitModeBanner: "حالت خروج — اسکن‌ها خروج ثبت می‌کنند",
+    exitRecorded: "خروج ثبت شد",
+    exitProvisional: "خروج موقت ثبت شد (آفلاین)",
+    occupancyLabel: "داخل سالن",
+    appVersionLabel: "نسخهٔ برنامه",
+    dailyWindow: "هر روز یک بار",
     // Storage failure (blocking)
     storageFailedTitle: { fa: "این اسکن ثبت نشد — ورود ندهید", en: "Scan NOT recorded — do not admit" },
     storageFailedBody:
       "حافظه این دستگاه اسکن را ذخیره نکرد، پس پذیرش آن به سرور نمی‌رسد. صفحه را دوباره بارگذاری کنید؛ اگر تکرار شد، فضای مرورگر را آزاد کنید یا از دستگاه دیگری استفاده کنید.",
     reload: "بارگذاری دوباره صفحه",
     // One tab per point
-    otherTabTitle: { fa: "این گیت در زبانه دیگری باز است", en: "This gate is open in another tab" },
+    otherTabTitle: { fa: "این نقطه ورود در زبانه دیگری باز است", en: "This gate is open in another tab" },
     otherTabBody:
       "هر نقطه کنترل فقط در یک زبانه اسکن می‌کند تا ظرفیت و ورود تکراری درست شمرده شود. زبانه دیگر را ببندید؛ این صفحه خودکار ادامه می‌دهد.",
     // Unsynced scans left after a block or unpair
@@ -300,11 +319,29 @@ export const scannerCopy = {
     reasonTicketInactive: "Ticket cancelled or QR code deactivated",
     reasonEventMismatch: "Ticket belongs to another event",
     reasonLocalRejected: "Rejected on this device",
+    reasonNotInside: "Not inside: exit not recorded",
+    initNoToken: "Pair this scanner with a valid device token before loading attendee data.",
+    initStorageUnavailable: "Scanner storage is unavailable on this device.",
+    initStorageBlocked: "Scanner storage is being upgraded: close other scanner tabs or windows, then reload.",
+    initConnectFailed: "Failed to connect to event server.",
+    initManifestMissing: "Manifest not found.",
+    reasonExitNotTracked: "This gate does not record exits",
+    reasonRequiredPoint: "Must enter through the required gate first",
+    reasonPointArchived: "This check-in point is archived",
+    directionLabel: "Scan mode",
+    entryMode: "Entry",
+    exitMode: "Exit",
+    exitModeBanner: "Exit mode: scans record people leaving",
+    exitRecorded: "Exit recorded",
+    exitProvisional: "Exit recorded provisionally (offline)",
+    occupancyLabel: "Inside",
+    appVersionLabel: "App version",
+    dailyWindow: "Once per day",
     storageFailedTitle: { fa: "این اسکن ثبت نشد — ورود ندهید", en: "Scan NOT recorded — do not admit" },
     storageFailedBody:
       "This device could not save the scan, so its admission would never reach the server. Reload the page; if it happens again, free browser storage or switch devices.",
     reload: "Reload Page",
-    otherTabTitle: { fa: "این گیت در زبانه دیگری باز است", en: "This gate is open in another tab" },
+    otherTabTitle: { fa: "این نقطه ورود در زبانه دیگری باز است", en: "This gate is open in another tab" },
     otherTabBody:
       "A check-in point scans in one tab only, so capacity and duplicates are counted once. Close the other tab; this page continues on its own.",
     discardTitle: (n: number) => `${n} unsynced scan(s) remain on this device`,
@@ -348,6 +385,14 @@ export function rejectionLabel(t: TranslationDictionary, copy: ScannerCopy, reas
       return copy.reasonTicketInactive;
     case "EVENT_MISMATCH":
       return copy.reasonEventMismatch;
+    case "NOT_INSIDE":
+      return copy.reasonNotInside;
+    case "EXIT_NOT_TRACKED":
+      return copy.reasonExitNotTracked;
+    case "REQUIRED_POINT_NOT_VISITED":
+      return copy.reasonRequiredPoint;
+    case "POINT_ARCHIVED":
+      return copy.reasonPointArchived;
     default:
       return null;
   }

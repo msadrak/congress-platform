@@ -20,6 +20,8 @@ export interface QueuedScan {
   ticket_tier_name?: string | null;
   conflict_acknowledged?: boolean;
   reconciled_at?: string | null;
+  /** Entry or exit (points that track occupancy); records of older scanners are entries. */
+  direction?: "IN" | "OUT";
 }
 
 export interface ServerScanResult {

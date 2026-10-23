@@ -6,10 +6,18 @@ import type { CheckInManifest } from "../api/client";
  */
 
 export const MANIFEST_POLL_MS = 30_000;
+/** While the server answers, the scanner reports its state (unsynced scans, version) this often. */
+export const HEARTBEAT_MS = 60_000;
 
-/** True when the point's rules changed in a way that changes which tickets the manifest must hold. */
+/**
+ * True when the point's rules changed in a way that changes which tickets the manifest must hold, or what every
+ * ticket's state means (window, occupancy, required point).
+ */
 function ticketSetRulesChanged(a: CheckInManifest["checkin_point"], b: CheckInManifest["checkin_point"]): boolean {
   if (a.policy_type !== b.policy_type) return true;
+  if ((a.reset_window ?? "EVENT") !== (b.reset_window ?? "EVENT")) return true;
+  if (Boolean(a.tracks_occupancy) !== Boolean(b.tracks_occupancy)) return true;
+  if ((a.requires_point_id ?? null) !== (b.requires_point_id ?? null)) return true;
   const tiers = (p: CheckInManifest["checkin_point"]) => [...(p.allowed_tier_ids ?? [])].sort().join(",");
   return tiers(a) !== tiers(b);
 }
