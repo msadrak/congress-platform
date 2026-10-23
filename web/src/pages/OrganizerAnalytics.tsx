@@ -10,7 +10,7 @@ import {
   type TicketTierOut,
 } from "../api/client";
 import { formatLocalizedNumber } from "../lib/i18n";
-import { EVENT_SETUP_SECTIONS } from "../lib/organizerWorkspace";
+import { eventOperationNumber } from "../lib/organizerWorkspace";
 import type { OrganizerOutletContext } from "./OrganizerLayout";
 import { Badge } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
@@ -212,7 +212,7 @@ function OrganizerAnalyticsContent() {
   return (
     <div className="space-y-8 sm:space-y-10">
       <SectionHeader
-        index={EVENT_SETUP_SECTIONS.length + 1}
+        index={eventOperationNumber("analytics")}
         eyebrow={event?.name || t.organizerConsole}
         title={t.analyticsTitle}
         description={t.analyticsSubtitle}

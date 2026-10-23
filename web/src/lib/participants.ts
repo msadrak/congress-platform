@@ -151,6 +151,17 @@ const fa = {
   reissued: "کارت ورود دوباره صادر شد.",
   transferred: "بلیت به {name} منتقل شد.",
   deleted: "ثبت‌نام حذف شد.",
+  filters: "فیلتر شرکت‌کنندگان",
+  results: "{total} شرکت‌کننده",
+  scanHistory: "سوابق اسکن کارت ورود",
+  noScans: "این کارت ورود هنوز در هیچ گیتی اسکن نشده است.",
+  scanAdmitted: "پذیرفته شد",
+  scanRejected: "رد شد",
+  detailLoadError: "جزئیات این ثبت‌نام بارگذاری نشد.",
+  passInactive: "کارت ورود و کد QR این بلیت دیگر معتبر نیست.",
+  transferNeedsName: "این شماره هنوز در سامانه حساب ندارد؛ نام دارندهٔ جدید را وارد کنید.",
+  optionalDetails: "اطلاعات دارندهٔ جدید (اختیاری)",
+  actionError: "این کار انجام نشد. دوباره تلاش کنید.",
 };
 
 export type ParticipantsCopy = typeof fa;
@@ -244,6 +255,17 @@ const en: ParticipantsCopy = {
   reissued: "Pass reissued.",
   transferred: "Ticket transferred to {name}.",
   deleted: "Registration deleted.",
+  filters: "Filter participants",
+  results: "{total} participants",
+  scanHistory: "Pass scan history",
+  noScans: "This pass has not been scanned at any gate yet.",
+  scanAdmitted: "Admitted",
+  scanRejected: "Rejected",
+  detailLoadError: "This registration's details could not be loaded.",
+  passInactive: "This ticket's pass and QR code no longer work.",
+  transferNeedsName: "This number has no account yet: enter the new holder's name.",
+  optionalDetails: "New holder's details (optional)",
+  actionError: "That did not work. Please try again.",
 };
 
 export const PARTICIPANTS_COPY: Record<"fa" | "en", ParticipantsCopy> = { fa, en };

@@ -194,7 +194,7 @@ test('one workspace navigation addresses every section of the selected event by 
   await seed(page);
   await page.goto('/organizer/events/event-a');
   await expect(page.getByTestId('active-event')).toHaveText('Alpha Congress');
-  await expect(workspaceNav(page).getByRole('link')).toHaveText([/Overview/, /Program/, /Venue/, /Ticket Tiers/, /Check-In Gates/, /Exhibition Booths/, /Desk Staff/, /Public page/, /Attendee panel/, /SMS/, /Analytics/, /Front Desk/]);
+  await expect(workspaceNav(page).getByRole('link')).toHaveText([/Overview/, /Program/, /Venue/, /Ticket Tiers/, /Check-In Gates/, /Exhibition Booths/, /Desk Staff/, /Public page/, /Attendee panel/, /SMS/, /Participants/, /Analytics/, /Front Desk/]);
   await expect(workspaceNav(page).getByRole('link', { name: /Overview/ })).toHaveAttribute('aria-current', 'page');
 
   const eventReads = () => requests.filter(r => r.method === 'GET' && r.path === '/api/events/event-a').length;
