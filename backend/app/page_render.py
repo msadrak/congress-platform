@@ -27,7 +27,16 @@ class PublicPage(BaseModel):
 
 
 def public_media_url(asset: MediaAsset) -> str:
-    return f"/api/public/media/{asset.id}"
+    return public_media_path(asset.id)
+
+
+def public_media_path(asset_id: uuid.UUID) -> str:
+    return f"/api/public/media/{asset_id}"
+
+
+def booth_logo_url(asset_id: uuid.UUID | None) -> str | None:
+    """A booth's logo as the public image address, or None. Needs no query: the foreign key keeps the id valid."""
+    return public_media_path(asset_id) if asset_id is not None else None
 
 
 def organizer_media_url(asset: MediaAsset) -> str:

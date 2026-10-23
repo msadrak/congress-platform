@@ -4,19 +4,26 @@ from datetime import datetime
 from typing import Annotated
 from urllib.parse import parse_qs, urlencode, urlsplit
 
-from fastapi import APIRouter, HTTPException, Query, Request, Response, status
+from fastapi import APIRouter, Header, HTTPException, Query, Request, Response, status
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, StringConstraints
 from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.audit import Actor, record
 from app.auth import organizer_is_active
 from app.db import SessionDep, add_or_existing
 from app.errors import ApiError, error_responses
-from app.models import Booth, BoothBookmark, BoothStaff, EntityQR, Event, EventPage, Lead, Organizer, Ticket, User
+from app.models import (
+    Booth, BoothBookmark, BoothStaff, EntityQR, Event, EventPage, Lead, MediaAsset, Organizer, Ticket, User,
+)
+from app.page_render import booth_logo_url
 from app.rate_limit import Budget, client_ip, ip_group, limiter
 from app.routes.auth import CurrentUserDep
 from app.routes.events import OwnedEventDep, WritableEventDep
+from app.routes.pages import (
+    IMAGE_REQUEST_BODY, IMAGE_UPLOAD_ERRORS, delete_if_unused, delete_media_file, store_image,
+)
 from app.security import generate_entity_qr_secret
 from app.sms.outbox import queue_staff_invite
 from app.sms.phone import IranMobile
@@ -33,6 +40,7 @@ THROTTLED = "Too many attempts. Try again later."
 NETWORKING_CLOSED = "This congress is archived: networking and booth bookmarks are closed"
 # Booth staff writes (lead capture, edits, delete, restore) on an archived congress; reads and exports stay open.
 LEADS_READ_ONLY = "This congress is archived: its leads can be read and exported but no longer changed"
+PAGE_NOT_STAFF = "Only the booth's representatives can edit its page"
 _BOOTH_CODE = re.compile(r"^[a-z0-9]{8,64}$")
 
 SlugStr = Annotated[
@@ -68,10 +76,12 @@ class BoothCreate(BaseModel):
     description: BoothDescription = ""
     website_url: WebLink = ""
     brochure_url: WebLink = ""
+    # One of the event's images (`POST /api/events/{event_id}/media`).
+    logo_asset_id: uuid.UUID | None = None
 
 
 class BoothUpdate(BaseModel):
-    """Partial update: omitted fields keep their value."""
+    """Partial update: omitted fields keep their value. `logo_asset_id: null` removes the logo."""
 
     name: Annotated[str, Field(min_length=1, max_length=200)] | None = None
     slug: SlugStr | None = None
@@ -79,7 +89,18 @@ class BoothUpdate(BaseModel):
     description: BoothDescription | None = None
     website_url: WebLink | None = None
     brochure_url: WebLink | None = None
+    logo_asset_id: uuid.UUID | None = None
 
+
+class BoothProfileUpdate(BaseModel):
+    """What a booth's representatives may change on its public page (partial). The name, page address and stand
+    are the organizer's: sending them is refused (422)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    description: BoothDescription | None = None
+    website_url: WebLink | None = None
+    brochure_url: WebLink | None = None
 
 
 class BoothOut(BaseModel):
@@ -93,12 +114,35 @@ class BoothOut(BaseModel):
     description: str
     website_url: str
     brochure_url: str
+    # The logo: one of the event's images, and its public address (`/api/public/media/{id}`, served while the
+    # event's page is published). Both null without a logo.
+    logo_asset_id: uuid.UUID | None
+    logo_url: str | None
     qr_secret: str
     created_at: datetime
     # The booth's congress is archived: its leads stay readable and exportable but no new capture is taken.
     event_archived: bool
     # The congress's IANA zone (`events.timezone`): lead times are shown in it, not in the device's zone.
     event_timezone: str
+
+
+def booth_out(booth: Booth, qr_secret: str, *, archived: bool, timezone: str) -> BoothOut:
+    return BoothOut(
+        id=booth.id,
+        event_id=booth.event_id,
+        name=booth.name,
+        slug=booth.slug,
+        location=booth.location,
+        description=booth.description,
+        website_url=booth.website_url,
+        brochure_url=booth.brochure_url,
+        logo_asset_id=booth.logo_asset_id,
+        logo_url=booth_logo_url(booth.logo_asset_id),
+        qr_secret=qr_secret,
+        created_at=booth.created_at,
+        event_archived=archived,
+        event_timezone=timezone,
+    )
 
 
 class BoothStaffAssign(BaseModel):
@@ -167,16 +211,26 @@ class BookmarkedBoothOut(BaseModel):
     bookmarked_at: datetime
 
 
+async def _require_event_image(session: AsyncSession, event: Event, asset_id: uuid.UUID | None) -> None:
+    """404 MEDIA_NOT_FOUND unless the logo is one of this event's images."""
+    if asset_id is None:
+        return
+    found = await session.scalar(select(MediaAsset.id).where(MediaAsset.id == asset_id, MediaAsset.event_id == event.id))
+    if found is None:
+        raise ApiError(status.HTTP_404_NOT_FOUND, "MEDIA_NOT_FOUND", "Image not found")
+
+
 @router.post(
     "/api/events/{event_id}/booths",
     status_code=status.HTTP_201_CREATED,
-    responses=error_responses(status.HTTP_409_CONFLICT),
+    responses=error_responses(status.HTTP_404_NOT_FOUND, status.HTTP_409_CONFLICT),
 )
 async def create_booth(
     event: WritableEventDep,
     body: BoothCreate,
     session: SessionDep,
 ) -> BoothOut:
+    await _require_event_image(session, event, body.logo_asset_id)
     booth = Booth(
         event_id=event.id,
         name=body.name.strip(),
@@ -185,6 +239,7 @@ async def create_booth(
         description=body.description.strip(),
         website_url=body.website_url.strip(),
         brochure_url=body.brochure_url.strip(),
+        logo_asset_id=body.logo_asset_id,
     )
     session.add(booth)
     try:
@@ -204,20 +259,7 @@ async def create_booth(
     session.add(qr)
     await session.commit()
 
-    return BoothOut(
-        id=booth.id,
-        event_id=booth.event_id,
-        name=booth.name,
-        slug=booth.slug,
-        location=booth.location,
-        description=booth.description,
-        website_url=booth.website_url,
-        brochure_url=booth.brochure_url,
-        qr_secret=secret,
-        created_at=booth.created_at,
-        event_archived=event.archived_at is not None,
-        event_timezone=event.timezone,
-    )
+    return booth_out(booth, secret, archived=event.archived_at is not None, timezone=event.timezone)
 
 
 @router.get("/api/events/{event_id}/booths")
@@ -237,23 +279,7 @@ async def list_event_booths(
     res = await session.execute(query)
     rows = res.all()
 
-    return [
-        BoothOut(
-            id=b.id,
-            event_id=b.event_id,
-            name=b.name,
-            slug=b.slug,
-            location=b.location,
-            description=b.description,
-            website_url=b.website_url,
-            brochure_url=b.brochure_url,
-            qr_secret=qr.secret,
-            created_at=b.created_at,
-            event_archived=event.archived_at is not None,
-            event_timezone=event.timezone,
-        )
-        for b, qr in rows
-    ]
+    return [booth_out(b, qr.secret, archived=event.archived_at is not None, timezone=event.timezone) for b, qr in rows]
 
 
 async def _own_booth(session: SessionDep, event: Event, booth_id: uuid.UUID) -> Booth:
@@ -343,9 +369,15 @@ async def update_booth(
     event: WritableEventDep,
     booth_id: uuid.UUID,
     body: BoothUpdate,
+    request: Request,
     session: SessionDep,
 ) -> BoothOut:
+    """Partial update. A replaced or removed logo image is deleted unless the page or another booth uses it."""
     booth = await _own_booth(session, event, booth_id)
+    previous_logo = booth.logo_asset_id
+    if "logo_asset_id" in body.model_fields_set:
+        await _require_event_image(session, event, body.logo_asset_id)
+        booth.logo_asset_id = body.logo_asset_id
     if body.name is not None:
         booth.name = body.name.strip()
     if body.slug is not None:
@@ -364,28 +396,17 @@ async def update_booth(
         raise ApiError(
             status.HTTP_409_CONFLICT, "BOOTH_SLUG_TAKEN", "Booth slug already in use for this event"
         ) from None
+    unused = await delete_if_unused(session, event.id, previous_logo) if previous_logo != booth.logo_asset_id else None
     secret = await session.scalar(
         select(EntityQR.secret).where(
             EntityQR.entity_id == booth.id, EntityQR.entity_type == "booth"
         )
     )
     await session.commit()
+    await delete_media_file(request, unused)
     await session.refresh(booth)
 
-    return BoothOut(
-        id=booth.id,
-        event_id=booth.event_id,
-        name=booth.name,
-        slug=booth.slug,
-        location=booth.location,
-        description=booth.description,
-        website_url=booth.website_url,
-        brochure_url=booth.brochure_url,
-        qr_secret=secret or "",
-        created_at=booth.created_at,
-        event_archived=event.archived_at is not None,
-        event_timezone=event.timezone,
-    )
+    return booth_out(booth, secret or "", archived=event.archived_at is not None, timezone=event.timezone)
 
 
 @router.delete(
@@ -396,11 +417,14 @@ async def update_booth(
 async def delete_booth(
     event: WritableEventDep,
     booth_id: uuid.UUID,
+    request: Request,
     session: SessionDep,
 ) -> Response:
     """Removes the booth with everything that only exists for it: captured leads, staff assignments,
-    attendee bookmarks and its booth QR (which then no longer resolves)."""
+    attendee bookmarks, its booth QR (which then no longer resolves) and its logo, unless the page or another
+    booth uses that image."""
     booth = await _own_booth(session, event, booth_id)
+    logo = booth.logo_asset_id
     await session.execute(delete(Lead).where(Lead.booth_id == booth.id))
     await session.execute(delete(BoothStaff).where(BoothStaff.booth_id == booth.id))
     await session.execute(delete(BoothBookmark).where(BoothBookmark.booth_id == booth.id))
@@ -408,7 +432,10 @@ async def delete_booth(
         delete(EntityQR).where(EntityQR.entity_id == booth.id, EntityQR.entity_type == "booth")
     )
     await session.delete(booth)
+    await session.flush()
+    unused = await delete_if_unused(session, event.id, logo)
     await session.commit()
+    await delete_media_file(request, unused)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -579,20 +606,7 @@ async def get_my_assigned_booths(
     rows = res.all()
 
     return [
-        BoothOut(
-            id=b.id,
-            event_id=b.event_id,
-            name=b.name,
-            slug=b.slug,
-            location=b.location,
-            description=b.description,
-            website_url=b.website_url,
-            brochure_url=b.brochure_url,
-            qr_secret=qr.secret,
-            created_at=b.created_at,
-            event_archived=archived_at is not None,
-            event_timezone=event_timezone,
-        )
+        booth_out(b, qr.secret, archived=archived_at is not None, timezone=event_timezone)
         for b, qr, archived_at, event_timezone in rows
     ]
 
@@ -617,20 +631,115 @@ async def get_booth_portal(
     if qr is None:
         raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, "Booth QR missing")
 
-    return BoothOut(
-        id=booth.id,
-        event_id=booth.event_id,
-        name=booth.name,
-        slug=booth.slug,
-        location=booth.location,
-        description=booth.description,
-        website_url=booth.website_url,
-        brochure_url=booth.brochure_url,
-        qr_secret=qr.secret,
-        created_at=booth.created_at,
-        event_archived=event.archived_at is not None,
-        event_timezone=event.timezone,
+    return booth_out(booth, qr.secret, archived=event.archived_at is not None, timezone=event.timezone)
+
+
+# ── The booth's own page, edited by its representatives ─────────────────────────────────────────────
+
+STAFF_PAGE_ERRORS = error_responses(status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND, status.HTTP_409_CONFLICT)
+
+
+async def _staff_booth_for_page(session: AsyncSession, booth_id: uuid.UUID, user: User) -> tuple[Booth, Event]:
+    """The booth for a page edit by one of its current representatives, refused on an archived congress."""
+    booth, event = await booth_for_staff(session, booth_id, user, not_staff=PAGE_NOT_STAFF)
+    refuse_archived_lead_change(event)
+    return booth, event
+
+
+def _staff_actor(user: User, event: Event) -> Actor:
+    return Actor("booth_staff", str(user.id), user.full_name, event.organizer_id)
+
+
+async def _staff_booth_out(session: AsyncSession, booth: Booth, event: Event) -> BoothOut:
+    await session.refresh(booth)
+    secret = await session.scalar(
+        select(EntityQR.secret).where(EntityQR.entity_id == booth.id, EntityQR.entity_type == "booth")
     )
+    return booth_out(booth, secret or "", archived=event.archived_at is not None, timezone=event.timezone)
+
+
+@router.patch("/api/booths/{booth_id}/profile", responses=STAFF_PAGE_ERRORS)
+async def update_booth_profile(
+    booth_id: uuid.UUID,
+    body: BoothProfileUpdate,
+    user: CurrentUserDep,
+    request: Request,
+    session: SessionDep,
+) -> BoothOut:
+    """A representative edits the booth's public page: its description, website and brochure (omitted fields
+    keep their value). Only the organizer changes the name, page address and stand."""
+    booth, event = await _staff_booth_for_page(session, booth_id, user)
+    changed: list[str] = []
+    for field in ("description", "website_url", "brochure_url"):
+        value = getattr(body, field)
+        if value is not None and value.strip() != getattr(booth, field):
+            setattr(booth, field, value.strip())
+            changed.append(field)
+    if changed:
+        record(
+            session, request, "booth.page_updated", actor=_staff_actor(user, event),
+            event_id=event.id, entity_type="booth", entity_id=booth.id, summary={"fields": changed},
+        )
+    await session.commit()
+    return await _staff_booth_out(session, booth, event)
+
+
+@router.put(
+    "/api/booths/{booth_id}/logo",
+    openapi_extra=IMAGE_REQUEST_BODY,
+    responses=error_responses(*sorted({*IMAGE_UPLOAD_ERRORS, 403, 404, 409})),
+)
+async def upload_booth_logo(
+    booth_id: uuid.UUID,
+    user: CurrentUserDep,
+    request: Request,
+    session: SessionDep,
+    content_type: Annotated[str | None, Header()] = None,
+    content_length: Annotated[int | None, Header()] = None,
+) -> BoothOut:
+    """A representative uploads the booth's logo (PNG, JPEG or WebP, re-encoded like every image). It joins the
+    congress's images; the previous logo is deleted unless the event's page or another booth uses it."""
+    booth, event = await _staff_booth_for_page(session, booth_id, user)
+    previous = booth.logo_asset_id
+    unused: list[str | None] = [None]
+
+    async def attach(asset: MediaAsset) -> None:
+        booth.logo_asset_id = asset.id
+        record(
+            session, request, "booth.logo_updated", actor=_staff_actor(user, event),
+            event_id=event.id, entity_type="booth", entity_id=booth.id, summary={"asset_id": str(asset.id)},
+        )
+        unused[0] = await delete_if_unused(session, event.id, previous)
+
+    await store_image(
+        request, session, event.id, content_type=content_type, content_length=content_length, attach=attach
+    )
+    await delete_media_file(request, unused[0])
+    return await _staff_booth_out(session, booth, event)
+
+
+@router.delete("/api/booths/{booth_id}/logo", responses=STAFF_PAGE_ERRORS)
+async def delete_booth_logo(
+    booth_id: uuid.UUID,
+    user: CurrentUserDep,
+    request: Request,
+    session: SessionDep,
+) -> BoothOut:
+    """A representative removes the booth's logo; the image is deleted unless the event's page or another booth
+    uses it. Removing a logo that is already gone changes nothing."""
+    booth, event = await _staff_booth_for_page(session, booth_id, user)
+    previous = booth.logo_asset_id
+    unused: str | None = None
+    if previous is not None:
+        booth.logo_asset_id = None
+        record(
+            session, request, "booth.logo_removed", actor=_staff_actor(user, event),
+            event_id=event.id, entity_type="booth", entity_id=booth.id,
+        )
+        unused = await delete_if_unused(session, event.id, previous)
+    await session.commit()
+    await delete_media_file(request, unused)
+    return await _staff_booth_out(session, booth, event)
 
 
 async def _require_bookmarkable(

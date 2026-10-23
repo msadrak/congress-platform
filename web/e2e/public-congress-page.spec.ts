@@ -26,17 +26,19 @@ const event = {
 };
 // A long, unbreakable stand location must not widen a phone screen.
 const booths = [
-  { id: 'booth-1', name: 'Fixture Instruments International Corporation', slug: 'fixture-instruments', location: 'Exhibition Hall B, Second Floor, Stand Number 1204 near the north escalators', description: 'Imaging and diagnostics', website_url: '', brochure_url: '' },
-  { id: 'booth-2', name: 'Short Co', slug: 'short-co', location: 'A1', description: '', website_url: '', brochure_url: '' },
+  { id: 'booth-1', name: 'Fixture Instruments International Corporation', slug: 'fixture-instruments', location: 'Exhibition Hall B, Second Floor, Stand Number 1204 near the north escalators', description: 'Imaging and diagnostics', website_url: '', brochure_url: '', logo_url: '/api/public/media/logo-1' as string | null },
+  { id: 'booth-2', name: 'Short Co', slug: 'short-co', location: 'A1', description: '', website_url: '', brochure_url: '', logo_url: null as string | null },
 ];
+// A 1×1 PNG: booth-1's logo.
+const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=', 'base64');
 const heldTicket = { id: 'ticket-held', event_id: 'event-pub', event_name: event.name, event_slug: slug, event_location: event.location, event_starts_at: event.starts_at, event_ends_at: event.ends_at, ticket_tier_id: 'tier-pub', ticket_tier_name: 'General', attendee_name: 'Fixture Attendee', attendee_mobile: '09121234567', status: 'ACTIVE', qr_secret: 'synthetic-held-qr', created_at: '2027-01-01T00:00:00Z' };
 
-async function fixture(page: Page, options: { tickets?: unknown[]; signedIn?: boolean; reserve?: 201 | 409 } = {}) {
+async function fixture(page: Page, options: { tickets?: unknown[]; signedIn?: boolean; reserve?: 201 | 409; locale?: 'en' | 'fa' } = {}) {
   const requests: string[] = [];
-  await page.addInitScript(({ signedIn, token }) => {
-    localStorage.setItem('congress_attendee_locale', 'en');
+  await page.addInitScript(({ signedIn, token, locale }) => {
+    localStorage.setItem('congress_attendee_locale', locale);
     if (signedIn) localStorage.setItem('congress_attendee_token', token);
-  }, { signedIn: options.signedIn ?? false, token });
+  }, { signedIn: options.signedIn ?? false, token, locale: options.locale ?? 'en' });
   await page.route(/^https?:\/\/[^/]+\/api\//, async route => {
     const request = route.request();
     const path = new URL(request.url()).pathname;
@@ -44,6 +46,9 @@ async function fixture(page: Page, options: { tickets?: unknown[]; signedIn?: bo
     const json = (status: number, body: unknown) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
     if (path === `/api/public/events/${slug}`) return json(200, event);
     if (path === `/api/public/events/${slug}/booths`) return json(200, booths);
+    const boothPage = booths.find(b => path === `/api/public/events/${slug}/booths/${b.id}`);
+    if (boothPage) return json(200, { ...boothPage, event_name: event.name, event_slug: slug, is_bookmarked: false });
+    if (path === '/api/public/media/logo-1') return route.fulfill({ status: 200, contentType: 'image/png', body: PNG });
     if (path.startsWith('/api/public/events/')) return json(404, { detail: 'Event not found', code: 'EVENT_NOT_FOUND' });
     if (path === '/api/attendees/me/tickets') return json(200, options.tickets ?? []);
     if (path.endsWith('/tickets/reserve')) {
@@ -212,6 +217,36 @@ test('the booth index stacks on a 390 px phone without horizontal overflow', asy
   const name = row.getByText('Fixture Instruments International Corporation');
   expect((await stand.boundingBox())!.y).toBeLessThan((await name.boundingBox())!.y);
 });
+
+for (const locale of ['en', 'fa'] as const) {
+  test(`${locale}: booth logos show in the directory and on the booth page, named after the booth; none without one`, async ({ page }) => {
+    await page.setViewportSize({ width: 360, height: 740 });
+    await fixture(page, { locale });
+    await page.goto(`/e/${slug}`);
+    const rows = page.locator('#exhibition li');
+    const logo = rows.first().getByRole('img', { name: 'Fixture Instruments International Corporation' });
+    await logo.scrollIntoViewIfNeeded();
+    await expect(logo).toBeVisible();
+    await expect(logo).toHaveAttribute('src', '/api/public/media/logo-1');
+    await expect(logo).toHaveAttribute('loading', 'lazy');
+    await expect(logo).toHaveAttribute('width', '40');
+    await expect(logo).toHaveAttribute('height', '40');
+    expect(await logo.evaluate(img => getComputedStyle(img).objectFit)).toBe('contain');
+    await expect(rows.nth(1).getByRole('img')).toHaveCount(0);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
+
+    await page.goto(`/e/${slug}/booths/booth-1`);
+    const header = page.getByRole('region', { name: 'Fixture Instruments International Corporation' });
+    const headerLogo = header.getByRole('img', { name: 'Fixture Instruments International Corporation' });
+    await expect(headerLogo).toBeVisible();
+    await expect(headerLogo).toHaveAttribute('width', '64');
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
+
+    await page.goto(`/e/${slug}/booths/booth-2`);
+    await expect(page.getByRole('heading', { level: 1, name: 'Short Co' })).toBeVisible();
+    await expect(page.getByRole('region', { name: 'Short Co' }).getByRole('img')).toHaveCount(0);
+  });
+}
 
 test('an unknown congress offers "find my pass" instead of the platform home', async ({ page }) => {
   await fixture(page);

@@ -1391,12 +1391,16 @@ export interface paths {
         /**
          * Delete Booth
          * @description Removes the booth with everything that only exists for it: captured leads, staff assignments,
-         *     attendee bookmarks and its booth QR (which then no longer resolves).
+         *     attendee bookmarks, its booth QR (which then no longer resolves) and its logo, unless the page or another
+         *     booth uses that image.
          */
         delete: operations["delete_booth_api_events__event_id__booths__booth_id__delete"];
         options?: never;
         head?: never;
-        /** Update Booth */
+        /**
+         * Update Booth
+         * @description Partial update. A replaced or removed logo image is deleted unless the page or another booth uses it.
+         */
         patch: operations["update_booth_api_events__event_id__booths__booth_id__patch"];
         trace?: never;
     };
@@ -1500,6 +1504,53 @@ export interface paths {
         put?: never;
         post?: never;
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/booths/{booth_id}/profile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Update Booth Profile
+         * @description A representative edits the booth's public page: its description, website and brochure (omitted fields
+         *     keep their value). Only the organizer changes the name, page address and stand.
+         */
+        patch: operations["update_booth_profile_api_booths__booth_id__profile_patch"];
+        trace?: never;
+    };
+    "/api/booths/{booth_id}/logo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Upload Booth Logo
+         * @description A representative uploads the booth's logo (PNG, JPEG or WebP, re-encoded like every image). It joins the
+         *     congress's images; the previous logo is deleted unless the event's page or another booth uses it.
+         */
+        put: operations["upload_booth_logo_api_booths__booth_id__logo_put"];
+        post?: never;
+        /**
+         * Delete Booth Logo
+         * @description A representative removes the booth's logo; the image is deleted unless the event's page or another booth
+         *     uses it. Removing a logo that is already gone changes nothing.
+         */
+        delete: operations["delete_booth_logo_api_booths__booth_id__logo_delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -1989,8 +2040,8 @@ export interface paths {
         };
         /**
          * Public Media
-         * @description Anonymous image access: only images the published page of an unarchived event references (an archived
-         *     event's public page is gone, like its schedule files).
+         * @description Anonymous image access: only images the published page of an unarchived event references, and its booths'
+         *     logos (an archived event's public page is gone, like its schedule files).
          */
         get: operations["public_media_api_public_media__asset_id__get"];
         put?: never;
@@ -3072,6 +3123,8 @@ export interface components {
              * @default
              */
             brochure_url: string;
+            /** Logo Asset Id */
+            logo_asset_id?: string | null;
         };
         /** BoothOut */
         BoothOut: {
@@ -3097,6 +3150,10 @@ export interface components {
             website_url: string;
             /** Brochure Url */
             brochure_url: string;
+            /** Logo Asset Id */
+            logo_asset_id: string | null;
+            /** Logo Url */
+            logo_url: string | null;
             /** Qr Secret */
             qr_secret: string;
             /**
@@ -3108,6 +3165,19 @@ export interface components {
             event_archived: boolean;
             /** Event Timezone */
             event_timezone: string;
+        };
+        /**
+         * BoothProfileUpdate
+         * @description What a booth's representatives may change on its public page (partial). The name, page address and stand
+         *     are the organizer's: sending them is refused (422).
+         */
+        BoothProfileUpdate: {
+            /** Description */
+            description?: string | null;
+            /** Website Url */
+            website_url?: string | null;
+            /** Brochure Url */
+            brochure_url?: string | null;
         };
         /**
          * BoothResolveOut
@@ -3197,7 +3267,7 @@ export interface components {
         };
         /**
          * BoothUpdate
-         * @description Partial update: omitted fields keep their value.
+         * @description Partial update: omitted fields keep their value. `logo_asset_id: null` removes the logo.
          */
         BoothUpdate: {
             /** Name */
@@ -3212,6 +3282,8 @@ export interface components {
             website_url?: string | null;
             /** Brochure Url */
             brochure_url?: string | null;
+            /** Logo Asset Id */
+            logo_asset_id?: string | null;
         };
         /** Branding */
         Branding: {
@@ -5398,6 +5470,8 @@ export interface components {
             website_url: string;
             /** Brochure Url */
             brochure_url: string;
+            /** Logo Url */
+            logo_url: string | null;
             /** Event Name */
             event_name: string;
             /** Event Slug */
@@ -5430,6 +5504,8 @@ export interface components {
             website_url: string;
             /** Brochure Url */
             brochure_url: string;
+            /** Logo Url */
+            logo_url: string | null;
         };
         /** PublicEvent */
         PublicEvent: {
@@ -10462,6 +10538,15 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description Conflict */
             409: {
                 headers: {
@@ -10856,6 +10941,221 @@ export interface operations {
             };
             /** @description Not Found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_booth_profile_api_booths__booth_id__profile_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                booth_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BoothProfileUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BoothOut"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    upload_booth_logo_api_booths__booth_id__logo_put: {
+        parameters: {
+            query?: never;
+            header?: {
+                "content-type"?: string | null;
+                "content-length"?: number | null;
+            };
+            path: {
+                booth_id: string;
+            };
+            cookie?: never;
+        };
+        /** @description The image bytes. PNG, JPEG or WebP; SVG and other formats are refused. */
+        requestBody: {
+            content: {
+                "image/jpeg": string;
+                "image/png": string;
+                "image/webp": string;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BoothOut"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Request Entity Too Large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unsupported Media Type */
+            415: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_booth_logo_api_booths__booth_id__logo_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                booth_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BoothOut"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -12147,8 +12447,44 @@ export interface operations {
                     "application/json": components["schemas"]["MediaAssetOut"];
                 };
             };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description ROLE_FORBIDDEN: needs the manager role */
             403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Request Entity Too Large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unsupported Media Type */
+            415: {
                 headers: {
                     [name: string]: unknown;
                 };

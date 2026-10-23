@@ -7,6 +7,7 @@ import { signInPath } from "../lib/safeRedirect";
 import { searchText } from "./public/format";
 import { codeFontClass, formatNumber } from "../lib/format";
 import { boothDirectoryCopy } from "../copy/public";
+import { BoothLogo } from "./BoothLogo";
 import { Button } from "./ui/Button";
 import { Icon } from "./ui/Icon";
 import { Notice } from "./ui/Notice";
@@ -331,14 +332,17 @@ export function BoothDirectoryView({
                   >
                     {saved && <span aria-hidden="true" className="absolute inset-y-4 start-0 w-[3px] rounded-e-full bg-event-accent" />}
                     <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0 space-y-1.5">
-                        {b.location && (
-                          <p className="inline-flex max-w-full items-center gap-1.5 rounded-md bg-surface-panel-subtle px-2 py-1 text-caption font-medium text-text-secondary">
-                            <Icon name="pin" size={13} className="text-ink-400" />
-                            <span className={`truncate ${codeFontClass(b.location)}`}>{b.location}</span>
-                          </p>
-                        )}
-                        <p dir="auto" className="text-body font-semibold leading-snug text-text-primary break-words">{b.name}</p>
+                      <div className="flex min-w-0 items-start gap-3">
+                        <BoothLogo src={b.logo_url} alt={b.name} size="row" lazy />
+                        <div className="min-w-0 space-y-1.5">
+                          {b.location && (
+                            <p className="inline-flex max-w-full items-center gap-1.5 rounded-md bg-surface-panel-subtle px-2 py-1 text-caption font-medium text-text-secondary">
+                              <Icon name="pin" size={13} className="text-ink-400" />
+                              <span className={`truncate ${codeFontClass(b.location)}`}>{b.location}</span>
+                            </p>
+                          )}
+                          <p dir="auto" className="text-body font-semibold leading-snug text-text-primary break-words">{b.name}</p>
+                        </div>
                       </div>
                       {signedIn && savedIds && (
                         <Button

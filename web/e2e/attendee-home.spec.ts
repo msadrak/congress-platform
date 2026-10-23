@@ -86,21 +86,30 @@ test('Persian: zero contacts read as words, no overflow at 320 px', async ({ pag
   expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBe(0);
 });
 
-const longBooth = [{ ...BOOTHS[0], location: 'Exhibition Hall C, North Wing, Ground Floor, Stand B12-B14 beside the main entrance' }];
+const longBooth = [{ ...BOOTHS[0], location: 'Exhibition Hall C, North Wing, Ground Floor, Stand B12-B14 beside the main entrance', logo_url: '/api/public/media/logo-z' }];
+// A 1×1 PNG: the booth's logo.
+const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=', 'base64');
 for (const lang of ['fa', 'en'] as const) {
   for (const width of [360, 390]) {
-    test(`a long booth location never widens the page (${lang}, ${width} px)`, async ({ page }) => {
+    test(`a long booth location never widens the page, with the booth's logo beside it (${lang}, ${width} px)`, async ({ page }) => {
       await page.setViewportSize({ width, height: 800 });
       await panelApi(page, {
         override: (route, request) =>
           request.path === '/api/public/events/alpha/booths'
             ? route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(longBooth) })
-            : undefined,
+            : request.path === '/api/public/media/logo-z'
+              ? route.fulfill({ status: 200, contentType: 'image/png', body: PNG })
+              : undefined,
       });
       await signIn(page, lang);
       await page.clock.setFixedTime(new Date('2027-05-07T03:00:00Z'));
       await page.goto('/c/alpha/my-congress');
       await expect(page.getByText(longBooth[0].location)).toBeAttached();
+      const logo = page.getByRole('img', { name: 'Zeta Pharma' });
+      await logo.scrollIntoViewIfNeeded();
+      await expect(logo).toBeVisible();
+      await expect(logo).toHaveAttribute('width', '40');
+      await expect(logo).toHaveAttribute('loading', 'lazy');
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     });
   }

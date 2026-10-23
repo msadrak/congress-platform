@@ -15,7 +15,17 @@ const bearer = (token: string) => `Bearer ${token}`;
 interface FixtureLead { id: string; booth_id: string; ticket_id: string; attendee_name: string; attendee_mobile: string | null; organization: string; title: string; ticket_tier_name: string; rating: string; tags: string[]; notes: string; created_at: string; updated_at: string; deleted_at: string | null }
 const leadOf = (id: string, booth: string, name: string, rating = 'WARM', notes = ''): FixtureLead => ({ id, booth_id: booth, ticket_id: `ticket-${id}`, attendee_name: name, attendee_mobile: '09121231111', organization: 'Heart Center', title: 'Cardiologist', ticket_tier_name: 'General', rating, tags: [], notes, created_at: '2099-01-01T00:00:00Z', updated_at: '2099-01-01T00:00:00Z', deleted_at: null });
 
-type Recorded = { method: string; path: string; query: URLSearchParams; auth: string | undefined; body: unknown };
+type Recorded = { method: string; path: string; query: URLSearchParams; auth: string | undefined; body: unknown; contentType?: string };
+const jsonOrRaw = (raw: string | null) => {
+  if (!raw) return undefined;
+  try {
+    return JSON.parse(raw) as unknown;
+  } catch {
+    return raw;
+  }
+};
+// A 1×1 PNG, served as the booth's logo.
+const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=', 'base64');
 interface Options {
   scanAborts?: boolean;
   scanDelayMs?: number;
@@ -33,10 +43,12 @@ const REMOVED = { detail: 'You are not authorized to access this booth portal', 
 const SUSPENDED = { detail: 'Booth access for this congress is suspended', code: 'BOOTH_ACCESS_SUSPENDED' };
 const ARCHIVED = { detail: 'This congress is archived: its leads are read-only', code: 'EVENT_ARCHIVED' };
 
-const BOOTH = (id: string) => ({ id, event_id: id === 'booth-a' ? 'event-1' : 'event-2', name: id === 'booth-a' ? 'Alpha Devices Booth' : 'Beta Labs Booth', slug: id === 'booth-a' ? 'alpha-devices' : 'beta-labs', location: 'Hall 1 · A-12', description: '', website_url: '', brochure_url: '', qr_secret: 'booth-qr', created_at: '2099-01-01T00:00:00Z', event_archived: false, event_timezone: 'Asia/Tehran' });
+const BOOTH = (id: string) => ({ id, event_id: id === 'booth-a' ? 'event-1' : 'event-2', name: id === 'booth-a' ? 'Alpha Devices Booth' : 'Beta Labs Booth', slug: id === 'booth-a' ? 'alpha-devices' : 'beta-labs', location: 'Hall 1 · A-12', description: '', website_url: '', brochure_url: '', logo_asset_id: null as string | null, logo_url: null as string | null, qr_secret: 'booth-qr', created_at: '2099-01-01T00:00:00Z', event_archived: false, event_timezone: 'Asia/Tehran' });
 
 async function fixture(page: Page, options: Options = {}) {
   const requests: Recorded[] = [];
+  // What the booth page edits changed (description, links, logo).
+  const boothPage: Record<string, string | null> = {};
   const leads: Record<string, FixtureLead[]> = {
     'booth-a': [leadOf('lead-1', 'booth-a', 'Lead One', 'HOT', 'Wants a demo'), leadOf('lead-2', 'booth-a', 'Lead Two', 'COLD')],
     'booth-b': [leadOf('lead-9', 'booth-b', 'Secret Competitor Lead')],
@@ -55,7 +67,7 @@ async function fixture(page: Page, options: Options = {}) {
     const method = request.method();
     const auth = request.headers().authorization;
     const raw = request.postData();
-    requests.push({ method, path, query: url.searchParams, auth, body: raw ? JSON.parse(raw) : undefined });
+    requests.push({ method, path, query: url.searchParams, auth, body: jsonOrRaw(raw), contentType: request.headers()['content-type'] });
     const json = (status: number, body: unknown) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
     if (path === '/api/auth/otp/request') return json(202, { mobile: JSON.parse(raw ?? '{}').mobile, code_length: 6, expires_in: 120, resend_after: 60 });
     if (path === '/api/auth/otp/verify') {
@@ -71,6 +83,7 @@ async function fixture(page: Page, options: Options = {}) {
       return json(200, { user_id: 'u', events: isStaff ? [{ event_id: 'event-1', event_slug: 'alpha-congress', event_name: 'Alpha Congress 2099', roles: ['BOOTH_STAFF'], ticket_ids: [], desk_operator_ids: [], booth_ids: ['booth-a'], partner_ids: [] }] : [] });
     }
     if (path === '/api/booths/me') return json(200, isStaff && !options.control?.removed ? [BOOTH('booth-a')] : []);
+    if (path.startsWith('/api/public/media/')) return route.fulfill({ status: 200, contentType: 'image/png', body: PNG });
     const booth = path.match(/^\/api\/booths\/([^/]+)(\/.*)?$/);
     if (!booth) return json(404, { detail: 'Not found' });
     const [, id, rest = ''] = booth;
@@ -81,7 +94,26 @@ async function fixture(page: Page, options: Options = {}) {
     // An archived congress: lead changes are refused, reads, search and export stay open.
     if (options.control?.archived && (rest === '/leads/scan' || (/^\/leads\/[^/]+(\/restore)?$/.test(rest) && method !== 'GET'))) return json(409, ARCHIVED);
     const active = () => leads[id].filter(l => !l.deleted_at);
-    if (rest === '') return json(200, { ...BOOTH(id), ...(options.boothLocation ? { location: options.boothLocation } : {}), ...(options.eventArchived ? { event_archived: true } : {}) });
+    const current = () => ({ ...BOOTH(id), ...(options.boothLocation ? { location: options.boothLocation } : {}), ...(options.eventArchived ? { event_archived: true } : {}), ...boothPage });
+    if (rest === '') return json(200, current());
+    if (rest === '/profile' && method === 'PATCH') {
+      if (options.control?.archived) return json(409, ARCHIVED);
+      const body = JSON.parse(raw ?? '{}') as Record<string, string>;
+      // The server's own link check (here: a host it refuses) answers 422 on the field.
+      if (body.website_url?.includes('refused.example')) {
+        return json(422, { detail: [{ type: 'value_error', loc: ['body', 'website_url'], msg: 'Value error, Enter a full web address starting with https:// or http://.' }] });
+      }
+      Object.assign(boothPage, body);
+      return json(200, current());
+    }
+    if (rest === '/logo' && method === 'PUT') {
+      Object.assign(boothPage, { logo_asset_id: 'logo-1', logo_url: '/api/public/media/logo-1' });
+      return json(200, current());
+    }
+    if (rest === '/logo' && method === 'DELETE') {
+      Object.assign(boothPage, { logo_asset_id: null, logo_url: null });
+      return json(200, current());
+    }
     if (rest === '/leads' && method === 'GET') return json(200, active());
     if (rest === '/leads/search' && method === 'GET') {
       const q = (url.searchParams.get('q') ?? '').toLowerCase();
@@ -1041,5 +1073,123 @@ test.describe('suspended organizer and archived congress', () => {
     await page.waitForTimeout(2500);
     expect(scans()).toBe(1);
     await expect(item).toHaveCount(1);
+  });
+});
+
+test.describe('booth page (description, links, logo)', () => {
+  const pageItem = (page: Page) => page.getByRole('menuitem', { name: /^(Edit booth page|ویرایش صفحهٔ غرفه)/ });
+  const openMenu = (page: Page) => page.getByRole('button', { name: /^(Menu|منو)$/ }).click();
+  const patches = (requests: Recorded[]) => requests.filter(r => r.method === 'PATCH' && r.path === '/api/booths/booth-a/profile');
+
+  for (const locale of ['en', 'fa'] as const) {
+    for (const viewport of [{ width: 390, height: 844 }, { width: 1440, height: 900 }]) {
+      test(`${locale} ${viewport.width}: edit and save from the menu, upload and remove the logo`, async ({ page }) => {
+        const en = locale === 'en';
+        const requests = await fixture(page);
+        await seed(page, STAFF, locale);
+        await page.setViewportSize(viewport);
+        await page.goto('/booth/booth-a');
+        await expect(page.getByText('Lead One').first()).toBeVisible();
+        await openMenu(page);
+        await pageItem(page).click();
+        const dialog = page.getByRole('dialog', { name: en ? 'Edit booth page' : 'ویرایش صفحهٔ غرفه' });
+        await expect(dialog).toBeVisible();
+        expect(await overflow(page)).toBeLessThanOrEqual(0);
+
+        // The counter reads in the page's digits.
+        await dialog.getByLabel(en ? /^About/ : /^معرفی/).fill('Imaging for every clinic.');
+        await expect(dialog.getByText(en ? '25 of 2,000 characters' : '۲۵ از ۲٬۰۰۰ نویسه')).toBeVisible();
+        const website = dialog.getByLabel(en ? /^Website/ : /^وب‌سایت/);
+        await expect(website).toHaveAttribute('dir', 'ltr');
+        await expect(website).toHaveAttribute('inputmode', 'url');
+        await website.fill('https://alpha.example');
+
+        // The logo goes up at once, as the image itself.
+        await dialog.getByTestId('booth-logo-input').setInputFiles({ name: 'logo.png', mimeType: 'image/png', buffer: PNG });
+        await expect(dialog.getByRole('img', { name: 'Alpha Devices Booth' })).toBeVisible();
+        const put = requests.find(r => r.method === 'PUT' && r.path === '/api/booths/booth-a/logo');
+        expect(put?.contentType).toBe('image/png');
+        expect(put?.auth).toBe(bearer(STAFF));
+        await dialog.getByRole('button', { name: en ? 'Remove logo' : 'حذف لوگو' }).click();
+        await expect(dialog.getByRole('img', { name: 'Alpha Devices Booth' })).toHaveCount(0);
+        expect(requests.some(r => r.method === 'DELETE' && r.path === '/api/booths/booth-a/logo')).toBe(true);
+
+        await dialog.getByRole('button', { name: en ? 'Save' : 'ذخیره', exact: true }).click();
+        await expect(dialog).toHaveCount(0);
+        await expect(page.getByText(en ? 'Saved' : 'ذخیره شد', { exact: true })).toBeVisible();
+        const [patch] = patches(requests);
+        expect(patch.body).toEqual({ description: 'Imaging for every clinic.', website_url: 'https://alpha.example', brochure_url: '' });
+        expect(Object.keys(patch.body as object).sort()).toEqual(['brochure_url', 'description', 'website_url']);
+      });
+    }
+  }
+
+  test('a link the server refuses is marked on its field; a bad link is caught before sending', async ({ page }) => {
+    const requests = await fixture(page);
+    await seed(page, STAFF);
+    await page.goto('/booth/booth-a');
+    await expect(page.getByText('Lead One').first()).toBeVisible();
+    await openMenu(page);
+    await pageItem(page).click();
+    const dialog = page.getByRole('dialog', { name: 'Edit booth page' });
+    const brochure = dialog.getByLabel(/^Brochure link/);
+    await brochure.fill('javascript:alert(1)');
+    await dialog.getByRole('button', { name: 'Save', exact: true }).click();
+    await expect(brochure).toHaveAttribute('aria-invalid', 'true');
+    expect(patches(requests)).toEqual([]);
+
+    await brochure.fill('');
+    const website = dialog.getByLabel(/^Website/);
+    await website.fill('https://refused.example');
+    await dialog.getByRole('button', { name: 'Save', exact: true }).click();
+    await expect(website).toHaveAttribute('aria-invalid', 'true');
+    const describedBy = (await website.getAttribute('aria-describedby'))?.split(' ') ?? [];
+    const messages = await Promise.all(describedBy.map(id => page.locator(`[id="${id}"]`).textContent()));
+    expect(messages.join(' ')).toContain('Enter a full web address');
+    await expect(brochure).not.toHaveAttribute('aria-invalid', 'true');
+    await expect(dialog).toBeVisible();
+  });
+
+  test('a logo over 5 MB or of another type is refused on the device, nothing is sent', async ({ page }) => {
+    const requests = await fixture(page);
+    await seed(page, STAFF);
+    await page.goto('/booth/booth-a');
+    await expect(page.getByText('Lead One').first()).toBeVisible();
+    await openMenu(page);
+    await pageItem(page).click();
+    const dialog = page.getByRole('dialog', { name: 'Edit booth page' });
+    await expect(dialog.getByTestId('booth-logo-input')).toHaveAttribute('accept', 'image/png,image/jpeg,image/webp');
+    await dialog.getByTestId('booth-logo-input').setInputFiles({ name: 'big.png', mimeType: 'image/png', buffer: Buffer.alloc(5 * 1024 * 1024 + 1) });
+    await expect(dialog.getByRole('alert')).toContainText('The logo must be under 5 MB.');
+    await dialog.getByTestId('booth-logo-input').setInputFiles({ name: 'logo.svg', mimeType: 'image/svg+xml', buffer: Buffer.from('<svg/>') });
+    await expect(dialog.getByRole('alert')).toContainText('Only PNG, JPEG or WebP images are accepted.');
+    expect(requests.filter(r => r.path === '/api/booths/booth-a/logo')).toEqual([]);
+  });
+
+  test('archived: the menu item is disabled and says so', async ({ page }) => {
+    const requests = await fixture(page, { eventArchived: true });
+    await seed(page, STAFF, 'fa');
+    await page.goto('/booth/booth-a');
+    await expect(page.getByText('Lead One').first()).toBeVisible();
+    await openMenu(page);
+    await expect(pageItem(page)).toHaveAttribute('aria-disabled', 'true');
+    await expect(pageItem(page)).toContainText('بایگانی‌شده');
+    await pageItem(page).click({ force: true });
+    await expect(page.getByRole('dialog', { name: 'ویرایش صفحهٔ غرفه' })).toHaveCount(0);
+    expect(patches(requests)).toEqual([]);
+  });
+
+  test('archived after the dialog opened: the save answers in exhibitor wording and the page turns read-only', async ({ page }) => {
+    await fixture(page, { control: { removed: false, archived: true } });
+    await seed(page, STAFF);
+    await page.goto('/booth/booth-a');
+    await expect(page.getByText('Lead One').first()).toBeVisible();
+    await openMenu(page);
+    await pageItem(page).click();
+    const dialog = page.getByRole('dialog', { name: 'Edit booth page' });
+    await dialog.getByLabel(/^About/).fill('Late edit');
+    await dialog.getByRole('button', { name: 'Save', exact: true }).click();
+    await expect(dialog.getByText("The congress is archived; the booth page can't change.").first()).toBeVisible();
+    await expect(dialog.getByRole('button', { name: 'Save', exact: true })).toBeDisabled();
   });
 });

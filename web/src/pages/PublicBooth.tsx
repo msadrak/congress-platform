@@ -16,6 +16,7 @@ import { Notice } from "../components/ui/Notice";
 import { StateBlock } from "../components/ui/StateBlock";
 import { contentLocale, proseDir, publicCopy, usePublicLocale } from "../components/public/copy";
 import { Bidi } from "../components/public/Bidi";
+import { BoothLogo } from "../components/BoothLogo";
 import { signInPath } from "../lib/safeRedirect";
 import { networkErrorMessage } from "../lib/errorMessages";
 
@@ -277,15 +278,18 @@ export default function PublicBooth() {
             </Link>
           </nav>
           <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-            <div className="min-w-0 space-y-2">
-              <h1 id="booth-title" className="text-title-lg font-bold text-white break-words sm:text-display">
-                <Bidi text={booth.name} />
-              </h1>
-              {booth.location && !latinCode && (
-                <p className="text-title-sm font-semibold text-ink-100 break-words">
-                  <Bidi text={booth.location} />
-                </p>
-              )}
+            <div className="flex min-w-0 items-center gap-4">
+              <BoothLogo src={booth.logo_url} alt={booth.name} size="header" />
+              <div className="min-w-0 space-y-2">
+                <h1 id="booth-title" className="text-title-lg font-bold text-white break-words sm:text-display">
+                  <Bidi text={booth.name} />
+                </h1>
+                {booth.location && !latinCode && (
+                  <p className="text-title-sm font-semibold text-ink-100 break-words">
+                    <Bidi text={booth.location} />
+                  </p>
+                )}
+              </div>
             </div>
             {latinCode && (
               <p className="shrink-0 rounded-card bg-white px-5 py-3 text-surface-ink">

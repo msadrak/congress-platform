@@ -512,6 +512,10 @@ class Booth(Base):
     description: Mapped[str] = mapped_column(Text, default="")
     website_url: Mapped[str] = mapped_column(String(500), default="")
     brochure_url: Mapped[str] = mapped_column(String(500), default="")
+    # One of the event's images (migration 0031). Deleting the image clears the logo.
+    logo_asset_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("media_assets.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

@@ -2,6 +2,9 @@ import { expect, test } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
 import { api, createEvent, createOrganizer, createTier, organizerSignIn, reserveTicket, signInWithCode, uid, uniqueMobile } from './support/live';
 
+// A 2×2 PNG: the booth's logo.
+const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAEElEQVR4nGNQYDgLRAwQCgAXRgO1aRISeQAAAABJRU5ErkJggg==', 'base64');
+
 /** RFC 4180 rows (quoted cells, doubled quotes), without the UTF-8 BOM. */
 function parseCsv(text: string): string[][] {
   const rows: string[][] = [];
@@ -110,6 +113,26 @@ test('exhibitor: booth and staff set up by the organizer, staff signs in, captur
     expect(byName[withheld.name][col('Interest Rating')]).toBe('HOT');
     expect(byName[withheld.name][col('Follow-Up Tags')]).toContain('ارسال پیش‌فاکتور');
     expect(byName[withheld.name][col('Notes')]).toBe('سه دستگاه می‌خواهد؛ جمعه پیگیری شود.');
+  });
+
+  await test.step('staff edits the booth page and uploads a logo; the public booth page shows both', async () => {
+    const about = `تجهیزات تصویربرداری ${uid()}`;
+    await portal.getByRole('button', { name: 'منو' }).click();
+    await portal.getByRole('menuitem', { name: 'ویرایش صفحهٔ غرفه' }).click();
+    const dialog = portal.getByRole('dialog', { name: 'ویرایش صفحهٔ غرفه' });
+    await dialog.getByTestId('booth-logo-input').setInputFiles({ name: 'logo.png', mimeType: 'image/png', buffer: PNG });
+    await expect(dialog.getByRole('status').filter({ hasText: 'لوگو ذخیره شد.' })).toBeVisible();
+    await dialog.getByRole('textbox', { name: /معرفی/ }).fill(about);
+    await dialog.getByRole('button', { name: 'ذخیره', exact: true }).click();
+    await expect(dialog).toBeHidden();
+
+    await page.goto(`/e/${event.slug}/booths/${booth.id}`);
+    await expect(page.getByRole('heading', { level: 1, name: boothName })).toBeVisible();
+    await expect(page.getByText(about)).toBeVisible();
+    const logo = page.getByRole('img', { name: boothName });
+    await expect(logo).toBeVisible();
+    // The image really loads from the public media address (re-encoded by the server).
+    await expect.poll(() => logo.evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth)).toBe(2);
   });
   await staffContext.close();
 });

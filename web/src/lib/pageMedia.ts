@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
 import { formatApiError, type MediaAssetOut } from "../api/client";
+import { ACCEPTED_IMAGE_TYPES, MAX_IMAGE_BYTES } from "./imageUpload";
 import type { PageImages } from "./pageDocument";
 
-export const ACCEPTED_IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp"] as const;
-export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+export { ACCEPTED_IMAGE_TYPES, MAX_IMAGE_BYTES };
 
 /** Client-side rejections carry no message: callers map 415 (type) and 413 (size) to localized copy. */
 export type UploadResult = { ok: true; asset: MediaAssetOut } | { ok: false; status: number; message: string };

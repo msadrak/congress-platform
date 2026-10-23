@@ -241,7 +241,7 @@ Drill results (ws/a3-ops): rollback was refused for an unmarked migration (previ
 
 Migrations since `main` (`0018`), in the order they run. The chain order differs from the numbers because branches
 landed in a different order than they were numbered; each file's `down_revision` is the truth. "Rollback OK" means the
-module sets `backward_compatible = True` (checked in `backend/migrations/versions/*` on 2026-10-23, head `0026`):
+module sets `backward_compatible = True` (checked in `backend/migrations/versions/*` on 2026-10-24, head `0031`):
 
 | Order | Rev | Purpose | Rollback OK |
 |---|---|---|---|
@@ -257,9 +257,10 @@ module sets `backward_compatible = True` (checked in `backend/migrations/version
 | 10 | 0030 | attendee session version (sign out everywhere) | yes |
 | 11 | 0025 | check-in policies, occupancy, session doors, device heartbeat | yes |
 | 12 | 0026 | badge prints, desk check-ins | yes |
+| 13 | 0031 | booth logo (`booths.logo_asset_id`, nullable) | yes |
 
 How to read it: `rollback` to an older release works only when **every** migration after that release's schema is
-marked. From head `0026`, a release built for `0022` or later can be rolled back to (0027–0030, 0025 and 0026 are marked); a release built for
+marked. From head `0031`, a release built for `0022` or later can be rolled back to (0027–0030, 0025, 0026 and 0031 are marked); a release built for
 `0024` or earlier cannot (0021 and 0022 are not), and neither can `main`. Going further back is a restore of the
 backup taken before the upgrade, or a point-in-time restore to just before it. Later migrations (for example from the
 C1/C2 workstreams) extend this table; check their flags before deploying.

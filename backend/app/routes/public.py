@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db import SessionDep
 from app.models import Booth, BoothBookmark, Event, EventPage, MediaAsset, TicketTier, User
 from app.page_document import PageDocument
-from app.page_render import PublicPage, public_media_url, render_page
+from app.page_render import PublicPage, booth_logo_url, public_media_url, render_page
 from app.seo import default_head, page_language, pick, render_head
 from app.routes.events import registration_problem
 from app.routes.program import PublicSession, PublicVenuePlace, live_program
@@ -84,6 +84,8 @@ class PublicBoothOut(BaseModel):
     description: str
     website_url: str
     brochure_url: str
+    # The booth's logo (`/api/public/media/{id}`), or null.
+    logo_url: str | None
     event_name: str
     event_slug: str
     is_bookmarked: bool = False
@@ -99,6 +101,7 @@ class PublicBoothSummary(BaseModel):
     description: str
     website_url: str
     brochure_url: str
+    logo_url: str | None
 
 
 async def published_event(slug: str, session: SessionDep) -> tuple[Event, dict[str, Any]]:
@@ -141,6 +144,7 @@ async def booth_directory(session: AsyncSession, event_id: uuid.UUID) -> list[Pu
             description=b.description,
             website_url=b.website_url,
             brochure_url=b.brochure_url,
+            logo_url=booth_logo_url(b.logo_asset_id),
         )
         for b in booths
     ]
@@ -271,6 +275,7 @@ async def get_public_booth(
         description=booth.description,
         website_url=booth.website_url,
         brochure_url=booth.brochure_url,
+        logo_url=booth_logo_url(booth.logo_asset_id),
         event_name=event.name,
         event_slug=event.slug,
         is_bookmarked=is_bookmarked,
@@ -345,7 +350,7 @@ async def booth_head(slug: str, booth_id: str, request: Request, session: Sessio
         title=f"{booth.name} · {event.name}",
         description=booth.description or booth.location or event.name,
         url=f"{_origin(request)}/e/{event.slug}/booths/{booth.id}",
-        image_url=None,
+        image_url=f"{_origin(request)}{booth_logo_url(booth.logo_asset_id)}" if booth.logo_asset_id else None,
         lang=page_language(document, event.name),
         indexable=True,
     )

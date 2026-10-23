@@ -15,7 +15,9 @@ interface Options {
   /** The standee address answers this status instead of the address. */
   standeeStatus?: number;
 }
-type Recorded = { method: string; path: string; body: unknown };
+type Recorded = { method: string; path: string; body: unknown; contentType?: string };
+// A 1×1 PNG: the booth's logo.
+const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=', 'base64');
 
 async function fixture(page: Page, options: Options = {}) {
   const requests: Recorded[] = [];
@@ -28,7 +30,7 @@ async function fixture(page: Page, options: Options = {}) {
     { id: 'tier-1', name: 'Delegate', description: '', quota: 800, reserved_count: 412, is_open: true, sales_starts_at: null, sales_ends_at: null },
     { id: 'tier-2', name: 'Student', description: '', quota: 50, reserved_count: 0, is_open: true, sales_starts_at: null, sales_ends_at: null },
   ];
-  const booths = [{ id: 'booth-1', event_id: 'event-s', name: 'Acme Biotech', slug: 'acme', location: 'Hall B', description: '', website_url: '', brochure_url: '', qr_secret: 'secret-1', created_at: '2099-01-01T00:00:00Z' }];
+  const booths = [{ id: 'booth-1', event_id: 'event-s', name: 'Acme Biotech', slug: 'acme', location: 'Hall B', description: '', website_url: '', brochure_url: '', logo_asset_id: 'logo-1' as string | null, logo_url: '/api/public/media/logo-1' as string | null, qr_secret: 'secret-1', created_at: '2099-01-01T00:00:00Z' }];
   let staff = [
     { id: 'staff-1', booth_id: 'booth-1', user_id: 'u-1', mobile: '09121112233', full_name: 'Sara Karimi' },
     { id: 'staff-2', booth_id: 'booth-1', user_id: 'u-2', mobile: '09124445566', full_name: 'Ali Rad' },
@@ -43,8 +45,9 @@ async function fixture(page: Page, options: Options = {}) {
     const path = new URL(request.url()).pathname;
     const method = request.method();
     const raw = request.postData();
-    const body = raw ? JSON.parse(raw) : undefined;
-    requests.push({ method, path, body });
+    // An uploaded image is not JSON.
+    const body = raw && request.headers()['content-type']?.startsWith('application/json') ? JSON.parse(raw) : undefined;
+    requests.push({ method, path, body, contentType: request.headers()['content-type'] });
     const json = (status: number, payload: unknown) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(payload) });
     if (path === '/api/organizer/me') {
       const member = role === 'owner' ? null : { id: 'm-1', display_name: 'Vera Member', mobile: '09120000000', role, created_at: '2099-01-01T00:00:00Z', revoked_at: null, last_sign_in_at: null };
@@ -65,6 +68,15 @@ async function fixture(page: Page, options: Options = {}) {
       return route.fulfill({ status: 204 });
     }
     if (path === `${base}/booths`) return json(200, booths);
+    if (path === `${base}/booths/booth-1` && method === 'PATCH') {
+      const patch = body as { logo_asset_id?: string | null };
+      Object.assign(booths[0], patch, { logo_url: patch.logo_asset_id ? `/api/public/media/${patch.logo_asset_id}` : null });
+      return json(200, booths[0]);
+    }
+    if (path === `${base}/media` && method === 'POST') {
+      return json(201, { id: 'logo-2', content_type: 'image/png', width: 1, height: 1, byte_size: PNG.length, created_at: '2099-01-01T00:00:00Z' });
+    }
+    if (/^\/api\/events\/event-s\/media\/[^/]+\/content$/.test(path)) return route.fulfill({ status: 200, contentType: 'image/png', body: PNG });
     if (path === `${base}/booths/booth-1/staff` && method === 'GET') return json(200, staff);
     const member = path.match(/\/booths\/booth-1\/staff\/([^/]+)$/);
     if (member && method === 'DELETE') {
@@ -176,11 +188,49 @@ test('a viewer reads pass types and booths without any change control', async ({
 
   await page.goto('/organizer/events/event-s/booths');
   await expect(page.getByText('Acme Biotech')).toBeVisible();
-  await expect(page.getByRole('button', { name: /New booth|Representatives/ })).toHaveCount(0);
+  // The logo shows on the card; there is no way to change it.
+  await expect(page.getByRole('article').getByRole('img', { name: 'Acme Biotech' })).toBeVisible();
+  await expect(page.getByRole('button', { name: /New booth|Representatives|logo/ })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Booth QR code' })).toBeVisible();
   await page.getByRole('button', { name: 'More actions for Acme Biotech' }).click();
   await expect(page.getByRole('menuitem')).toHaveText(['View booth page']);
 });
+
+for (const locale of ['en', 'fa'] as const) {
+  test(`${locale}: a manager removes the booth logo, then uploads a new one; the card shows it`, async ({ page }) => {
+    const en = locale === 'en';
+    const requests = await fixture(page, { role: 'manager', locale });
+    await page.goto('/organizer/events/event-s/booths');
+    const card = page.getByRole('article');
+    const logo = card.getByRole('img', { name: 'Acme Biotech' });
+    await expect(logo).toBeVisible();
+    await expect(logo).toHaveAttribute('width', '48');
+    // Draft images are private: the card loads the logo with the organizer's credential.
+    expect(requests.some((r) => r.path === '/api/events/event-s/media/logo-1/content')).toBe(true);
+
+    const editBooth = async () => {
+      await page.getByRole('button', { name: en ? 'More actions for Acme Biotech' : 'گزینه‌های بیشتر برای Acme Biotech' }).click();
+      await page.getByRole('menuitem', { name: en ? 'Edit' : 'ویرایش' }).click();
+      return page.getByRole('dialog', { name: en ? 'Edit booth' : 'ویرایش غرفه' });
+    };
+    let dialog = await editBooth();
+    await expect(dialog.getByRole('img', { name: 'Acme Biotech' })).toBeVisible();
+    await dialog.getByRole('button', { name: en ? 'Remove logo' : 'حذف لوگو' }).click();
+    await dialog.getByRole('button', { name: en ? 'Save' : 'ذخیره', exact: true }).click();
+    await expect(dialog).toHaveCount(0);
+    expect(requests.filter((r) => r.method === 'PATCH').at(-1)?.body).toMatchObject({ logo_asset_id: null });
+    await expect(card.getByRole('img')).toHaveCount(0);
+
+    dialog = await editBooth();
+    await dialog.getByTestId('booth-form-logo-input').setInputFiles({ name: 'logo.webp', mimeType: 'image/webp', buffer: PNG });
+    await expect(dialog.getByRole('img', { name: 'Acme Biotech' })).toBeVisible();
+    expect(requests.find((r) => r.method === 'POST' && r.path === '/api/events/event-s/media')?.contentType).toBe('image/webp');
+    await dialog.getByRole('button', { name: en ? 'Save' : 'ذخیره', exact: true }).click();
+    await expect(dialog).toHaveCount(0);
+    expect(requests.filter((r) => r.method === 'PATCH').at(-1)?.body).toMatchObject({ logo_asset_id: 'logo-2' });
+    await expect(card.getByRole('img', { name: 'Acme Biotech' })).toBeVisible();
+  });
+}
 
 test('staff see booth representatives but cannot change them, and see the desk address without the operator list', async ({ page }) => {
   await fixture(page, { role: 'staff' });
