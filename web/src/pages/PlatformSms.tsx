@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import {
-  formatApiError,
   localizedApiError,
   type SmsCheckOut,
   type SmsSettingsOut,
@@ -8,7 +7,7 @@ import {
 } from "../api/client";
 import type { components } from "../api/schema";
 import { asciiDigits } from "../lib/mobile";
-import { formatLocalizedNumber } from "../lib/i18n";
+import { codeFontClass, formatLocalizedNumber } from "../lib/i18n";
 import { networkErrorMessage } from "../lib/errorMessages";
 import { useMutation } from "../hooks/useMutation";
 import { Button } from "../components/ui/Button";
@@ -16,7 +15,7 @@ import { ConfirmDialog } from "../components/ui/ConfirmDialog";
 import { Icon } from "../components/ui/Icon";
 import { Field, FormAlert, SectionHeader } from "../components/organizer/WorkspaceUi";
 import { SmsTemplateEditor } from "../components/sms/SmsTemplateEditor";
-import { usePlatform } from "./platformContext";
+import { ENV_BUTTON, usePlatform } from "./platformContext";
 
 /** SMS gateway (sms.ir key, service line, live or test mode) and the platform-wide message wording. */
 export default function PlatformSms() {
@@ -50,7 +49,7 @@ export default function PlatformSms() {
         checkResponse(response.status);
         if (!active) return;
         if (data) setTemplates(data);
-        else setTemplatesError(error ? formatApiError(error) : "—");
+        else setTemplatesError(error ? localizedApiError(error, locale) : "—");
       })
       .catch(() => {
         if (active) setTemplatesOffline(true);
@@ -58,7 +57,7 @@ export default function PlatformSms() {
     return () => {
       active = false;
     };
-  }, [client, checkResponse]);
+  }, [client, checkResponse, locale]);
 
   const clearSaveMessages = () => {
     setSaveError(null);
@@ -92,7 +91,7 @@ export default function PlatformSms() {
       setSaved(isRtl ? "تنظیمات پیامک ذخیره و بلافاصله اعمال شد." : "SMS settings saved and applied immediately.");
       void refreshStatus();
     } else {
-      setSaveError(error ? formatApiError(error) : isRtl ? "ذخیره نشد." : "Not saved.");
+      setSaveError(error ? localizedApiError(error, locale) : isRtl ? "ذخیره نشد." : "Not saved.");
     }
   };
 
@@ -116,7 +115,7 @@ export default function PlatformSms() {
       );
       void refreshStatus();
     } else {
-      setSaveError(error ? formatApiError(error) : isRtl ? "تغییری اعمال نشد." : "Nothing was changed.");
+      setSaveError(error ? localizedApiError(error, locale) : isRtl ? "تغییری اعمال نشد." : "Nothing was changed.");
     }
   };
 
@@ -218,7 +217,7 @@ export default function PlatformSms() {
             <p className="text-xs text-text-muted">
               {source(sms.mode_source)}
               {sms.mode_source === "console" && (
-                <button type="button" disabled={resetting} aria-busy={resetting} onClick={() => void resetToEnvironment("mode")} className="ms-2 font-semibold text-action-primary hover:underline cursor-pointer disabled:cursor-wait disabled:opacity-60">
+                <button type="button" disabled={resetting} aria-busy={resetting} onClick={() => void resetToEnvironment("mode")} className={`ms-2 ${ENV_BUTTON}`}>
                   {isRtl ? "استفاده از مقدار .env" : "Use the .env value"}
                 </button>
               )}
@@ -242,17 +241,17 @@ export default function PlatformSms() {
               label={isRtl ? "شماره خط خدماتی" : "Service line number"}
               hint={lineInvalid ? (isRtl ? "فقط رقم وارد کنید." : "Digits only.") : source(sms.line_number_source) ?? (isRtl ? "شماره خطی که پیامک‌ها از آن ارسال می‌شوند." : "The line messages are sent from.")}
             >
-              <input type="text" dir="ltr" inputMode="numeric" autoComplete="off" value={line} onChange={(e) => setLine(e.target.value)} aria-invalid={lineInvalid} className="ui-input font-mono" />
+              <input type="text" dir="ltr" inputMode="numeric" autoComplete="off" value={line} onChange={(e) => setLine(e.target.value)} aria-invalid={lineInvalid} className={`ui-input ${codeFontClass(line)}`} />
             </Field>
           </div>
           <div className="flex flex-wrap gap-3 text-xs">
             {sms.api_key_source === "console" && (
-              <button type="button" disabled={resetting} onClick={() => setConfirmKeyReset(true)} className="font-semibold text-action-primary hover:underline cursor-pointer disabled:cursor-wait disabled:opacity-60">
+              <button type="button" disabled={resetting} onClick={() => setConfirmKeyReset(true)} className={ENV_BUTTON}>
                 {isRtl ? "حذف کلید ذخیره‌شده در پنل" : "Remove the key saved here"}
               </button>
             )}
             {sms.line_number_source === "console" && (
-              <button type="button" disabled={resetting} aria-busy={resetting} onClick={() => void resetToEnvironment("line_number")} className="font-semibold text-action-primary hover:underline cursor-pointer disabled:cursor-wait disabled:opacity-60">
+              <button type="button" disabled={resetting} aria-busy={resetting} onClick={() => void resetToEnvironment("line_number")} className={ENV_BUTTON}>
                 {isRtl ? "استفاده از شماره خط .env" : "Use the .env line number"}
               </button>
             )}
@@ -317,12 +316,12 @@ export default function PlatformSms() {
           onSave={async (body) => {
             const { data, error, response } = await client.PUT("/api/platform/sms-templates/{kind}", { params: { path: { kind: template.kind } }, body: { body } });
             checkResponse(response.status);
-            return { data, error: error ? formatApiError(error) : undefined };
+            return { data, error: error ? localizedApiError(error, locale) : undefined };
           }}
           onReset={async () => {
             const { data, error, response } = await client.DELETE("/api/platform/sms-templates/{kind}", { params: { path: { kind: template.kind } } });
             checkResponse(response.status);
-            return { data, error: error ? formatApiError(error) : undefined };
+            return { data, error: error ? localizedApiError(error, locale) : undefined };
           }}
           onTest={async (mobile, body) => {
             const { data, error, response } = await client.POST("/api/platform/sms/test", { body: { mobile, kind: template.kind, body } });
@@ -382,7 +381,7 @@ function OutboxSection({ sms, onSaved }: { sms: SmsSettingsOut; onSaved: (data: 
           if (data) {
             setOutbox(data);
             setLoadError(null);
-          } else setLoadError(error ? formatApiError(error) : "—");
+          } else setLoadError(error ? localizedApiError(error, locale) : "—");
         })
         .catch(() => {
           if (isCurrent()) setLoadError(networkErrorMessage[locale]);
@@ -455,7 +454,7 @@ function OutboxSection({ sms, onSaved }: { sms: SmsSettingsOut; onSaved: (data: 
               {OUTBOX_STATUSES.map((status) => (
                 <div key={status} className="rounded-xl border border-border-subtle px-3.5 py-2.5">
                   <dt className="text-xs text-text-muted">{statusLabel[status]}</dt>
-                  <dd className={`font-mono text-lg font-semibold tabular-nums ${status === "failed" || status === "unknown" ? (outbox.counts[status] ? "text-status-danger-text" : "") : ""}`}>
+                  <dd className={`text-lg font-semibold ${codeFontClass(number(outbox.counts[status] ?? 0))} ${status === "failed" || status === "unknown" ? (outbox.counts[status] ? "text-status-danger-text" : "") : ""}`}>
                     {number(outbox.counts[status] ?? 0)}
                   </dd>
                 </div>
@@ -463,10 +462,10 @@ function OutboxSection({ sms, onSaved }: { sms: SmsSettingsOut; onSaved: (data: 
             </dl>
             <p className="text-sm text-text-secondary">
               {isRtl ? "ارسال در یک ساعت گذشته: " : "Sent in the last hour: "}
-              <bdi dir="ltr" className="font-mono">{usage(outbox.sent_last_hour, outbox.hourly_cap)}</bdi>
+              <bdi dir="ltr" className={codeFontClass(usage(outbox.sent_last_hour, outbox.hourly_cap))}>{usage(outbox.sent_last_hour, outbox.hourly_cap)}</bdi>
               {" · "}
               {isRtl ? "در ۲۴ ساعت گذشته: " : "last 24 hours: "}
-              <bdi dir="ltr" className="font-mono">{usage(outbox.sent_last_day, outbox.daily_cap)}</bdi>
+              <bdi dir="ltr" className={codeFontClass(usage(outbox.sent_last_day, outbox.daily_cap))}>{usage(outbox.sent_last_day, outbox.daily_cap)}</bdi>
               {outbox.oldest_pending_at && (
                 <>
                   {" · "}
@@ -493,7 +492,7 @@ function OutboxSection({ sms, onSaved }: { sms: SmsSettingsOut; onSaved: (data: 
                   value={caps[field]}
                   onChange={(e) => setCaps((current) => ({ ...current, [field]: e.target.value }))}
                   aria-invalid={parsed(field) === null}
-                  className="ui-input font-mono"
+                  className={`ui-input ${codeFontClass(caps[field])}`}
                 />
               </Field>
             ))}
@@ -515,7 +514,7 @@ function OutboxSection({ sms, onSaved }: { sms: SmsSettingsOut; onSaved: (data: 
                 type="button"
                 disabled={request.busy}
                 onClick={() => void send({ reset: (["hourly_cap", "daily_cap"] as const).filter((f) => sms.caps_source[f] === "console") })}
-                className="text-xs font-semibold text-action-primary hover:underline cursor-pointer disabled:cursor-wait disabled:opacity-60"
+                className={`text-xs ${ENV_BUTTON}`}
               >
                 {isRtl ? "استفاده از مقادیر .env" : "Use the .env values"}
               </button>

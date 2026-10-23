@@ -11,6 +11,14 @@ import type { PlatformClient, PlatformOutletContext } from "./platformContext";
 
 type GateProblem = "rejected" | "blocked" | "throttled" | "network" | null;
 
+/** The server's `CONGRESS_ENVIRONMENT`, for the header chip. */
+const ENVIRONMENT_LABELS: Record<string, Record<"fa" | "en", string>> = {
+  production: { fa: "محیط اصلی", en: "Production" },
+  staging: { fa: "محیط آزمایشی", en: "Staging" },
+  development: { fa: "محیط توسعه", en: "Development" },
+  test: { fa: "محیط تست", en: "Test" },
+};
+
 function readToken(): string | null {
   try {
     return sessionStorage.getItem(PLATFORM_TOKEN_STORAGE);
@@ -211,7 +219,9 @@ export default function PlatformConsole() {
               <Icon name="shield" size={18} />
             </span>
             <span className="font-semibold">{isRtl ? "پنل مدیریت سامانه" : "Platform console"}</span>
-            <Badge variant={status.environment === "production" ? "danger" : "neutral"} size="sm">{status.environment}</Badge>
+            <Badge variant={status.environment === "production" ? "danger" : "neutral"} size="sm" data-testid="platform-environment">
+              {ENVIRONMENT_LABELS[status.environment]?.[locale] ?? (isRtl ? "محیط ناشناخته" : status.environment)}
+            </Badge>
           </div>
           <div className="flex items-center gap-2">
             {languageButton}
