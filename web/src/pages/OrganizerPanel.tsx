@@ -178,7 +178,7 @@ export function OrganizerPanelFrame() {
   if (view === "details") {
     content = (
       <div className="mx-auto max-w-6xl space-y-10 px-4 pt-6 sm:space-y-14 sm:px-6 sm:pt-10">
-        <CongressDetailsView event={preview} page={page} labels={labels} locale={locale} t={t} />
+        <CongressDetailsView event={preview} page={page} labels={labels} locale={locale} t={t} agendaOwner={null} />
       </div>
     );
   } else if (view === "card") {
@@ -202,7 +202,9 @@ export function OrganizerPanelFrame() {
           t={t}
           personal={{
             status: "ready",
-            overview: { tickets: [{ id: sample.id, ticket_tier_name: sample.ticket_tier_name, attendee_name: sample.attendee_name }], fromCache: false, connectionCount: 0, otherCongresses: [] },
+            overview: {
+              tickets: [{ id: sample.id, ticket_tier_name: sample.ticket_tier_name, attendee_name: sample.attendee_name, status: "active", qr_secret: sample.qr_secret }],
+              fromCache: false, connectionCount: 0, otherCongresses: [] },
           }}
           booths={(index) => (
             <BoothDirectoryView

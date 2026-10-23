@@ -38,9 +38,10 @@ export default function MyCongress() {
     const load = async () => {
       const client = createApiClient({ kind: "user", token });
       try {
+        // The contact count comes from the paginated search (one row and its `total`), scoped to this congress.
         const [ticketsRes, networkRes, accessRes] = await Promise.all([
           client.GET("/api/attendees/me/tickets"),
-          client.GET("/api/attendees/me/network"),
+          client.GET("/api/attendees/me/network/search", { params: { query: { event_id: eventId, limit: 1 } } }),
           client.GET("/api/me/access"),
         ]);
         if (!active) return;
@@ -56,9 +57,10 @@ export default function MyCongress() {
         if (ticketsRes.data) saveOwnerScopedTickets(token, ticketsRes.data);
         const tickets = ticketsRes.data ?? (cache.status === "valid" ? cache.tickets : []);
         setOverview({
+          // Every pass for this congress, not only the first.
           tickets: tickets.filter((tkt) => tkt.event_slug === slug),
           fromCache: !ticketsRes.data,
-          connectionCount: networkRes.data ? networkRes.data.filter((c) => c.event_id === eventId).length : null,
+          connectionCount: networkRes.data ? networkRes.data.total : null,
           otherCongresses: (accessRes.data?.events ?? []).filter((e) => e.event_slug !== slug && e.roles.includes("ATTENDEE")),
         });
       } catch {
@@ -130,7 +132,15 @@ export default function MyCongress() {
       t={t}
       personal={personal}
       booths={(index) => (
-        <BoothDirectory slug={slug} token={signedOut ? null : token} isRtl={isRtl} index={index} title={labels.boothsTitle} lead={labels.boothsLead} />
+        <BoothDirectory
+          slug={slug}
+          eventId={event.id}
+          token={signedOut ? null : token}
+          isRtl={isRtl}
+          index={index}
+          title={labels.boothsTitle}
+          lead={labels.boothsLead}
+        />
       )}
     />
   );

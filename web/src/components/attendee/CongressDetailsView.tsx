@@ -7,7 +7,11 @@ import { ScheduleFiles } from "../public/page/ScheduleFiles";
 import { RichText } from "../public/page/RichText";
 import { LinkButton } from "../ui/Button";
 import { Icon, type IconName } from "../ui/Icon";
-import { FullSchedule } from "./CongressSchedule";
+import { MapLinks } from "../public/EventActions";
+import { programCopy } from "./attendeeCopy";
+import { ScheduleEmpty } from "./CongressSchedule";
+import { ProgramExplorer } from "./ProgramExplorer";
+import { useAgenda } from "./useAgenda";
 import { congressDays, formatDateRange, sectionIndex } from "./congressTime";
 import type { PanelLabels, PanelPage } from "./panelContent";
 import { PhaseBadge } from "./PhaseBadge";
@@ -19,6 +23,8 @@ interface CongressDetailsViewProps {
   labels: PanelLabels;
   locale: AttendeeLocale;
   t: TranslationDictionary;
+  /** Whose personal agenda the program shows (user id, or the guest owner); null keeps it in memory (preview). */
+  agendaOwner: string | null;
 }
 
 function PlaceList({ title, icon, places }: { title: string; icon: IconName; places: PublicVenuePlace[] }) {
@@ -44,11 +50,13 @@ function PlaceList({ title, icon, places }: { title: string; icon: IconName; pla
  * Congress details: masthead, general facts, about, venue (entrances and halls) and the full program.
  * Shared by the attendee page and the organizer's panel preview.
  */
-export function CongressDetailsView({ event, page, labels, locale, t }: CongressDetailsViewProps) {
+export function CongressDetailsView({ event, page, labels, locale, t, agendaOwner }: CongressDetailsViewProps) {
   const isRtl = locale === "fa";
+  const agenda = useAgenda(agendaOwner, event.id);
+  const pc = programCopy[locale];
   const { doc, images } = page;
   const cover = doc.hero.layout !== "signature" && doc.hero.cover_asset_id ? (images[doc.hero.cover_asset_id] ?? null) : null;
-  const totalDays = congressDays(event.starts_at, event.ends_at);
+  const totalDays = congressDays(event.starts_at, event.ends_at, event.timezone);
   const entrances = event.venue.filter((p) => p.kind === "entrance");
   const halls = event.venue.filter((p) => p.kind === "hall");
   const n = (value: number) => formatLocalizedNumber(value, locale);
@@ -68,7 +76,7 @@ export function CongressDetailsView({ event, page, labels, locale, t }: Congress
 
   const aboutText = labels.aboutBody ?? (event.description || null);
   const showAbout = labels.showAbout && aboutText !== null;
-  const showVenue = event.venue.length > 0;
+  const showVenue = event.venue.length > 0 || event.location.trim() !== "";
   const scheduleFiles = programFilesOf(event);
   let index = 0;
 
@@ -79,7 +87,7 @@ export function CongressDetailsView({ event, page, labels, locale, t }: Congress
         <div className="flex flex-col justify-end gap-5 lg:col-span-7 lg:py-6">
           <div className="flex flex-wrap items-center gap-3">
             <span className="eyebrow">{t.navCongressDetails}</span>
-            <PhaseBadge startsAt={event.starts_at} endsAt={event.ends_at} locale={locale} />
+            <PhaseBadge startsAt={event.starts_at} endsAt={event.ends_at} locale={locale} timeZone={event.timezone} />
           </div>
           <h1 className="text-[2rem] font-semibold leading-[1.08] tracking-[-0.035em] text-text-primary text-balance break-words sm:text-5xl">{event.name}</h1>
         </div>
@@ -123,11 +131,25 @@ export function CongressDetailsView({ event, page, labels, locale, t }: Congress
 
           {showVenue && (
             <section aria-labelledby="details-venue-title" className={`space-y-5 ${showAbout ? "lg:col-span-5" : "lg:col-span-12"}`}>
-              <SectionHeader index={sectionIndex(++index, locale)} id="details-venue-title" title={isRtl ? "محل برگزاری" : "Venue"} />
-              <div className={`grid gap-8 ${showAbout ? "" : "sm:grid-cols-2"}`}>
-                {entrances.length > 0 && <PlaceList title={isRtl ? "ورودی‌ها" : "Entrances"} icon="gate" places={entrances} />}
-                {halls.length > 0 && <PlaceList title={isRtl ? "سالن‌ها" : "Halls"} icon="pin" places={halls} />}
-              </div>
+              <SectionHeader index={sectionIndex(++index, locale)} id="details-venue-title" title={pc.venueTitle} />
+              {event.location.trim() && (
+                <div className="space-y-3 rounded-2xl bg-surface-panel-subtle p-4">
+                  <p className="flex items-start gap-2 text-sm font-semibold text-text-primary break-words">
+                    <Icon name="pin" size={17} className="mt-0.5 shrink-0 text-event-accent" />
+                    <span dir="auto">{event.location}</span>
+                  </p>
+                  <div className="space-y-2">
+                    <p className="text-xs font-medium text-text-muted">{pc.directions}</p>
+                    <MapLinks query={event.location} locale={locale} />
+                  </div>
+                </div>
+              )}
+              {event.venue.length > 0 && (
+                <div className={`grid gap-8 ${showAbout ? "" : "sm:grid-cols-2"}`}>
+                  {entrances.length > 0 && <PlaceList title={pc.entrances} icon="gate" places={entrances} />}
+                  {halls.length > 0 && <PlaceList title={pc.halls2} icon="pin" places={halls} />}
+                </div>
+              )}
             </section>
           )}
         </div>
@@ -142,7 +164,17 @@ export function CongressDetailsView({ event, page, labels, locale, t }: Congress
         />
         <ScheduleFiles files={scheduleFiles} locale={locale} />
         {/* With schedule files but no sessions, the files are the program: no "no sessions yet" note. */}
-        {(event.sessions.length > 0 || scheduleFiles.length === 0) && <FullSchedule sessions={event.sessions} locale={locale} />}
+        {event.sessions.length > 0 ? (
+          <ProgramExplorer
+            sessions={event.sessions}
+            locale={locale}
+            timeZone={event.timezone}
+            event={{ slug: event.slug, name: event.name, location: event.location }}
+            agenda={agenda}
+          />
+        ) : (
+          scheduleFiles.length === 0 && <ScheduleEmpty locale={locale} />
+        )}
       </section>
 
       <LinkButton to={`/e/${event.slug}`} variant="secondary" size="lg">

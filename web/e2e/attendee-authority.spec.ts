@@ -42,6 +42,7 @@ async function fixture(page: Page, options: Options = {}) {
     if (path === '/api/attendees/me/tickets') return options.ticketsStatus ? denied(options.ticketsStatus) : json(200, options.noTickets ? [] : [ticketOf(owner)]);
     if (path === '/api/attendees/me/bookmarks/booths') return json(200, [savedBooth(owner)]);
     if (path.startsWith('/api/attendees/me/bookmarks/booths/')) return json(200, { bookmarked: false, booth_id: path.split('/').pop() });
+    if (path === '/api/attendees/me/network/search') return options.networkStatus ? denied(options.networkStatus) : json(200, { items: [connectionOf(owner)], total: 1, next_cursor: null });
     if (path === '/api/attendees/me/network') return options.networkStatus ? denied(options.networkStatus) : json(200, [connectionOf(owner)]);
     if (path === '/api/attendees/me/network/privacy') return json(200, { share_contact_with_peers: false });
     if (path.endsWith('/vcard')) return options.vcardStatus ? denied(options.vcardStatus) : route.fulfill({ status: 200, contentType: 'text/vcard', body: `BEGIN:VCARD\nVERSION:3.0\nFN:Jane Doe\nNOTE:${owner}\nEND:VCARD\n` });
@@ -101,6 +102,7 @@ async function otherCredentialsIntact(page: Page) {
 
 const storedUser = (page: Page) => page.evaluate(() => localStorage.getItem('congress_attendee_token'));
 const switchUser = (page: Page, token: string) => page.evaluate(token => localStorage.setItem('congress_attendee_token', token), token);
+const personal = (requests: Recorded[]) => requests.filter(r => !r.path.startsWith('/api/public/'));
 const onlyUser = (requests: Recorded[], token: string) => requests.length > 0 && requests.every(r => r.auth === bearer(token));
 // Congress panel pages also read the congress's public metadata, always anonymously.
 const panelOnlyUser = (requests: Recorded[], token: string) => requests.filter(r => r.path.startsWith('/api/public/')).every(r => r.auth === undefined) && onlyUser(requests.filter(r => !r.path.startsWith('/api/public/')), token);
@@ -262,15 +264,15 @@ async function openNetwork(page: Page, options: Options = {}) {
 test('network list, note update and vCard download send only the User token; vCard bytes and name are preserved', async ({ page }) => {
   const requests = await openNetwork(page);
   await expect(page.getByText('Peer of A').first()).toBeVisible();
-  await page.getByRole('button', { name: 'Edit Notes' }).first().click();
-  await page.getByRole('button', { name: 'Save Changes' }).click();
-  await expect(page.getByText('Private notes updated successfully.')).toBeVisible();
+  await page.getByRole('button', { name: 'Edit note' }).first().click();
+  await page.getByRole('button', { name: 'Save note' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Note saved.' })).toBeVisible();
   const download = page.waitForEvent('download');
-  await page.getByRole('button', { name: /Download Contact Card/ }).first().click();
+  await page.getByRole('button', { name: /Download contact card/ }).first().click();
   const file = await download;
   expect(file.suggestedFilename()).toBe('jane-doe.vcf');
   expect(await readFile(await file.path(), 'utf8')).toBe('BEGIN:VCARD\nVERSION:3.0\nFN:Jane Doe\nNOTE:A\nEND:VCARD\n');
-  expect(requests.map(r => `${r.method} ${r.path}`)).toEqual(expect.arrayContaining(['GET /api/attendees/me/network', 'GET /api/attendees/me/network/privacy', 'PATCH /api/attendees/me/network/conn-A', 'GET /api/attendees/me/network/conn-A/vcard']));
+  expect(requests.map(r => `${r.method} ${r.path}`)).toEqual(expect.arrayContaining(['GET /api/attendees/me/network/search', 'PATCH /api/attendees/me/network/conn-A', 'GET /api/attendees/me/network/conn-A/vcard']));
   expect(panelOnlyUser(requests, tokenA)).toBe(true);
   await otherCredentialsIntact(page);
 });
@@ -282,11 +284,11 @@ test('R6 vCard download after the session changed sends no request and saves no 
   page.on('download', () => { downloads += 1; });
   await switchUser(page, tokenB);
   requests.length = 0;
-  await page.getByRole('button', { name: /Download Contact Card/ }).first().click();
+  await page.getByRole('button', { name: /Download contact card/ }).first().click();
   // The blocked click re-renders the page, which reloads the list for the current session (B).
   await expect(page.getByText('Peer of B').first()).toBeVisible();
   expect(requests.filter(r => r.path.endsWith('/vcard'))).toEqual([]);
-  expect(requests.every(r => r.auth === bearer(tokenB))).toBe(true);
+  expect(personal(requests).every(r => r.auth === bearer(tokenB))).toBe(true);
   expect(downloads).toBe(0);
   expect(await storedUser(page)).toBe(tokenB);
 });
@@ -305,7 +307,7 @@ test('R6 a vCard response arriving after the session changed is not saved', asyn
   await expect(page.getByText('Peer of A').first()).toBeVisible();
   let downloads = 0;
   page.on('download', () => { downloads += 1; });
-  await page.getByRole('button', { name: /Download Contact Card/ }).first().click();
+  await page.getByRole('button', { name: /Download contact card/ }).first().click();
   await vcard.promise;
   await switchUser(page, tokenB);
   const late = page.waitForResponse(response => response.url().endsWith('/vcard'));
@@ -327,7 +329,7 @@ test('network 401 clears exactly the sent token; vCard 404 keeps the session and
 test('vCard 404 keeps the session and shows the failure', async ({ page }) => {
   const requests = await openNetwork(page, { vcardStatus: 404 });
   await expect(page.getByText('Peer of A').first()).toBeVisible();
-  await page.getByRole('button', { name: /Download Contact Card/ }).first().click();
+  await page.getByRole('button', { name: /Download contact card/ }).first().click();
   await expect(page.getByRole('alert')).toContainText('Failed to download');
   expect(await storedUser(page)).toBe(tokenA);
   expect(panelOnlyUser(requests, tokenA)).toBe(true);
@@ -336,7 +338,7 @@ test('vCard 404 keeps the session and shows the failure', async ({ page }) => {
 test('R2 a delayed network list for token A never appears under token B', async ({ page }) => {
   await fixture(page);
   await watchText(page, ['Peer of A']);
-  const held = await hold(page, '/api/attendees/me/network', bearer(tokenA), 200, [connectionOf('A')]);
+  const held = await hold(page, '/api/attendees/me/network/search', bearer(tokenA), 200, { items: [connectionOf('A')], total: 1, next_cursor: null });
   await seed(page, tokenA);
   await page.goto('/c/t06-fixture/my-network');
   await held.started;

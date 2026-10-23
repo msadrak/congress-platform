@@ -44,6 +44,11 @@ async function fixture(page: Page, options: { publicStatus?: number; slowEvent?:
     if (/^\/api\/public\/events\/[^/]+\/booths$/.test(path)) return json(200, []);
     if (path === '/api/attendees/me/tickets') return json(200, [ticketOf('alpha'), ticketOf('beta')]);
     if (path === '/api/attendees/me/network') return json(200, [connectionOf('alpha'), connectionOf('beta')]);
+    if (path === '/api/attendees/me/network/search') {
+      const eventId = new URL(request.url()).searchParams.get('event_id');
+      const items = [connectionOf('alpha'), connectionOf('beta')].filter(c => !eventId || c.event_id === eventId);
+      return json(200, { items, total: items.length, next_cursor: null });
+    }
     if (path === '/api/attendees/me/network/privacy') return json(200, { share_contact_with_peers: false });
     if (path === '/api/attendees/me/bookmarks/booths') return json(200, []);
     if (path === '/api/auth/me') return json(200, { id: 'user-1', mobile: '09121234567', full_name: 'Sara Fixture', organization: 'Heart Center', title: 'Cardiologist', share_contact_with_peers: false });
@@ -110,7 +115,8 @@ test('home leads with the pass, then the program; details shows venue and full p
   await expect(page.getByText('Opening Keynote')).toBeVisible();
   // Reading order is the same on every breakpoint: pass, program, network, booths.
   const order = (await page.locator('main h2').allTextContents()).map(text => text.trim());
-  expect(order.slice(0, 4)).toEqual(['My Ticket', 'Congress program', 'My Network', 'Exhibition booths']);
+  // Before the congress: the pass and the countdown/checklist lead, then the program, network and booths.
+  expect(order.slice(0, 5)).toEqual(['Your pass', 'Until the congress opens', 'Congress program', 'My Network', 'Exhibition booths']);
   await expect(page.getByRole('link', { name: /Show pass & QR code/ })).toHaveAttribute('href', '/c/alpha/my-ticket');
   await expect(page.getByRole('link', { name: /Scan a colleague's QR code/ })).toHaveAttribute('href', '/c/alpha/my-network?scan=1');
   await expect(page.getByRole('heading', { name: 'More' })).toHaveCount(0);
@@ -119,6 +125,8 @@ test('home leads with the pass, then the program; details shows venue and full p
   await page.getByRole('link', { name: /Full program/ }).click();
   await expect(page).toHaveURL(/\/c\/alpha\/details#program$/);
   await expect(page.getByText('North Gate')).toBeVisible();
+  // One program day at a time: the panel is on day two.
+  await page.getByRole('tab', { name: /Day 2/ }).click();
   await expect(page.getByText('Panel on cardiac imaging')).toBeVisible();
   await expect(page.getByText('Pass types')).toHaveCount(0);
   await expect(page.getByText('Delegate')).toHaveCount(0);

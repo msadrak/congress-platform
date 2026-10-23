@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { createApiClient, type PublicBoothSummary } from "../api/client";
+import { apiErrorCode, createApiClient, localizedApiError, type PublicBoothSummary } from "../api/client";
 import { congressPath, useRevalidateOnFocus } from "../lib/congressContext";
 import { attendeeResponseState, isStoredAttendeeToken } from "../lib/attendeeSession";
 import { signInPath } from "../lib/safeRedirect";
@@ -9,6 +9,7 @@ import { codeFontClass } from "../lib/i18n";
 import { Button } from "./ui/Button";
 import { Icon } from "./ui/Icon";
 import { SectionHeader } from "./attendee/SectionHeader";
+import { boothCopy } from "./attendee/attendeeCopy";
 
 export type BoothList =
   | { status: "loading" }
@@ -22,11 +23,19 @@ const SEARCH_THRESHOLD = 6;
 const NO_BOOTHS: PublicBoothSummary[] = [];
 const NOTHING_PENDING: ReadonlySet<string> = new Set();
 
+/** Why a save did not happen; `register` adds a link to the congress page to get a pass. */
+export interface BoothFeedback {
+  text: string;
+  register?: boolean;
+}
+
 /** Search text as typed on any keyboard: Persian/Arabic digits and Arabic yeh/kaf match their Persian forms. */
 const normalizeSearch = (text: string) => asciiDigits(text).replace(/ي/g, "ی").replace(/ك/g, "ک").toLowerCase();
 
 interface BoothDirectoryProps {
   slug: string;
+  /** The congress id: a save is bound to it (the server refuses a booth from another congress). */
+  eventId: string;
   /** The stored attendee token for personal bookmark state; null when signed out. */
   token: string | null;
   isRtl: boolean;
@@ -42,13 +51,14 @@ interface BoothDirectoryProps {
  * when the attendee returns to the tab); bookmark state and changes use explicit User authority and never
  * gate the list.
  */
-export function BoothDirectory({ slug, token, isRtl, index, title, lead }: BoothDirectoryProps) {
+export function BoothDirectory({ slug, eventId, token, isRtl, index, title, lead }: BoothDirectoryProps) {
+  const copy = boothCopy[isRtl ? "fa" : "en"];
   const [directory, setDirectory] = useState<BoothList>({ status: "loading" });
   const [reloadKey, setReloadKey] = useState(0);
   const [savedIds, setSavedIds] = useState<SavedIds>(null);
   const [sessionLost, setSessionLost] = useState(false);
   const [pending, setPending] = useState<ReadonlySet<string>>(NOTHING_PENDING);
-  const [feedback, setFeedback] = useState<string | null>(null);
+  const [feedback, setFeedback] = useState<BoothFeedback | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -107,10 +117,10 @@ export function BoothDirectory({ slug, token, isRtl, index, title, lead }: Booth
     setPending((prev) => new Set(prev).add(booth.id));
     try {
       const client = createApiClient({ kind: "user", token });
-      const options = { params: { path: { booth_id: booth.id } } };
-      const { data, response } = wasSaved
-        ? await client.DELETE("/api/attendees/me/bookmarks/booths/{booth_id}", options)
-        : await client.POST("/api/attendees/me/bookmarks/booths/{booth_id}", options);
+      const path = { booth_id: booth.id };
+      const { data, error, response } = wasSaved
+        ? await client.DELETE("/api/attendees/me/bookmarks/booths/{booth_id}", { params: { path } })
+        : await client.POST("/api/attendees/me/bookmarks/booths/{booth_id}", { params: { path, query: { event_id: eventId } } });
       const session = attendeeResponseState(token, response.status);
       if (session === "changed") return;
       if (session === "expired") {
@@ -124,10 +134,14 @@ export function BoothDirectory({ slug, token, isRtl, index, title, lead }: Booth
           return next;
         });
       } else {
-        setFeedback(isRtl ? "ذخیره‌سازی انجام نشد. دوباره تلاش کنید." : "Could not update your saved booths. Please try again.");
+        const code = apiErrorCode(error);
+        if (code === "ACTIVE_TICKET_REQUIRED") setFeedback({ text: copy.needsPass, register: true });
+        else if (code === "BOOTH_OTHER_EVENT") setFeedback({ text: copy.otherEvent });
+        else if (code) setFeedback({ text: localizedApiError(error, isRtl ? "fa" : "en") });
+        else setFeedback({ text: copy.updateFailed });
       }
     } catch {
-      setFeedback(isRtl ? "اتصال برقرار نشد؛ تغییری ذخیره نشد." : "Connection failed; nothing was changed.");
+      setFeedback({ text: copy.connectionFailed });
     } finally {
       setPending((prev) => {
         const next = new Set(prev);
@@ -169,7 +183,7 @@ interface BoothDirectoryViewProps {
   savedIds: SavedIds;
   pending?: ReadonlySet<string>;
   onToggleSaved: (booth: PublicBoothSummary) => void;
-  feedback?: string | null;
+  feedback?: BoothFeedback | null;
 }
 
 /** The directory as drawn; used by the attendee home and by the organizer's panel preview. */
@@ -282,10 +296,18 @@ export function BoothDirectoryView({
           )}
 
           {feedback && (
-            <p role="alert" className="flex items-center gap-2 rounded-xl border border-status-danger-border bg-status-danger-bg px-3 py-2.5 text-xs text-status-danger-text">
-              <Icon name="alert" size={16} />
-              {feedback}
-            </p>
+            <div role="alert" className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border border-status-danger-border bg-status-danger-bg px-3 py-2.5 text-xs text-status-danger-text">
+              <p className="flex items-center gap-2">
+                <Icon name="alert" size={16} className="shrink-0" />
+                {feedback.text}
+              </p>
+              {feedback.register && (
+                <Link to={`/e/${encodeURIComponent(slug)}`} className="inline-flex min-h-11 items-center gap-1 font-semibold underline underline-offset-4">
+                  {boothCopy[isRtl ? "fa" : "en"].getPass}
+                  <Icon name="arrow-right" size={14} />
+                </Link>
+              )}
+            </div>
           )}
 
           {booths.length > SEARCH_THRESHOLD && (
@@ -330,8 +352,8 @@ export function BoothDirectoryView({
                         <Button
                           type="button"
                           variant={saved ? "outline" : "secondary"}
-                          size="sm"
-                          className={`shrink-0 min-w-11 max-sm:min-h-11 ${saved ? "bg-event-accent-soft text-event-accent border-event-accent/30" : ""}`}
+                          size="md"
+                          className={`shrink-0 min-w-11 ${saved ? "bg-event-accent-soft text-event-accent border-event-accent/30" : ""}`}
                           aria-label={
                             saved
                               ? isRtl ? `حذف ${b.name} از ذخیره‌شده‌ها` : `Remove ${b.name} from saved booths`

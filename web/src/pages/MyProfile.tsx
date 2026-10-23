@@ -1,55 +1,93 @@
-import { useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
-import { createApiClient, type PrivacyPreferenceOut, type UserOut } from "../api/client";
+import { useEffect, useState, type FormEvent } from "react";
+import { useNavigate, useParams } from "react-router-dom";
+import { apiErrorCode, createApiClient, localizedApiError, type UserOut } from "../api/client";
 import { AttendeeLayout } from "../layouts/AttendeeLayout";
 import { Icon } from "../components/ui/Icon";
-import { Button } from "../components/ui/Button";
+import { Button, LinkButton } from "../components/ui/Button";
+import { Dialog } from "../components/ui/Dialog";
 import { ArcMotif } from "../components/brand/Aiteb";
-import { codeFontClass, useAttendeeLocale } from "../lib/i18n";
+import { codeFontClass, useAttendeeLocale, type AttendeeLocale } from "../lib/i18n";
 import { attendeeResponseState, isStoredAttendeeToken } from "../lib/attendeeSession";
 import { useAttendeeSession } from "../hooks/useAttendeeSession";
 import { congressPath } from "../lib/congressContext";
 import { signInPath } from "../lib/safeRedirect";
 import { formatMobile } from "../lib/mobile";
+import { networkErrorMessage } from "../lib/errorMessages";
 import { LoadingBlock, StatusPanel } from "../components/ui/PortalState";
 import { Monogram } from "../components/attendee/Monogram";
 import { SectionHeader } from "../components/attendee/SectionHeader";
+import { SettingSwitch } from "../components/attendee/SettingSwitch";
 import { SignInPrompt } from "../components/attendee/SignInPrompt";
+import { profileCopy } from "../components/attendee/attendeeCopy";
 import { sectionIndex } from "../components/attendee/congressTime";
 
-type ProfileState =
-  | { status: "loading" }
-  | { status: "ready"; user: UserOut; privacy: PrivacyPreferenceOut | null }
-  | { status: "signed-out" }
-  | { status: "error" };
+type ProfileState = { status: "loading" } | { status: "ready"; user: UserOut } | { status: "signed-out" } | { status: "error" };
+
+type Message = { tone: "ok" | "error"; text: string } | null;
+type SettingKey = "peers" | "exhibitors";
+
+const LANGUAGES: { value: AttendeeLocale; label: string; lang: string }[] = [
+  { value: "fa", label: "فارسی", lang: "fa" },
+  { value: "en", label: "English", lang: "en" },
+];
+
+function MessageLine({ message }: { message: Message }) {
+  if (!message) return null;
+  const error = message.tone === "error";
+  return (
+    <p
+      role={error ? "alert" : "status"}
+      className={`flex items-start gap-2 rounded-xl border p-3 text-xs leading-relaxed ${
+        error ? "border-status-danger-border bg-status-danger-bg text-status-danger-text" : "border-action-subtle-border bg-action-subtle text-action-primary"
+      }`}
+    >
+      <Icon name={error ? "alert" : "check-circle"} size={15} className="mt-px shrink-0" />
+      {message.text}
+    </p>
+  );
+}
+
+const panel = "relative space-y-5 overflow-hidden rounded-[var(--radius-xl)] border border-border-default bg-surface-panel p-6 shadow-soft sm:p-7";
 
 /**
- * Identity fields (name, mobile number, organization, title) are read-only: editing them is an
- * approval-gated backlog item (P03-T57) because they appear on issued badges. The one
- * attendee-controlled setting is peer contact sharing, persisted through its own endpoint.
+ * The attendee's account: editable name, organization and title (they also update passes for congresses
+ * still to come), contact-sharing consents, language, a copy of their data, sign-out and account deletion.
  */
 export default function MyProfile() {
   const { slug = "" } = useParams<{ slug: string }>();
+  const navigate = useNavigate();
   const localeHook = useAttendeeLocale();
-  const { locale, t, isRtl } = localeHook;
-  const { token } = useAttendeeSession();
+  const { locale, t, setLocale } = localeHook;
+  const c = profileCopy[locale];
+  const { token, signOut } = useAttendeeSession();
   const [state, setState] = useState<ProfileState>({ status: "loading" });
+  const [form, setForm] = useState({ full_name: "", organization: "", title: "" });
   const [saving, setSaving] = useState(false);
-  const [privacyMessage, setPrivacyMessage] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
+  const [detailsMessage, setDetailsMessage] = useState<Message>(null);
+  const [settingBusy, setSettingBusy] = useState<SettingKey | null>(null);
+  const [settingMessage, setSettingMessage] = useState<Message>(null);
+  const [exporting, setExporting] = useState(false);
+  const [dataMessage, setDataMessage] = useState<Message>(null);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [deleteWord, setDeleteWord] = useState("");
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [deleted, setDeleted] = useState(false);
 
   useEffect(() => {
     if (!token) return;
     let active = true;
-    const client = createApiClient({ kind: "user", token });
-    Promise.all([client.GET("/api/auth/me"), client.GET("/api/attendees/me/network/privacy")])
-      .then(([me, privacy]) => {
+    createApiClient({ kind: "user", token })
+      .GET("/api/auth/me")
+      .then((me) => {
         if (!active) return;
         const session = attendeeResponseState(token, me.response.status);
         if (session === "changed") return;
         if (session === "expired") {
           setState({ status: "signed-out" });
         } else if (me.data) {
-          setState({ status: "ready", user: me.data, privacy: privacy.data ?? null });
+          setState({ status: "ready", user: me.data });
+          setForm({ full_name: me.data.full_name, organization: me.data.organization, title: me.data.title });
         } else {
           setState({ status: "error" });
         }
@@ -62,43 +100,146 @@ export default function MyProfile() {
     };
   }, [token]);
 
-  const togglePrivacy = async (current: PrivacyPreferenceOut) => {
+  /** The visible values are the ones the server persisted, not the ones asked for. */
+  const applyUser = (user: UserOut) => setState((prev) => (prev.status === "ready" ? { ...prev, user } : prev));
+
+  /** A session that changed or ended meanwhile shows the signed-out state; true when the token is still current. */
+  const stillSignedIn = (current: string, status?: number) => {
+    const session = status === undefined ? (isStoredAttendeeToken(current) ? "current" : "changed") : attendeeResponseState(current, status);
+    if (session !== "current") setState({ status: "signed-out" });
+    return session === "current";
+  };
+
+  const saveDetails = async (e: FormEvent) => {
+    e.preventDefault();
     if (!token || saving) return;
-    if (!isStoredAttendeeToken(token)) {
-      setState({ status: "signed-out" });
-      return;
-    }
+    const body = { full_name: form.full_name.trim(), organization: form.organization.trim(), title: form.title.trim() };
+    if (!body.full_name) return setDetailsMessage({ tone: "error", text: c.nameRequired });
+    if (!stillSignedIn(token)) return;
     setSaving(true);
-    setPrivacyMessage(null);
+    setDetailsMessage(null);
     try {
-      const { data, response } = await createApiClient({ kind: "user", token }).PATCH("/api/attendees/me/network/privacy", {
-        body: { share_contact_with_peers: !current.share_contact_with_peers },
-      });
-      if (attendeeResponseState(token, response.status) !== "current") {
-        setState({ status: "signed-out" });
-      } else if (data) {
-        // The visible value is the one the server persisted, not the one we asked for.
-        setState((prev) => (prev.status === "ready" ? { ...prev, privacy: data } : prev));
-        setPrivacyMessage({ tone: "ok", text: t.privacySavedFeedback });
+      const { data, error, response } = await createApiClient({ kind: "user", token }).PATCH("/api/auth/me", { body });
+      if (!stillSignedIn(token, response.status)) return;
+      if (data) {
+        applyUser(data);
+        setForm({ full_name: data.full_name, organization: data.organization, title: data.title });
+        setDetailsMessage({ tone: "ok", text: c.saved });
       } else {
-        setPrivacyMessage({
-          tone: "error",
-          text: isRtl ? "تنظیم ذخیره نشد؛ مقدار قبلی حفظ شد. دوباره تلاش کنید." : "Your setting was not saved; the previous value is unchanged. Please try again.",
-        });
+        setDetailsMessage({ tone: "error", text: apiErrorCode(error) ? localizedApiError(error, locale) : c.saveFailed });
       }
     } catch {
-      setPrivacyMessage({
-        tone: "error",
-        text: isRtl ? "اتصال برقرار نشد؛ تنظیم تغییری نکرد." : "Connection failed; your setting was not changed.",
-      });
+      setDetailsMessage({ tone: "error", text: networkErrorMessage[locale] });
     } finally {
       setSaving(false);
     }
   };
 
-  const view = !token ? { status: "signed-out" as const } : state;
+  const toggleSetting = async (key: SettingKey, user: UserOut) => {
+    if (!token || settingBusy) return;
+    if (!stillSignedIn(token)) return;
+    setSettingBusy(key);
+    setSettingMessage(null);
+    const client = createApiClient({ kind: "user", token });
+    try {
+      if (key === "peers") {
+        const { data, response } = await client.PATCH("/api/attendees/me/network/privacy", {
+          body: { share_contact_with_peers: !user.share_contact_with_peers },
+        });
+        if (!stillSignedIn(token, response.status)) return;
+        if (!data) return setSettingMessage({ tone: "error", text: c.settingFailed });
+        applyUser({ ...user, share_contact_with_peers: data.share_contact_with_peers });
+      } else {
+        const { data, response } = await client.PATCH("/api/auth/me", {
+          body: { share_contact_with_exhibitors: !user.share_contact_with_exhibitors },
+        });
+        if (!stillSignedIn(token, response.status)) return;
+        if (!data) return setSettingMessage({ tone: "error", text: c.settingFailed });
+        applyUser({ ...user, share_contact_with_exhibitors: data.share_contact_with_exhibitors });
+      }
+      setSettingMessage({ tone: "ok", text: c.settingSaved });
+    } catch {
+      setSettingMessage({ tone: "error", text: networkErrorMessage[locale] });
+    } finally {
+      setSettingBusy(null);
+    }
+  };
+
+  const exportData = async () => {
+    if (!token || exporting) return;
+    if (!stillSignedIn(token)) return;
+    setExporting(true);
+    setDataMessage(null);
+    try {
+      const { data, response } = await createApiClient({ kind: "user", token }).GET("/api/auth/me/export");
+      if (!stillSignedIn(token, response.status)) return;
+      if (!data) return setDataMessage({ tone: "error", text: c.exportFailed });
+      const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }));
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "my-congress-data.json";
+      document.body.append(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch {
+      setDataMessage({ tone: "error", text: c.exportFailed });
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const closeDelete = () => {
+    if (deleting) return;
+    setConfirmingDelete(false);
+    setDeleteWord("");
+    setDeleteError(null);
+  };
+
+  const wordMatches = [profileCopy.fa.deleteWord, profileCopy.en.deleteWord].some((w) => deleteWord.trim().toLowerCase() === w.toLowerCase());
+
+  const deleteAccount = async () => {
+    if (!token || deleting || !wordMatches) return;
+    if (!stillSignedIn(token)) return;
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      const { response } = await createApiClient({ kind: "user", token }).DELETE("/api/auth/me");
+      if (response.ok) {
+        // The account is anonymised and this session no longer works: end it on this device too.
+        setDeleted(true);
+        setConfirmingDelete(false);
+        signOut();
+        return;
+      }
+      if (!stillSignedIn(token, response.status)) return;
+      setDeleteError(c.deleteFailed);
+    } catch {
+      setDeleteError(networkErrorMessage[locale]);
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const signOutHere = () => {
+    signOut();
+    navigate(slug ? congressPath(slug, "my-congress") : "/");
+  };
+
+  const view = deleted ? { status: "deleted" as const } : !token ? { status: "signed-out" as const } : state;
   let content;
-  if (view.status === "loading") {
+  if (view.status === "deleted") {
+    content = (
+      <div className="mx-auto max-w-3xl">
+        <StatusPanel icon="check-circle" title={c.deletedTitle}>
+          <p>{c.deletedBody}</p>
+          <LinkButton to={slug ? `/e/${encodeURIComponent(slug)}` : "/"} variant="secondary" size="md">
+            {c.backHome}
+          </LinkButton>
+        </StatusPanel>
+      </div>
+    );
+  } else if (view.status === "loading") {
     content = <LoadingBlock label={t.navMyProfile} />;
   } else if (view.status === "signed-out") {
     content = (
@@ -114,24 +255,37 @@ export default function MyProfile() {
   } else if (view.status === "error") {
     content = (
       <div className="mx-auto max-w-3xl">
-        <StatusPanel tone="danger" icon="alert" title={isRtl ? "پروفایل بارگذاری نشد" : "Could not load your profile"}>
-          <p>{isRtl ? "اتصال را بررسی کنید و دوباره تلاش کنید." : "Check your connection and try again."}</p>
+        <StatusPanel tone="danger" icon="alert" title={c.loadFailedTitle}>
+          <p>{c.loadFailedBody}</p>
           <Button type="button" variant="secondary" size="md" onClick={() => window.location.reload()}>
             <Icon name="sync" size={16} />
-            {isRtl ? "تلاش دوباره" : "Try again"}
+            {c.retry}
           </Button>
         </StatusPanel>
       </div>
     );
   } else {
-    const { user, privacy } = view;
-    const rows: [string, string, "user" | "phone" | "congress" | "id-card"][] = [
-      [isRtl ? "نام" : "Name", user.full_name, "user"],
-      [isRtl ? "موبایل" : "Mobile", user.mobile ? formatMobile(user.mobile, locale) : "—", "phone"],
-      [isRtl ? "سازمان" : "Organization", user.organization || "—", "congress"],
-      [isRtl ? "سمت" : "Title", user.title || "—", "id-card"],
-    ];
-    const shared = privacy?.share_contact_with_peers ?? false;
+    const { user } = view;
+    const dirty = form.full_name.trim() !== user.full_name || form.organization.trim() !== user.organization || form.title.trim() !== user.title;
+    const field = (key: keyof typeof form, label: string, max: number, required = false) => (
+      <div>
+        <label htmlFor={`profile-${key}`} className="ui-label">
+          {label}
+          {required && <span aria-hidden="true" className="text-status-danger-text"> *</span>}
+        </label>
+        <input
+          id={`profile-${key}`}
+          type="text"
+          dir="auto"
+          required={required}
+          maxLength={max}
+          autoComplete={key === "full_name" ? "name" : key === "organization" ? "organization" : "organization-title"}
+          value={form[key]}
+          onChange={(e) => setForm((prev) => ({ ...prev, [key]: e.target.value }))}
+          className="ui-input"
+        />
+      </div>
+    );
     content = (
       <>
         {/* Masthead */}
@@ -144,10 +298,9 @@ export default function MyProfile() {
             <div className="min-w-0 space-y-2">
               <span className="eyebrow">{t.navMyProfile}</span>
               <h1 className="text-[1.75rem] font-semibold leading-tight tracking-[-0.03em] text-text-primary break-words sm:text-4xl">{user.full_name}</h1>
-              {user.mobile && (
-                <p className="flex min-w-0 items-center gap-2 text-sm text-text-secondary">
-                  <Icon name="phone" size={16} className="text-ink-400" />
-                  <bdi dir="ltr" className={`truncate ${codeFontClass(formatMobile(user.mobile, locale))}`}>{formatMobile(user.mobile, locale)}</bdi>
+              {(user.title || user.organization) && (
+                <p dir="auto" className="text-sm text-text-secondary break-words">
+                  {[user.title, user.organization].filter(Boolean).join(" · ")}
                 </p>
               )}
             </div>
@@ -155,121 +308,177 @@ export default function MyProfile() {
         </div>
 
         <div className="grid items-start gap-10 lg:grid-cols-12">
-          {/* Identity (read-only) */}
-          <section aria-labelledby="profile-identity-title" className="space-y-5 lg:col-span-7">
-            <SectionHeader
-              index={sectionIndex(1, locale)}
-              id="profile-identity-title"
-              title={isRtl ? "اطلاعات هویتی" : "Identity details"}
-              aside={
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-border-default bg-surface-panel px-2.5 py-1 text-xs font-semibold text-text-secondary">
-                  <Icon name="lock" size={13} />
-                  {isRtl ? "فقط خواندنی" : "Read-only"}
-                </span>
-              }
-            />
-            <dl className="divide-y divide-border-default border-b border-border-default">
-              {rows.map(([label, value, icon]) => (
-                <div key={label} className="grid grid-cols-[minmax(0,2fr)_minmax(0,3fr)] items-baseline gap-4 py-4 text-sm">
-                  <dt className="flex items-center gap-2 text-text-muted">
-                    <Icon name={icon} size={16} className="self-center text-ink-400" />
-                    {label}
-                  </dt>
-                  <dd className="font-medium text-text-primary break-words"><bdi dir={icon === "phone" ? "ltr" : undefined}>{value}</bdi></dd>
-                </div>
-              ))}
-            </dl>
-            <p className="flex items-start gap-2 text-xs leading-relaxed text-text-muted">
-              <Icon name="info" size={15} className="mt-px shrink-0" />
-              {isRtl
-                ? "این اطلاعات هنگام ثبت‌نام ثبت شده و روی کارت ورود شما درج می‌شود؛ از این صفحه قابل ویرایش نیست."
-                : "These details come from your registration and appear on your badge, so they cannot be edited here."}
-            </p>
+          {/* Details (editable) */}
+          <section aria-labelledby="profile-details-title" className="space-y-5 lg:col-span-7">
+            <SectionHeader index={sectionIndex(1, locale)} id="profile-details-title" title={c.detailsTitle} />
+            <form onSubmit={(e) => void saveDetails(e)} className="space-y-4" noValidate>
+              {field("full_name", c.fullName, 200, true)}
+              {field("organization", c.organization, 200)}
+              {field("title", c.title, 100)}
+              <div>
+                <p className="ui-label">{c.mobile}</p>
+                <p className="flex min-h-11 items-center gap-2 rounded-xl border border-border-subtle bg-surface-panel-subtle px-3 text-sm text-text-secondary">
+                  <Icon name="phone" size={16} className="text-ink-400" />
+                  {user.mobile ? (
+                    <bdi dir="ltr" className={codeFontClass(formatMobile(user.mobile, locale))}>{formatMobile(user.mobile, locale)}</bdi>
+                  ) : (
+                    "—"
+                  )}
+                  <Icon name="lock" size={14} className="ms-auto text-ink-400" />
+                </p>
+                <p className="mt-1.5 text-xs text-text-muted">{c.mobileFixed}</p>
+              </div>
+              <p className="flex items-start gap-2 rounded-xl border border-status-info-border bg-status-info-bg p-3 text-xs leading-relaxed text-status-info-text">
+                <Icon name="ticket" size={15} className="mt-px shrink-0" />
+                {c.updatesPass}
+              </p>
+              <MessageLine message={detailsMessage} />
+              <Button type="submit" variant="primary" size="lg" disabled={saving || !dirty} aria-busy={saving}>
+                <Icon name="check" size={18} />
+                {saving ? c.saving : c.save}
+              </Button>
+            </form>
           </section>
 
-          {/* Contact privacy (editable) */}
-          <section
-            aria-labelledby="profile-privacy-title"
-            className="relative overflow-hidden shape-arc border border-border-default bg-surface-panel shadow-soft lg:col-span-5"
-          >
-            <span aria-hidden="true" className={`absolute inset-x-0 top-0 h-[3px] ${shared ? "bg-status-success-solid" : "bg-[image:var(--grad-aiteb)]"}`} />
-            <div className="space-y-5 p-6 sm:p-7">
-              <div className="flex items-start justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <span aria-hidden="true" className="grid size-10 shrink-0 place-items-center rounded-xl bg-surface-ink text-white">
-                    <Icon name="shield" size={18} />
-                  </span>
-                  <h2 id="profile-privacy-title" className="text-base font-semibold tracking-[-0.01em] text-text-primary">
-                    {t.privacyHeading}
-                  </h2>
-                </div>
-                <span className="shrink-0 rounded-full bg-action-subtle px-2.5 py-1 text-[11px] font-semibold text-action-primary">
-                  {isRtl ? "قابل تغییر" : "Editable"}
+          <div className="space-y-6 lg:col-span-5">
+            {/* Privacy */}
+            <section aria-labelledby="profile-privacy-title" className={`${panel} shape-arc`}>
+              <span aria-hidden="true" className="absolute inset-x-0 top-0 h-[3px] bg-[image:var(--grad-aiteb)]" />
+              <div className="flex items-center gap-3">
+                <span aria-hidden="true" className="grid size-10 shrink-0 place-items-center rounded-xl bg-surface-ink text-white">
+                  <Icon name="shield" size={18} />
                 </span>
+                <h2 id="profile-privacy-title" className="text-base font-semibold tracking-[-0.01em] text-text-primary">{c.privacyTitle}</h2>
               </div>
-              {privacy ? (
-                <>
-                  <div className="flex items-start justify-between gap-4 rounded-2xl border border-border-subtle bg-surface-panel-subtle p-4">
-                    <div className="min-w-0 space-y-1">
-                      <p id="share-mobile-label" className="text-sm font-semibold text-text-primary">{t.shareMobileToggleLabel}</p>
-                      <p id="share-mobile-desc" className="text-xs leading-relaxed text-text-secondary">{t.shareMobileToggleDesc}</p>
-                    </div>
-                    <button
-                      type="button"
-                      role="switch"
-                      aria-checked={privacy.share_contact_with_peers}
-                      aria-labelledby="share-mobile-label"
-                      aria-describedby="share-mobile-desc"
-                      disabled={saving}
-                      onClick={() => void togglePrivacy(privacy)}
-                      className={`relative mt-0.5 h-8 w-14 shrink-0 rounded-full border transition-colors motion-reduce:transition-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring disabled:opacity-60 cursor-pointer before:absolute before:-inset-2 before:content-[''] ${
-                        privacy.share_contact_with_peers ? "border-transparent bg-[image:var(--grad-aiteb-deep)]" : "border-border-strong bg-surface-panel-inset"
-                      }`}
-                    >
-                      <span
-                        aria-hidden="true"
-                        className={`absolute top-1 start-1 grid size-6 place-items-center rounded-full bg-white shadow-soft transition-transform motion-reduce:transition-none ${
-                          privacy.share_contact_with_peers ? (isRtl ? "-translate-x-6" : "translate-x-6") : ""
-                        }`}
-                      >
-                        <Icon name={privacy.share_contact_with_peers ? "check" : "minus"} size={12} strokeWidth={2.5} className={privacy.share_contact_with_peers ? "text-aiteb-indigo" : "text-ink-400"} />
-                      </span>
-                    </button>
-                  </div>
-                  <p
-                    className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold ${
-                      shared
-                        ? "border-status-success-border bg-status-success-bg text-status-success-text"
-                        : "border-border-default bg-surface-panel-subtle text-text-secondary"
-                    }`}
-                  >
-                    <Icon name={shared ? "eye" : "eye-off"} size={15} />
-                    {shared ? t.mobileSharedStatus : t.mobileHiddenStatus}
-                  </p>
-                  {privacyMessage && (
-                    <p
-                      role={privacyMessage.tone === "error" ? "alert" : "status"}
-                      className={`flex items-start gap-2 rounded-xl border p-3 text-xs ${
-                        privacyMessage.tone === "error"
-                          ? "border-status-danger-border bg-status-danger-bg text-status-danger-text"
-                          : "border-action-subtle-border bg-action-subtle text-action-primary"
-                      }`}
-                    >
-                      <Icon name={privacyMessage.tone === "error" ? "alert" : "check-circle"} size={15} className="mt-px shrink-0" />
-                      {privacyMessage.text}
-                    </p>
-                  )}
-                </>
-              ) : (
-                <p className="text-sm text-text-secondary">{isRtl ? "وضعیت در دسترس نیست." : "Status unavailable."}</p>
-              )}
+              <SettingSwitch
+                label={c.peersLabel}
+                description={c.peersDesc}
+                checked={user.share_contact_with_peers}
+                busy={settingBusy === "peers"}
+                onLabel={c.on}
+                offLabel={c.off}
+                onToggle={() => void toggleSetting("peers", user)}
+              />
+              <SettingSwitch
+                label={c.exhibitorsLabel}
+                description={c.exhibitorsDesc}
+                checked={Boolean(user.share_contact_with_exhibitors)}
+                busy={settingBusy === "exhibitors"}
+                onLabel={c.on}
+                offLabel={c.off}
+                onToggle={() => void toggleSetting("exhibitors", user)}
+              />
+              <MessageLine message={settingMessage} />
               <p className="flex items-center gap-2 border-t border-border-subtle pt-4 text-xs text-text-muted">
                 <Icon name="globe" size={15} />
-                {isRtl ? "این تنظیم برای همه همایش‌ها اعمال می‌شود." : "This setting applies to all congresses."}
+                {c.allCongresses}
               </p>
-            </div>
-          </section>
+            </section>
+
+            {/* Language */}
+            <section aria-labelledby="profile-language-title" className={panel}>
+              <h2 id="profile-language-title" className="text-base font-semibold tracking-[-0.01em] text-text-primary">{c.languageTitle}</h2>
+              <div role="radiogroup" aria-labelledby="profile-language-title" className="grid grid-cols-2 gap-1 rounded-full border border-border-default bg-surface-panel-subtle p-1">
+                {LANGUAGES.map((option) => {
+                  const selected = locale === option.value;
+                  return (
+                    <button
+                      key={option.value}
+                      type="button"
+                      role="radio"
+                      aria-checked={selected}
+                      lang={option.lang}
+                      onClick={() => setLocale(option.value)}
+                      className={`press min-h-11 rounded-full text-sm font-semibold transition-colors cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring ${
+                        selected ? "bg-surface-ink text-white shadow-soft" : "text-text-secondary hover:text-text-primary"
+                      }`}
+                    >
+                      {option.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </section>
+
+            {/* Data, sign-out, deletion */}
+            <section aria-labelledby="profile-data-title" className={panel}>
+              <h2 id="profile-data-title" className="text-base font-semibold tracking-[-0.01em] text-text-primary">{c.dataTitle}</h2>
+              <div className="space-y-2">
+                <Button type="button" variant="secondary" size="md" isFullWidth onClick={() => void exportData()} disabled={exporting} aria-busy={exporting}>
+                  <Icon name="download" size={17} />
+                  {exporting ? c.exporting : c.exportLabel}
+                </Button>
+                <p className="text-xs leading-relaxed text-text-muted">{c.exportDesc}</p>
+                <MessageLine message={dataMessage} />
+              </div>
+              <div className="space-y-2 border-t border-border-subtle pt-5">
+                <Button type="button" variant="secondary" size="md" isFullWidth onClick={signOutHere}>
+                  <Icon name="logout" size={17} />
+                  {c.signOut}
+                </Button>
+                <p className="text-xs leading-relaxed text-text-muted">{c.signOutDesc}</p>
+              </div>
+              <div className="space-y-2 rounded-2xl border border-status-danger-border bg-status-danger-bg/50 p-4">
+                <h3 className="text-sm font-semibold text-status-danger-text">{c.deleteTitle}</h3>
+                <p className="text-xs leading-relaxed text-text-secondary">{c.deleteDesc}</p>
+                <Button type="button" variant="danger" size="md" onClick={() => setConfirmingDelete(true)}>
+                  <Icon name="trash" size={17} />
+                  {c.deleteAction}
+                </Button>
+              </div>
+            </section>
+          </div>
         </div>
+
+        <Dialog isOpen={confirmingDelete} onClose={closeDelete} title={c.deleteDialogTitle} description={c.deleteDialogLead} size="md">
+          <form
+            className="space-y-4"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void deleteAccount();
+            }}
+          >
+            <ul className="space-y-2 text-sm leading-relaxed text-text-secondary">
+              {c.deleteConsequences.map((line: string) => (
+                <li key={line} className="flex items-start gap-2">
+                  <Icon name="x-circle" size={16} className="mt-0.5 shrink-0 text-status-danger-text" />
+                  {line}
+                </li>
+              ))}
+            </ul>
+            <p className="rounded-xl bg-surface-panel-subtle p-3 text-xs leading-relaxed text-text-secondary">{c.deleteExportHint}</p>
+            <div>
+              <label htmlFor="delete-confirm-word" className="ui-label">
+                {c.deleteTypeLabel(c.deleteWord)}
+              </label>
+              <input
+                id="delete-confirm-word"
+                type="text"
+                autoComplete="off"
+                autoCapitalize="none"
+                spellCheck={false}
+                value={deleteWord}
+                onChange={(e) => setDeleteWord(e.target.value)}
+                className="ui-input"
+              />
+            </div>
+            {deleteError && (
+              <p role="alert" className="flex items-start gap-2 rounded-xl border border-status-danger-border bg-status-danger-bg p-3 text-xs text-status-danger-text">
+                <Icon name="alert" size={15} className="mt-px shrink-0" />
+                {deleteError}
+              </p>
+            )}
+            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              <Button type="button" variant="secondary" size="md" onClick={closeDelete} disabled={deleting}>
+                {c.cancel}
+              </Button>
+              <Button type="submit" variant="danger" size="md" disabled={!wordMatches || deleting} aria-busy={deleting}>
+                <Icon name="trash" size={17} />
+                {deleting ? c.deleting : c.deleteConfirm}
+              </Button>
+            </div>
+          </form>
+        </Dialog>
       </>
     );
   }
