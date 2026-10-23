@@ -1,3 +1,4 @@
+from ipaddress import IPv4Network, IPv6Network, ip_network
 from pathlib import Path
 from typing import Any, Literal
 from urllib.parse import urlsplit
@@ -30,6 +31,20 @@ DISALLOWED_JWT_SECRETS = {
 }
 # Fragments that only appear in documentation placeholders, never in generated secrets.
 PLACEHOLDER_MARKERS = ("<generate", "change-me", "changeme", "replace-me", "provide-a-", "your-secret", "placeholder")
+
+
+def parse_networks(value: str | list[str]) -> list[IPv4Network | IPv6Network]:
+    """`10.0.0.0/8, 2001:db8::/48, 192.0.2.7` (a bare address is one host); ValueError names the bad entry."""
+    items = value.split(",") if isinstance(value, str) else value
+    networks = []
+    for item in (i.strip() for i in items):
+        if not item:
+            continue
+        try:
+            networks.append(ip_network(item, strict=False))
+        except ValueError:
+            raise ValueError(f"{item!r} is not an IP address or CIDR network.") from None
+    return networks
 
 
 def _is_placeholder(value: str) -> bool:
@@ -67,7 +82,8 @@ class Settings(BaseSettings):
     smsir_api_key: str = ""
     # The sms.ir service line (خط خدماتی) messages are sent from. The wording is the app's own templates.
     smsir_line_number: int | None = Field(default=None, gt=0)
-    smsir_timeout_seconds: float = Field(default=10.0, gt=0, le=60)
+    # Short on purpose: a sign-in request waits for it (without holding a database connection).
+    smsir_timeout_seconds: float = Field(default=5.0, gt=0, le=60)
     otp_length: int = Field(default=6, ge=4, le=8)
     otp_ttl_seconds: int = Field(default=120, ge=60, le=600)
     # SMS send limits: codes cost money and reach a real phone. A congress venue puts many people behind one IP.
@@ -77,6 +93,19 @@ class Settings(BaseSettings):
     # Background delivery of queued SMS (ticket confirmations); the test suite drives it explicitly.
     sms_outbox_enabled: bool = True
     sms_outbox_poll_seconds: float = Field(default=5.0, gt=0, le=300)
+    # SMS abuse and cost limits (app/rate_limit.py, shared by every API process through PostgreSQL). Venue
+    # networks (CIDRs, comma separated) get their own, higher per-IP budget; IPv6 clients count per /64. The
+    # platform-wide caps count every SMS the gateway sends (0 = no cap). The platform console overrides all of them.
+    otp_trusted_networks: str = ""
+    otp_sends_per_trusted_ip_per_hour: int = Field(default=2000, ge=1)
+    sms_hourly_cap: int = Field(default=2000, ge=0)
+    sms_daily_cap: int = Field(default=20000, ge=0)
+    # Organizer test sends (any of the organizer's events, per rolling 24 hours).
+    sms_test_sends_per_organizer_per_day: int = Field(default=20, ge=1)
+    # Provider calls in flight per API process; more wait (up to the provider timeout) instead of piling up.
+    sms_max_concurrent_sends: int = Field(default=8, ge=1, le=100)
+    # How often each API process checks platform_settings for changes saved by another process.
+    platform_settings_refresh_seconds: float = Field(default=3.0, gt=0, le=300)
 
     @model_validator(mode="before")
     @classmethod
@@ -111,6 +140,11 @@ class Settings(BaseSettings):
     def _blank_line_is_unset(cls, v: Any) -> Any:
         # Compose passes an unset optional variable as an empty string.
         return None if isinstance(v, str) and not v.strip() else v
+
+    @field_validator("otp_trusted_networks")
+    @classmethod
+    def _trusted_networks_shape(cls, v: str) -> str:
+        return ", ".join(str(n) for n in parse_networks(v))
 
     @field_validator("short_link_origin", mode="before")
     @classmethod
@@ -181,6 +215,8 @@ class Settings(BaseSettings):
             raise ValueError(
                 f"CONGRESS_SHORT_LINK_ORIGIN must use https when CONGRESS_ENVIRONMENT={self.environment}."
             )
+        if self.otp_length < 6:
+            raise ValueError(f"CONGRESS_OTP_LENGTH must be at least 6 when CONGRESS_ENVIRONMENT={self.environment}.")
         if not self.media_root.is_absolute():
             raise ValueError(
                 "CONGRESS_MEDIA_ROOT must be an absolute path to a durable volume when "

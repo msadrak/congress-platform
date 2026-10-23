@@ -23,15 +23,15 @@ def hash_api_key(api_key: str) -> str:
     return hashlib.sha256(api_key.encode()).hexdigest()
 
 
-def require_platform_admin(
+async def require_platform_admin(
     request: Request, x_admin_token: Annotated[str | None, Header()] = None
 ) -> None:
     expected: str = request.app.state.settings.platform_admin_token
     throttle = limiter(request)
     key = f"admin:ip:{client_ip(request)}"
-    throttle.check((key, ADMIN_TOKEN_PER_IP))
+    await throttle.check((key, ADMIN_TOKEN_PER_IP))
     if x_admin_token is None or not secrets.compare_digest(x_admin_token, expected):
-        throttle.fail(key)
+        await throttle.fail(key)
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid admin token")
 
 
@@ -41,7 +41,7 @@ async def resolve_organizer_key(session: AsyncSession, request: Request, token: 
     Unknown, rotated-away and revoked keys are indistinguishable."""
     throttle = limiter(request)
     key = f"apikey:ip:{client_ip(request)}"
-    throttle.check((key, API_KEY_PER_IP))
+    await throttle.check((key, API_KEY_PER_IP))
     organizer = await session.scalar(
         select(Organizer).where(
             Organizer.api_key_hash == hash_api_key(token),
@@ -49,7 +49,7 @@ async def resolve_organizer_key(session: AsyncSession, request: Request, token: 
         )
     )
     if organizer is None:
-        throttle.fail(key)
+        await throttle.fail(key)
     return organizer
 
 

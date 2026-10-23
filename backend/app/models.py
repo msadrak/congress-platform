@@ -505,7 +505,8 @@ class SmsMessage(Base):
     ticket_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("tickets.id", ondelete="CASCADE"), nullable=True, index=True
     )
-    # pending | sent | failed | unknown (may or may not have been delivered; never resent automatically)
+    # pending | sending (claimed by an outbox pass until lease_until) | sent | failed | unknown (may or may not have
+    # been delivered; never resent automatically) | resolved (an unknown message the organizer settled by hand)
     status: Mapped[str] = mapped_column(String(16), index=True)
     provider_message_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     attempts: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
@@ -517,6 +518,8 @@ class SmsMessage(Base):
         DateTime(timezone=True), server_default=func.now()
     )
     sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # While `sending`: when the claiming outbox pass is presumed dead and the message becomes `unknown`.
+    lease_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class SmsTemplate(Base):
@@ -549,3 +552,18 @@ class PlatformSetting(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+
+
+class RateLimitCounter(Base):
+    """Attempts per throttling key in one time bucket, shared by every API process (app/rate_limit.py).
+
+    Abuse damping, not an audit log: rows are deleted once `expires_at` has passed. A `count` of 1 under a
+    one-off key also records a single-use token that was spent (e.g. a signup token).
+    """
+
+    __tablename__ = "rate_limit_counters"
+
+    key: Mapped[str] = mapped_column(String(200), primary_key=True)
+    window_start: Mapped[datetime] = mapped_column(DateTime(timezone=True), primary_key=True)
+    count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
