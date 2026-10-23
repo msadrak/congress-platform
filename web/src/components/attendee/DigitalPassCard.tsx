@@ -1,10 +1,10 @@
 import QRCode from "react-qr-code";
 import type { AttendeeTicketDetail } from "../../api/client";
-import { formatLocalizedDate, type AttendeeLocale, type TranslationDictionary } from "../../lib/i18n";
+import type { AttendeeLocale, TranslationDictionary } from "../../lib/i18n";
 import { isCancelledStatus } from "../../lib/attendeePasses";
+import { formatPassDateRange, formatPassIssuedDate } from "../../lib/passDates";
 import { CongressSignature } from "../brand/CongressSignature";
 import { Icon } from "../ui/Icon";
-import { formatDateRange } from "./congressTime";
 
 export type PassCardTicket = Pick<
   AttendeeTicketDetail,
@@ -12,6 +12,11 @@ export type PassCardTicket = Pick<
 > & {
   /** The ticket's real status; a pass without one (organizer preview) reads as valid. */
   status?: string;
+  /**
+   * The congress's IANA zone: the card's dates are read in it. Missing (a pass saved before the server sent it, or
+   * the organizer preview) means the device's own zone.
+   */
+  event_timezone?: string | null;
 };
 
 interface DigitalPassCardProps {
@@ -127,7 +132,7 @@ export function DigitalPassCard({ ticket, locale, t, onPrint, onExpand }: Digita
           <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-300">
             <span className="inline-flex items-center gap-1.5">
               <Icon name="calendar" size={14} />
-              {formatDateRange(ticket.event_starts_at, ticket.event_ends_at, locale)}
+              {formatPassDateRange(ticket.event_starts_at, ticket.event_ends_at, locale, ticket.event_timezone)}
             </span>
             {ticket.event_location && (
               <span className="inline-flex min-w-0 items-center gap-1.5">
@@ -140,7 +145,7 @@ export function DigitalPassCard({ ticket, locale, t, onPrint, onExpand }: Digita
         <div className="grid grid-cols-2 gap-x-5 border-t border-white/10 pt-4">
           <div className="min-w-0 space-y-1">
             <span className="block text-[11px] font-medium text-ink-400">{isRtl ? "تاریخ صدور" : "Issued"}</span>
-            <span className="block text-sm font-semibold text-white">{formatLocalizedDate(ticket.created_at, locale)}</span>
+            <span className="block text-sm font-semibold text-white">{formatPassIssuedDate(ticket.created_at, locale, ticket.event_timezone)}</span>
           </div>
           <div className="min-w-0 space-y-1">
             <span className="block text-[11px] font-medium text-ink-400">{t.ticketIdLabel}</span>

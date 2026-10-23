@@ -17,7 +17,7 @@ const NOW = Date.parse("2027-05-11T12:00:00Z");
 function ticket(id: string, slug: string, startsAt: string, endsAt: string, extra: Partial<AttendeeTicketDetail> = {}): AttendeeTicketDetail {
   return {
     id, event_id: `event-${slug}`, event_name: `Congress ${slug}`, event_slug: slug, event_location: "Hall",
-    event_starts_at: startsAt, event_ends_at: endsAt, ticket_tier_id: "tier", ticket_tier_name: "Delegate",
+    event_starts_at: startsAt, event_ends_at: endsAt, event_timezone: "Asia/Tehran", ticket_tier_id: "tier", ticket_tier_name: "Delegate",
     attendee_name: "Sara", attendee_mobile: null, status: "active", qr_secret: `qr-${id}`, created_at: "2027-01-01T00:00:00Z",
     ...extra,
   };
