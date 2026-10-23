@@ -132,7 +132,8 @@ const fa = {
   venueEntrances: "ورودی‌ها",
   venueHalls: "سالن‌ها",
   hallSessions: (n: string, _count: number) => `${n} جلسه`,
-  programPdf: "فایل برنامهٔ همایش",
+  /** Followed by "(PDF)" in a left-to-right island. */
+  programPdf: "مشاهدهٔ برنامه",
   pageCount: (n: string, _count: number) => `${n} صفحه`,
   openFullSize: (label: string) => `${label}، نمایش در اندازهٔ کامل`,
 
@@ -295,7 +296,7 @@ const en: CopyShape<typeof fa> = {
   venueEntrances: "Entrances",
   venueHalls: "Halls",
   hallSessions: (n: string, count: number) => `${n} session${count === 1 ? "" : "s"}`,
-  programPdf: "View the program (PDF)",
+  programPdf: "View the program",
   pageCount: (n: string, count: number) => `${n} page${count === 1 ? "" : "s"}`,
   openFullSize: (label: string) => `${label}, open full size`,
 

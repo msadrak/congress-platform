@@ -33,7 +33,9 @@ export function ScheduleFiles({ files, locale, className = "" }: ScheduleFilesPr
               >
                 <Icon name="file" size={18} className="shrink-0 text-event-accent" />
                 <span className="flex flex-col">
-                  <span>{c.programPdf}</span>
+                  <span>
+                    {c.programPdf} <bdi dir="ltr">(PDF)</bdi>
+                  </span>
                   <span className="text-caption font-normal text-text-muted">
                     <bdi>{file.label}</bdi>
                     {file.page_count ? ` · ${c.pageCount(formatNumber(file.page_count, locale), file.page_count)}` : ""}
