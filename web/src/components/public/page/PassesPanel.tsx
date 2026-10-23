@@ -6,8 +6,13 @@ import { Button, LinkButton } from "../../ui/Button";
 import { Icon } from "../../ui/Icon";
 import { Bidi } from "../Bidi";
 import { num, publicCopy, type PublicLocale } from "../copy";
-import { tierState } from "../format";
+import { formatMoment } from "../format";
 import { PassStub } from "../PassStub";
+import { useNow } from "../../attendee/useNow";
+import { tierAvailability, type RegistrationFields } from "../../../lib/registrationWindow";
+
+/** No window fields: nothing restricts the tiers beyond their own switch and quota (Page Studio preview). */
+const UNRESTRICTED: RegistrationFields = { ends_at: "" };
 
 interface PassesPanelProps {
   slug: string;
@@ -24,6 +29,12 @@ interface PassesPanelProps {
   error?: string | null;
   /** Set in the Page Studio preview: the dock is shown but cannot reserve. */
   disabledNote?: string;
+  /** The congress's registration window (switch, opening/closing instants, end of the congress). */
+  registration?: RegistrationFields;
+  /** The congress's zone, for "opens at" / "closes at" times. */
+  timeZone?: string;
+  /** The page's ticking clock (ms). */
+  now?: number;
 }
 
 /** Live ticket tiers (operational data, never page content) with the reservation dock. */
@@ -39,20 +50,30 @@ export function PassesPanel({
   alreadyHasTicket = false,
   error = null,
   disabledNote,
+  registration = UNRESTRICTED,
+  timeZone,
+  now: givenNow,
 }: PassesPanelProps) {
+  const tick = useNow();
+  const now = givenNow ?? tick;
   const c = publicCopy[locale];
   const passPath = `/c/${encodeURIComponent(slug)}/my-ticket`;
   const selectedTier = tiers.find((tier) => tier.id === selectedTierId) ?? tiers[0] ?? null;
-  const state = selectedTier ? tierState(selectedTier) : "CLOSED";
-  const available = state === "AVAILABLE";
+  const availability = selectedTier ? tierAvailability(registration, selectedTier, now) : ({ kind: "closed", reason: "tier" } as const);
+  const available = availability.kind === "open";
   const remaining = selectedTier ? Math.max(0, selectedTier.quota - (selectedTier.reserved_count ?? 0)) : 0;
   const reserveLabel = submitting
     ? c.processing
-    : state === "SOLD_OUT"
+    : availability.kind === "full"
       ? c.tierStatusSoldOut
-      : state === "CLOSED"
-        ? c.tierStatusClosed
-        : c.reserve;
+      : availability.kind === "opens"
+        ? c.dockOpens(formatMoment(availability.at, locale, timeZone))
+        : availability.kind === "closed"
+          ? availability.reason === "sales"
+            ? c.tierStatusSalesEnded
+            : c.tierStatusClosed
+          : c.reserve;
+  const closesAt = availability.kind === "open" ? availability.closesAt : null;
 
   return (
     <div className="space-y-4">
@@ -70,7 +91,16 @@ export function PassesPanel({
         <fieldset className="grid gap-5 md:grid-cols-2">
           <legend className="sr-only">{c.tierLegend}</legend>
           {tiers.map((tier, i) => (
-            <PassStub key={tier.id} tier={tier} index={i} locale={locale} selected={tier.id === selectedTier?.id} onSelect={() => onSelectTier(tier.id)} />
+            <PassStub
+              key={tier.id}
+              tier={tier}
+              index={i}
+              locale={locale}
+              selected={tier.id === selectedTier?.id}
+              onSelect={() => onSelectTier(tier.id)}
+              availability={tierAvailability(registration, tier, now)}
+              timeZone={timeZone}
+            />
           ))}
         </fieldset>
       )}
@@ -122,6 +152,11 @@ export function PassesPanel({
                   <p className="truncate text-xs text-ink-300">
                     {c.freeAdmission} · <span className="max-sm:sr-only">{c.capacityRemaining} </span>
                     <span className="tabular text-white">{num(remaining, locale)}</span>
+                  </p>
+                )}
+                {closesAt && (
+                  <p data-testid="registration-closes" className="truncate text-xs text-ink-300">
+                    {c.dockCloses(formatMoment(closesAt, locale, timeZone))}
                   </p>
                 )}
               </div>

@@ -8,11 +8,13 @@ import { buttonClassName } from "../ui/buttonStyles";
 import { Icon } from "../ui/Icon";
 import { Bidi } from "./Bidi";
 import { indexLabel, num, proseDir, publicCopy, type PublicLocale } from "./copy";
-import { calendarDays, congressTiming, formatDateRange, formatMoment, registrationStatus, tierState } from "./format";
+import { calendarDays, congressTiming, formatDateRange, formatMoment, venueZoneNote } from "./format";
+import { registrationSummary, tierAvailability, type RegistrationFields } from "../../lib/registrationWindow";
 import { PageImg } from "./page/PageImg";
+import { useNow } from "../attendee/useNow";
 import { BELOW_HEADER_MIN_H } from "./viewport";
 
-const STATUS_DOT = { open: "bg-[#3EE0A1]", full: "bg-status-warning-solid", closed: "bg-ink-400" } as const;
+const STATUS_DOT = { open: "bg-[#3EE0A1]", opens: "bg-aiteb-orchid", full: "bg-status-warning-solid", closed: "bg-ink-400" } as const;
 
 /** Tallest a banner may be: the rest of the hero (title, dates, buttons) still starts on the first screen. */
 const BANNER_MAX_H = "min(60svh, 40rem)";
@@ -21,11 +23,17 @@ const COVER_OPEN_BAND = "min(34svh, 18rem)";
 /** An image frame breathes while its image is still on the way (PageImg `reveal` marks it data-loaded). */
 const LOADING_PULSE = "motion-safe:has-[img[data-loaded=false]]:animate-pulse";
 
-export type HeroEvent = Pick<PublicEvent, "name" | "slug" | "starts_at" | "ends_at" | "location" | "ticket_tiers">;
+export type HeroEvent = Pick<PublicEvent, "name" | "slug" | "starts_at" | "ends_at" | "location" | "ticket_tiers"> &
+  Omit<RegistrationFields, "ends_at"> & {
+    /** The congress's IANA zone: dates and times are shown at the venue. */
+    timezone?: string;
+  };
 
 interface CongressHeroProps {
   event: HeroEvent;
   locale: PublicLocale;
+  /** The current time (ms), ticking in the page so "opens at" flips to "open" on its own. */
+  now?: number;
   /** Page Studio hero; the default (signature layout, no overrides) is the original hero. */
   hero: PageDoc["hero"];
   accent: PageDoc["branding"]["accent"];
@@ -47,13 +55,18 @@ interface CongressHeroProps {
  * Header plus hero fill at least one screen, and the type scale and vertical rhythm follow the viewport
  * height so title, meta and buttons fit above the fold where the layout allows.
  */
-export function CongressHero({ event, locale, hero, accent, images, logo, showPasses, exhibitionLabel }: CongressHeroProps) {
+export function CongressHero({ event, locale, now: givenNow, hero, accent, images, logo, showPasses, exhibitionLabel }: CongressHeroProps) {
   const c = publicCopy[locale];
-  const timing = congressTiming(event.starts_at, event.ends_at);
-  // A congress that has ended takes no more registrations, whatever its passes say.
-  const status = timing.kind === "ended" ? "closed" : registrationStatus(event.ticket_tiers);
-  const days = calendarDays(event.starts_at, event.ends_at);
-  const openTiers = event.ticket_tiers.filter((t) => tierState(t) === "AVAILABLE").length;
+  const tick = useNow();
+  const now = givenNow ?? tick;
+  const tz = event.timezone;
+  const timing = congressTiming(event.starts_at, event.ends_at, now, tz);
+  // The registration window, tier sales windows, switches and quotas, decided as the reserve route does.
+  const summary = registrationSummary(event, event.ticket_tiers, now);
+  const status = summary.kind;
+  const days = calendarDays(event.starts_at, event.ends_at, tz);
+  const openTiers = event.ticket_tiers.filter((t) => tierAvailability(event, t, now).kind === "open").length;
+  const zone = venueZoneNote(tz, event.starts_at);
   const { layout, image: cover, mobileImage, focus } = heroPresentation(hero, images);
 
   const title = localized(hero.title, locale) ?? event.name;
@@ -61,7 +74,14 @@ export function CongressHero({ event, locale, hero, accent, images, logo, showPa
   const subtitle = localized(hero.subtitle, locale);
   const ctaLabel = localized(hero.cta_label, locale) ?? (status === "open" ? c.ctaReserve : c.ctaPasses);
 
-  const statusLabel = status === "open" ? c.statusOpen : status === "full" ? c.statusFull : c.statusClosed;
+  const statusLabel =
+    summary.kind === "open"
+      ? c.statusOpen
+      : summary.kind === "opens"
+        ? c.statusOpens(formatMoment(summary.at, locale, tz))
+        : summary.kind === "full"
+          ? c.statusFull
+          : c.statusClosed;
   const timingLabel =
     timing.kind === "live"
       ? c.timingLive
@@ -74,11 +94,11 @@ export function CongressHero({ event, locale, hero, accent, images, logo, showPa
             : c.timingDays(num(timing.days, locale));
 
   const meta = [
-    { label: c.metaDates, value: formatDateRange(event.starts_at, event.ends_at, locale), note: c.dayCount(num(days, locale), days) },
+    { label: c.metaDates, value: formatDateRange(event.starts_at, event.ends_at, locale, tz), note: c.dayCount(num(days, locale), days) },
     {
       label: c.metaSchedule,
-      value: `${c.opens} ${formatMoment(event.starts_at, locale)}`,
-      note: `${c.closes} ${formatMoment(event.ends_at, locale)}`,
+      value: `${c.opens} ${formatMoment(event.starts_at, locale, tz)}`,
+      note: `${c.closes} ${formatMoment(event.ends_at, locale, tz)}`,
     },
     { label: c.metaVenue, value: <Bidi text={event.location} />, note: c.onSite },
     {
@@ -96,7 +116,11 @@ export function CongressHero({ event, locale, hero, accent, images, logo, showPa
             <img src={logo.url} alt="" width={logo.width} height={logo.height} decoding="async" className="max-h-9 w-auto max-w-full object-contain" />
           </span>
         )}
-        <span className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/[0.06] px-3 py-1.5 text-xs font-semibold backdrop-blur-sm">
+        <span
+          data-testid="registration-status"
+          data-status={status}
+          className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/[0.06] px-3 py-1.5 text-xs font-semibold backdrop-blur-sm"
+        >
           <span aria-hidden="true" className="relative flex size-2">
             {status === "open" && <span className="absolute inset-0 rounded-full bg-[#3EE0A1] motion-safe:animate-pulse-ring" />}
             <span className={`relative size-2 rounded-full ${STATUS_DOT[status]}`} />
@@ -219,6 +243,12 @@ export function CongressHero({ event, locale, hero, accent, images, logo, showPa
             </div>
           ))}
         </dl>
+        {zone && (
+          <p data-testid="venue-zone-note" className="mt-3 flex items-center gap-1.5 text-xs text-ink-300">
+            <Icon name="clock" size={14} className="shrink-0 text-aiteb-orchid" />
+            {c.zoneNote(zone)}
+          </p>
+        )}
 
         {(showPasses || exhibitionLabel) && (
           <div className="mt-[clamp(1.25rem,3.5svh,2.5rem)] flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">

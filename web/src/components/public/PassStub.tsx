@@ -3,7 +3,8 @@ import { codeFontClass } from "../../lib/i18n";
 import { Icon } from "../ui/Icon";
 import { Bidi } from "./Bidi";
 import { indexLabel, num, publicCopy, type PublicLocale } from "./copy";
-import { tierState } from "./format";
+import { formatMoment } from "./format";
+import type { Availability } from "../../lib/registrationWindow";
 
 interface PassStubProps {
   tier: TicketTierOut;
@@ -11,16 +12,44 @@ interface PassStubProps {
   selected: boolean;
   locale: PublicLocale;
   onSelect: () => void;
+  /** Whether this tier can be reserved now (congress window, tier sales window, switch, quota). */
+  availability: Availability;
+  /** The congress's zone, for "opens at" times. */
+  timeZone?: string;
+}
+
+/** The notice under the capacity meter and the stub's label for a tier that cannot be reserved now. */
+function unavailableText(availability: Exclude<Availability, { kind: "open" }>, locale: PublicLocale, timeZone?: string) {
+  const c = publicCopy[locale];
+  switch (availability.kind) {
+    case "full":
+      return { notice: c.tierSoldOutNotice, label: c.tierStatusSoldOut, icon: "users" as const };
+    case "opens":
+      return { notice: c.tierOpensNotice(formatMoment(availability.at, locale, timeZone)), label: c.tierStatusOpens, icon: "clock" as const };
+    case "closed":
+      return {
+        notice:
+          availability.reason === "tier"
+            ? c.tierClosedNotice
+            : availability.reason === "sales"
+              ? c.tierSalesEndedNotice
+              : availability.reason === "ended"
+                ? c.eventEndedNotice
+                : c.eventClosedNotice,
+        label: availability.reason === "sales" ? c.tierStatusSalesEnded : c.tierStatusClosed,
+        icon: "lock" as const,
+      };
+  }
 }
 
 /**
  * One ticket tier as a perforated pass: body (name, description, capacity meter) and a tear-off stub
  * carrying the price/state. The native radio keeps selection semantics and keyboard behaviour.
  */
-export function PassStub({ tier, index, selected, locale, onSelect }: PassStubProps) {
+export function PassStub({ tier, index, selected, locale, onSelect, availability, timeZone }: PassStubProps) {
   const c = publicCopy[locale];
-  const state = tierState(tier);
-  const available = state === "AVAILABLE";
+  const available = availability.kind === "open";
+  const unavailable = availability.kind === "open" ? null : unavailableText(availability, locale, timeZone);
   const reserved = tier.reserved_count ?? 0;
   const remaining = Math.max(0, tier.quota - reserved);
   const taken = tier.quota > 0 ? Math.min(100, Math.round((reserved / tier.quota) * 100)) : 100;
@@ -32,6 +61,7 @@ export function PassStub({ tier, index, selected, locale, onSelect }: PassStubPr
       className={`pass-shell group block select-none ${available ? "cursor-pointer motion-safe:hover:-translate-y-0.5" : "cursor-not-allowed"}`}
       data-selected={ink}
       data-state={available ? "open" : "disabled"}
+      data-availability={availability.kind}
     >
       <div className={`pass-stub min-h-[10.5rem] ${ink ? "bg-surface-ink text-white" : "bg-surface-panel text-text-primary"}`}>
         {/* Body */}
@@ -71,7 +101,11 @@ export function PassStub({ tier, index, selected, locale, onSelect }: PassStubPr
               <span style={{ inlineSize: `${taken}%` }} />
             </div>
             <p className={`text-xs ${ink ? "text-ink-200" : "text-text-muted"}`}>
-              {state === "AVAILABLE" && (
+              {unavailable ? (
+                <span className={`font-medium ${availability.kind === "full" ? "text-status-warning-text" : availability.kind === "opens" ? "text-text-secondary" : ""}`}>
+                  {unavailable.notice}
+                </span>
+              ) : (
                 <>
                   {c.capacityRemaining}{" "}
                   <strong className={`font-semibold tabular ${ink ? "text-white" : low ? "text-status-warning-text" : "text-text-primary"}`}>
@@ -80,8 +114,6 @@ export function PassStub({ tier, index, selected, locale, onSelect }: PassStubPr
                   / {num(tier.quota, locale)}
                 </>
               )}
-              {state === "SOLD_OUT" && <span className="font-medium text-status-warning-text">{c.tierSoldOutNotice}</span>}
-              {state === "CLOSED" && <span className="font-medium">{c.tierClosedNotice}</span>}
             </p>
           </div>
         </div>
@@ -93,18 +125,16 @@ export function PassStub({ tier, index, selected, locale, onSelect }: PassStubPr
           }`}
         >
           <span aria-hidden="true" className={`pass-perf ${ink ? "text-white" : "text-text-muted"}`} />
-          {state === "AVAILABLE" ? (
+          {unavailable ? (
+            <>
+              <Icon name={unavailable.icon} size={20} />
+              <span className="text-xs font-bold leading-tight">{unavailable.label}</span>
+            </>
+          ) : (
             <>
               <span className={`text-[11px] font-medium leading-tight ${ink ? "text-ink-300" : ""}`}>{c.tierAdmit}</span>
               <span className="text-base font-bold tracking-[0.06em]">{c.tierFree}</span>
               <Icon name={selected ? "check-circle" : "ticket"} size={20} className={ink ? "text-aiteb-orchid" : "opacity-80"} />
-            </>
-          ) : (
-            <>
-              <Icon name={state === "SOLD_OUT" ? "users" : "lock"} size={20} />
-              <span className="text-xs font-bold leading-tight">
-                {state === "SOLD_OUT" ? c.tierStatusSoldOut : c.tierStatusClosed}
-              </span>
             </>
           )}
         </div>
