@@ -466,7 +466,7 @@ function PageStudio({ event }: { event: EventOut }) {
           ))}
         </div>
 
-        <div className="grid items-start gap-6 xl:grid-cols-[minmax(360px,420px)_minmax(0,1fr)]">
+        <div className="grid grid-cols-[minmax(0,1fr)] items-start gap-6 xl:grid-cols-[minmax(360px,420px)_minmax(0,1fr)]">
           {/* ── Editor ────────────────────────────────────────────────── */}
           <aside aria-label={copy.title} className={`space-y-4 ${pane === "preview" ? "max-xl:hidden" : ""}`}>
             <div className="flex flex-wrap items-center justify-between gap-3">
