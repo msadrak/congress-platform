@@ -44,7 +44,7 @@ function analyticsFor(day: string | null) {
   };
 }
 
-interface Options { failures?: { status: number; body: unknown }[] }
+interface Options { failures?: { status: number; body: unknown }[]; role?: 'owner' | 'manager' | 'staff' | 'viewer' }
 
 async function fixture(page: Page, options: Options = {}) {
   const requests: URL[] = [];
@@ -55,6 +55,7 @@ async function fixture(page: Page, options: Options = {}) {
     const json = (status: number, body: unknown) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
     if (route.request().headers().authorization !== `Bearer ${KEY}`) return json(401, { detail: 'Invalid API key' });
     switch (url.pathname) {
+      case '/api/organizer/me': return json(200, { kind: options.role ? 'member' : 'key', role: options.role ?? 'owner', organizer: { id: 'org-1', name: 'Org' }, member: null });
       case '/api/events': return json(200, [event]);
       case '/api/events/event-a': return json(200, event);
       case '/api/events/event-a/checkin-points': return json(200, points);
@@ -194,4 +195,24 @@ test('Persian shows Solar Hijri days and Persian digits on the event clock', asy
   // Persian digits keep the sans font: IBM Plex Mono covers only Latin.
   const fonts = await page.getByTestId('analytics-refreshed-at').evaluate(el => getComputedStyle(el).fontFamily);
   expect(fonts).not.toMatch(/Plex Mono/);
+});
+
+test('the CSV exports are offered only to roles that may download them', async ({ page }) => {
+  for (const [role, offered] of [['viewer', false], ['staff', false], ['manager', true]] as const) {
+    await page.unrouteAll({ behavior: 'ignoreErrors' });
+    await fixture(page, { role });
+    await seed(page);
+    await page.goto('/organizer/events/event-a/analytics');
+    await expect(page.getByTestId('kpi-scans'), role).toHaveText('30');
+    await expect(page.getByRole('button', { name: 'Export Attendance CSV' }), role).toHaveCount(offered ? 1 : 0);
+    await expect(page.getByRole('button', { name: 'Export Registrations CSV' }), role).toHaveCount(offered ? 1 : 0);
+  }
+});
+
+test('a rejected key on the dashboard returns to the sign-in gate through the console handler', async ({ page }) => {
+  await fixture(page, { failures: [{ status: 401, body: { detail: 'Invalid API key' } }] });
+  await seed(page);
+  await page.goto('/organizer/events/event-a/analytics');
+  await expect(page.getByRole('alert')).toHaveText('Your organizer API key was rejected. Please enter a valid key.');
+  expect(await page.evaluate(() => sessionStorage.getItem('congress_organizer_api_key'))).toBeNull();
 });
