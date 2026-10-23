@@ -49,5 +49,32 @@ booth representatives created by an assignment had an unusable password. Walk-in
 - Throttling and the outbox worker were in-process, which matched the one-API-process deployment; a multi-process
   deployment would need a shared limiter (the outbox is already safe with `FOR UPDATE SKIP LOCKED`). (Superseded by
   ADR 0019: the limiter is shared in PostgreSQL.)
-- Later: staff invitation SMS, event reminders (`send_after` already exists), organizer bulk messages with opt-out,
+- Later: staff invitation SMS (done, see below), event reminders (`send_after` already exists), organizer bulk messages with opt-out,
   delivery-report polling and a low-credit warning in the operator health check.
+
+## Status / Implementation notes (2026-10-23)
+
+The decision holds. The SMS/OTP workstream (B1, migration `0022`) hardened it; ADR 0019 records the abuse-limit and
+SMS-cap decisions in full.
+
+- **Codes are sent outside database transactions:** the challenge is committed and the connection released before
+  sms.ir is called (`request_otp`, `backend/app/routes/auth.py`), so a slow provider never holds connections check-in
+  needs. The sms.ir timeout defaults to 5 s (`CONGRESS_SMSIR_TIMEOUT_SECONDS`).
+- **Point 3 limits are shared and per purpose:** the cooldown and the per-number budget are counted separately for each
+  purpose (`signin`, `desk`, `organizer`), the per-IP budget per address (IPv6 per /64), all in PostgreSQL. Venue
+  networks get their own per-address budget (default 2,000 per hour). Platform-wide hourly and daily SMS caps sit on top
+  of every send.
+- **Code length:** staging and production refuse to start with `CONGRESS_OTP_LENGTH` below 6, the console refuses to
+  save less, and a shorter value saved earlier is raised to 6. In production the resend wait cannot be set below 30 s.
+- **Signup tokens are single use** (`SIGNUP_TOKEN_USED` on a second use).
+- **Point 5, outbox:** a pass claims messages (`status = 'sending'`, `lease_until`) in a short transaction and sends
+  outside it; a lease that runs out marks the message `unknown`, never resent. Messages the gateway could not attempt
+  (not configured, a cap, busy) wait without using an attempt. The organizer retries failed messages and retries or
+  resolves unknown ones in Organizer → SMS; `/platform` shows the outbox health.
+- **More message kinds:** `ticket_cancelled`, `ticket_reissued` (ADR 0017), `staff_invite` (booth staff) and
+  `member_invite` (ADR 0016) beside `otp` and `ticket_confirmation`. The confirmation carries the short pass link
+  (ADR 0015). Organizer test sends are limited to 10 per event per hour and 20 per organizer per day.
+- **Point 6:** the console provider's messages are read at `/api/platform/sms-outbox` (`stack.mjs sms-code`); they live
+  in the memory of the API process that "sent" them.
+- Still open: a backup SMS provider (blocked on a contract), delivery-report polling, a low-credit alert (credit is
+  checked by hand in `/platform`).
