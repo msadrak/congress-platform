@@ -196,7 +196,7 @@ export function ScannerPairingDialog({ point, apiKey, locale, isRtl, onClose }: 
                   </p>
                   <p className="text-xs leading-relaxed">
                     {isRtl
-                      ? "با دوربین تلفن این کیوآرکد را اسکن کنید یا لینک را برای آن بفرستید. این لینک فقط یک‌بار نمایش داده می‌شود؛ مانند رمز عبور با آن رفتار کنید."
+                      ? "با دوربین تلفن این کد QR را اسکن کنید یا لینک را برای آن بفرستید. این لینک فقط یک‌بار نمایش داده می‌شود؛ مانند رمز عبور با آن رفتار کنید."
                       : "Scan this QR code with the phone's camera, or send it the link. It is shown only once; treat it like a password."}
                   </p>
                 </div>
@@ -210,7 +210,7 @@ export function ScannerPairingDialog({ point, apiKey, locale, isRtl, onClose }: 
                       fgColor="#0F172A"
                       bgColor="#FFFFFF"
                       className="h-52 w-52 select-none"
-                      aria-label={isRtl ? "کیوآرکد لینک اتصال اسکنر" : "Scanner pairing link QR code"}
+                      aria-label={isRtl ? "کد QR لینک اتصال اسکنر" : "Scanner pairing link QR code"}
                       role="img"
                     />
                   </div>

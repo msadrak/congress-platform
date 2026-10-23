@@ -328,7 +328,7 @@ export default function MyNetwork() {
           title={t.unauthenticatedTitle}
           description={t.unauthenticatedDesc}
           actionLabel={t.loginAction}
-          to={signInPath(slug, slug ? congressPath(slug, "my-network") : "/my-network")}
+          to={signInPath(slug, slug ? congressPath(slug, "my-network") : "/me")}
         />
       </AttendeeLayout>
     );
@@ -336,7 +336,7 @@ export default function MyNetwork() {
 
   const sharing = privacyPref?.share_contact_with_peers ?? false;
   const contactCount = isRtl ? formatLocalizedNumber(visibleConnections.length, locale) : String(visibleConnections.length);
-  const scanActionLabel = isRtl ? "اسکن کیوآر کد همکار" : "Scan colleague QR code";
+  const scanActionLabel = isRtl ? "اسکن کد QR همکار" : "Scan colleague QR code";
 
   return (
     <AttendeeLayout activeTab="network" localeProps={localeHook} eventSlug={slug} destination="my-network">
@@ -653,7 +653,7 @@ export default function MyNetwork() {
         title={t.connectModalTitle}
         description={
           isRtl
-            ? "کیوآر کد کارت ورود همکار خود را با دوربین اسکن کنید، یا اگر کد درون کیوآر او را دارید، آن را وارد کنید."
+            ? "کد QR کارت ورود همکار خود را با دوربین اسکن کنید، یا اگر محتوای کد QR او را دارید، آن را وارد کنید."
             : "Scan your colleague's pass QR code with the camera, or enter the code inside their pass QR if you have it."
         }
         size="md"
@@ -717,7 +717,7 @@ export default function MyNetwork() {
             </div>
             <span id="peer-code-hint" className="mt-1.5 block text-xs text-text-muted">
               {isRtl
-                ? "کد درون کیوآر کارت ورود همکارتان را، اگر در اختیار دارید، بچسبانید یا تایپ کنید. فاصله‌ها و حروف بزرگ اشکالی ندارند."
+                ? "محتوای کد QR کارت ورود همکارتان را، اگر در اختیار دارید، بچسبانید یا تایپ کنید. فاصله‌ها و حروف بزرگ اشکالی ندارند."
                 : "Paste or type the code inside your colleague's pass QR, if you have it. Spaces and capitals are fine."}
             </span>
           </div>

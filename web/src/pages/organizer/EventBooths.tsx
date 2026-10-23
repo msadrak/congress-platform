@@ -178,7 +178,7 @@ export default function EventBooths() {
         description={
           deleteBoothTarget
             ? isRtl
-              ? `غرفه «${deleteBoothTarget.name}» برای همیشه حذف می‌شود؛ همراه با نمایندگان تخصیص‌یافته، نشان‌گذاری‌های شرکت‌کنندگان و همهٔ لیدهای ثبت‌شدهٔ آن. کیوآرکد استند آن هم دیگر کار نمی‌کند. این کار برگشت‌پذیر نیست.`
+              ? `غرفه «${deleteBoothTarget.name}» برای همیشه حذف می‌شود؛ همراه با نمایندگان تخصیص‌یافته، نشان‌گذاری‌های شرکت‌کنندگان و همهٔ لیدهای ثبت‌شدهٔ آن. کد QR استند آن هم دیگر کار نمی‌کند. این کار برگشت‌پذیر نیست.`
               : `“${deleteBoothTarget.name}” is permanently deleted together with its staff assignments, attendees' saved bookmarks and all captured leads. Its standee QR code stops working. This cannot be undone.`
             : ""
         }

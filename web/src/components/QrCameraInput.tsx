@@ -137,7 +137,7 @@ export function QrCameraInput({ onDecode, isRtl, disabled = false }: QrCameraInp
   const message: Record<CameraState, string> = {
     off: "",
     starting: isRtl ? "در انتظار مجوز دوربین..." : "Waiting for camera permission...",
-    live: isRtl ? "کیوآر کارت شرکت‌کننده را مقابل دوربین بگیرید." : "Hold the attendee's badge QR in front of the camera.",
+    live: isRtl ? "کد QR کارت شرکت‌کننده را مقابل دوربین بگیرید." : "Hold the attendee's badge QR in front of the camera.",
     denied: isRtl ? "دسترسی به دوربین داده نشد. کد را دستی وارد کنید." : "Camera permission was denied. Enter the code manually.",
     unavailable: isRtl ? "دوربین در دسترس نیست (یا اتصال امن نیست). کد را دستی وارد کنید." : "No usable camera (or the page is not secure). Enter the code manually.",
   };

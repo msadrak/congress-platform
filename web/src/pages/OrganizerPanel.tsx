@@ -186,7 +186,7 @@ export function OrganizerPanelFrame() {
       <div className="mx-auto max-w-[480px] space-y-5 px-4 pt-5 sm:pt-8">
         <p className="flex items-center gap-2 rounded-2xl border border-dashed border-status-info-border bg-status-info-bg px-4 py-3 text-xs font-semibold text-status-info-text">
           <Icon name="eye" size={16} />
-          {isRtl ? "کارت نمونه: هر شرکت‌کننده کارت و کیوآر خودش را می‌بیند." : "Sample pass: each attendee sees their own card and QR."}
+          {isRtl ? "کارت نمونه: هر شرکت‌کننده کارت و کد QR خودش را می‌بیند." : "Sample pass: each attendee sees their own card and QR."}
         </p>
         <DigitalPassCard ticket={sample} locale={locale} t={t} verified />
       </div>
@@ -431,7 +431,7 @@ function PanelControl({ eventId }: { eventId: string }) {
       key: "tiers",
       icon: "ticket",
       title: isRtl ? "انواع کارت ورود" : "Ticket tiers",
-      drives: isRtl ? "نام نوع کارت روی «کارت من» و بخش بلیط در خانه" : "Tier name on My Card and the Home pass section",
+      drives: isRtl ? "نام نوع کارت روی «کارت من» و بخش بلیت در خانه" : "Tier name on My Card and the Home pass section",
       state: isRtl ? `${n(preview.ticket_tiers.length)} نوع کارت` : `${preview.ticket_tiers.length} tier${preview.ticket_tiers.length === 1 ? "" : "s"}`,
       to: to("/tiers"),
       action: isRtl ? "ویرایش کارت‌ها" : "Edit tiers",

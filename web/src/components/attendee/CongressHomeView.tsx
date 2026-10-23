@@ -76,7 +76,7 @@ export function CongressHomeView({ event, page, labels, locale, t, personal, boo
         {hero}
         <div className="mx-auto max-w-3xl">
           <StatusPanel icon="lock" title={t.unauthenticatedTitle}>
-            <p>{isRtl ? "برای دیدن بلیط و ارتباطات این همایش وارد شوید." : "Sign in to see your pass and connections for this congress."}</p>
+            <p>{isRtl ? "برای دیدن بلیت و ارتباطات این همایش وارد شوید." : "Sign in to see your pass and connections for this congress."}</p>
             <LinkButton to={personal.signInTo} variant="primary" size="lg">
               {t.loginAction}
               <Icon name="arrow-right" size={18} />
@@ -142,13 +142,7 @@ export function CongressHomeView({ event, page, labels, locale, t, personal, boo
               )}
               <LinkButton to={congressPath(slug, "my-ticket")} variant="ink" size="lg" className="mt-auto self-stretch sm:self-start">
                 <Icon name="qr" size={18} />
-                {isRtl ? (
-                  <span>
-                    نمایش کارت ورود و <bdi dir="ltr" lang="en">QR code</bdi>
-                  </span>
-                ) : (
-                  "Show pass & QR code"
-                )}
+                {isRtl ? "نمایش کارت ورود و کد QR" : "Show pass & QR code"}
                 <Icon name="arrow-right" size={18} />
               </LinkButton>
             </>
@@ -160,7 +154,7 @@ export function CongressHomeView({ event, page, labels, locale, t, personal, boo
           ) : (
             <>
               <p className="border-t border-border-subtle pt-5 text-sm leading-relaxed text-text-secondary">
-                {isRtl ? "برای این همایش بلیطی ندارید." : "You have no pass for this congress yet."}
+                {isRtl ? "برای این همایش بلیتی ندارید." : "You have no pass for this congress yet."}
               </p>
               {labels.showPasses && (
                 <LinkButton to={`/e/${slug}`} variant="primary" size="lg" className="mt-auto self-stretch sm:self-start">
@@ -206,13 +200,7 @@ export function CongressHomeView({ event, page, labels, locale, t, personal, boo
         <div className="relative flex flex-col gap-3 sm:flex-row">
           <LinkButton to={`${congressPath(slug, "my-network")}?scan=1`} variant="primary" size="lg" className="self-stretch sm:self-start">
             <Icon name="scan" size={18} />
-            {isRtl ? (
-              <span>
-                اسکن <bdi dir="ltr" lang="en">QR code</bdi> همکار
-              </span>
-            ) : (
-              "Scan a colleague's QR code"
-            )}
+            {isRtl ? "اسکن کد QR همکار" : "Scan a colleague's QR code"}
           </LinkButton>
           <LinkButton to={congressPath(slug, "my-network")} variant="secondary" size="lg" className="self-stretch sm:self-start">
             <Icon name="users" size={18} />

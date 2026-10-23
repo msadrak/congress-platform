@@ -51,12 +51,12 @@ export const scannerCopy = {
     cameraInsecure: "دوربین فقط روی اتصال امن (https) کار می‌کند. از بارکدخوان یا ورود دستی پایین صفحه استفاده کنید.",
     // Manual entry
     manualTitle: "ورود دستی",
-    manualLabel: "رمز کیوآر کارت",
+    manualLabel: "رمز کد QR کارت",
     manualHint:
-      "برای ورود دستی، مقدار رمزشده داخل بارکد (QR Secret) لازم است. شناسه رهگیری عمومی بلیت (Tracking ID) کلید ورود معتبر نیست.",
-    manualPlaceholder: "کد کیوآر کارت را اینجا بچسبانید",
+      "برای ورود دستی، محتوای رمزشده داخل کد QR لازم است. شناسه رهگیری عمومی بلیت (Tracking ID) کلید ورود معتبر نیست.",
+    manualPlaceholder: "کد QR کارت را اینجا بچسبانید",
     trackingIdWarning:
-      "شناسه وارد شده شماره رهگیری بلیت است، نه رمز کیوآرکد. کارت را مقابل دوربین بگیرید یا مقدار QR Secret را وارد کنید.",
+      "شناسه وارد شده شماره رهگیری بلیت است، نه رمز کد QR. کارت را مقابل دوربین بگیرید یا محتوای کد QR را وارد کنید.",
     // Results
     duplicateTitle: "تکراری — ورود ممنوع",
     // Buffer
@@ -147,8 +147,8 @@ export const scannerCopy = {
     repairPlaceholder: "توکن تازه صادرشده اسکنر را وارد کنید…",
     repairAction: "جفت‌سازی با توکن تازه",
     // Rejection codes the shared dictionary has no wording for
-    reasonTicketInactive: "بلیط لغو شده یا کیوآرکد آن غیرفعال است",
-    reasonEventMismatch: "این بلیط برای رویداد دیگری است",
+    reasonTicketInactive: "بلیت لغو شده یا کد QR آن غیرفعال است",
+    reasonEventMismatch: "این بلیت برای رویداد دیگری است",
     reasonLocalRejected: "رد شده در همین دستگاه",
     // Storage failure (blocking)
     storageFailedTitle: { fa: "این اسکن ثبت نشد — ورود ندهید", en: "Scan NOT recorded — do not admit" },
