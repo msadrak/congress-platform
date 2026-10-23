@@ -9,7 +9,7 @@
  */
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
-import { manifestExists as cachedManifestExists, wireManifest } from './scannerFixtures';
+import { manifestExists as cachedManifestExists, gateScreen, pasteToken, pickMenuItem, unpairFromMenu, wireManifest } from './scannerFixtures';
 
 const POINT_ID = 'test-point-001';
 const tokenPayload = Buffer.from(
@@ -447,7 +447,7 @@ test('T07: Conflicts persist across offline reload', async ({ context }) => {
 
   await expect(page.getByText('Test Gate A')).toBeVisible({ timeout: 10000 });
   expect(await getConflictCount(page)).toBe(1);
-  await expect(page.getByRole('button', { name: /1 (Conflicts|تداخل)/ })).toBeVisible();
+  await expect(page.locator('[data-status="conflicts"]')).toBeVisible();
 
   await page.close();
 });
@@ -468,9 +468,7 @@ test('T08: Scanner rejects unauthorized access', async ({ context }) => {
   await page.goto(`/scan/${POINT_ID}`);
   await page.waitForTimeout(2000);
 
-  const hasAuthUI = await page.getByText('Authorize This Device').isVisible().catch(() => false)
-    || await page.getByText('Pair Scanner Device').isVisible().catch(() => false);
-  expect(hasAuthUI).toBe(true);
+  await expect(page.getByRole('button', { name: /^(Scan pairing QR code|اسکن کد QR اتصال)$/ })).toBeVisible();
 
   await page.close();
 });
@@ -626,9 +624,8 @@ test('U01: Successful unpair uploads queued scans, then removes credential and c
   });
   await expect(page.getByText('Test Gate A')).toBeVisible();
 
-  await page.getByRole('button', { name: /Unpair This Scanner/i }).click();
-  await page.getByRole('button', { name: /Confirm Unpair/i }).click();
-  await expect(page.getByText(/Server revocation confirmed/i)).toBeVisible({ timeout: 10000 });
+  await unpairFromMenu(page);
+  await expect(page.getByRole('heading', { name: /^(Unpaired|اتصال قطع شد)$/ })).toBeVisible({ timeout: 10000 });
   // Credential gone; the scan reached the server first, so nothing about attendees stays on the device
   expect(await getScannerToken(page)).toBeNull();
   expect(await getScanCount(page)).toBe(0);
@@ -654,9 +651,8 @@ test('U02: Offline unpair stays pending and preserves scans', async ({ context }
   await page.waitForTimeout(1000);
   await expect(page.getByText('Test Gate A')).toBeVisible({ timeout: 10000 });
 
-  await page.getByRole('button', { name: /Unpair This Scanner/i }).click();
-  await page.getByRole('button', { name: /Confirm Unpair/i }).click();
-  await expect(page.getByText(/server revocation is pending/i)).toBeVisible({ timeout: 10000 });
+  await unpairFromMenu(page);
+  await expect(gateScreen(page, 'suspended')).toContainText('server revocation pending', { timeout: 10000 });
   expect(await getScannerToken(page)).toBe(TEST_TOKEN);
   expect(await getScanCount(page)).toBe(1);
   await page.close();
@@ -683,12 +679,12 @@ test('U03: Revoked device stops admissions and preserves records', async ({ cont
     return route.fulfill({ status: 401, contentType: 'application/json', body: JSON.stringify({ detail: 'Scanner device token has been revoked' }) });
   });
   // Forcing a manifest refresh surfaces the definitive reject
-  await page.getByRole('button', { name: /Refresh Cache/i }).click();
-  await expect(page.getByText(/device deauthorized/i)).toBeVisible({ timeout: 10000 });
+  await pickMenuItem(page, /^(Refresh list|تازه‌سازی فهرست)$/);
+  await expect(gateScreen(page, 'revoked')).toBeVisible({ timeout: 10000 });
   // The unsynced scan is the only copy: kept (attendee data and synced scans are wiped), admissions paused
   expect(await getScanCount(page)).toBe(1);
   expect(await manifestExists(page)).toBe(false);
-  await expect(page.getByText(/unsynced scan\(s\) preserved/i)).toBeVisible();
+  await expect(page.getByTestId('scanner-unsent')).toBeVisible();
   await page.close();
 });
 
@@ -700,8 +696,8 @@ test('U04: Expired credential blocks with re-pair guidance', async ({ context })
   });
   await page.goto(`/scan/${POINT_ID}?token=${TEST_TOKEN}`);
   await page.waitForTimeout(3000);
-  await expect(page.getByText(/Credential Expired/i)).toBeVisible({ timeout: 10000 });
-  await expect(page.getByText(/fresh token/i)).toBeVisible();
+  await expect(gateScreen(page, 'expired')).toBeVisible({ timeout: 10000 });
+  await expect(page.getByRole('button', { name: /^(Scan pairing QR code|اسکن کد QR اتصال)$/ })).toBeVisible();
   await page.close();
 });
 
@@ -713,7 +709,7 @@ test('U05: Wrong-scope token renders forbidden guidance', async ({ context }) =>
   });
   await page.goto(`/scan/${POINT_ID}?token=${TEST_TOKEN}`);
   await page.waitForTimeout(3000);
-  await expect(page.getByText(/Wrong Check-In Point/i)).toBeVisible({ timeout: 10000 });
+  await expect(gateScreen(page, 'wrongGate')).toBeVisible({ timeout: 10000 });
   await page.close();
 });
 
@@ -754,7 +750,7 @@ test('U06: Stale manifest pauses admissions and preserves records', async ({ con
   await context.setOffline(true);
   await page.reload({ waitUntil: 'domcontentloaded' });
   await page.waitForTimeout(1000);
-  await expect(page.getByText(/Offline window expired/i)).toBeVisible({ timeout: 10000 });
+  await expect(page.getByRole('alert').filter({ hasText: /Offline time is up|زمان کار آفلاین تمام شد/ })).toBeVisible({ timeout: 10000 });
   expect(await getScanCount(page)).toBe(1);
   await page.close();
 });
@@ -774,11 +770,10 @@ test('U07: Re-pairing clears auth block and keeps scans', async ({ context }) =>
   });
   await page.goto(`/scan/${POINT_ID}?token=${TEST_TOKEN}`);
   await page.waitForTimeout(3000);
-  await expect(page.getByText(/Device Deauthorized/i)).toBeVisible({ timeout: 10000 });
+  await expect(gateScreen(page, 'revoked')).toBeVisible({ timeout: 10000 });
   // Supervisor issues a fresh token: server accepts again, operator re-pairs
   revoked = false;
-  await page.getByPlaceholder(/Paste device scanner token/i).fill('fresh-token-abc');
-  await page.getByRole('button', { name: /Authorize This Device/i }).click();
+  await pasteToken(page, 'fresh-token-abc');
   await expect(page.getByText('Test Gate A')).toBeVisible({ timeout: 10000 });
   expect(await getScannerToken(page)).toBe('fresh-token-abc');
   await page.close();
@@ -821,9 +816,8 @@ test('U09: Unpair cleanup removes credential and cached attendee data', async ({
     sync_state: 'PROVISIONAL',
   });
   expect(await getScannerToken(page)).toBe(TEST_TOKEN);
-  await page.getByRole('button', { name: /Unpair This Scanner/i }).click();
-  await page.getByRole('button', { name: /Confirm Unpair/i }).click();
-  await expect(page.getByText(/Server revocation confirmed/i)).toBeVisible({ timeout: 10000 });
+  await unpairFromMenu(page);
+  await expect(page.getByRole('heading', { name: /^(Unpaired|اتصال قطع شد)$/ })).toBeVisible({ timeout: 10000 });
   // Credential DB cleared for this point; the manifest and the (uploaded) scan are gone too
   expect(await getScannerToken(page)).toBeNull();
   expect(await getScanCount(page)).toBe(0);
@@ -852,7 +846,7 @@ test('U10: Restart after revocation preserves records and demands re-pair', asyn
   });
   await page2.goto(`/scan/${POINT_ID}`);
   await page2.waitForTimeout(3000);
-  await expect(page2.getByText(/Device Deauthorized/i)).toBeVisible({ timeout: 10000 });
+  await expect(gateScreen(page2, 'revoked')).toBeVisible({ timeout: 10000 });
   expect(await getScanCount(page2)).toBe(1);
   await page2.close();
 });
@@ -867,9 +861,7 @@ test('U11: Cached manifest without scanner credential stays private', async ({ c
   await clearScannerCredential(page);
   await context.setOffline(true);
   await page.reload({ waitUntil: 'domcontentloaded' });
-  await expect(page.getByText(/Pair this scanner with a valid device token/i)).toBeVisible({
-    timeout: 10000,
-  });
+  await expect(gateScreen(page, 'unpaired')).toBeVisible({ timeout: 10000 });
   await expect(page.getByText('Test Gate A')).toHaveCount(0);
   expect(await getScanCount(page)).toBe(0);
   await page.close();
@@ -891,13 +883,12 @@ test('U12: Offline unpair remains visibly pending after reload', async ({ contex
   // The offline reload below is served by the service worker: it must be active before the network goes.
   await waitForActivatedSW(page);
   await context.setOffline(true);
-  await page.getByRole('button', { name: /Unpair This Scanner/i }).click();
-  await page.getByRole('button', { name: /Confirm Unpair/i }).click();
-  await expect(page.getByText(/server revocation is pending/i)).toBeVisible({ timeout: 10000 });
+  await unpairFromMenu(page);
+  await expect(gateScreen(page, 'suspended')).toContainText('server revocation pending', { timeout: 10000 });
   expect(await getScannerToken(page)).toBe(TEST_TOKEN);
   expect(await getScanCount(page)).toBe(1);
   await page.reload({ waitUntil: 'domcontentloaded' });
-  await expect(page.getByRole('heading', { name: 'Scanner Deactivated' })).toBeVisible({
+  await expect(page.getByRole('heading', { name: /^(Unpair not finished|قطع اتصال کامل نشد)$/ })).toBeVisible({
     timeout: 10000,
   });
   await expect(page.getByText('Test Gate A')).toHaveCount(0);
