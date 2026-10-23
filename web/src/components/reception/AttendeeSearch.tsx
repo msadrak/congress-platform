@@ -148,7 +148,7 @@ export function SearchResults({ results, trimmedQuery, searching, selectedTicket
             <p className="text-sm text-text-secondary">{t.noAttendeeFound}</p>
             <Button type="button" variant="outline" size="md" onClick={onRegisterWalkIn} className="h-auto max-w-full whitespace-normal">
               <Icon name="user-plus" size={18} />
-              <span className="break-words">{isRtl ? `ثبت «${trimmedQuery}» به‌عنوان ثبت حضوری` : `Register “${trimmedQuery}” as walk-in`}</span>
+              <span className="break-words">{isRtl ? `ثبت «${trimmedQuery}» به‌عنوان ثبت‌نام حضوری` : `Register “${trimmedQuery}” as walk-in`}</span>
             </Button>
           </div>
         ) : results.length === 0 ? (

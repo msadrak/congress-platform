@@ -47,7 +47,7 @@ export function AdmitPanel({ card, actions, locale, isRtl }: AdmitPanelProps) {
     <div className="space-y-2.5 rounded-xl border border-border-default bg-surface-panel p-3" data-testid="desk-admit">
       <label htmlFor={selectId} className="flex items-center gap-2 text-xs font-semibold text-text-secondary">
         <Icon name="gate" size={15} />
-        {isRtl ? "ثبت ورود در نقطهٔ" : "Admit at"}
+        {isRtl ? "پذیرش در نقطه ورود" : "Admit at"}
       </label>
       <div className="flex flex-wrap gap-2">
         <select id={selectId} value={selected} onChange={(e) => { setPointId(e.target.value); setOutcome(null); }} className="ui-select min-w-0 flex-1">
@@ -57,7 +57,7 @@ export function AdmitPanel({ card, actions, locale, isRtl }: AdmitPanelProps) {
         </select>
         <Button type="button" variant="ink" size="md" onClick={() => void admit()} disabled={busy} aria-busy={busy}>
           <Icon name={busy ? "sync" : "check"} size={16} className={busy ? "motion-safe:animate-spin" : ""} />
-          <span>{isRtl ? "ثبت ورود" : "Admit"}</span>
+          <span>{isRtl ? "پذیرش" : "Admit"}</span>
         </Button>
       </div>
       {outcome && "verdict" in outcome && (
@@ -73,8 +73,8 @@ export function AdmitPanel({ card, actions, locale, isRtl }: AdmitPanelProps) {
           <Icon name={outcome.verdict.status === "ADMITTED" ? "check-circle" : "x-circle"} size={17} className="mt-px shrink-0" />
           <span>
             {outcome.verdict.status === "ADMITTED"
-              ? isRtl ? `ورود در «${outcome.verdict.checkin_point_name}» ثبت شد.` : `Admitted at ${outcome.verdict.checkin_point_name}.`
-              : `${isRtl ? "ورود رد شد" : "Refused"}: ${admitReasonText(outcome.verdict.rejection_reason, locale)}`}
+              ? isRtl ? `پذیرش در نقطه ورود «${outcome.verdict.checkin_point_name}» ثبت شد.` : `Admitted at ${outcome.verdict.checkin_point_name}.`
+              : `${isRtl ? "پذیرش رد شد" : "Refused"}: ${admitReasonText(outcome.verdict.rejection_reason, locale)}`}
           </span>
         </p>
       )}
@@ -150,7 +150,7 @@ export function ManageRegistration({ card, actions, isRtl }: ManageRegistrationP
         organization: transfer.organization.trim() || null,
         title: transfer.title.trim() || null,
       }),
-      isRtl ? "بلیت منتقل شد و کارت ورود جدید برای دارندهٔ جدید صادر شد." : "Ticket transferred; the new holder has a new pass.",
+      isRtl ? "کارت ورود منتقل شد و برای دارندهٔ جدید کارت ورود تازه صادر شد." : "Ticket transferred; the new holder has a new pass.",
     );
   };
 
@@ -168,11 +168,11 @@ export function ManageRegistration({ card, actions, isRtl }: ManageRegistrationP
         </Button>
         <Button type="button" variant="secondary" size="sm" onClick={() => show("transfer")}>
           <Icon name="share" size={15} />
-          <span>{isRtl ? "انتقال بلیت" : "Transfer ticket"}</span>
+          <span>{isRtl ? "انتقال کارت ورود" : "Transfer ticket"}</span>
         </Button>
         <Button type="button" variant="ghost" size="sm" className="!text-status-danger-text" onClick={() => show("cancel")}>
           <Icon name="x-circle" size={15} />
-          <span>{isRtl ? "لغو بلیت" : "Cancel ticket"}</span>
+          <span>{isRtl ? "لغو کارت ورود" : "Cancel ticket"}</span>
         </Button>
       </div>
       {notice && <p role="status" className="text-xs font-medium text-status-success-text">{notice}</p>}
@@ -200,7 +200,7 @@ export function ManageRegistration({ card, actions, isRtl }: ManageRegistrationP
         </form>
       </Dialog>
 
-      <Dialog isOpen={open === "transfer"} onClose={() => !busy && setOpen(null)} title={isRtl ? "انتقال بلیت به شخص دیگر" : "Transfer the ticket"} description={isRtl ? "بلیت فعلی لغو می‌شود و دارندهٔ جدید کارت ورود تازه‌ای با پیامک دریافت می‌کند." : "This ticket is cancelled and the new holder gets a new pass by SMS."} size="md">
+      <Dialog isOpen={open === "transfer"} onClose={() => !busy && setOpen(null)} title={isRtl ? "انتقال کارت ورود به شخص دیگر" : "Transfer the ticket"} description={isRtl ? "کارت ورود فعلی لغو می‌شود و دارندهٔ جدید کارت ورود تازه‌ای با پیامک دریافت می‌کند." : "This ticket is cancelled and the new holder gets a new pass by SMS."} size="md">
         <form onSubmit={submitTransfer} className="space-y-4" noValidate>
           <div>
             <label htmlFor={ids.mobile} className="ui-label">{isRtl ? "شماره موبایل دارندهٔ جدید" : "New holder's mobile"}</label>
@@ -231,14 +231,14 @@ export function ManageRegistration({ card, actions, isRtl }: ManageRegistrationP
       <ConfirmDialog
         isOpen={open === "reissue"}
         title={isRtl ? "صدور دوبارهٔ کارت ورود؟" : "Reissue the pass?"}
-        description={isRtl ? "کد QR تازه‌ای صادر و با پیامک فرستاده می‌شود؛ کارت ورود فعلی دیگر در گیت‌ها کار نمی‌کند." : "A new QR code is issued and sent by SMS; the current pass stops working at the gates."}
+        description={isRtl ? "کد QR تازه‌ای صادر و با پیامک فرستاده می‌شود؛ کارت ورود فعلی دیگر در نقطه‌های ورود کار نمی‌کند." : "A new QR code is issued and sent by SMS; the current pass stops working at the gates."}
         confirmLabel={isRtl ? "صدور دوباره" : "Reissue"}
         cancelLabel={cancelLabel}
         onCancel={() => setOpen(null)}
         onConfirm={() => void run(() => actions.reissue(card.ticket_id), isRtl ? "کارت ورود جدید صادر شد؛ آن را دوباره چاپ کنید." : "New pass issued; print the badge again.")}
       />
 
-      <Dialog isOpen={open === "cancel"} onClose={() => !busy && setOpen(null)} title={isRtl ? "لغو بلیت؟" : "Cancel the ticket?"} description={isRtl ? "جای این بلیت آزاد می‌شود، کارت ورود آن دیگر کار نمی‌کند و پیامک لغو فرستاده می‌شود." : "Its place returns to the tier, its pass stops working and the holder is told by SMS."} size="sm">
+      <Dialog isOpen={open === "cancel"} onClose={() => !busy && setOpen(null)} title={isRtl ? "لغو کارت ورود؟" : "Cancel the ticket?"} description={isRtl ? "جای این کارت ورود آزاد می‌شود، دیگر در نقطه‌های ورود کار نمی‌کند و پیامک لغو فرستاده می‌شود." : "Its place returns to the tier, its pass stops working and the holder is told by SMS."} size="sm">
         <div className="space-y-4">
           <div>
             <label htmlFor={ids.reason} className="ui-label">{isRtl ? "دلیل (اختیاری)" : "Reason (optional)"}</label>
@@ -247,8 +247,8 @@ export function ManageRegistration({ card, actions, isRtl }: ManageRegistrationP
           {error && <p role="alert" className="text-sm text-status-danger-text">{error}</p>}
           <div className="flex justify-end gap-2">
             <Button type="button" variant="secondary" size="md" disabled={busy} onClick={() => setOpen(null)}>{isRtl ? "بازگشت" : "Back"}</Button>
-            <Button type="button" variant="danger" size="md" disabled={busy} aria-busy={busy} onClick={() => void run(() => actions.cancel(card.ticket_id, reason.trim()), isRtl ? "بلیت لغو شد." : "Ticket cancelled.")}>
-              {isRtl ? "لغو بلیت" : "Cancel ticket"}
+            <Button type="button" variant="danger" size="md" disabled={busy} aria-busy={busy} onClick={() => void run(() => actions.cancel(card.ticket_id, reason.trim()), isRtl ? "کارت ورود لغو شد." : "Ticket cancelled.")}>
+              {isRtl ? "لغو کارت ورود" : "Cancel ticket"}
             </Button>
           </div>
         </div>

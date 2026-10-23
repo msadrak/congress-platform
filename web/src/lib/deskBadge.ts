@@ -9,12 +9,12 @@ export function badgePrintState(card: { print_count: number; needs_reprint: bool
 }
 
 const ADMIT_REASONS: Record<string, { fa: string; en: string }> = {
-  ALREADY_ADMITTED: { fa: "این بلیت در این نقطه پیش‌تر وارد شده است (یک‌بار مصرف).", en: "Already admitted at this point (single use)." },
-  CAPACITY_REACHED: { fa: "ظرفیت این نقطه پر شده است.", en: "This point is at capacity." },
-  TIER_NOT_ALLOWED: { fa: "نوع بلیت این شرکت‌کننده به این نقطه راه ندارد.", en: "This attendee's ticket tier is not allowed here." },
-  TICKET_INACTIVE: { fa: "این بلیت فعال نیست.", en: "This ticket is not active." },
-  INVALID_TICKET: { fa: "کد QR این بلیت معتبر نیست.", en: "This ticket's QR code is not valid." },
-  EVENT_MISMATCH: { fa: "این بلیت برای همایش دیگری است.", en: "This ticket belongs to another congress." },
+  ALREADY_ADMITTED: { fa: "این کارت ورود در این نقطه ورود پیش‌تر پذیرش شده است (یک‌بار مصرف).", en: "Already admitted at this point (single use)." },
+  CAPACITY_REACHED: { fa: "ظرفیت این نقطه ورود پر شده است.", en: "This point is at capacity." },
+  TIER_NOT_ALLOWED: { fa: "نوع کارت ورود این شرکت‌کننده به این نقطه ورود راه ندارد.", en: "This attendee's ticket tier is not allowed here." },
+  TICKET_INACTIVE: { fa: "این کارت ورود فعال نیست.", en: "This ticket is not active." },
+  INVALID_TICKET: { fa: "کد QR این کارت ورود معتبر نیست.", en: "This ticket's QR code is not valid." },
+  EVENT_MISMATCH: { fa: "این کارت ورود برای همایش دیگری است.", en: "This ticket belongs to another congress." },
   SCAN_ID_CONFLICT: { fa: "این ثبت با ورود دیگری تداخل دارد؛ دوباره تلاش کنید.", en: "This admission clashed with another one; try again." },
 };
 

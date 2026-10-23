@@ -57,8 +57,11 @@ test("badge print state: never printed, current, or out of date after a change",
 test("desk admission refusals read in the operator's language; unknown codes stay visible", () => {
   assert.match(admitReasonText("ALREADY_ADMITTED", "en"), /single use/);
   assert.match(admitReasonText("CAPACITY_REACHED", "fa"), /ظرفیت/);
-  assert.match(admitReasonText("TIER_NOT_ALLOWED", "fa"), /بلیت/);
-  assert.doesNotMatch(Object.values({ a: admitReasonText("ALREADY_ADMITTED", "fa"), b: admitReasonText("TICKET_INACTIVE", "fa") }).join(), /بلیط/);
+  assert.match(admitReasonText("TIER_NOT_ALLOWED", "fa"), /نوع کارت ورود/);
+  // Product glossary: the attendee's ticket is «کارت ورود», a check-in point «نقطه ورود».
+  for (const code of ["ALREADY_ADMITTED", "CAPACITY_REACHED", "TIER_NOT_ALLOWED", "TICKET_INACTIVE", "INVALID_TICKET", "EVENT_MISMATCH"]) {
+    assert.doesNotMatch(admitReasonText(code, "fa"), /بلیت|بلیط|گیت|رده/, code);
+  }
   assert.equal(admitReasonText("SOMETHING_NEW", "en"), "SOMETHING_NEW");
   assert.equal(admitReasonText(null, "fa"), "");
 });

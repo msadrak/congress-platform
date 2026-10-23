@@ -191,7 +191,7 @@ function ReadyCard({ card, headingRef, eventName, printable, onPrint, onNext, on
 
             <div className="space-y-2.5">
               <h3 className="flex items-center justify-between gap-2 text-xs font-semibold text-text-muted">
-                <span className="flex items-center gap-2"><Icon name="gate" size={15} />{isRtl ? "سوابق تردد و اسکن‌های گیت" : "Check-In Scan History"}</span>
+                <span className="flex items-center gap-2"><Icon name="gate" size={15} />{isRtl ? "سوابق تردد در نقطه‌های ورود" : "Check-In Scan History"}</span>
                 <span className={`${codeFontClass(formatLocalizedNumber(card.scan_history.length, locale))} tabular`}>{formatLocalizedNumber(card.scan_history.length, locale)}</span>
               </h3>
               {card.scan_history.length === 0 ? (

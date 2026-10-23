@@ -93,7 +93,7 @@ export function DeskSignIn({ locale, t, isRtl, standalone, modeSwitch, sessionRe
                 {isRtl ? "دسترسی اپراتور لغو شده یا نشست کاری منقضی گردیده است." : "Operator access revoked or session expired."}
                 {hasDraft && (
                   <span className="mt-1 block text-xs">
-                    {isRtl ? "اطلاعات واردشده برای ثبت حضوری حفظ شده و پس از ورود خودکار ارسال نمی‌شود." : "Your unsent walk-in entry is kept and is not submitted automatically after you sign in."}
+                    {isRtl ? "اطلاعات واردشده برای ثبت‌نام حضوری حفظ شده و پس از ورود خودکار ارسال نمی‌شود." : "Your unsent walk-in entry is kept and is not submitted automatically after you sign in."}
                   </span>
                 )}
               </span>

@@ -761,7 +761,7 @@ export function ReceptionStation({ eventId, organizer, locale, t, isRtl }: Recep
       {draftRecovered && (
         <div role="status" className="flex items-start gap-3 rounded-2xl border border-status-info-border bg-status-info-bg py-2.5 ps-4 pe-2 text-sm leading-relaxed text-status-info-text">
           <Icon name="info" size={18} className="mt-1" />
-          <span className="flex-1 py-0.5">{isRtl ? "ورود مجدد انجام شد. اطلاعات ثبت حضوری حفظ شده است؛ تا زمانی که خودتان ارسال نکنید چیزی ثبت نمی‌شود." : "Signed in again. Your walk-in entry was kept; nothing is submitted until you press the button."}</span>
+          <span className="flex-1 py-0.5">{isRtl ? "ورود مجدد انجام شد. اطلاعات ثبت‌نام حضوری حفظ شده است؛ تا زمانی که خودتان ارسال نکنید چیزی ثبت نمی‌شود." : "Signed in again. Your walk-in entry was kept; nothing is submitted until you press the button."}</span>
           <button type="button" onClick={() => setDraftRecovered(false)} aria-label={isRtl ? "بستن پیام" : "Dismiss message"} className={`grid size-10 shrink-0 place-items-center rounded-lg hover:bg-white/70 cursor-pointer ${deskFocusRing}`}>
             <Icon name="x" size={16} />
           </button>
