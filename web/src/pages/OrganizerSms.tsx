@@ -123,8 +123,24 @@ function OrganizerSmsContent() {
     }
   };
 
-  const kindLabel = (kind: string) =>
-    kind === "ticket_confirmation" ? (isRtl ? "تأیید ثبت‌نام" : "Ticket confirmation") : kind === "ticket_resend" ? (isRtl ? "ارسال دوباره از پذیرش" : "Resent from reception") : kind === "test" ? (isRtl ? "آزمایشی" : "Test") : kind;
+  const kindLabels: Record<string, string> = isRtl
+    ? {
+        ticket_confirmation: "تأیید ثبت‌نام",
+        ticket_resend: "ارسال دوباره از پذیرش",
+        ticket_cancelled: "لغو بلیت",
+        ticket_reissued: "صدور دوبارهٔ کارت ورود",
+        staff_invite: "دعوت نمایندهٔ غرفه",
+        test: "آزمایشی",
+      }
+    : {
+        ticket_confirmation: "Ticket confirmation",
+        ticket_resend: "Resent from reception",
+        ticket_cancelled: "Ticket cancelled",
+        ticket_reissued: "Pass reissued",
+        staff_invite: "Booth representative invitation",
+        test: "Test",
+      };
+  const kindLabel = (kind: string) => kindLabels[kind] ?? kind;
   const statusLabel = (status: string) =>
     ({
       sent: isRtl ? "ارسال شد" : "Sent",

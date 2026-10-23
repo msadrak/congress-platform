@@ -58,7 +58,7 @@ This is an ownership map, not a mandate to create every folder up front. Start w
 |---|---|---|
 | Public | `/` | Platform identity, clear real destinations, skip link/footer; no fabricated event search |
 | Event | `/e/:slug`, `/e/:slug/booths/:boothId` | Event facts, editorial hierarchy, optional scoped branding, reservation/profile; no invented agenda/speakers |
-| Attendee | `/my-tickets`, `/my-network` | Tickets/Network navigation, session status, safe intended destination, bounded mobile content; not Organizer credentials |
+| Attendee | `/me` (formerly `/my-tickets`, `/my-network`), `/c/:slug/my-congress\|details\|my-network\|my-ticket\|my-profile` | Four panel tabs plus profile and congress switcher, session status, safe intended destination, bounded mobile content; not Organizer credentials |
 | Workspace | `/organizer`, `/organizer/events/:eventId`, `/organizer/events/:eventId/analytics` | API-key gate, Event scope, resource/report navigation; no invisible cross-tenant lookup |
 | Exhibitor | `/booth/:boothId` | Booth scope, lead work and JWT session; staff membership still enforced by server, not shell |
 | Operations | `/scan/:pointId`, `/organizer/events/:eventId/desk` | Readiness, fast input, results, queue/issuance and escape back to scope; no distracting rail or Event brand colors on outcomes |

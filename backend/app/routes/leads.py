@@ -4,13 +4,14 @@ import uuid
 from datetime import UTC, datetime
 from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import Select, and_, func, or_, select
 
+from app.audit import Actor, record
 from app.db import SessionDep, add_or_existing
 from app.errors import ApiError, error_responses
-from app.models import Booth, BoothStaff, EntityQR, Lead, Ticket, TicketTier, User
+from app.models import Booth, BoothStaff, EntityQR, Event, Lead, Ticket, TicketTier, User
 from app.routes.auth import CurrentUserDep
 from app.search import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, before_cursor, encode_cursor, text_matches
 from app.security import sanitize_csv_cell
@@ -332,9 +333,13 @@ async def search_booth_leads(
 @router.get("/export-csv", responses=BOOTH_ERRORS)
 async def export_booth_leads_csv(
     booth: AuthorizedBoothDep,
+    user: CurrentUserDep,
+    request: Request,
     session: SessionDep,
     include_deleted: Annotated[bool, Query(description="Also export deleted leads, with a Deleted At column")] = False,
 ) -> Response:
+    """The booth's leads as CSV. Each download is written to the congress organizer's audit log (ADR 0016):
+    it carries attendees' personal data out of the platform."""
     query = (
         _lead_rows()
         .where(*_lead_filters(booth, state="all" if include_deleted else "active"))
@@ -377,6 +382,18 @@ async def export_booth_leads_csv(
         if include_deleted:
             cells.append(_utc(lead.deleted_at) if lead.deleted_at else "")
         writer.writerow(cells)
+
+    organizer_id = await session.scalar(select(Event.organizer_id).where(Event.id == booth.event_id))
+    record(
+        session, request, "export.download",
+        actor=Actor("booth_staff", str(user.id), user.full_name, organizer_id),
+        event_id=booth.event_id, entity_type="booth", entity_id=booth.id,
+        summary={
+            "method": "GET", "route": "/api/booths/{booth_id}/leads/export-csv",
+            "include_deleted": include_deleted, "rows": len(rows),
+        },
+    )
+    await session.commit()
 
     content = "\ufeff" + output.getvalue()
     filename = f"{booth.slug}-leads.csv"

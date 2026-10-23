@@ -104,7 +104,9 @@ test('without an organizer key the gate appears and no protected request is sent
   requests.length = 0;
   for (const path of ['/organizer', '/organizer/events/event-a', '/organizer/events/event-a/analytics']) {
     await page.goto(path);
-    await expect(page.getByRole('heading', { name: 'Organizer Authentication' })).toBeVisible();
+    // Without any credential the gate opens on member sign-in (ADR 0016); the API key is one click away.
+    await expect(page.getByRole('heading', { name: 'Sign in to the organizer console' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'API key' })).toBeVisible();
   }
   expect(requests).toEqual([]);
   await otherCredentialsIntact(page);
@@ -223,6 +225,9 @@ test('a late 401 for key A cannot clear key B and later actions use only key B',
   await page.goto('/organizer');
   await started.promise;
   await page.getByRole('button', { name: 'Sign Out' }).click();
+  // Only what is sent from here on counts (the console asked who key A was before signing out).
+  requests.length = 0;
+  await page.getByRole('button', { name: 'API key' }).click();
   await expect(page.getByRole('heading', { name: 'Organizer Authentication' })).toBeVisible();
   await page.locator('#apiKeyInput').fill(keyB);
   await page.getByRole('button', { name: /Access Organizer Dashboard/ }).click();

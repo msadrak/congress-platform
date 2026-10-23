@@ -37,7 +37,7 @@ export default function CongressDetails() {
     content = (
       <div className="mx-auto max-w-3xl">
         <StatusPanel icon="search" title={isRtl ? "همایش پیدا نشد" : "Congress not found"}>
-          <LinkButton to="/my-tickets" variant="secondary" size="md">
+          <LinkButton to="/me" variant="secondary" size="md">
             {t.myPasses}
           </LinkButton>
         </StatusPanel>

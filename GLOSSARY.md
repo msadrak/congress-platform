@@ -12,9 +12,21 @@ _Avoid_: Company, show, meeting
 An organization or administrative body that owns, configures, and manages one or more events.
 _Avoid_: Admin, host, client
 
+**Organizer Member**:
+A User who signs in to one Organizer's console with their own mobile number and a Role, instead of sharing the Organizer's API key (ADR 0016). The API key remains, for integrations, and acts as an owner.
+_Avoid_: Admin, staff account, sub-user
+
+**Role**:
+What an Organizer Member may do in the console: owner (everything, including members), manager (setup, participants, exports, activity), staff (reception, scanners, participant lookup) or viewer (setup and aggregate analytics, no personal data). One table on the server decides it for every organizer route (ADR 0016).
+_Avoid_: Permission level, access level
+
+**Audit log**:
+The append-only record of who did what for an Organizer: console changes, desk operator actions, export downloads and the platform admin's actions on the Organizer (ADR 0016). Shown to managers and owners as Activity.
+_Avoid_: History, changelog
+
 **User**:
 An authenticated account on the platform identified by an Iranian mobile number, proven by a one-time SMS code (ADR 0012).
-_Avoid_: Member, login, profile, account
+_Avoid_: Member (except Organizer Member), login, profile, account
 
 **Buyer**:
 _Not implemented (see ADR 0003 status)._ A User who would place an Order for tickets and allocate them to others. Today every ticket is reserved by, and bound to, the User who holds it; there is no buyer separate from the attendee.

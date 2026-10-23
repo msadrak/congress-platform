@@ -69,7 +69,7 @@ export const errorMessages: Record<AttendeeLocale, Record<string, string>> = {
     BOOTH_NOT_FOUND: "این غرفه یافت نشد.",
     BOOTH_STAFF_REQUIRED: "شما نمایندهٔ این غرفه نیستید یا دسترسی شما برداشته شده است.",
     BOOTH_STAFF_NOT_FOUND: "این نماینده دیگر عضو غرفه نیست. فهرست را به‌روز کنید.",
-    BOOTH_QR_NOT_FOUND: "این کیوآر کد متعلق به هیچ غرفه‌ای نیست.",
+    BOOTH_QR_NOT_FOUND: "این کد QR متعلق به هیچ غرفه‌ای نیست.",
     BOOTH_QR_RATE_LIMITED: "تلاش‌های ناموفق زیادی انجام شد. کمی بعد دوباره تلاش کنید.",
     BOOTH_OTHER_EVENT: "این غرفه متعلق به همایش دیگری است.",
     ACTIVE_TICKET_REQUIRED: "برای این کار به کارت ورود فعال همین همایش نیاز دارید.",
@@ -77,12 +77,19 @@ export const errorMessages: Record<AttendeeLocale, Record<string, string>> = {
     LEAD_DELETED: "این لید حذف شده است؛ برای ویرایش ابتدا آن را بازگردانید.",
     CURSOR_INVALID: "صفحه‌بندی فهرست نامعتبر است. فهرست را از ابتدا بارگذاری کنید.",
     EVENT_ID_REQUIRED: "همایشی که در آن اسکن می‌کنید مشخص نیست. صفحهٔ همایش را باز کنید و دوباره اسکن کنید.",
-    BADGE_NOT_FOUND: "این کیوآر کد، کارت ورود شرکت‌کننده نیست.",
+    BADGE_NOT_FOUND: "این کد QR، کارت ورود شرکت‌کننده نیست.",
     BADGE_INACTIVE: "این کارت ورود دیگر معتبر نیست.",
     BADGE_OTHER_EVENT: "این کارت متعلق به همایش دیگری است و ذخیره نشد.",
     BADGE_OWN: "نمی‌توانید کارت ورود خودتان را اسکن کنید.",
     CONNECTION_NOT_FOUND: "این ارتباط یافت نشد. فهرست را به‌روز کنید.",
     CONNECTION_SCAN_RATE_LIMITED: "اسکن‌های زیادی انجام شد. کمی بعد دوباره تلاش کنید.",
+    // Organizer members and roles (backend/app/routes/organizer_console.py, app/auth.py)
+    ROLE_FORBIDDEN: "نقش شما در این سازمان اجازهٔ این کار را نمی‌دهد. از مالک یا مدیر سازمان بخواهید.",
+    NOT_A_MEMBER: "این شماره عضو هیچ سازمان برگزارکننده‌ای نیست. از مالک سازمان بخواهید شما را اضافه کند.",
+    SIGN_IN_EXPIRED: "زمان ورود به پایان رسید. کد تازه بگیرید.",
+    MEMBER_EXISTS: "این شماره هم‌اکنون عضو این سازمان است.",
+    MEMBER_REVOKED: "این عضو حذف شده است؛ برای بازگرداندن، دوباره او را دعوت کنید.",
+    LAST_OWNER: "پیش از حذف یا تغییر نقش آخرین مالک، مالک دیگری اضافه کنید.",
   },
   en: {
     EVENT_NOT_FOUND: "This congress could not be found.",
@@ -161,6 +168,13 @@ export const errorMessages: Record<AttendeeLocale, Record<string, string>> = {
     BADGE_OWN: "You cannot scan your own pass.",
     CONNECTION_NOT_FOUND: "This connection could not be found. Refresh the list.",
     CONNECTION_SCAN_RATE_LIMITED: "Too many scans. Try again in a little while.",
+    // Organizer members and roles (backend/app/routes/organizer_console.py, app/auth.py)
+    ROLE_FORBIDDEN: "Your role in this organization does not allow this. Ask an owner or manager.",
+    NOT_A_MEMBER: "This number is not a member of any organizer. Ask the organization's owner to add you.",
+    SIGN_IN_EXPIRED: "The sign-in expired. Request a new code.",
+    MEMBER_EXISTS: "This number is already a member of this organization.",
+    MEMBER_REVOKED: "This member was removed; invite them again to restore access.",
+    LAST_OWNER: "Add another owner before removing or demoting the last one.",
   },
 };
 

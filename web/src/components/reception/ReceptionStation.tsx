@@ -563,7 +563,7 @@ export function ReceptionStation({ eventId, organizer, locale, t, isRtl }: Recep
               </div>
             )}
 
-            <MobileOtpForm locale={locale} purpose="desk" verifyDesk={verifyDeskCode} verifyLabel={t.deskLoginButton} />
+            <MobileOtpForm locale={locale} purpose="desk" verifyCode={verifyDeskCode} verifyLabel={t.deskLoginButton} />
             {!standalone && (
               <div className="border-t border-border-subtle pt-4 text-center">
                 <Link to="/organizer" className={`inline-flex min-h-11 items-center gap-1.5 rounded-lg px-2 text-sm font-medium text-action-primary hover:underline ${focusRing}`}>
@@ -1020,7 +1020,7 @@ export function ReceptionStation({ eventId, organizer, locale, t, isRtl }: Recep
                   </option>
                 ))}
               </select>
-              {tiers.length === 0 && <p className="mt-1.5 text-xs text-text-muted">{isRtl ? "هنوز رده بلیطی برای این همایش تعریف نشده است." : "No ticket tier is defined for this congress yet."}</p>}
+              {tiers.length === 0 && <p className="mt-1.5 text-xs text-text-muted">{isRtl ? "هنوز رده بلیتی برای این همایش تعریف نشده است." : "No ticket tier is defined for this congress yet."}</p>}
             </div>
 
             {formError && (

@@ -346,7 +346,7 @@ export default function MyNetwork() {
         title={localeHook.t.unauthenticatedTitle}
         description={localeHook.t.unauthenticatedDesc}
         actionLabel={localeHook.t.loginAction}
-        to={signInPath(slug, slug ? congressPath(slug, "my-network") : "/my-network")}
+        to={signInPath(slug, slug ? congressPath(slug, "my-network") : "/me")}
       />,
     );
   }

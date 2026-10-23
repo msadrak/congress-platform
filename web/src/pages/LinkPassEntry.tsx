@@ -87,7 +87,7 @@ export default function LinkPassEntry() {
   const { icon, title, body } = copy[failure.outcome];
   const signIn = failure.slug
     ? signInPath(failure.slug, congressPath(failure.slug, "my-ticket"))
-    : signInPath(undefined, "/my-tickets");
+    : signInPath(undefined, "/me");
 
   return page(
     <StatusPanel tone={failure.outcome === "offline" ? "neutral" : "danger"} icon={icon} title={title}>

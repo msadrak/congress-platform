@@ -722,3 +722,72 @@ class RateLimitCounter(Base):
     window_start: Mapped[datetime] = mapped_column(DateTime(timezone=True), primary_key=True)
     count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+
+
+# --- The audit log and organizer members (ADR 0016) ---------------------------------------------------------
+
+AUDIT_ACTOR_TYPES = (
+    "platform_admin", "organizer_key", "organizer_member", "desk_operator", "booth_staff", "system"
+)
+ORGANIZER_ROLES = ("owner", "manager", "staff", "viewer")
+
+
+def _one_of(column: str, values: tuple[str, ...]) -> str:
+    return f"{column} IN (" + ", ".join(f"'{value}'" for value in values) + ")"
+
+
+class AuditEvent(Base):
+    """One recorded action: who (actor), for which organizer and event, what (action, entity), from where.
+
+    Append-only: nothing in the application updates or deletes a row, and a trigger refuses UPDATE and DELETE
+    (migration 0028). No foreign keys, on purpose: the trail outlives the rows it describes. `summary` never
+    holds secrets or full mobile numbers (app/audit.py).
+    """
+
+    __tablename__ = "audit_events"
+    __table_args__ = (
+        CheckConstraint(_one_of("actor_type", AUDIT_ACTOR_TYPES), name="ck_audit_events_actor_type"),
+        Index("ix_audit_events_organizer_at", "organizer_id", "at"),
+        Index("ix_audit_events_event_at", "event_id", "at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+    actor_type: Mapped[str] = mapped_column(String(32))
+    actor_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    actor_label: Mapped[str] = mapped_column(String(200), default="", server_default="")
+    organizer_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True)
+    event_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True)
+    # Dotted: member.invited, organizer.key_rotated, ...; rows written by the middleware: http.post, export.csv, ...
+    action: Mapped[str] = mapped_column(String(100))
+    entity_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    entity_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    summary: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, server_default=text("'{}'::jsonb"))
+    ip: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    request_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+
+
+class OrganizerMember(Base):
+    """A person (by mobile) who signs in to an organizer's console with a role, instead of using its API key.
+
+    Signs in with an SMS code (purpose "organizer"). The session token carries `session_version`; signing out,
+    a role change and revocation increment it, so earlier sessions stop working at once.
+    """
+
+    __tablename__ = "organizer_members"
+    __table_args__ = (
+        UniqueConstraint("organizer_id", "user_id", name="uq_organizer_members_organizer_user"),
+        CheckConstraint(_one_of("role", ORGANIZER_ROLES), name="ck_organizer_members_role"),
+        CheckConstraint("session_version >= 0", name="ck_organizer_members_session_version"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    organizer_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organizers.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), index=True)
+    role: Mapped[str] = mapped_column(String(16))
+    display_name: Mapped[str] = mapped_column(String(200))
+    # Who added them, as the console shows it: "Platform admin", "Integration key" or a member's name.
+    invited_by: Mapped[str] = mapped_column(String(200), default="", server_default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    session_version: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")

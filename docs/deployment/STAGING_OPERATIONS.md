@@ -47,12 +47,18 @@ Invoke-RestMethod -Method Post -Uri http://localhost:18080/api/organizers -Heade
 
 The response contains the organizer API key **once**. No demo accounts or demo data exist in staging. On a hosted server use `stack.mjs organizer create` instead (below).
 
+Then add the organizer's first owner (ADR 0016), who signs in at `/organizer` with that mobile number and an SMS code and invites the rest under **Members**:
+
+```powershell
+Invoke-RestMethod -Method Post -Uri http://localhost:18080/api/organizers/<organizer-id>/members -Headers @{ 'X-Admin-Token' = $t } -ContentType 'application/json' -Body '{"mobile":"09121234567","display_name":"Owner name","role":"owner"}'
+```
+
 ## Portals
 
 | Portal | URL (`https://localhost:8443` or `http://localhost:18080`) |
 |---|---|
 | Platform home | `/` |
-| Organizer console | `/organizer` → events → **Program** (sessions, CSV timetable upload), **Venue** (entrances, halls), Booths, **Public page** (Page Studio), **Attendee panel** (preview), Analytics, Front Desk |
+| Organizer console | `/organizer` (members sign in by SMS code; the API key stays available) → events → **Program** (sessions, CSV timetable upload), **Venue** (entrances, halls), Booths, **Public page** (Page Studio), **Attendee panel** (preview), Analytics, Front Desk; `/organizer/members` and `/organizer/activity` (audit log) for managers and owners |
 | Public congress | `/e/<slug>` (after Publish) and `/e/<slug>/booths/<id>` |
 | Attendee | `/sign-in`, `/my-tickets`, `/my-network`, `/c/<slug>/my-congress`; `/t/<code>` (SMS pass link, opens the pass without sign-in) |
 | Reception | `/reception` (congress code) or `/reception/<event-id>` |
@@ -102,7 +108,7 @@ Add `CONGRESS_PERSISTENT_DATA_ROOT=...` to `.staging/staging.env`, then `stack.m
 ```powershell
 node scripts/staging/stack.mjs organizer list
 node scripts/staging/stack.mjs organizer create "Organizer name"   # key shown once
-node scripts/staging/stack.mjs organizer rotate <organizer-id>      # new key once; old key rejected immediately
+node scripts/staging/stack.mjs organizer rotate <organizer-id>      # new key once; old key, and scanner/desk/member sessions issued before, rejected immediately
 node scripts/staging/stack.mjs organizer revoke <organizer-id>
 ```
 
@@ -380,7 +386,7 @@ The full hosted procedure is in [`HOSTED_STAGING_READINESS.md`](HOSTED_STAGING_R
 
 ## Known release blockers / limitations
 
-- **Organizer access** is an API key per organizer (rotation and revocation exist: `organizer rotate|revoke`); there are no organizer user accounts.
+- **Organizer access** is an API key per organizer (rotation and revocation exist: `organizer rotate|revoke`) plus organizer members with roles who sign in by SMS code (ADR 0016); there is no `stack.mjs` command for members yet (use the admin API above).
 - **One API process.** Rate limits are in-process; do not run multiple uvicorn workers or replicas until they are shared (for example in PostgreSQL or Redis).
 - **Untested for real:** ACME issuance on the real domain, a real S3 provider (drills used a stand-in), systemd timers on Linux, a Sentry/GlitchTip endpoint, Telegram delivery (or a relay) from Iran.
 - **Caddy runs as root** inside its container (official image); the API runs as uid 10001.

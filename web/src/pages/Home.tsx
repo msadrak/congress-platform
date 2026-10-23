@@ -25,11 +25,8 @@ function environmentEntry(key: EnvironmentCopy["key"], h: HomeCopy): ReactNode {
     case "attendee":
       return (
         <div className="flex flex-wrap gap-2">
-          <LinkButton to="/my-tickets" variant="secondary" size="md">
+          <LinkButton to="/me" variant="secondary" size="md">
             {h.myPasses}
-          </LinkButton>
-          <LinkButton to="/my-network" variant="ghost" size="md">
-            {h.networkingHub}
           </LinkButton>
         </div>
       );
@@ -185,7 +182,7 @@ export default function Home() {
                 <p className="text-xs font-semibold text-aiteb-indigo">{h.registerTitle}</p>
                 <p className="text-sm leading-relaxed text-text-secondary">{h.registerBody}</p>
               </div>
-              <LinkButton to="/my-tickets" variant="outline" size="md" className="self-start">
+              <LinkButton to="/me" variant="outline" size="md" className="self-start">
                 {h.viewMyPasses}
                 <Icon name="arrow-right" size={16} />
               </LinkButton>

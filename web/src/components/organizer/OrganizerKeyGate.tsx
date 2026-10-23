@@ -1,10 +1,14 @@
-import type { FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 import type { TranslationDictionary } from "../../lib/i18n";
+import { SIGN_IN_COPY } from "../../lib/organizerConsole";
+import { OrganizerMemberSignIn } from "./OrganizerMemberSignIn";
 import { AitebAttribution, ArcMotif } from "../brand/Aiteb";
 import { CongressSignature } from "../brand/CongressSignature";
 import { Button } from "../ui/Button";
 import { Icon } from "../ui/Icon";
+
+type GateMode = "mobile" | "key";
 
 interface OrganizerKeyGateProps {
   locale: "fa" | "en";
@@ -14,17 +18,25 @@ interface OrganizerKeyGateProps {
   onInputKeyChange: (value: string) => void;
   /** Validation message, or null. */
   error: string | null;
-  /** The previous key was refused by the API (401). */
+  /** The previous key or member session was refused by the API (401). */
   keyRejected: boolean;
+  /** Which sign-in method the gate opens on: the one that was just refused, else mobile sign-in. */
+  initialMode?: GateMode;
   onSubmit: (e: FormEvent) => void;
+  /** A member signed in by SMS code (ADR 0016): the session token, stored like a key. */
+  onSession: (token: string) => void;
   onToggleLocale: () => void;
 }
 
+
 /**
- * Organizer sign-in: an ink artwork panel (what this console runs) beside a single focused form.
- * Pure presentation; key storage and validation stay in OrganizerLayout.
+ * Organizer sign-in: an ink artwork panel (what this console runs) beside a single focused form. Members sign
+ * in with their mobile number and an SMS code; the API key stays available for integrations and technical
+ * administrators. Session storage and key validation stay in OrganizerLayout.
  */
-export function OrganizerKeyGate({ locale, t, isRtl, inputKey, onInputKeyChange, error, keyRejected, onSubmit, onToggleLocale }: OrganizerKeyGateProps) {
+export function OrganizerKeyGate({ locale, t, isRtl, inputKey, onInputKeyChange, error, keyRejected, initialMode = "mobile", onSubmit, onSession, onToggleLocale }: OrganizerKeyGateProps) {
+  const copy = SIGN_IN_COPY[locale];
+  const [mode, setMode] = useState<GateMode>(initialMode);
   const areas = isRtl
     ? [t.tabTiers, t.tabPoints, t.tabBooths, `${t.tabOperators} و ${t.breadcrumbAnalytics}`]
     : [t.tabTiers, t.tabPoints, t.tabBooths, `${t.tabOperators} & ${t.breadcrumbAnalytics}`];
@@ -101,15 +113,42 @@ export function OrganizerKeyGate({ locale, t, isRtl, inputKey, onInputKeyChange,
         <div className="relative mx-auto flex w-full max-w-[26rem] flex-1 flex-col justify-center py-10 sm:py-16">
           <div className="space-y-3">
             <span className="grid size-12 place-items-center rounded-2xl bg-aiteb-lavender text-aiteb-indigo ring-1 ring-action-subtle-border">
-              <Icon name="key" size={24} />
+              <Icon name={mode === "mobile" ? "smartphone" : "key"} size={24} />
             </span>
             <h1 className="pt-2 font-display text-[1.75rem] font-[680] leading-tight tracking-[-0.03em] text-text-primary sm:text-[2rem]">
-              {t.apiKeyGateTitle}
+              {mode === "mobile" ? copy.mobileTitle : t.apiKeyGateTitle}
             </h1>
-            <p className="text-sm leading-relaxed text-text-secondary">{t.apiKeyGateDesc}</p>
+            <p className="text-sm leading-relaxed text-text-secondary">{mode === "mobile" ? copy.mobileDesc : t.apiKeyGateDesc}</p>
           </div>
 
-          <form onSubmit={onSubmit} className="mt-8 space-y-5">
+          <div role="group" aria-label={copy.modeLabel} className="mt-6 grid grid-cols-2 gap-1 rounded-xl bg-surface-panel-subtle p-1 ring-1 ring-border-default">
+            {(["mobile", "key"] as const).map((option) => (
+              <button
+                key={option}
+                type="button"
+                aria-pressed={mode === option}
+                onClick={() => setMode(option)}
+                className={`min-h-11 cursor-pointer rounded-lg px-3 text-sm font-semibold transition-colors focus-visible:outline-2 focus-visible:outline-focus-ring ${
+                  mode === option ? "bg-surface-panel text-text-primary shadow-soft" : "text-text-secondary hover:text-text-primary"
+                }`}
+              >
+                {option === "mobile" ? copy.mobileTab : copy.keyTab}
+              </button>
+            ))}
+          </div>
+
+          {mode === "mobile" ? (
+            <div className="mt-6 space-y-5">
+              {keyRejected && (
+                <div role="alert" className="flex items-start gap-2.5 rounded-xl border border-status-danger-border bg-status-danger-bg px-3.5 py-3 text-sm leading-relaxed text-status-danger-text">
+                  <Icon name="alert" size={18} className="mt-0.5 shrink-0" />
+                  <span>{isRtl ? "نشست شما پایان یافته است. دوباره وارد شوید." : "Your session has ended. Please sign in again."}</span>
+                </div>
+              )}
+              <OrganizerMemberSignIn locale={locale} onSession={onSession} />
+            </div>
+          ) : (
+          <form onSubmit={onSubmit} className="mt-6 space-y-5">
             <div>
               <label htmlFor="apiKeyInput" className="ui-label">
                 {t.apiKeyLabel}
@@ -153,14 +192,16 @@ export function OrganizerKeyGate({ locale, t, isRtl, inputKey, onInputKeyChange,
               {t.apiKeySubmit}
               <Icon name="arrow-right" size={18} />
             </Button>
+            <p className="text-xs leading-relaxed text-text-muted">{copy.keyHint}</p>
           </form>
+          )}
 
           <p className="mt-8 flex items-start gap-2.5 border-t border-border-default pt-5 text-xs leading-relaxed text-text-muted">
             <Icon name="shield" size={16} className="mt-0.5 shrink-0 text-aiteb-slate" />
             <span>
               {isRtl
-                ? "نکته امنیتی: کلید دسترسی فقط در حافظه نشست موقت مرورگر (SessionStorage) ذخیره می‌شود و با بستن تب مرورگر پاک می‌گردد."
-                : "Security notice: Your API key is stored strictly within browser sessionStorage and automatically clears when the tab is closed."}
+                ? "نکته امنیتی: نشست ورود یا کلید دسترسی فقط در حافظهٔ نشست همین تب (SessionStorage) نگه داشته می‌شود و با بستن تب پاک می‌گردد. نشست اعضا پس از ۱۲ ساعت پایان می‌یابد."
+                : "Security notice: your session or API key is kept only in this tab's sessionStorage and clears when the tab is closed. Member sessions end after 12 hours."}
             </span>
           </p>
         </div>

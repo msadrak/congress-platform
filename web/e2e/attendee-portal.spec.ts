@@ -68,26 +68,29 @@ async function signIn(page: Page, locale = 'en') {
 
 const bottomNav = (page: Page) => page.locator('nav.fixed');
 
-test('exactly five destinations, each real and reachable from the bottom navigation', async ({ page }) => {
+test('four tabs in the bottom navigation and the profile in the header, each real and reachable', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await fixture(page);
   await signIn(page);
   await page.goto('/c/alpha');
   await expect(page).toHaveURL(/\/c\/alpha\/my-congress$/);
-  await expect(bottomNav(page).getByRole('link')).toHaveText([/My Congress/, /My Network/, /My Ticket/, /My Profile/, /Congress Details/]);
+  await expect(bottomNav(page).getByRole('link')).toHaveText([/My congress/, /Program/, /Network/, /Pass/]);
   const checks: [string, RegExp, string][] = [
-    ['My Network', /my-network$/, 'Note at alpha'],
-    ['My Ticket', /my-ticket$/, 'Pass alpha'],
-    ['My Profile', /my-profile$/, 'Heart Center'],
-    ['Congress Details', /details$/, 'About Alpha Congress'],
-    ['My Congress', /my-congress$/, 'Beta Summit'],
+    ['Network', /my-network$/, 'Note at alpha'],
+    ['Pass', /my-ticket$/, 'Pass alpha'],
+    ['Program', /details$/, 'About Alpha Congress'],
+    ['My congress', /my-congress$/, 'Beta Summit'],
   ];
   for (const [label, url, text] of checks) {
-    await bottomNav(page).getByRole('link', { name: label }).click();
+    await bottomNav(page).getByRole('link', { name: label, exact: true }).click();
     await expect(page).toHaveURL(url);
     await expect(page.getByText(text).first()).toBeVisible();
-    await expect(bottomNav(page).getByRole('link', { name: label })).toHaveAttribute('aria-current', 'page');
+    await expect(bottomNav(page).getByRole('link', { name: label, exact: true })).toHaveAttribute('aria-current', 'page');
   }
+  await page.getByTestId('profile-entry').click();
+  await expect(page).toHaveURL(/my-profile$/);
+  await expect(page.getByText('Heart Center').first()).toBeVisible();
+  await expect(page.getByTestId('profile-entry')).toHaveAttribute('aria-current', 'page');
   // Touch targets: every destination is at least 48px tall.
   for (const box of await bottomNav(page).getByRole('link').evaluateAll(els => els.map(e => e.getBoundingClientRect().height))) {
     expect(box).toBeGreaterThanOrEqual(48);
@@ -187,15 +190,39 @@ test('unknown congress and server errors show honest states', async ({ page }) =
   await expect(page.getByRole('alert')).toContainText('Could not load this congress');
 });
 
-test('Persian RTL at 320px fits all five destinations without horizontal overflow', async ({ page }) => {
+test('Persian RTL at 320px fits all four tabs without horizontal overflow', async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 700 });
   await fixture(page);
   await signIn(page, 'fa');
   await page.goto('/c/alpha/my-congress');
   await expect(page.locator('[dir="rtl"]').first()).toBeVisible();
-  await expect(bottomNav(page).getByRole('link')).toHaveCount(5);
-  await expect(bottomNav(page).getByRole('link', { name: 'همایش من' })).toBeVisible();
+  await expect(bottomNav(page).getByRole('link')).toHaveText(['همایش من', 'برنامه', 'شبکه', 'کارت ورود']);
   expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBe(0);
+});
+
+test('dock labels stay on one line at 360px in both languages', async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 740 });
+  await fixture(page);
+  for (const locale of ['fa', 'en']) {
+    await signIn(page, locale);
+    await page.goto('/c/alpha/my-congress');
+    const heights = await bottomNav(page).locator('a span').evaluateAll(spans => spans.map(s => s.getBoundingClientRect().height));
+    const lineHeights = await bottomNav(page).locator('a span').evaluateAll(spans => spans.map(s => parseFloat(getComputedStyle(s).lineHeight) || parseFloat(getComputedStyle(s).fontSize) * 1.2));
+    heights.forEach((h, i) => expect(h).toBeLessThan(lineHeights[i] * 1.6));
+  }
+});
+
+test('the header congress switcher lists the other congresses and My congresses', async ({ page }) => {
+  await fixture(page);
+  await signIn(page);
+  await page.goto('/c/alpha/my-congress');
+  // My Congress keeps the passes for offline use; the switcher reads them when it opens.
+  await expect(page.getByRole('heading', { name: 'Alpha Congress' })).toBeVisible();
+  await page.getByRole('button', { name: 'Switch congress' }).click();
+  const menu = page.locator('#congress-switcher');
+  await expect(menu.getByRole('link', { name: 'All my congresses' })).toHaveAttribute('href', '/me');
+  await menu.getByRole('link', { name: /Beta Summit/ }).click();
+  await expect(page).toHaveURL(/\/c\/beta\/my-congress$/);
 });
 
 test('desktop shows the top navigation instead of the bottom bar', async ({ page }) => {
@@ -203,18 +230,19 @@ test('desktop shows the top navigation instead of the bottom bar', async ({ page
   await fixture(page);
   await signIn(page);
   await page.goto('/c/alpha/my-congress');
-  await expect(page.locator('header nav').getByRole('link')).toHaveCount(5);
+  await expect(page.locator('header nav').getByRole('link')).toHaveCount(4);
   await expect(bottomNav(page)).toBeHidden();
 });
 
-test('legacy deep links still work and offer the congress portal', async ({ page }) => {
+test('legacy deep links land on My congresses, which opens each congress panel', async ({ page }) => {
   await fixture(page);
   await signIn(page);
   await page.goto('/my-tickets');
-  await expect(page.getByText('Pass alpha').first()).toBeVisible();
-  await page.getByRole('link', { name: /Open Congress Portal/ }).click();
+  await expect(page).toHaveURL(/\/me$/);
+  await expect(page.getByTestId('congress-card')).toHaveCount(2);
+  await page.getByTestId('congress-card').filter({ hasText: 'Alpha Congress' }).click();
   await expect(page).toHaveURL(/\/c\/alpha\/my-congress$/);
   await page.goto('/my-network');
-  await expect(page.getByText('Note at alpha')).toBeVisible();
-  await expect(page.getByText('Note at beta')).toBeVisible();
+  await expect(page).toHaveURL(/\/me$/);
+  await expect(page.getByTestId('congress-card').filter({ hasText: 'Beta Summit' })).toBeVisible();
 });

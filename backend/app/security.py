@@ -120,3 +120,39 @@ def sanitize_csv_cell(value: Any) -> str:
     if val_str and val_str[0] in ("=", "+", "-", "@", "\t", "\r"):
         return f"'{val_str}"
     return val_str
+
+
+ORGANIZER_MEMBER_TOKEN_HOURS = 12
+ORGANIZER_SELECT_TOKEN_MINUTES = 10
+
+
+def create_organizer_member_token(
+    member_id: uuid.UUID, organizer_id: uuid.UUID, session_version: int, secret: str
+) -> str:
+    """A console session of one organizer member (ADR 0016). Short-lived: it carries the member's role."""
+    now = datetime.now(timezone.utc)
+    payload = {
+        "sub": f"member:{member_id}",
+        "type": "organizer_member",
+        "member_id": str(member_id),
+        "organizer_id": str(organizer_id),
+        "session_version": session_version,
+        "iat": int(now.timestamp()),
+        "exp": int((now + timedelta(hours=ORGANIZER_MEMBER_TOKEN_HOURS)).timestamp()),
+    }
+    return jwt.encode(payload, secret, algorithm="HS256")
+
+
+def create_organizer_select_token(user_id: uuid.UUID, secret: str) -> str:
+    """Proof of a verified SMS code for a person who belongs to several organizers, exchanged for a session
+    with the organizer they pick, once. Its `type` keeps it from authenticating anywhere else."""
+    now = datetime.now(timezone.utc)
+    payload = {
+        "sub": f"organizer-select:{user_id}",
+        "type": "organizer_select",
+        "user_id": str(user_id),
+        "jti": uuid.uuid4().hex,
+        "iat": int(now.timestamp()),
+        "exp": int((now + timedelta(minutes=ORGANIZER_SELECT_TOKEN_MINUTES)).timestamp()),
+    }
+    return jwt.encode(payload, secret, algorithm="HS256")

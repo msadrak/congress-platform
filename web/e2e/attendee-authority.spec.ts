@@ -103,7 +103,9 @@ async function otherCredentialsIntact(page: Page) {
 const storedUser = (page: Page) => page.evaluate(() => localStorage.getItem('congress_attendee_token'));
 const switchUser = (page: Page, token: string) => page.evaluate(token => localStorage.setItem('congress_attendee_token', token), token);
 const personal = (requests: Recorded[]) => requests.filter(r => !r.path.startsWith('/api/public/'));
-const onlyUser = (requests: Recorded[], token: string) => personal(requests).length > 0 && personal(requests).every(r => r.auth === bearer(token));
+const onlyUser = (requests: Recorded[], token: string) => requests.length > 0 && requests.every(r => r.auth === bearer(token));
+// Congress panel pages also read the congress's public metadata, always anonymously.
+const panelOnlyUser = (requests: Recorded[], token: string) => requests.filter(r => r.path.startsWith('/api/public/')).every(r => r.auth === undefined) && onlyUser(requests.filter(r => !r.path.startsWith('/api/public/')), token);
 
 // Records any moment one of the texts was rendered, even transiently.
 async function watchText(page: Page, texts: string[]) {
@@ -129,15 +131,16 @@ async function hold(page: Page, pathEnd: string, auth: string, status: number, b
 
 const seedCache = (page: Page, owner: string) => page.evaluate(({ owner, ticket }) => localStorage.setItem(`congress_cached_tickets_user-${owner.toLowerCase()}`, JSON.stringify({ userId: `user-${owner.toLowerCase()}`, cachedAt: Date.now(), expiresAt: Date.now() + 86_400_000, tickets: [ticket] })), { owner, ticket: ticketOf(owner) });
 
-test('without a User token, tickets, network and booth portal show sign-in and send nothing', async ({ page }) => {
+test('without a User token, my congresses, pass, network and booth portal show sign-in and send nothing protected', async ({ page }) => {
   const requests = await fixture(page);
   await seed(page);
   requests.length = 0;
-  for (const path of ['/my-tickets', '/my-network', '/booth/booth-1']) {
+  for (const path of ['/me', '/c/t06-fixture/my-ticket', '/c/t06-fixture/my-network', '/booth/booth-1']) {
     await page.goto(path);
-    await expect(page.getByRole('heading', { name: /Sign In|Sign in|Staff Sign In/ }).first()).toBeVisible();
+    await expect(page.getByRole('heading', { name: /Sign In|Sign in|Staff Sign In|Find your pass/ }).first()).toBeVisible();
   }
-  expect(requests).toEqual([]);
+  // Only the congress's public metadata (the panel header) is read.
+  expect(requests.filter(r => !r.path.startsWith('/api/public/'))).toEqual([]);
   await otherCredentialsIntact(page);
 });
 
@@ -145,7 +148,7 @@ test('tickets and bookmark removal send only the User token with every other cre
   const requests = await fixture(page);
   await seed(page, tokenA);
   requests.length = 0;
-  await page.goto('/my-tickets');
+  await page.goto('/me');
   await expect(page.getByText('Event of A').first()).toBeVisible();
   await page.getByRole('button', { name: 'Remove Bookmark' }).first().click();
   await expect(page.getByRole('status').filter({ hasText: 'removed' })).toBeVisible();
@@ -159,12 +162,13 @@ test('ticket-list 401 with a valid owner cache keeps the labelled pass, the toke
   await seed(page, tokenA);
   await seedCache(page, 'A');
   requests.length = 0;
-  await page.goto('/my-tickets');
+  await page.goto('/c/t06-fixture/my-ticket');
   await expect(page.getByText('Event of A').first()).toBeVisible();
-  await expect(page.getByText('Offline: showing your saved pass')).toBeVisible();
+  // One status line: the expired session (which also says the copy is the saved one).
   await expect(page.getByText('Your session is no longer valid')).toBeVisible();
+  await expect(page.getByTestId('pass-status-line')).toHaveCount(1);
   expect(await storedUser(page)).toBe(tokenA);
-  expect(onlyUser(requests, tokenA)).toBe(true);
+  expect(panelOnlyUser(requests, tokenA)).toBe(true);
   await otherCredentialsIntact(page);
 });
 
@@ -172,17 +176,17 @@ test('ticket-list 401 without a cache clears exactly the sent token and shows si
   const requests = await fixture(page, { ticketsStatus: 401 });
   await seed(page, tokenA);
   requests.length = 0;
-  await page.goto('/my-tickets');
+  await page.goto('/c/t06-fixture/my-ticket');
   await expect(page.getByRole('heading', { name: 'Sign In to Attendee Portal' })).toBeVisible();
   expect(await storedUser(page)).toBeNull();
-  expect(onlyUser(requests, tokenA)).toBe(true);
+  expect(panelOnlyUser(requests, tokenA)).toBe(true);
   await otherCredentialsIntact(page);
 });
 
 test('ticket-list 500 without a cache shows the error and keeps the session', async ({ page }) => {
   const requests = await fixture(page, { ticketsStatus: 500 });
   await seed(page, tokenA);
-  await page.goto('/my-tickets');
+  await page.goto('/c/t06-fixture/my-ticket');
   await expect(page.getByRole('alert')).toContainText('Server error');
   expect(await storedUser(page)).toBe(tokenA);
   expect(onlyUser(requests.filter(r => r.path.startsWith('/api/attendees')), tokenA)).toBe(true);
@@ -194,7 +198,7 @@ test('R2 a delayed ticket list for token A never appears under token B', async (
   await watchText(page, ['Event of A']);
   const held = await hold(page, '/api/attendees/me/tickets', bearer(tokenA), 200, [ticketOf('A')]);
   await seed(page, tokenA);
-  await page.goto('/my-tickets');
+  await page.goto('/c/t06-fixture/my-ticket');
   await held.started;
   await switchUser(page, tokenB);
   held.release();
@@ -207,7 +211,7 @@ test('R3 a delayed 401 for token A cannot remove token B', async ({ page }) => {
   await fixture(page);
   const held = await hold(page, '/api/attendees/me/tickets', bearer(tokenA), 401, { detail: 'Invalid authorization token' });
   await seed(page, tokenA);
-  await page.goto('/my-tickets');
+  await page.goto('/c/t06-fixture/my-ticket');
   await held.started;
   await switchUser(page, tokenB);
   held.release();
@@ -220,7 +224,7 @@ test('R3 a delayed 401 for token A cannot remove token B', async ({ page }) => {
 test('R1 removing a bookmark after the session changed dispatches nothing', async ({ page }) => {
   const requests = await fixture(page);
   await seed(page, tokenA);
-  await page.goto('/my-tickets');
+  await page.goto('/me');
   await expect(page.getByRole('button', { name: 'Remove Bookmark' }).first()).toBeVisible();
   await switchUser(page, tokenB);
   requests.length = 0;
@@ -235,7 +239,7 @@ test('owner isolation: user B never sees user A cached passes, even when B canno
   await watchText(page, []);
   await seed(page, tokenA);
   await seedCache(page, 'A');
-  await page.goto('/my-tickets');
+  await page.goto('/me');
   await expect(page.getByText('Event of A').first()).toBeVisible();
   // The cached pass renders before A's live data; wait for A's bookmarks so the session switch
   // happens after that response (a response for A arriving after the switch is correctly ignored,
@@ -269,7 +273,7 @@ test('network list, note update and vCard download send only the User token; vCa
   expect(file.suggestedFilename()).toBe('jane-doe.vcf');
   expect(await readFile(await file.path(), 'utf8')).toBe('BEGIN:VCARD\nVERSION:3.0\nFN:Jane Doe\nNOTE:A\nEND:VCARD\n');
   expect(requests.map(r => `${r.method} ${r.path}`)).toEqual(expect.arrayContaining(['GET /api/attendees/me/network/search', 'PATCH /api/attendees/me/network/conn-A', 'GET /api/attendees/me/network/conn-A/vcard']));
-  expect(onlyUser(requests, tokenA)).toBe(true);
+  expect(panelOnlyUser(requests, tokenA)).toBe(true);
   await otherCredentialsIntact(page);
 });
 
@@ -318,7 +322,7 @@ test('network 401 clears exactly the sent token; vCard 404 keeps the session and
   const unauthorized = await openNetwork(page, { networkStatus: 401 });
   await expect(page.getByRole('heading', { name: 'Sign In to Attendee Portal' })).toBeVisible();
   expect(await storedUser(page)).toBeNull();
-  expect(onlyUser(unauthorized, tokenA)).toBe(true);
+  expect(panelOnlyUser(unauthorized, tokenA)).toBe(true);
   await otherCredentialsIntact(page);
 });
 
@@ -328,7 +332,7 @@ test('vCard 404 keeps the session and shows the failure', async ({ page }) => {
   await page.getByRole('button', { name: /Download contact card/ }).first().click();
   await expect(page.getByRole('alert')).toContainText('Failed to download');
   expect(await storedUser(page)).toBe(tokenA);
-  expect(onlyUser(requests, tokenA)).toBe(true);
+  expect(panelOnlyUser(requests, tokenA)).toBe(true);
 });
 
 test('R2 a delayed network list for token A never appears under token B', async ({ page }) => {

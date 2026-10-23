@@ -8,6 +8,8 @@ const ALLOWED_PATHS: readonly RegExp[] = [
   new RegExp(`^/e/${SLUG}$`),
   new RegExp(`^/e/${SLUG}/booths/[A-Za-z0-9-]+$`),
   /^\/booth\/[A-Za-z0-9-]+$/,
+  /^\/me$/,
+  // Former addresses, redirected to /me.
   /^\/my-tickets$/,
   /^\/my-network$/,
 ];

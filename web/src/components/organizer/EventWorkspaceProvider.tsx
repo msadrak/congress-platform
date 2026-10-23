@@ -14,7 +14,7 @@ interface EventWorkspaceProviderProps {
  * event id, so a late response for event A can never write into event B's workspace.
  */
 export function EventWorkspaceProvider({ eventId, organizer, children }: EventWorkspaceProviderProps) {
-  const { apiKey, onKeyRejected, reportEvent, locale, t, isRtl, dir } = organizer;
+  const { apiKey, onKeyRejected, reportEvent, session, locale, t, isRtl, dir } = organizer;
   const client = useMemo(() => (apiKey ? createApiClient({ kind: "organizer", token: apiKey }) : null), [apiKey]);
   const [active, setActive] = useState(false);
   const [event, setEvent] = useState<EventOut | null>(null);
@@ -62,6 +62,7 @@ export function EventWorkspaceProvider({ eventId, organizer, children }: EventWo
       apiKey,
       onKeyRejected,
       reportEvent,
+      session,
       locale,
       t,
       isRtl,
@@ -75,7 +76,7 @@ export function EventWorkspaceProvider({ eventId, organizer, children }: EventWo
       client,
       activate,
     }),
-    [apiKey, onKeyRejected, reportEvent, locale, t, isRtl, dir, eventId, event, loading, error, reload, client, activate],
+    [apiKey, onKeyRejected, reportEvent, session, locale, t, isRtl, dir, eventId, event, loading, error, reload, client, activate],
   );
 
   return <EventWorkspaceContext.Provider value={value}>{children}</EventWorkspaceContext.Provider>;
