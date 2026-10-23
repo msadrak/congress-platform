@@ -24,6 +24,12 @@ Mechanical rules live in checks, not here: no `any` (oxlint `typescript/no-expli
 - **Rule:** Avoid inline-casting an object type for property access: `(value as { foo: string }).foo`.
 - **Why:** Fabricates an unchecked shape and suppresses compiler errors. Check with `"foo" in value` first, then access. Without `any`, narrow with custom type guards or extended interfaces for globals (e.g. `interface WindowWithAudio extends Window`).
 
+### E. User-Facing Copy (`src/copy/<area>.ts`)
+- **Rule:** New user-facing strings go into a typed copy module `web/src/copy/<area>.ts` (`const fa = {…} as const; const en: CopyShape<typeof fa> = {…}; export const <area>Copy = { fa, en };`) and are read with `useCopy(<area>Copy)` or `<area>Copy[locale]`. Shared buttons, status words and messages come from `copy/common.ts`. No new inline `isRtl ? "…" : "…"` text. Persian terms follow GLOSSARY.md "Persian UI terms"; error messages follow §2.F. Every string exists in fa and en; values from people or the network go into a whole-sentence function and render inside `<bdi>`, never concatenated fragments.
+- **Locale:** one app-wide locale (`useLocale` in `lib/i18n.ts`; `useAttendeeLocale` adds the legacy dictionary). It also sets `<html lang dir>`.
+- **Checks:** `web/tests/glossary.test.ts` (banned terms, with a per-file allowlist that only shrinks), `web/tests/copyGuard.test.ts` (per-file counts of inline locale ternaries, Persian text in `.tsx`, developer terms and "..." in Persian strings, against `tests/copy-baseline.json`, which only goes down), `web/tests/apiErrorCodes.test.ts` (every backend code has fa and en messages; Persian readers never see English).
+- **Why:** One place per string keeps the wording reviewable and consistent; the type makes a missing translation a build error.
+
 ---
 
 ## 2. Python & FastAPI Standards (`backend/`)
@@ -52,7 +58,7 @@ Mechanical rules live in checks, not here: no `any` (oxlint `typescript/no-expli
 ### F. Stable Error Codes (`app/errors.py`)
 - **Rule:** An error a client must react to or show to a person is raised as `ApiError(status, "UPPER_SNAKE_CODE", "English message")`, and the route declares it with `responses=error_responses(...)` so the OpenAPI document and `web/src/api/schema.d.ts` describe the body. The response is `{"detail": "<English message>", "code": "<CODE>"}`; `detail` stays a string, plain `HTTPException`s keep answering `{"detail": ...}`, and 422 validation bodies are unchanged.
 - **Naming:** `SUBJECT_STATE` in upper snake case, describing what happened rather than the status (`TIER_SOLD_OUT`, `TIER_CLOSED`, `ALREADY_REGISTERED`, `EVENT_NOT_FOUND`). A code is a contract: never rename or reuse one; keep its status and `detail` stable when converting an existing error.
-- **Web:** decide with `apiErrorCode(error)` and show `localizedApiError(error, locale)` (both in `web/src/api/client.ts`); add every new code to the fa and en maps in `web/src/lib/errorMessages.ts`. Never match or branch on the English `detail` text.
+- **Web:** decide with `apiErrorCode(error)` and show `localizedApiError(error, locale)` (both in `web/src/api/client.ts`); add every new code to the fa and en maps in `web/src/lib/errorMessages.ts` (`web/tests/apiErrorCodes.test.ts` fails otherwise). A Persian message is one short clause for what failed plus one next step, with no code, status or English. Never match or branch on the English `detail` text.
 - **Why:** Persian readers must not see raw English, and UI behaviour must not break when a message is reworded.
 
 ---
