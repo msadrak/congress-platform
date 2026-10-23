@@ -80,7 +80,7 @@ function PlatformSmsSettings() {
     e.preventDefault();
     if (saveRequest.busy || invalid) return;
     const body: Parameters<typeof send>[0] = { reset: [] };
-    if (mode !== sms.mode || sms.mode_source === "environment") body.mode = mode;
+    if (mode !== sms.mode) body.mode = mode;
     if (apiKey.trim()) body.api_key = apiKey.trim();
     if (lineNumber !== null && lineNumber !== sms.line_number) body.line_number = lineNumber;
     for (const field of CAPS) {
