@@ -45,12 +45,8 @@ async function fixture(page: Page, options: Options = {}) {
     const path = new URL(request.url()).pathname;
     const method = request.method();
     const raw = request.postData();
-    let body: unknown;
-    try {
-      body = raw ? JSON.parse(raw) : undefined;
-    } catch {
-      body = undefined; // an uploaded image
-    }
+    // An uploaded image is not JSON.
+    const body = raw && request.headers()['content-type']?.startsWith('application/json') ? JSON.parse(raw) : undefined;
     requests.push({ method, path, body, contentType: request.headers()['content-type'] });
     const json = (status: number, payload: unknown) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(payload) });
     if (path === '/api/organizer/me') {
