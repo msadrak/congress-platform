@@ -180,8 +180,13 @@ export function ScannerPairingDialog({ point, onClose, onDevicesChange }: Scanne
                       )}
                     </p>
                     <p className="text-caption text-text-muted" data-testid="device-report">
-                      {d.last_seen_at ? copy.lastSeen(at(d.last_seen_at)) : copy.neverSeen}
-                      {!d.is_revoked && d.unsynced_count ? ` · ${copy.unsynced(num(d.unsynced_count))}` : ""}
+                      <bdi>{d.last_seen_at ? copy.lastSeen(at(d.last_seen_at)) : copy.neverSeen}</bdi>
+                      {!d.is_revoked && d.unsynced_count ? (
+                        <>
+                          {" · "}
+                          <bdi>{copy.unsynced(num(d.unsynced_count))}</bdi>
+                        </>
+                      ) : null}
                     </p>
                     {!d.is_revoked && d.stale && <p className="text-caption text-status-warning-text">{copy.staleHint}</p>}
                   </div>
