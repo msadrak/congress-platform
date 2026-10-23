@@ -44,10 +44,8 @@ const OrganizerLayout = lazy(() => import("./pages/OrganizerLayout"));
 const OrganizerPagePreview = lazy(() => import("./pages/OrganizerPagePreview"));
 const OrganizerPageStudio = lazy(() => import("./pages/OrganizerPageStudio"));
 const OrganizerParticipants = lazy(() => import("./pages/OrganizerParticipants"));
-const OrganizerPanel = lazy(() => import("./pages/OrganizerPanel"));
 const OrganizerPanelFrame = lazy(() => import("./pages/OrganizerPanel").then((m) => ({ default: m.OrganizerPanelFrame })));
 const OrganizerProgram = lazy(() => import("./pages/OrganizerProgram"));
-const OrganizerVenue = lazy(() => import("./pages/OrganizerVenue"));
 const ReceptionPortal = lazy(() => import("./pages/ReceptionPortal"));
 const ReceptionEntry = lazy(() => import("./pages/ReceptionPortal").then((m) => ({ default: m.ReceptionEntry })));
 
@@ -76,13 +74,14 @@ export default function App() {
           <Route path="events/:eventId" element={section(<EventWorkspaceLayout />)}>
             <Route index element={section(<EventOverview />)} />
             <Route path="program" element={section(<OrganizerProgram />)} />
-            <Route path="venue" element={section(<OrganizerVenue />)} />
+            {/* Halls and entrances are a tab of the program; the attendee panel a preview of the public page. */}
+            <Route path="venue" element={<Navigate to="../program?tab=venue" replace />} />
             <Route path="tiers" element={section(<EventTiers />)} />
             <Route path="check-in" element={section(<EventCheckIn />)} />
             <Route path="booths" element={section(<EventBooths />)} />
             <Route path="operators" element={section(<EventOperators />)} />
             <Route path="page" element={section(<OrganizerPageStudio />)} />
-            <Route path="panel" element={section(<OrganizerPanel />)} />
+            <Route path="panel" element={<Navigate to="../page?preview=panel" replace />} />
             <Route path="desk" element={section(<OrganizerDesk />)} />
             <Route path="sms" element={section(<OrganizerSms />)} />
             <Route path="participants" element={section(<OrganizerParticipants />)} />

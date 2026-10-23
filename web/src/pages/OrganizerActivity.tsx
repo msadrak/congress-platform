@@ -2,7 +2,6 @@ import { useCallback, useEffect, useState } from "react";
 import { useOutletContext } from "react-router-dom";
 import { createApiClient, localizedApiError, type AuditEventOut, type EventOut } from "../api/client";
 import {
-  CONSOLE_COPY,
   activityActor,
   activityActorKind,
   describeActivity,
@@ -13,22 +12,28 @@ import type { OrganizerOutletContext } from "./OrganizerLayout";
 import { Badge } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
 import { Icon } from "../components/ui/Icon";
-import { EmptyState, FormAlert, SectionHeader } from "../components/organizer/WorkspaceUi";
+import { Select } from "../components/ui/Input";
+import { PageHeader } from "../components/ui/PageHeader";
+import { EmptyState, ErrorState, LoadingState } from "../components/ui/StateBlock";
+import { organizerCopy } from "../copy/organizer";
+import { commonCopy } from "../copy/common";
 
 /** `/organizer/activity`: the organizer's audit log, newest first (ADR 0016). Read-only by design. */
 export default function OrganizerActivity() {
   const { apiKey, session, locale } = useOutletContext<OrganizerOutletContext>();
-  const copy = CONSOLE_COPY[locale];
+  const copy = organizerCopy[locale].activity;
+  const showIp = session?.role === "owner";
   const [events, setEvents] = useState<EventOut[]>([]);
   const [eventId, setEventId] = useState("");
   const [items, setItems] = useState<AuditEventOut[]>([]);
   const [next, setNext] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [failure, setFailure] = useState<{ body: unknown; status: number } | null>(null);
+  const [reloadToken, setReloadToken] = useState(0);
 
   useEffect(() => {
     if (!apiKey) return;
-    void createApiClient({ kind: "organizer", token: apiKey })
+    void createApiClient({ kind: "organizer", token: apiKey }, { networkErrors: "result" })
       .GET("/api/events")
       .then(({ data }) => {
         if (data) setEvents(data);
@@ -37,7 +42,7 @@ export default function OrganizerActivity() {
 
   const fetchPage = useCallback(
     (before: string | null) =>
-      createApiClient({ kind: "organizer", token: apiKey ?? "" }).GET("/api/organizer/activity", {
+      createApiClient({ kind: "organizer", token: apiKey ?? "" }, { networkErrors: "result" }).GET("/api/organizer/activity", {
         params: { query: { limit: 50, ...(eventId ? { event_id: eventId } : {}), ...(before ? { before } : {}) } },
       }),
     [apiKey, eventId],
@@ -47,24 +52,27 @@ export default function OrganizerActivity() {
   useEffect(() => {
     if (!apiKey) return;
     let alive = true;
-    void fetchPage(null).then(({ data, error: err }) => {
-      if (!alive) return;
-      setLoading(false);
-      if (!data) return setError(localizedApiError(err, locale));
-      setItems(data.items);
-      setNext(data.next_before ?? null);
-    });
+    void fetchPage(null)
+      .then(({ data, error: err, response }) => {
+        if (!alive) return;
+        if (!data) return setFailure({ body: err, status: response.status });
+        setItems(data.items);
+        setNext(data.next_before ?? null);
+      })
+      .finally(() => {
+        if (alive) setLoading(false);
+      });
     return () => {
       alive = false;
     };
-  }, [apiKey, fetchPage, locale]);
+  }, [apiKey, fetchPage, reloadToken]);
 
   const loadMore = async (before: string) => {
     setLoading(true);
-    setError(null);
-    const { data, error: err } = await fetchPage(before);
+    setFailure(null);
+    const { data, error: err, response } = await fetchPage(before);
     setLoading(false);
-    if (!data) return setError(localizedApiError(err, locale));
+    if (!data) return setFailure({ body: err, status: response.status });
     setItems((prev) => [...prev, ...data.items]);
     setNext(data.next_before ?? null);
   };
@@ -72,47 +80,57 @@ export default function OrganizerActivity() {
   const chooseEvent = (id: string) => {
     setEventId(id);
     setLoading(true);
-    setError(null);
+    setFailure(null);
     setItems([]);
     setNext(null);
   };
 
   const eventName = (id: string | null | undefined) => (id ? events.find((e) => e.id === id)?.name : undefined);
 
+  const retry = () => {
+    setLoading(true);
+    setFailure(null);
+    setReloadToken((n) => n + 1);
+  };
+
   return (
-    <div className="space-y-8 sm:space-y-10">
-      <SectionHeader
-        eyebrow={session ? <bdi>{session.organizer.name}</bdi> : copy.membersEyebrow}
-        title={copy.activityTitle}
-        description={copy.activityDesc}
-        action={
-          <label className="flex items-center gap-2 text-sm text-text-secondary">
+    <div className="space-y-6 sm:space-y-8">
+      <PageHeader
+        title={copy.title}
+        actions={
+          <label className="flex items-center gap-2 text-body-sm text-text-secondary">
             <span>{copy.eventFilter}</span>
-            <select value={eventId} onChange={(e) => chooseEvent(e.target.value)} className="ui-input min-h-10 w-auto py-1.5 text-sm">
+            <Select value={eventId} onChange={(e) => chooseEvent(e.target.value)} className="w-auto min-w-40">
               <option value="">{copy.allEvents}</option>
               {events.map((event) => (
                 <option key={event.id} value={event.id}>
                   {event.name}
                 </option>
               ))}
-            </select>
+            </Select>
           </label>
         }
       />
 
-      {error && <FormAlert>{error}</FormAlert>}
-
-      {!loading && !error && items.length === 0 ? (
-        <EmptyState icon="activity" title={copy.noActivity} />
+      {failure && items.length === 0 ? (
+        <ErrorState
+          title={copy.loadFailed}
+          offline={failure.status === 503}
+          body={localizedApiError(failure.body, locale, failure.status)}
+          onRetry={retry}
+          retryLabel={commonCopy[locale].retry}
+        />
+      ) : items.length === 0 ? (
+        !loading && <EmptyState icon="activity" title={copy.empty} />
       ) : (
-        <ol className="divide-y divide-border-subtle overflow-clip rounded-2xl border border-border-default bg-surface-panel shadow-soft" data-testid="activity-list">
+        <ol className="divide-y divide-border-subtle overflow-clip rounded-card border border-border-default bg-surface-panel shadow-soft" data-testid="activity-list">
           {items.map((item) => {
             const { action, target } = describeActivity(item, locale);
             const name = eventName(item.event_id);
             const person = isPersonActor(item.actor_type);
             return (
               <li key={item.id} className="flex flex-col gap-1.5 px-4 py-3.5 sm:flex-row sm:items-start sm:gap-4 sm:px-5">
-                <time dateTime={item.at} className="shrink-0 text-xs tabular text-text-muted sm:w-44 sm:pt-0.5">
+                <time dateTime={item.at} className="shrink-0 text-caption tabular text-text-muted sm:w-48 sm:pt-0.5">
                   {formatActivityTime(item.at, locale)}
                 </time>
                 <div className="min-w-0 flex-1 space-y-1">
@@ -135,7 +153,7 @@ export default function OrganizerActivity() {
                       </>
                     )}
                   </p>
-                  {(name || item.ip) && (
+                  {(name || (showIp && item.ip)) && (
                     <p className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-text-muted">
                       {name && (
                         <span className="inline-flex items-center gap-1">
@@ -143,7 +161,7 @@ export default function OrganizerActivity() {
                           <bdi>{name}</bdi>
                         </span>
                       )}
-                      {item.ip && (
+                      {showIp && item.ip && (
                         <span className="inline-flex items-center gap-1" title={copy.where}>
                           <Icon name="globe" size={13} />
                           <bdi dir="ltr" className="font-mono">
@@ -160,14 +178,10 @@ export default function OrganizerActivity() {
         </ol>
       )}
 
-      {loading && (
-        <div role="status" aria-busy="true" className="text-sm text-text-muted">
-          {copy.loading}
-        </div>
-      )}
-      {next && !loading && (
-        <Button type="button" variant="secondary" size="md" onClick={() => void loadMore(next)}>
-          <Icon name="chevron-down" size={16} />
+      {failure && items.length > 0 && <ErrorState title={copy.loadFailed} body={localizedApiError(failure.body, locale, failure.status)} onRetry={() => next && void loadMore(next)} retryLabel={commonCopy[locale].retry} />}
+      {loading && <LoadingState />}
+      {next && !loading && !failure && (
+        <Button type="button" variant="secondary" icon="chevron-down" onClick={() => void loadMore(next)}>
           {copy.loadMore}
         </Button>
       )}

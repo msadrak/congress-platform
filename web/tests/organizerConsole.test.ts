@@ -35,7 +35,7 @@ test("an automatic row reads as a phrase in the reader's language, from its rout
   assert.deepEqual(describeActivity(booth, "en"), { action: "edited a booth", target: "" });
   assert.deepEqual(describeActivity(booth, "fa"), { action: "غرفه را ویرایش کرد", target: "" });
   const token = automatic("POST", "/api/checkin-points/{point_id}/token");
-  assert.equal(describeActivity(token, "fa").action, "برای نقطه ورود کد جفت‌سازی اسکنر صادر کرد");
+  assert.equal(describeActivity(token, "fa").action, "برای نقطه ورود پیوند اتصال اسکنر ساخت");
   const participant = automatic("PATCH", "/api/events/{event_id}/participants/{ticket_id}");
   assert.equal(describeActivity(participant, "fa").action, "اطلاعات شرکت‌کننده را ویرایش کرد");
   const tier = automatic("DELETE", "/api/events/{event_id}/ticket-tiers/{tier_id}");
@@ -44,19 +44,20 @@ test("an automatic row reads as a phrase in the reader's language, from its rout
   assert.equal(describeActivity(exported, "en").action, "downloaded the participant list (CSV)");
 });
 
-test("a route without a label names its subject, and Persian never shows the raw template", () => {
+test("a route without a label names its subject, and no reader sees the raw template", () => {
   const unknown = automatic("POST", "/api/checkin-points/{point_id}/heartbeat");
   assert.equal(describeActivity(unknown, "fa").action, "ثبت کرد · نقطه ورود");
   assert.equal(describeActivity(unknown, "en").action, "created · check-in point");
   const stranger = automatic("PUT", "/api/widgets/{widget_id}/frobnicate");
   assert.equal(describeActivity(stranger, "fa").action, "موردی را ذخیره کرد");
   assert.doesNotMatch(describeActivity(stranger, "fa").action, /[A-Za-z]/);
-  assert.equal(describeActivity(stranger, "en").action, "saved · widgets › frobnicate");
+  assert.equal(describeActivity(stranger, "en").action, "saved an item");
+  assert.doesNotMatch(describeActivity(stranger, "en").action, /widgets|frobnicate|›/);
   // An unknown child of a congress is not "the congress".
   const child = automatic("DELETE", "/api/events/{event_id}/brand-new/{thing_id}");
   assert.equal(describeActivity(child, "fa").action, "موردی را حذف کرد");
   assert.equal(activityAction("something.new", "fa"), "تغییری ثبت کرد");
-  assert.equal(activityAction("something.new", "en"), "something.new");
+  assert.equal(activityAction("something.new", "en"), "made a change");
 });
 
 test("every labelled route reads without Latin letters in Persian (CSV aside)", () => {
@@ -69,7 +70,7 @@ test("every labelled route reads without Latin letters in Persian (CSV aside)", 
     ["DELETE", "/api/events/{event_id}/desk/operators/{operator_id}"],
   ];
   for (const [method, route] of routes) {
-    const phrase = describeActivity(automatic(method, route), "fa").action.replace("کد QR", "").replace("(CSV)", "");
+    const phrase = describeActivity(automatic(method, route), "fa").action.replace("کد QR", "");
     assert.doesNotMatch(phrase, /[A-Za-z]/, `${method} ${route} → ${phrase}`);
   }
 });
@@ -85,9 +86,9 @@ test("member rows show the person and the role change in the reader's language",
 test("people are named by their label; the platform and the key by their localized role", () => {
   assert.equal(activityActor({ actor_type: "organizer_member", actor_label: "Neda" }, "en"), "Neda");
   assert.equal(activityActor({ actor_type: "desk_operator", actor_label: "" }, "en"), "Desk operator");
-  assert.equal(activityActor({ actor_type: "platform_admin", actor_label: "Platform admin" }, "fa"), "مدیر پلتفرم");
-  assert.equal(activityActor({ actor_type: "organizer_key", actor_label: "Integration key" }, "fa"), "کلید API");
-  assert.equal(activityActor({ actor_type: "api_key", actor_label: "API key" }, "fa"), "کلید API");
+  assert.equal(activityActor({ actor_type: "platform_admin", actor_label: "Platform admin" }, "fa"), "مدیر سامانه");
+  assert.equal(activityActor({ actor_type: "organizer_key", actor_label: "Integration key" }, "fa"), "کلید سازمان");
+  assert.equal(activityActor({ actor_type: "api_key", actor_label: "API key" }, "fa"), "کلید سازمان");
   assert.equal(activityActor({ actor_type: "booth_staff", actor_label: "Reza" }, "fa"), "Reza");
   assert.equal(activityActorKind("booth_staff", "fa"), "نمایندهٔ غرفه");
   assert.equal(activityActorKind("member", "en"), "Member");
@@ -95,9 +96,9 @@ test("people are named by their label; the platform and the key by their localiz
 });
 
 test("who added a member: the key and the platform admin are localized, people keep their name", () => {
-  assert.equal(inviterLabel("api-key", "fa"), "کلید API");
-  assert.equal(inviterLabel("api-key", "en"), "API key");
-  assert.equal(inviterLabel("Integration key", "fa"), "کلید API");
-  assert.equal(inviterLabel("Platform admin", "fa"), "مدیر پلتفرم");
+  assert.equal(inviterLabel("api-key", "fa"), "کلید سازمان");
+  assert.equal(inviterLabel("api-key", "en"), "Organizer key");
+  assert.equal(inviterLabel("Integration key", "fa"), "کلید سازمان");
+  assert.equal(inviterLabel("Platform admin", "fa"), "مدیر سامانه");
   assert.equal(inviterLabel("Neda Karimi", "fa"), "Neda Karimi");
 });

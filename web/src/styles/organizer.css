@@ -1,113 +1,121 @@
 /*
- * Organizer portal — "Crossing Arcs" workspace.
- * Portal-only layout pieces that Tailwind utilities cannot express cleanly: the ink rail that is a
- * compact header on small screens and a sidebar from 1024 px, the section navigation, stacked tables,
- * capacity meters and the analytics instruments. Everything is logical (mirrors in RTL).
+ * Organizer console. Layout pieces Tailwind utilities cannot express cleanly: the shell (top bar, section
+ * strip, icon rail, full rail), stacked tables, capacity meters and the analytics instruments. Everything is
+ * logical (mirrors in RTL).
  * Lives in the `components` cascade layer so Tailwind utilities (hidden, lg:flex …) still win.
  */
 
 @layer components {
 
-/* ── Shell ─────────────────────────────────────────────────────── */
+/* ── Shell ─────────────────────────────────────────────────────────
+ * Below 1024 px: a 56 px top bar, then the section strip (44 px links), then the page; 100 px in all.
+ * 1024–1279 px: a 4.5 rem icon rail; the top bar names the congress. From 1280 px: an 18 rem rail with
+ * labels, the congress and the account row, and no top bar. */
 .org-shell {
   min-block-size: 100dvh;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto auto 1fr;
+  grid-template-areas: "top" "nav" "main";
+}
+.org-main {
+  grid-area: main;
 }
 
-@media (min-width: 1024px) {
-  .org-shell {
-    display: grid;
-    grid-template-columns: 18rem minmax(0, 1fr);
-    /* Ink continues under the sticky rail when the page is taller than the viewport. */
-    background-image: linear-gradient(to right, var(--surface-ink) 18rem, transparent 18rem);
-  }
-  [dir="rtl"] .org-shell,
-  .org-shell[dir="rtl"] {
-    background-image: linear-gradient(to left, var(--surface-ink) 18rem, transparent 18rem);
+.org-topbar {
+  grid-area: top;
+  position: sticky;
+  inset-block-start: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  block-size: 56px;
+  padding-inline: 0.375rem 0.5rem;
+  background: var(--surface-ink);
+  color: #fff;
+}
+.org-topbar__icon {
+  display: grid;
+  flex-shrink: 0;
+  place-items: center;
+  inline-size: 44px;
+  block-size: 44px;
+  border-radius: var(--radius-control);
+  color: rgb(255 255 255 / 0.85);
+}
+.org-topbar__icon:hover {
+  background: rgb(255 255 255 / 0.08);
+  color: #fff;
+}
+.org-topbar__title {
+  flex: 1;
+  min-inline-size: 0;
+  overflow: hidden;
+  font-size: var(--text-body);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.org-topbar__chips {
+  display: none;
+  flex-shrink: 0;
+}
+@media (min-width: 640px) {
+  .org-topbar__chips {
+    display: inline-flex;
   }
 }
 
 .org-rail {
-  position: relative;
-  isolation: isolate;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  grid-template-areas:
-    "brand controls"
-    "context context"
-    "nav nav";
-  align-items: center;
+  grid-area: nav;
+  position: sticky;
+  inset-block-start: 56px;
+  z-index: 29;
   background: var(--surface-ink);
   color: #fff;
+  border-block-end: 1px solid rgb(255 255 255 / 0.08);
 }
-.org-rail::after {
-  /* A single gradient hairline closes the rail: bottom on mobile, inline-end on desktop. */
-  content: "";
-  position: absolute;
-  inset-inline: 0;
-  inset-block-end: 0;
-  block-size: 1px;
-  background: linear-gradient(90deg, rgb(255 151 255 / 0.55), rgb(61 53 223 / 0.55) 30%, rgb(255 255 255 / 0.06) 60%);
-  pointer-events: none;
-}
-.org-rail__brand {
-  grid-area: brand;
-  min-inline-size: 0;
-}
-.org-rail__controls {
-  grid-area: controls;
-}
-.org-rail__context {
-  grid-area: context;
-  min-inline-size: 0;
-}
-.org-rail__nav {
-  grid-area: nav;
-  min-inline-size: 0;
+.org-rail__brand,
+.org-rail__event,
+.org-rail__account {
+  display: none;
 }
 
-@media (min-width: 1024px) {
-  .org-rail {
-    position: sticky;
-    inset-block-start: 0;
-    block-size: 100dvh;
-    overflow-y: auto;
-    overscroll-behavior: contain;
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: auto auto minmax(max-content, 1fr) auto;
-    grid-template-areas:
-      "brand"
-      "context"
-      "nav"
-      "controls";
-    align-items: stretch;
-    scrollbar-width: thin;
-    scrollbar-color: rgb(255 255 255 / 0.18) transparent;
-  }
-  .org-rail::after {
-    inset-inline: auto 0;
-    inset-block: 0;
-    inline-size: 1px;
-    block-size: auto;
-    background: linear-gradient(180deg, rgb(255 151 255 / 0.5), rgb(61 53 223 / 0.45) 22%, rgb(255 255 255 / 0.07) 48%);
-  }
-}
-
-/* Focus on ink surfaces uses the warm end of the mark so it stays visible. */
-.org-rail :focus-visible,
-.org-ink :focus-visible {
-  outline: 2px solid var(--aiteb-orchid);
-  outline-offset: 2px;
-}
-
-/* ── Section navigation ────────────────────────────────────────── */
+/* ── Section navigation: a scrolling strip below 1024 px ───────────── */
 .org-nav {
   display: flex;
+  align-items: center;
   gap: 0.25rem;
+  block-size: 44px;
+  padding-inline: 0.5rem 1.5rem;
   overflow-x: auto;
   scrollbar-width: none;
   scroll-padding-inline: 1rem;
+  mask-image: linear-gradient(to right, #000 calc(100% - 1.5rem), transparent);
+}
+[dir="rtl"] .org-nav {
+  mask-image: linear-gradient(to left, #000 calc(100% - 1.5rem), transparent);
 }
 .org-nav::-webkit-scrollbar {
+  display: none;
+}
+.org-nav--single {
+  display: none;
+}
+.org-nav-group {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 0.25rem;
+}
+.org-nav-group + .org-nav-group {
+  margin-inline-start: 0.25rem;
+  padding-inline-start: 0.5rem;
+  border-inline-start: 1px solid rgb(255 255 255 / 0.14);
+}
+.org-nav-group-label,
+.org-nav-icon {
   display: none;
 }
 
@@ -119,9 +127,9 @@
   gap: 0.625rem;
   min-block-size: 44px;
   padding-inline: 0.75rem;
-  border-radius: 10px;
-  color: rgb(255 255 255 / 0.66);
-  font-size: 0.8125rem;
+  border-radius: var(--radius-control);
+  color: rgb(255 255 255 / 0.7);
+  font-size: var(--text-body-sm);
   font-weight: 600;
   white-space: nowrap;
   transition: color 150ms ease, background-color 150ms ease;
@@ -140,75 +148,221 @@
   inset-block-end: 0;
   block-size: 2px;
   border-radius: 2px;
-  background: var(--grad-aiteb);
-}
-.org-nav-index,
-.org-nav-icon {
-  display: none;
+  background: var(--aiteb-orchid);
 }
 
+/* ── Rail from 1024 px ─────────────────────────────────────────────── */
 @media (min-width: 1024px) {
-  .org-nav {
+  .org-shell {
+    grid-template-columns: 4.5rem minmax(0, 1fr);
+    grid-template-rows: auto 1fr;
+    grid-template-areas: "nav top" "nav main";
+  }
+  .org-topbar {
+    display: none;
+  }
+  .org-topbar--event {
+    display: flex;
+    padding-inline: 1rem;
+  }
+  .org-rail {
+    inset-block-start: 0;
+    align-self: start;
+    display: flex;
     flex-direction: column;
+    block-size: 100dvh;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    border-block-end: 0;
+    border-inline-end: 1px solid rgb(255 255 255 / 0.08);
+    scrollbar-width: thin;
+    scrollbar-color: rgb(255 255 255 / 0.18) transparent;
+  }
+  .org-rail__brand {
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    gap: 0.625rem;
+    block-size: 56px;
+    padding-inline: 0.75rem;
+    font-size: var(--text-body-sm);
+    font-weight: 600;
+  }
+  .org-rail__brand-name {
+    position: absolute;
+    inline-size: 1px;
+    block-size: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .org-nav,
+  .org-nav--single {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.125rem;
+    block-size: auto;
+    padding: 0.5rem;
     overflow: visible;
+    mask-image: none;
+  }
+  .org-nav-group {
+    flex-direction: column;
+    align-items: stretch;
     gap: 0.125rem;
   }
-  .org-nav-link {
-    display: flex;
-    padding-inline: 0.75rem 0.875rem;
-  }
-  .org-nav-link[aria-current="page"] {
-    background: rgb(255 255 255 / 0.08);
-  }
-  .org-nav-link[aria-current="page"]::after {
-    inset-inline: 0 auto;
-    inset-block: 0.7rem;
-    inline-size: 3px;
-    block-size: auto;
-    background: linear-gradient(180deg, var(--aiteb-orchid), var(--aiteb-violet));
-  }
-  .org-nav-index {
-    display: inline-block;
-    min-inline-size: 1.25rem;
-    font-family: var(--font-mono);
-    font-size: 0.6875rem;
-    font-weight: 500;
-    color: rgb(255 255 255 / 0.38);
-  }
-  .org-nav-link[aria-current="page"] .org-nav-index {
-    color: var(--aiteb-orchid);
+  .org-nav-group + .org-nav-group {
+    margin: 0.375rem 0 0;
+    padding: 0.375rem 0 0;
+    border-inline-start: 0;
+    border-block-start: 1px solid rgb(255 255 255 / 0.1);
   }
   .org-nav-icon {
     display: inline-flex;
-    color: rgb(255 255 255 / 0.5);
+    flex-shrink: 0;
+    color: rgb(255 255 255 / 0.55);
+  }
+  .org-nav-link {
+    justify-content: center;
+    min-block-size: 44px;
+    padding-inline: 0;
+  }
+  .org-nav-link[aria-current="page"],
+  .org-nav-link:hover {
+    background: rgb(255 255 255 / 0.08);
   }
   .org-nav-link[aria-current="page"] .org-nav-icon,
   .org-nav-link:hover .org-nav-icon {
     color: #fff;
   }
-  .org-nav-divider {
-    margin-block: 0.5rem;
+  .org-nav-link[aria-current="page"]::after {
+    inset-inline: 0 auto;
+    inset-block: 0.625rem;
+    inline-size: 3px;
+    block-size: auto;
+  }
+  /* Icon rail: the label stays the link's accessible name (and its tooltip), out of sight. */
+  .org-nav-label {
+    position: absolute;
+    inline-size: 1px;
     block-size: 1px;
-    background: rgb(255 255 255 / 0.08);
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .org-rail__account {
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    gap: 0.625rem;
+    block-size: 56px;
+    margin-block-start: auto;
+    padding-inline: 0.75rem 0.25rem;
+    border-block-start: 1px solid rgb(255 255 255 / 0.1);
+  }
+  .org-rail__account-icon,
+  .org-rail__account-text {
+    display: none;
   }
 }
-@media (max-width: 1023.98px) {
-  /* The strip scrolls sideways; fade the inline-end edge so it reads as scrollable. */
-  .org-nav {
-    padding-inline-end: 1.5rem;
-    mask-image: linear-gradient(to right, #000 calc(100% - 1.5rem), transparent);
+
+/* ── Full rail from 1280 px ────────────────────────────────────────── */
+@media (min-width: 1280px) {
+  .org-shell {
+    grid-template-columns: 18rem minmax(0, 1fr);
   }
-  [dir="rtl"] .org-nav {
-    mask-image: linear-gradient(to left, #000 calc(100% - 1.5rem), transparent);
+  .org-topbar--event {
+    display: none;
   }
-  .org-nav-divider {
+  .org-rail__brand {
+    justify-content: flex-start;
+    padding-inline: 1.25rem;
+  }
+  .org-rail__brand-name {
+    position: static;
+    inline-size: auto;
+    block-size: auto;
+    clip-path: none;
+  }
+  .org-rail__event {
+    display: block;
     flex-shrink: 0;
-    align-self: center;
-    inline-size: 1px;
-    block-size: 1.25rem;
-    margin-inline: 0.25rem;
-    background: rgb(255 255 255 / 0.14);
+    padding: 0.25rem 1.25rem 0.75rem;
+    border-block-end: 1px solid rgb(255 255 255 / 0.1);
   }
+  .org-rail__back {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    min-block-size: 36px;
+    color: var(--color-ink-300, rgb(255 255 255 / 0.7));
+    font-size: var(--text-caption);
+    font-weight: 600;
+  }
+  .org-rail__back:hover {
+    color: #fff;
+  }
+  .org-rail__event-name {
+    display: -webkit-box;
+    overflow: hidden;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    font-size: var(--text-body);
+    font-weight: 600;
+    line-height: 1.4;
+    overflow-wrap: anywhere;
+  }
+  .org-nav,
+  .org-nav--single {
+    padding: 0.5rem 0.75rem;
+  }
+  .org-nav-group-label {
+    display: block;
+    padding: 0.375rem 0.75rem 0.25rem;
+    color: rgb(255 255 255 / 0.5);
+    font-size: var(--text-caption);
+    font-weight: 600;
+  }
+  .org-nav-link {
+    justify-content: flex-start;
+    min-block-size: 40px;
+    padding-inline: 0.75rem;
+  }
+  .org-nav-label {
+    position: static;
+    inline-size: auto;
+    block-size: auto;
+    overflow: visible;
+    clip-path: none;
+  }
+  .org-rail__account {
+    justify-content: flex-start;
+    padding-inline: 1rem 0.5rem;
+  }
+  .org-rail__account-icon {
+    display: grid;
+    flex-shrink: 0;
+    place-items: center;
+    inline-size: 2rem;
+    block-size: 2rem;
+    border-radius: 999px;
+    background: rgb(255 255 255 / 0.08);
+    color: var(--aiteb-orchid);
+  }
+  .org-rail__account-text {
+    display: block;
+    flex: 1;
+    min-inline-size: 0;
+    line-height: 1.35;
+  }
+}
+
+/* ── Congress list: a 4 px accent bar instead of artwork ───────────── */
+.org-event-card {
+  border-inline-start: 4px solid var(--event-accent, var(--aiteb-indigo));
 }
 
 /* ── Meters ────────────────────────────────────────────────────── */
@@ -411,6 +565,15 @@
 }
 
 } /* @layer components */
+
+/* The account menu's ⋯ button sits on the ink rail (unlayered, so it wins over the button's utilities). */
+.org-rail__account-menu > button {
+  color: rgb(255 255 255 / 0.8);
+}
+.org-rail__account-menu > button:hover {
+  background: rgb(255 255 255 / 0.08);
+  color: #fff;
+}
 
 /* ── Print: the booth standee alone ──────────────────────────────────
  * index.css hides everything but `.print-pass` when printing. The standee lives inside a dialog whose

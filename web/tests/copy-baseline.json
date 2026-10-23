@@ -79,24 +79,9 @@
     "ternary": 26,
     "persian": 26
   },
-  "src/components/organizer/EventEditDialog.tsx": {
-    "ternary": 17,
-    "persian": 16
-  },
-  "src/components/organizer/eventTiming.ts": {
-    "ternary": 1
-  },
   "src/components/organizer/OperatorFormDialog.tsx": {
     "ternary": 6,
     "persian": 6
-  },
-  "src/components/organizer/OrganizerKeyGate.tsx": {
-    "persian": 8,
-    "ternary": 5,
-    "devTerm": 2
-  },
-  "src/components/organizer/OrganizerMemberSignIn.tsx": {
-    "persian": 1
   },
   "src/components/organizer/ScannerPairingDialog.tsx": {
     "ternary": 41,
@@ -125,14 +110,6 @@
   "src/components/organizer/TimetableImport.tsx": {
     "persian": 43,
     "ternary": 36
-  },
-  "src/components/organizer/useGuardedClose.tsx": {
-    "ternary": 4,
-    "persian": 4
-  },
-  "src/components/organizer/WorkspaceUi.tsx": {
-    "persian": 3,
-    "ternary": 1
   },
   "src/components/public/copy.ts": {
     "ternary": 1
@@ -235,10 +212,6 @@
     "devTerm": 1,
     "checkmark": 6
   },
-  "src/lib/organizerConsole.ts": {
-    "devTerm": 5,
-    "ternary": 2
-  },
   "src/lib/programFiles.ts": {
     "ternary": 3
   },
@@ -293,37 +266,12 @@
     "ternary": 21,
     "persian": 21
   },
-  "src/pages/organizer/EventOverview.tsx": {
-    "ternary": 25,
-    "persian": 25
-  },
-  "src/pages/organizer/EventSectionUi.tsx": {
-    "ternary": 3,
-    "persian": 3
-  },
-  "src/pages/organizer/EventSettingsPanel.tsx": {
-    "ternary": 34,
-    "persian": 34
-  },
   "src/pages/organizer/EventTiers.tsx": {
     "ternary": 28,
     "persian": 28
   },
   "src/pages/OrganizerAnalytics.tsx": {
     "ternary": 2
-  },
-  "src/pages/OrganizerEvents.tsx": {
-    "ternary": 23,
-    "persian": 23,
-    "asciiEllipsis": 1
-  },
-  "src/pages/OrganizerLayout.tsx": {
-    "ternary": 12,
-    "persian": 11
-  },
-  "src/pages/OrganizerMembers.tsx": {
-    "ternary": 4,
-    "persian": 4
   },
   "src/pages/OrganizerPagePreview.tsx": {
     "ternary": 3,
