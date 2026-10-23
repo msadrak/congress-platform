@@ -70,7 +70,7 @@ Branch `ws/ux-<id>` (team2: `ws/team2-ux-<id>`). A phase-1 package starts when t
 | UX-F6 operator shell components | 0 | — | coordinator team | merged (`ws/ux-f6` d245b42) |
 | UX-F7 backend: booth `event_archived`, SMS default texts | 0 | — | coordinator team | merged (`ws/ux-f7` 3940717) |
 | UX-F4 shared ui primitives | 0 | F1 | coordinator team | merged (`ws/ux-f4` 5af511a) |
-| UX-F8 organizer scaffold (`canEdit`, offline, RolePicker) | 0 | F4 | coordinator team | taken (`ws/ux-f8`) |
+| UX-F8 organizer scaffold (`canEdit`, offline, RolePicker) | 0 | F4 | coordinator team | merged (`ws/ux-f8` 5227c74) |
 | UX-SCAN scanner | 1 | F1–F6 | coordinator team | taken (`ws/ux-scan`) |
 | UX-DESK reception desk | 1 | F1–F6 | coordinator team | taken (`ws/ux-desk`) |
 | UX-BOOTH booth panel | 1 | F1–F7 | coordinator team | taken (`ws/ux-booth`) |
