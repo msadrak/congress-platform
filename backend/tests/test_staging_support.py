@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from app.schema_guard import assert_schema_current, expected_revision
 from tests.conftest import TEST_URL
 from tests.helpers import bearer, provision_organizer, publish_page
+from tests.migration_chain import expected_head
 from tests.test_booths import BOOTH_PAYLOAD
 from tests.test_events import EVENT
 from tests.test_page_media import image_bytes, upload
@@ -120,10 +121,11 @@ async def test_schema_guard_accepts_head_and_refuses_anything_else(tmp_path: Pat
         await assert_schema_current(engine)  # the session fixture migrated to head
     finally:
         await engine.dispose()
-    assert expected_revision() == "0029"
+    head = expected_head()  # from the migration files, so merges that add a migration need no edit here
+    assert expected_revision() == head
     missing = create_async_engine(TEST_URL.rsplit("/", 1)[0] + "/postgres")
     try:
-        with pytest.raises(RuntimeError, match="requires 0029"):
+        with pytest.raises(RuntimeError, match=f"requires {head}"):
             await assert_schema_current(missing)
     finally:
         await missing.dispose()
