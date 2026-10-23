@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Annotated
 from zoneinfo import ZoneInfo, available_timezones
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, Depends, Request, Response, status
 from fastapi.concurrency import run_in_threadpool
 from pydantic import (
     AfterValidator,
@@ -23,6 +23,7 @@ from sqlalchemy.exc import IntegrityError
 from app.auth import OrganizerDep
 from app.db import SessionDep
 from app.errors import ApiError, error_responses
+from app.links import follow_event_end
 from app.media import resolve_storage_path
 from app.models import (
     Booth,
@@ -145,7 +146,7 @@ async def owned_event(
         select(Event).where(Event.id == event_id, Event.organizer_id == organizer.id)
     )
     if event is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Event not found")
+        raise ApiError(status.HTTP_404_NOT_FOUND, "EVENT_NOT_FOUND", "Event not found")
     return event
 
 
@@ -199,7 +200,7 @@ def registration_problem(event: Event, now: datetime) -> ApiError | None:
     return None
 
 
-@router.post("", status_code=status.HTTP_201_CREATED)
+@router.post("", status_code=status.HTTP_201_CREATED, responses=error_responses(status.HTTP_409_CONFLICT))
 async def create_event(
     body: EventCreate, organizer: OrganizerDep, session: SessionDep
 ) -> EventOut:
@@ -211,7 +212,7 @@ async def create_event(
         await session.flush()
     except IntegrityError:
         # events.slug is the only unique column a caller can collide on.
-        raise HTTPException(status.HTTP_409_CONFLICT, "Slug already in use") from None
+        raise ApiError(status.HTTP_409_CONFLICT, "EVENT_SLUG_TAKEN", "Slug already in use") from None
     session.add(new_event_page(event.id))
     await session.commit()
     await session.refresh(event)
@@ -232,22 +233,26 @@ async def get_event(event: OwnedEventDep) -> EventOut:
     return EventOut.model_validate(event)
 
 
-@router.patch("/{event_id}", responses=error_responses(status.HTTP_409_CONFLICT))
+@router.patch(
+    "/{event_id}",
+    responses=error_responses(
+        status.HTTP_400_BAD_REQUEST, status.HTTP_404_NOT_FOUND, status.HTTP_409_CONFLICT,
+        status.HTTP_422_UNPROCESSABLE_CONTENT,
+    ),
+)
 async def update_event(
     body: EventUpdate, event: WritableEventDep, session: SessionDep
 ) -> EventOut:
     new_starts = body.starts_at if body.starts_at is not None else event.starts_at
     new_ends = body.ends_at if body.ends_at is not None else event.ends_at
     if new_ends <= new_starts:
-        raise HTTPException(
-            status.HTTP_400_BAD_REQUEST, "ends_at must be after starts_at"
-        )
+        raise ApiError(status.HTTP_400_BAD_REQUEST, "EVENT_TIMES_INVALID", "ends_at must be after starts_at")
     given = body.model_fields_set
     opens_at = body.registration_opens_at if "registration_opens_at" in given else event.registration_opens_at
     closes_at = body.registration_closes_at if "registration_closes_at" in given else event.registration_closes_at
     problem = _window_problem(opens_at, closes_at)
     if problem:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, problem)
+        raise ApiError(status.HTTP_422_UNPROCESSABLE_CONTENT, "REGISTRATION_WINDOW_INVALID", problem)
 
     if body.name is not None:
         event.name = body.name
@@ -257,8 +262,9 @@ async def update_event(
         event.location = body.location
     if body.starts_at is not None:
         event.starts_at = body.starts_at
-    if body.ends_at is not None:
+    if body.ends_at is not None and body.ends_at != event.ends_at:
         event.ends_at = body.ends_at
+        await follow_event_end(session, event.id, body.ends_at)
     if body.timezone is not None:
         event.timezone = body.timezone
     if body.registration_enabled is not None:

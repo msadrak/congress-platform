@@ -1,5 +1,8 @@
 # Local dev: PostgreSQL only (integration tests / backend against port 5433).
-# Data on the host, same layout as deploy/staging/compose.yaml (DrGibi-style).
+# Data on the host in its own folder, CONGRESS_DEV_DATA_ROOT (default ~/congress-dev-data). Never point it at a
+# staging stack's CONGRESS_PERSISTENT_DATA_ROOT (default ~/congress-persistent-data): two PostgreSQL servers on one
+# data directory corrupt it. (Before 2026-10 this file used ~/congress-persistent-data/data/postgres; to keep a dev
+# database from then, move that folder to ~/congress-dev-data/postgres while both are stopped.)
 services:
   postgres:
     image: postgres:16-alpine
@@ -11,7 +14,7 @@ services:
       # Loopback only: the password above is public, so the database must not be reachable from the network.
       - "127.0.0.1:5433:5432"
     volumes:
-      - ${CONGRESS_PERSISTENT_DATA_ROOT:-${HOME}/congress-persistent-data}/data/postgres:/var/lib/postgresql/data
+      - ${CONGRESS_DEV_DATA_ROOT:-${HOME}/congress-dev-data}/postgres:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U congress"]
       interval: 2s

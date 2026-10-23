@@ -11,7 +11,7 @@ from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Query, Request, status
 from pydantic import BaseModel, Field
-from sqlalchemy import exists, func, or_, select
+from sqlalchemy import exists, func, or_, select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import require_platform_admin
@@ -21,9 +21,9 @@ from app.links import SAMPLE_CODE
 from app.models import Booth, BoothStaff, DeskOperator, ShortLink, SmsMessage, Ticket, TicketTier, User
 from app.platform_config import platform_config
 from app.rate_limit import DAY_SECONDS, LONGEST_WINDOW_SECONDS, Budget, limiter
-from app.routes.events import OwnedEventDep
+from app.routes.events import OwnedEventDep, WritableEventDep
 from app.sms import SmsGateway, sms_provider
-from app.sms.outbox import confirmation_values, link_origin
+from app.sms.outbox import NOT_SENT_REASONS, confirmation_values, link_origin
 from app.sms.phone import IranMobile, mask_mobile
 from app.sms.templates import (
     EVENT_KINDS,
@@ -120,7 +120,8 @@ def _message_out(m: SmsMessage, link_opened_at: datetime | None) -> SmsMessageOu
         id=m.id, kind=m.kind, mobile=mask_mobile(m.mobile), body=m.body, status=m.status,
         attempts=m.attempts, last_error=m.last_error, created_at=m.created_at, sent_at=m.sent_at,
         link_opened_at=link_opened_at,
-        can_retry=requeueable and m.status in ("failed", "unknown"),
+        # Not sent on purpose (account deleted, ticket cancelled, pass revoked): a retry would be refused again.
+        can_retry=requeueable and m.status in ("failed", "unknown") and m.last_error not in NOT_SENT_REASONS,
         can_resolve=m.status == "unknown",
     )
 
@@ -182,9 +183,9 @@ async def get_sms_panel(event: OwnedEventDep, request: Request, session: Session
     )
 
 
-@router.put("/api/events/{event_id}/sms/templates/{kind}", responses=error_responses(422))
+@router.put("/api/events/{event_id}/sms/templates/{kind}", responses=error_responses(409, 422))
 async def update_event_template(
-    event: OwnedEventDep, kind: EventKind, body: SmsTemplateUpdate, session: SessionDep
+    event: WritableEventDep, kind: EventKind, body: SmsTemplateUpdate, session: SessionDep
 ) -> SmsTemplateOut:
     try:
         text = validate_body(kind, body.body)
@@ -195,17 +196,17 @@ async def update_event_template(
     return await _event_template(session, kind, event.id)
 
 
-@router.delete("/api/events/{event_id}/sms/templates/{kind}")
-async def reset_event_template(event: OwnedEventDep, kind: EventKind, session: SessionDep) -> SmsTemplateOut:
+@router.delete("/api/events/{event_id}/sms/templates/{kind}", responses=error_responses(409))
+async def reset_event_template(event: WritableEventDep, kind: EventKind, session: SessionDep) -> SmsTemplateOut:
     """Back to the platform wording."""
     await delete_body(session, kind, event.id)
     await session.commit()
     return await _event_template(session, kind, event.id)
 
 
-@router.post("/api/events/{event_id}/sms/test", responses=error_responses(403, 422, 429))
+@router.post("/api/events/{event_id}/sms/test", responses=error_responses(403, 409, 422, 429))
 async def send_test_sms(
-    event: OwnedEventDep,
+    event: WritableEventDep,
     body: SmsTestRequest,
     request: Request,
     session: SessionDep,
@@ -254,24 +255,33 @@ async def send_test_sms(
     return SmsTestOut(status=outcome, text=text, error=result.error, test_mode=test_mode)
 
 
-@router.get("/api/events/{event_id}/sms/messages")
+@router.get("/api/events/{event_id}/sms/messages", responses=error_responses(400))
 async def list_event_sms(
     event: OwnedEventDep,
     session: SessionDep,
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
+    before: Annotated[uuid.UUID | None, Query()] = None,
 ) -> list[SmsMessageOut]:
-    """Newest first. Numbers are masked; the attendee list and CSV export carry the full numbers."""
+    """Newest first, `limit` at a time. For older messages pass `before` = the id of the last message of the
+    previous page; a page shorter than `limit` is the last one. Numbers are masked; the attendee list and CSV
+    export carry the full numbers."""
     link_opened_at = (
         select(func.min(ShortLink.first_opened_at))
         .where(ShortLink.ticket_id == SmsMessage.ticket_id)
         .correlate(SmsMessage)
         .scalar_subquery()
     )
+    query = select(SmsMessage, link_opened_at).where(SmsMessage.event_id == event.id)
+    if before is not None:
+        anchor = await session.scalar(
+            select(SmsMessage.created_at).where(SmsMessage.id == before, SmsMessage.event_id == event.id)
+        )
+        if anchor is None:
+            raise ApiError(status.HTTP_400_BAD_REQUEST, "CURSOR_INVALID", "Invalid page cursor")
+        # Messages queued in one transaction share a timestamp: the id breaks the tie, so no page loses one.
+        query = query.where(tuple_(SmsMessage.created_at, SmsMessage.id) < tuple_(anchor, before))
     rows = await session.execute(
-        select(SmsMessage, link_opened_at)
-        .where(SmsMessage.event_id == event.id)
-        .order_by(SmsMessage.created_at.desc())
-        .limit(limit)
+        query.order_by(SmsMessage.created_at.desc(), SmsMessage.id.desc()).limit(limit)
     )
     return [_message_out(m, opened) for m, opened in rows]
 
@@ -296,7 +306,7 @@ async def _opened_at(session: AsyncSession, message: SmsMessage) -> datetime | N
 
 @router.post("/api/events/{event_id}/sms/messages/{message_id}/retry", responses=error_responses(404, 409))
 async def retry_event_sms(
-    event: OwnedEventDep, message_id: uuid.UUID, body: SmsRetryRequest, session: SessionDep
+    event: WritableEventDep, message_id: uuid.UUID, body: SmsRetryRequest, session: SessionDep
 ) -> SmsMessageOut:
     """Queue a failed (or, confirmed, an unknown) notice again; the outbox sends it with a fresh set of attempts."""
     message = await _event_message(session, event.id, message_id)
@@ -321,7 +331,7 @@ async def retry_event_sms(
 
 
 @router.post("/api/events/{event_id}/sms/messages/{message_id}/resolve", responses=error_responses(404, 409))
-async def resolve_event_sms(event: OwnedEventDep, message_id: uuid.UUID, session: SessionDep) -> SmsMessageOut:
+async def resolve_event_sms(event: WritableEventDep, message_id: uuid.UUID, session: SessionDep) -> SmsMessageOut:
     """Settle a message whose delivery is unknown (e.g. the attendee confirmed it arrived); it is never resent."""
     message = await _event_message(session, event.id, message_id)
     if message.status != "unknown":

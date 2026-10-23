@@ -36,7 +36,11 @@ node scripts/staging/stack.mjs up       # builds both images, migrates, starts, 
 node scripts/staging/stack.mjs ca       # exports Caddy's local root CA to .staging\caddy-root.crt
 ```
 
-`init` generates `POSTGRES_PASSWORD`, `CONGRESS_PLATFORM_ADMIN_TOKEN`, `CONGRESS_JWT_SECRET` and `CONGRESS_METRICS_TOKEN`.
+`init` generates `POSTGRES_PASSWORD`, `CONGRESS_PLATFORM_ADMIN_TOKEN`, `CONGRESS_JWT_SECRET`, `CONGRESS_SECRET_BOX_KEY` (distinct from the JWT secret) and `CONGRESS_METRICS_TOKEN`. It never overwrites an existing `.staging/staging.env`; on an install made before the secret-box key existed, `node scripts/staging/stack.mjs init --add-missing` adds that key only (credentials sealed before keep opening; nothing that is set is replaced), then `stack.mjs start`. A missing database password, JWT secret or admin token is reported, never generated: a new one would lock out the existing database or every session.
+
+`init` puts the data under `~/congress-persistent-data` (or `$CONGRESS_PERSISTENT_DATA_ROOT` if set while it runs) and warns when that folder already holds a PostgreSQL data directory or other containers mount it. The root `docker-compose.yml` development database uses its own folder, `~/congress-dev-data` (`CONGRESS_DEV_DATA_ROOT`); before 2026-10 both defaulted to `~/congress-persistent-data/data/postgres`, so a machine that ran both may have one database under both names: stop both, keep the staging folder, and move nothing while either runs.
+
+**Every API setting** of `backend/app/config.py` is forwarded by `deploy/staging/compose.yaml` and documented in both env templates (`scripts/staging/stack.test.mjs` fails otherwise). An empty value means "unset": the API applies its documented default.
 
 **Trusting the local CA (optional).** The certificate is issued by Caddy's internal CA. To remove browser warnings for your own Windows user only:
 
@@ -91,9 +95,9 @@ With `BACKUP_WAL=on`, always go through `stack.mjs` (or add `-f deploy/staging/c
 **Logs.**
 - JSON-file driver, rotated at 10 MB × 5 per service.
 - The API writes one JSON object per line in staging/production (`CONGRESS_LOG_FORMAT=text` for human-readable lines; `text` is the development default): `ts`, `level`, `logger`, `msg`, the access fields (`client`, `method`, `path`, `status`), and `request_id` on every line written while a request is handled.
-- Every response carries `X-Request-ID`: a well-formed incoming id (8–128 characters of `A-Za-z0-9._:-`) is kept, anything else replaced. Ask users or clients for that header value and search the API log for it.
+- Every response carries `X-Request-ID`: a well-formed incoming id (8–128 characters of `A-Za-z0-9._:-`) is kept, anything else replaced. Caddy decides it first (otherwise its own request uuid), passes it to the API and records it as `request_id` in its access log, so even a 502 that Caddy answers while the API is down has one. Ask users or clients for that header value and search both logs for it.
 - The access log leaves out `/api/health` and `/api/ready` and never records query strings. The API never logs credentials.
-- Caddy access logs drop `Authorization`, `X-Admin-Token` and the scanner `?token=` query, and log SMS pass links as `/t/-` (logger `short_links`), never with their code.
+- Caddy access logs drop `Authorization`, `X-Admin-Token`, `Referer` and the scanner `?token=` query, and log SMS pass links as `/t/-` (logger `short_links`), never with their code. Pages whose URL holds a credential (`/t/<code>`, `/scan/<point>?token=…`) are served with `Referrer-Policy: no-referrer`, so the browser does not repeat that URL to anyone. `node scripts/ci/validate-caddyfile.mjs` (CI) proves both with a live probe.
 
 **SMS budgets** (shared by every API process through PostgreSQL; defaults in `backend/app/config.py`):
 - Platform caps per hour/day (`CONGRESS_SMS_HOURLY_CAP` 2000, `CONGRESS_SMS_DAILY_CAP` 20000, or the console). `CONGRESS_SMS_OTP_RESERVE_PERCENT` (20) of each cap is kept for sign-in codes: ticket notices, invites, desk resends and test sends stop at the rest (queued notices wait and go out later), so a burst of notices never stops people signing in.
@@ -150,7 +154,23 @@ node scripts/staging/stack.mjs check     # exit 0 OK, 1 warning, 2 critical
 | More than 10 WAL segments waiting to be archived | WARNING |
 | No base backup recorded yet | WARNING |
 | Last base backup failed, or older than `BACKUP_WAL_MAX_AGE_HOURS` (26) | CRITICAL |
+| SMS not configured (no sms.ir key/line), or test mode (`console`) in production | CRITICAL |
+| Queued SMS waiting longer than `ALERT_SMS_LAG_MINUTES` (10) / `ALERT_SMS_LAG_CRITICAL_MINUTES` (30) | WARNING / CRITICAL |
+| Failed + unconfirmed SMS above `ALERT_SMS_FAILED_MAX` (0): the organizer must retry or resolve them (SMS log) | WARNING |
+| Platform SMS cap at 80 % / reached (sign-in codes refused); cap refusals in the API log in the last 15 min | WARNING / CRITICAL; WARNING |
+| Certificate expiring in under `ALERT_CERT_WARN_DAYS` (14) / 3 days or expired: Caddy's ACME certificate (read on `127.0.0.1:CONGRESS_HTTPS_PORT`), or the CDN's when `CONGRESS_CDN=on`; skipped for Caddy's local CA | WARNING / CRITICAL |
+| Linux: system clock not NTP-synchronised (`timedatectl`) | WARNING |
 | The check itself crashed (for example Docker not answering) | CRITICAL |
+
+The SMS figures come from `/api/platform/sms/outbox` and `/api/platform/sms`, read inside the API container with its own admin token (never through the proxy).
+
+**External heartbeat (dead man's switch).** `check` cannot report that the server, Docker or the timer itself died. Two free, independent checks close that gap:
+1. An **external uptime check** of `https://<domain>/api/ready` every 1–5 minutes (UptimeRobot, Better Stack, healthchecks.io, or Uptime Kuma on another machine). It alerts when the site is unreachable from outside, including DNS, certificate and CDN problems. Point it at the public domain, not the server's IP.
+2. A **push heartbeat**: set `ALERT_HEARTBEAT_URL` (for example a healthchecks.io check's `https://hc-ping.com/<uuid>`, or an Uptime Kuma push monitor) in `/etc/congress/backup.env`. `check` requests it after every run that found nothing critical (warnings still ping: they are already alerted on Telegram). Give the check a period of 5 minutes and a grace of 10: when the pings stop (server down, Docker hung, timer broken, or a critical problem lasting), that service alerts by e-mail/Telegram. The URL is not printed (only its host).
+
+**Certificates and the clock (Linux server).**
+- ACME: Caddy renews Let's Encrypt/ZeroSSL certificates about 30 days before expiry; `check` warns at 14 days, so a warning means renewal has been failing for two weeks (`stack.mjs logs web`, look for `acme`/`tls`; ports 80 and 443 must reach the server, or outbound HTTPS to the CA must work through the proxy). By hand: `echo | openssl s_client -connect 127.0.0.1:443 -servername <domain> 2>/dev/null | openssl x509 -noout -enddate`.
+- NTP: scan times, sign-in code lifetimes, token expiry and backups all rely on the clock. Enable it once with `sudo timedatectl set-ntp true` and confirm `timedatectl` shows `System clock synchronized: yes` (where public NTP is blocked, point `/etc/systemd/timesyncd.conf` `NTP=` at the provider's server). `check` warns when it is not synchronised.
 
 **Telegram alerts.** With `ALERT_TELEGRAM_BOT_TOKEN` and `ALERT_TELEGRAM_CHAT_ID` set, `check` sends:
 - one message when a warning/critical problem appears or changes (numbers are ignored when comparing, so "23 of 400" and "24 of 410" are the same problem);
@@ -176,6 +196,14 @@ The `congress-check.timer` runs `check` every 5 minutes; exits 1 and 2 count as 
 | `congress_sms_messages{kind,status}` | SMS delivery log by kind and status (from the database) |
 | `congress_sms_outbox_due`, `congress_sms_outbox_lag_seconds` | Queued SMS whose send time has passed, and the age of the oldest |
 | `congress_database_up` | 1 when the scrape-time database queries succeeded |
+| `congress_otp_requests_total{step,purpose,outcome}` | Sign-in code requests (`step=request`) and code checks (`step=verify`) by purpose (`signin`, `desk`, `organizer`) and outcome (`ok`, `rate_limited` = 429, `rejected`, `error`) |
+| `congress_sms_cap_sent{window}`, `congress_sms_cap_limit{window}` | SMS counted against the platform cap in the rolling `hour`/`day`, and the cap (0 = none); from the shared counters at scrape time |
+| `congress_rate_limiter_degraded_total` | Times the shared rate-limit counters could not be reached and this process fell back to in-memory limits |
+| `congress_db_pool_checked_out`, `congress_db_pool_size`, `congress_db_pool_overflow`, `congress_db_pool_capacity` | Database connections in use, the pool's size and overflow in use, and the most this process may open (`DB_POOL_SIZE + DB_MAX_OVERFLOW`) |
+| `congress_retention_last_success_timestamp_seconds`, `congress_retention_runs_total{outcome}` | When the retention job last completed a pass (0 = not yet since start), and passes by `ok`/`failed` |
+| `congress_scanner_requests_total{kind,status}` | Scanner device traffic by kind (`manifest`, `scan`, `batch`, `heartbeat`, `other`) and HTTP status, from the route templates under `/api/checkin-points/{point_id}/…` |
+
+**Alert rules.** [`deploy/monitoring/alerts.yml`](../../deploy/monitoring/alerts.yml) holds example Prometheus rules for these metrics (API down, 5xx rate, slow requests, SMS outbox lag and failures, SMS caps, OTP 429 surges, limiter fallback, pool saturation, retention stalled, scanners silent after earlier traffic). Load it with `rule_files: [alerts.yml]` in your Prometheus and route the alerts through Alertmanager (Telegram receiver); thresholds are starting points for a single-server congress and should be tuned after the first event. `promtool check rules deploy/monitoring/alerts.yml` validates it.
 
 Database-derived values are read at scrape time, so they survive restarts. The HTTP counters are per process and restart at zero.
 
@@ -190,6 +218,7 @@ node scripts/staging/stack.mjs rollback <sha>      # to a given kept release (un
 ```
 
 - Every `up` tags the API and web images it built with the commit's short SHA (`congress-platform/api:<sha>`, `…/web:<sha>`) beside the alias the services run (`CONGRESS_IMAGE_TAG`). Uncommitted or untracked files make the release `<sha>-dirty-<time>`. The last **5** releases are kept in `.staging/releases.json`; older tags are removed.
+- The same release id is built into the web bundle as the `CONGRESS_APP_BUILD` build argument (`deploy/staging/compose.yaml` → `deploy/web/Dockerfile`), so the scanner can show which build it runs and the organizer dashboard can warn when devices run an older one. `up` sets it; a plain `docker compose build` leaves it empty. A `rollback` brings back the older image together with its own build id.
 - `rollback` re-points the alias at the older images and restarts `api` and `web` only. It **never runs migrations and never downgrades the database.** The older API starts only if the schema guard accepts the database: same revision, or ahead by `backward_compatible = True` migrations only. If it refuses, `rollback` prints the API log, puts the previous images back and restarts them.
 - After a rollback, `stack.mjs start` or a later `up` runs the older `migrate` image; `schema_guard migrate` sees the database ahead by compatible migrations and leaves it alone.
 - To return to the newer release: `stack.mjs rollback <newer sha>` (the command prints it).
@@ -296,7 +325,7 @@ node scripts/staging/stack.mjs restore-verify staging-<timestamp> --from-offsite
 **What a backup contains:**
 - `db.dump` — `pg_dump -Fc` (taken first);
 - `media.tar.gz` — the whole media directory, read-only mount;
-- `manifest.json` — Alembic revision, row counts, published slugs, per-file and per-image SHA-256. A backup in which any image the database references is missing from the archive is reported as failed.
+- `manifest.json` — Alembic revision, row counts of **every** table (new tables are covered automatically), published slugs, per-file and per-media-file SHA-256. The counts, the slugs and the list of referenced files are read in the very snapshot `pg_dump` dumps (an exported REPEATABLE READ snapshot), so they agree with the dump even while attendees register or scan. A backup in which any file the database references (every `storage_key` column: page images, program files) is missing from the archive is reported as failed.
 
 **`scheduled-backup`** (what the timer runs):
 1. Takes the backup above.
@@ -314,8 +343,9 @@ Off-host credentials travel as environment variables of the docker client, never
 - Checks the files' SHA-256 against the manifest.
 - Creates a *new* project `congress-restore-<random>` with its own data folder under `.staging/restores/` and no published ports.
 - Restores both the database and the media into it.
-- Starts the normal `migrate` → `api` path.
-- Compares every count and every image checksum, and fetches each published page and image through the restored API.
+- Compares every table's row count with the manifest before the API starts.
+- Starts the normal `migrate` → `api` path, with the SMS outbox and the retention job switched off (`CONGRESS_SMS_OUTBOX_ENABLED=false`, `CONGRESS_RETENTION_ENABLED=false`), so a drill never re-sends the copy's queued SMS to attendees. `pitr-restore` does the same.
+- Compares every media checksum, and fetches each published page and image through the restored API.
 - Removes only that disposable project (`--keep` leaves it for inspection).
 
 With `--from-offsite` it first downloads and decrypts the off-host copy into a throw-away folder, so it proves the bucket copy and the key, not just the local files. Drill result (ws/a3-ops): passed.
@@ -436,6 +466,8 @@ Application settings live in `.staging/staging.env`. `BACKUP_*` and `ALERT_*` ma
 | `CONGRESS_METRICS_TOKEN` | empty (generated by `init`) | Bearer token for `/api/metrics`; empty = endpoint disabled |
 | `CONGRESS_METRICS_ALLOW` | `private_ranges` (hosted template: `127.0.0.1/32`) | Client ranges Caddy lets reach `/api/metrics` |
 | `CONGRESS_SENTRY_DSN` | empty | Sentry/GlitchTip DSN; empty = off |
+| `CONGRESS_SECRET_BOX_KEY` | generated by `init` | Encrypts credentials stored in the database; `init --add-missing` adds it to an older install |
+| other `CONGRESS_*` API settings | empty = API default | Pool, SMS, sign-in, retention and upload limits: every one is listed with its default in `deploy/staging/.env.staging.example` |
 | `CONGRESS_STACK_PROJECT` | `congress-staging` | Compose project `stack.mjs` acts on |
 | `CONGRESS_OPS_ENV_FILE` | `/etc/congress/backup.env` | Separate file for `BACKUP_*`/`ALERT_*` |
 | `CONGRESS_SYSTEMD_DIR` | `/etc/systemd/system` | Where `install-timers`/`event-mode` write |
@@ -456,6 +488,35 @@ Application settings live in `.staging/staging.env`. `BACKUP_*` and `ALERT_*` ma
 | `ALERT_TELEGRAM_BOT_TOKEN`, `ALERT_TELEGRAM_CHAT_ID` | — | Enable Telegram alerts from `check` |
 | `ALERT_TELEGRAM_API` | `https://api.telegram.org` | Bot API base URL (a relay where Telegram is blocked) |
 | `ALERT_REPEAT_HOURS` | 6 | Reminder interval while a problem lasts |
+| `ALERT_HEARTBEAT_URL` | — | Requested by `check` after every run without a critical finding (push heartbeat, see *Health check and alerts*) |
+| `ALERT_SMS_LAG_MINUTES` / `ALERT_SMS_LAG_CRITICAL_MINUTES` | 10 / 30 | Queued-SMS wait that makes `check` warn / go critical |
+| `ALERT_SMS_FAILED_MAX` | 0 | Failed + unconfirmed SMS tolerated before `check` warns |
+| `ALERT_CERT_WARN_DAYS` | 14 | Certificate days left below which `check` warns (critical under 3) |
+| `CONGRESS_DEV_DATA_ROOT` | `~/congress-dev-data` | Data folder of the root `docker-compose.yml` development database (never the staging folder) |
+
+## Data retention
+
+Each API process removes personal data and bookkeeping it no longer needs once an hour (`backend/app/retention.py`). Messages still to be sent are never touched. The defaults below apply unless the variable is passed to the `api` service (compose does not pass them today; add a line under `api.environment` to change one).
+
+| Variable | Default | What happens |
+|---|---|---|
+| `CONGRESS_RETENTION_ENABLED` | `true` | `false` stops the hourly pass |
+| `CONGRESS_RETENTION_INTERVAL_SECONDS` | 3600 | Time between passes |
+| `CONGRESS_OTP_RETENTION_HOURS` | 24 | Used or expired sign-in codes (`otp_challenges`) are deleted |
+| `CONGRESS_SMS_BODY_RETENTION_DAYS` | 30 | The text of sent SMS is cleared (the delivery log keeps who, when, status) |
+| `CONGRESS_OTP_SMS_LOG_RETENTION_DAYS` | 30 | Delivery-log rows of sign-in codes (`sms_messages`, kind `otp`) are deleted |
+| `CONGRESS_SMS_MOBILE_RETENTION_DAYS` | 90 | Every other delivery-log row keeps only a masked number (`0912***4567`) |
+| `CONGRESS_SHORT_LINK_GRACE_DAYS` | 30 | SMS pass links are deleted this long after they expired (a link expires 30 days after its congress ends; afterwards it answers "not found" instead of "expired") |
+| — | — | Expired walk-in `Idempotency-Key`s and expired rate-limit counters are deleted |
+| `CONGRESS_AUDIT_RETENTION_DAYS` | unset (keep forever) | See below; at least 180 |
+
+**Audit log.** How long to keep `audit_events` is an open product decision, so nothing purges it by default, and the hourly pass never does. The table is append-only (a trigger refuses UPDATE and DELETE). When a retention period is decided, an operator purges older entries explicitly, with the table owner's database role (the role the migrations ran as; on this stack the API's own `congress` role):
+
+```bash
+docker compose -p congress-staging exec -e CONGRESS_AUDIT_RETENTION_DAYS=730 api python -m app.retention purge-audit
+```
+
+It refuses to run without `CONGRESS_AUDIT_RETENTION_DAYS`, disables the trigger only inside its own transaction (other sessions wait on the table lock and never see it off), and records itself as an `audit.purged` entry. Take a backup first; deleted entries come back only from a backup.
 
 ## Moving to a real domain (Linux VPS)
 

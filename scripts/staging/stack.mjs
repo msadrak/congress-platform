@@ -2,7 +2,8 @@
 /**
  * Congress Platform staging operations (Windows PowerShell, macOS and Linux alike):
  *
- *   node scripts/staging/stack.mjs init               generate .staging/staging.env (never overwrites)
+ *   node scripts/staging/stack.mjs init [--add-missing]  generate .staging/staging.env (never overwrites; --add-missing adds
+ *                                                     generated secrets an older file lacks, e.g. CONGRESS_SECRET_BOX_KEY)
  *   node scripts/staging/stack.mjs up                 build images (tagged with the commit too), migrate, start, wait until
  *                                                     healthy; keeps the last 5 releases' images for rollback
  *   node scripts/staging/stack.mjs releases           deployed releases (newest first) and the current one
@@ -31,8 +32,10 @@
  *                                                     systemd timers for backups, base backups and the health check
  *   node scripts/staging/stack.mjs event-mode on|off|status [--dry-run]
  *                                                     hourly backups during a live congress (systemd drop-in)
- *   node scripts/staging/stack.mjs check              operator health check (exit 0 ok, 1 warning, 2 critical);
- *                                                     Telegram alert/recovery message when ALERT_TELEGRAM_* is set
+ *   node scripts/staging/stack.mjs check              operator health check (exit 0 ok, 1 warning, 2 critical): containers,
+ *                                                     readiness, errors, disk, backups, WAL, SMS delivery, certificate,
+ *                                                     clock; Telegram alert/recovery message when ALERT_TELEGRAM_* is set,
+ *                                                     ALERT_HEARTBEAT_URL pinged when nothing is critical
  *   node scripts/staging/stack.mjs metrics            the API's Prometheus metrics, read inside the API container
  *   node scripts/staging/stack.mjs organizer list | create <name> | rotate <id> | revoke <id>
  *                                                     platform administration from inside the API container
@@ -50,6 +53,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import https from 'node:https';
+import tls from 'node:tls';
 import { isIP } from 'node:net';
 import { homedir, hostname, networkInterfaces, userInfo } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -145,20 +149,88 @@ function requireEnv() {
   if (!existsSync(ENV_FILE)) throw new Error(`Missing ${ENV_FILE}. Run: node scripts/staging/stack.mjs init`);
 }
 
-function init() {
-  mkdirSync(STATE, { recursive: true });
-  if (existsSync(ENV_FILE)) return say(`${ENV_FILE} already exists; left unchanged.`);
-  const template = readFileSync(join(root, 'deploy/staging/.env.staging.example'), 'utf8');
-  const values = {
+/** Secrets `init` generates for a new install (one call = one fresh set). */
+export function freshSecrets() {
+  const jwt = randomBytes(32).toString('hex');
+  let box;
+  do box = randomBytes(32).toString('hex'); while (box === jwt);
+  return {
     POSTGRES_PASSWORD: randomBytes(24).toString('hex'),
     CONGRESS_PLATFORM_ADMIN_TOKEN: randomBytes(32).toString('base64url'),
-    CONGRESS_JWT_SECRET: randomBytes(32).toString('hex'),
+    CONGRESS_JWT_SECRET: jwt,
+    CONGRESS_SECRET_BOX_KEY: box,
     CONGRESS_METRICS_TOKEN: randomBytes(32).toString('base64url'),
-    CONGRESS_PERSISTENT_DATA_ROOT: join(homedir(), 'congress-persistent-data'),
   };
-  const env = template.replace(/^(POSTGRES_PASSWORD|CONGRESS_PLATFORM_ADMIN_TOKEN|CONGRESS_JWT_SECRET|CONGRESS_METRICS_TOKEN|CONGRESS_PERSISTENT_DATA_ROOT)=.*$/gm, (_, k) => `${k}=${values[k]}`);
-  writeFileSync(ENV_FILE, env, { mode: 0o600 });
+}
+
+/** The template with every generated value filled in (the KEY=... line replaced, the rest kept). */
+export function fillTemplate(template, values) {
+  return Object.entries(values).reduce((text, [key, value]) => text.replace(new RegExp(`^${key}=.*$`, 'm'), () => `${key}=${value}`), template);
+}
+
+/**
+ * For an existing .staging/staging.env: secrets that can be added safely (missing or blank) and problems that need a
+ * person. Nothing that is set is ever replaced. Only the secret-box key may be added later without side effects
+ * (values sealed before keep opening; app/secret_box.py). A missing database password, JWT secret or admin token on
+ * an existing install is not generated: a new one would lock out the database or every session.
+ */
+export function missingSecrets(env) {
+  const blank = (k) => !String(env[k] ?? '').trim();
+  const add = {};
+  if (blank('CONGRESS_SECRET_BOX_KEY')) {
+    let box;
+    do box = randomBytes(32).toString('hex'); while (box === env.CONGRESS_JWT_SECRET);
+    add.CONGRESS_SECRET_BOX_KEY = box;
+  }
+  const problems = ['POSTGRES_PASSWORD', 'CONGRESS_PLATFORM_ADMIN_TOKEN', 'CONGRESS_JWT_SECRET'].filter(blank)
+    .map((k) => `${k} is not set; set it by hand (a generated one would not match the existing database or sessions)`);
+  if (!blank('CONGRESS_SECRET_BOX_KEY') && env.CONGRESS_SECRET_BOX_KEY === env.CONGRESS_JWT_SECRET) {
+    problems.push('CONGRESS_SECRET_BOX_KEY equals CONGRESS_JWT_SECRET; the API refuses to start. Remove the line and run: stack.mjs init --add-missing');
+  }
+  return { add, problems };
+}
+
+/** Docker containers (any project) whose mounts include `dir`, as "name (status)". */
+function containersUsing(dir) {
+  const ids = run('docker', ['ps', '-aq'], { allowFail: true }).stdout.split(/\s+/).filter(Boolean);
+  if (!ids.length) return [];
+  const out = run('docker', ['inspect', '--format', '{{.Name}}|{{.State.Status}}|{{range .Mounts}}{{.Source}};{{end}}', ...ids], { allowFail: true }).stdout;
+  return out.split('\n').filter(Boolean).flatMap((line) => {
+    const [name, state, mounts] = line.split('|');
+    // Docker Desktop may report host paths under /host_mnt.
+    return mounts.split(';').some((m) => m && (m === dir || m.endsWith(dir) || m.startsWith(`${dir}/`))) ? [`${name.replace(/^\//, '')} (${state})`] : [];
+  });
+}
+
+/** Warnings when the data folder already holds a database or another stack's containers use it. */
+export function dataDirWarnings(paths, users = containersUsing(paths.postgres)) {
+  const warnings = [];
+  const pgEntries = existsSync(paths.postgres) ? readdirSync(paths.postgres) : [];
+  if (pgEntries.length) warnings.push(`${paths.postgres} already holds a PostgreSQL data directory: this stack would start on that database (with its own password), not an empty one.`);
+  if (users.length) warnings.push(`containers already use it: ${users.join(', ')}. Two PostgreSQL servers on one data directory corrupt it.`);
+  return warnings;
+}
+
+function init(args = []) {
+  mkdirSync(STATE, { recursive: true });
+  if (existsSync(ENV_FILE)) {
+    const { add, problems } = missingSecrets(parseEnvFile(ENV_FILE));
+    for (const p of problems) say(`  PROBLEM: ${p}`);
+    if (!Object.keys(add).length) return say(`${ENV_FILE} already exists and has every generated secret; left unchanged.`);
+    if (!args.includes('--add-missing')) {
+      return say(`${ENV_FILE} already exists; left unchanged. Missing: ${Object.keys(add).join(', ')}. Add ${Object.keys(add).length > 1 ? 'them' : 'it'} (nothing set is replaced): node scripts/staging/stack.mjs init --add-missing`);
+    }
+    setEnvValues(add);
+    return say(`Added ${Object.keys(add).join(', ')} to ${ENV_FILE} (values not printed). Apply with: node scripts/staging/stack.mjs start`);
+  }
+  const template = readFileSync(join(root, 'deploy/staging/.env.staging.example'), 'utf8');
+  // CONGRESS_PERSISTENT_DATA_ROOT set while running init chooses the folder (a second stack, a drill, a server path).
+  const dataRoot = process.env.CONGRESS_PERSISTENT_DATA_ROOT?.trim() || join(homedir(), 'congress-persistent-data');
+  writeFileSync(ENV_FILE, fillTemplate(template, { ...freshSecrets(), CONGRESS_PERSISTENT_DATA_ROOT: dataRoot }), { mode: 0o600 });
   say(`Generated ${ENV_FILE} with fresh secrets (git-ignored). The admin token is in that file; it is not printed.`);
+  for (const w of dataDirWarnings(persistentPaths({ CONGRESS_PERSISTENT_DATA_ROOT: dataRoot }))) {
+    say(`  WARNING: ${w}\n  Choose another folder: set CONGRESS_PERSISTENT_DATA_ROOT in ${ENV_FILE} before \`up\`.`);
+  }
 }
 
 async function waitHttp(url, ms = 120000) {
@@ -213,6 +285,9 @@ export function buildProxyArgs(env = process.env) {
   return pairs.flatMap(([k, v]) => ['--build-arg', `${k}=${v}`, '--build-arg', `${k.toLowerCase()}=${v}`]);
 }
 
+/** The web image's build argument naming its release (the same id as the image's release tag). */
+export const appBuildEnv = (release) => ({ CONGRESS_APP_BUILD: release });
+
 /** Slow SSH tunnels need longer daemon RPC timeouts and one image at a time. */
 export function buildComposeEnv(env = process.env) {
   const out = {
@@ -239,7 +314,8 @@ async function up() {
   cdnPreflight();
   ensurePersistentHostDirs();
   const release = releaseId();
-  compose(PROJECT, ['build', ...buildProxyArgs()], { env: buildComposeEnv() });
+  // CONGRESS_APP_BUILD (compose.yaml → web build argument): the bundle knows which release it is.
+  compose(PROJECT, ['build', ...buildProxyArgs()], { env: { ...buildComposeEnv(), ...appBuildEnv(release) } });
   tagRelease(release);
   // `up --wait` returns once every service is healthy (migrate must have exited 0 for api to start).
   const r = compose(PROJECT, ['up', '-d', '--wait', '--wait-timeout', '300'], { allowFail: true });
@@ -633,6 +709,35 @@ function exportCa() {
 
 const stamp = () => new Date().toISOString().replace(/[-:]/g, '').replace(/\..+/, '').replace('T', '-');
 
+/**
+ * What a backup records about the database, as one JSON object, computed in the snapshot pg_dump exports: row counts
+ * of every table (so tables added later are covered without editing this list), published pages and slugs, and every
+ * media file the database references (any `storage_key` column: page images, program files, future uploads).
+ */
+export const SNAPSHOT_FACTS_SQL = `select json_build_object(
+  'alembic_revision', (select version_num from alembic_version),
+  'counts', (select coalesce(json_object_agg(table_name, (xpath('/row/c/text()', query_to_xml(format('select count(*) as c from %I.%I', table_schema, table_name), false, true, '')))[1]::text::bigint order by table_name), '{}')
+             from information_schema.tables where table_schema = 'public' and table_type = 'BASE TABLE'),
+  'published_pages', (select count(*) from event_pages where published is not null),
+  'published_slugs', (select coalesce(json_agg(e.slug order by e.slug), '[]') from events e join event_pages p on p.event_id = e.id where p.published is not null),
+  'media_keys', (select coalesce(json_agg(k order by k), '[]') from (
+      select unnest(string_to_array((xpath('/row/k/text()', query_to_xml(format('select string_agg(%I, chr(10)) as k from %I.%I', column_name, table_schema, table_name), false, true, '')))[1]::text, chr(10))) as k
+      from information_schema.columns where table_schema = 'public' and column_name = 'storage_key') keys)
+)`;
+
+/**
+ * One psql session inside the db container: a REPEATABLE READ transaction exports its snapshot, pg_dump dumps exactly
+ * that snapshot, and the facts above are read from it too. Counts and dump therefore always agree, even while
+ * attendees register or scan during an event-mode backup.
+ */
+export const SNAPSHOT_BACKUP_SCRIPT = `begin isolation level repeatable read read only;
+select pg_export_snapshot() as snap \\gset
+\\setenv CONGRESS_SNAPSHOT :snap
+\\! pg_dump -U congress -d congress -Fc --snapshot="$CONGRESS_SNAPSHOT" -f /tmp/backup.dump
+${SNAPSHOT_FACTS_SQL};
+commit;
+`;
+
 /** Database (pg_dump custom format) + media tarball + manifest with counts and checksums. */
 export function backup(project = PROJECT) {
   requireEnv();
@@ -640,7 +745,7 @@ export function backup(project = PROJECT) {
   const dir = join(BACKUPS, name);
   mkdirSync(dir, { recursive: true });
   // Dump inside the container, then copy out (binary-safe on every host OS).
-  compose(project, ['exec', '-T', 'db', 'sh', '-c', 'pg_dump -U congress -d congress -Fc -f /tmp/backup.dump']);
+  const facts = JSON.parse(compose(project, ['exec', '-T', 'db', 'psql', '-X', '-q', '-At', '-v', 'ON_ERROR_STOP=1', '-U', 'congress', '-d', 'congress'], { input: SNAPSHOT_BACKUP_SCRIPT }).stdout.trim().split('\n').at(-1));
   const dbId = compose(project, ['ps', '-q', 'db']).stdout.trim();
   run('docker', ['cp', `${dbId}:/tmp/backup.dump`, join(dir, 'db.dump')]);
   compose(project, ['exec', '-T', 'db', 'rm', '-f', '/tmp/backup.dump']);
@@ -648,39 +753,40 @@ export function backup(project = PROJECT) {
   const helper = `${project}-backup-${randomBytes(3).toString('hex')}`;
   const { media } = persistentPaths(readEnv());
   run('docker', ['run', '-d', '--name', helper, '--network', 'none', '-v', `${media}:/data:ro`, 'postgres:16-alpine', 'sleep', '600']);
+  let mediaSums;
   try {
     run('docker', ['exec', helper, 'tar', 'czf', '/tmp/media.tar.gz', '-C', '/data', '.']);
     run('docker', ['cp', `${helper}:/tmp/media.tar.gz`, join(dir, 'media.tar.gz')]);
-    var mediaSums = run('docker', ['exec', helper, 'sh', '-c', 'cd /data && find . -type f -exec sha256sum {} + | sort -k2']).stdout.trim();
+    mediaSums = run('docker', ['exec', helper, 'sh', '-c', 'cd /data && find . -type f -exec sha256sum {} + | sort -k2']).stdout.trim();
   } finally {
     run('docker', ['rm', '-f', helper], { allowFail: true });
   }
-  // Consistency: every image the database knows must be in the media archive (the dump is taken first,
-  // so only a deletion during the backup window could break this; such a backup is reported as failed).
-  const keys = psql(project, "select coalesce(string_agg(storage_key, ','), '') from media_assets").split(',').filter(Boolean);
+  // Consistency: every file the database references must be in the media archive (the dump is taken first, so only
+  // a deletion during the backup window could break this; such a backup is reported as failed).
   const archived = new Set((mediaSums ? mediaSums.split('\n') : []).map((l) => l.split(/\s+/)[1].replace(/^\.\//, '')));
-  const missingMedia = keys.filter((k) => !archived.has(k));
-  const counts = Object.fromEntries(
-    ['organizers', 'events', 'users', 'tickets', 'entity_qrs', 'booths', 'leads', 'checkins', 'desk_operators', 'scanner_devices', 'media_assets'].map((t) => [t, Number(psql(project, `select count(*) from ${t}`))]),
-  );
-  counts.published_pages = Number(psql(project, 'select count(*) from event_pages where published is not null'));
+  const missingMedia = missingMediaKeys(facts.media_keys, archived);
+  const counts = { ...facts.counts, published_pages: facts.published_pages };
   const manifest = {
     name,
     created_at: new Date().toISOString(),
-    alembic_revision: psql(project, 'select version_num from alembic_version'),
+    alembic_revision: facts.alembic_revision,
     counts,
-    published_slugs: psql(project, "select coalesce(string_agg(e.slug, ',' order by e.slug), '') from events e join event_pages p on p.event_id = e.id where p.published is not null").split(',').filter(Boolean),
+    published_slugs: facts.published_slugs,
     files: Object.fromEntries(['db.dump', 'media.tar.gz'].map((f) => [f, createHash('sha256').update(readFileSync(join(dir, f))).digest('hex')])),
     media_sha256: mediaSums ? mediaSums.split('\n').map((l) => l.split(/\s+/)) : [],
+    media_referenced: facts.media_keys.length,
     missing_media: missingMedia,
   };
   writeFileSync(join(dir, 'manifest.json'), JSON.stringify(manifest, null, 2));
   say(`Backup ${name}: ${dir}`);
-  say(`  db.dump ${readFileSync(join(dir, 'db.dump')).length} bytes, media.tar.gz ${readFileSync(join(dir, 'media.tar.gz')).length} bytes, ${manifest.media_sha256.length} media files`);
+  say(`  db.dump ${readFileSync(join(dir, 'db.dump')).length} bytes, media.tar.gz ${readFileSync(join(dir, 'media.tar.gz')).length} bytes, ${manifest.media_sha256.length} media files (${facts.media_keys.length} referenced by the database)`);
   say(`  counts ${JSON.stringify(counts)}`);
-  if (missingMedia.length) throw new Error(`Backup ${name} is inconsistent: ${missingMedia.length} database images missing from the media archive`);
+  if (missingMedia.length) throw new Error(`Backup ${name} is inconsistent: ${missingMedia.length} files the database references (images, program files) are missing from the media archive`);
   return { name, dir, manifest };
 }
+
+/** Storage keys the database references that the media archive lacks. */
+export const missingMediaKeys = (keys, archived) => keys.filter((k) => !archived.has(String(k).replace(/^\.?\//, '')));
 
 // ── Off-host copy (any S3-compatible store via rclone) and retention ─────────────────────────────────
 
@@ -926,7 +1032,7 @@ export async function pitrRestore(target, { keep = false } = {}) {
   const when = latest ? 'latest' : pgbackrestTime(target);
   const project = `congress-pitr-${randomBytes(3).toString('hex')}`;
   const restoreRoot = join(STATE, 'restores', project);
-  const opts = { envOverride: { CONGRESS_PERSISTENT_DATA_ROOT: restoreRoot }, wal: true };
+  const opts = { envOverride: { CONGRESS_PERSISTENT_DATA_ROOT: restoreRoot, ...DRILL_API_ENV }, wal: true };
   mkdirSync(join(restoreRoot, 'data/postgres'), { recursive: true });
   mkdirSync(join(restoreRoot, 'data/media'), { recursive: true });
   const checks = [];
@@ -1143,6 +1249,107 @@ async function deliverAlert(env, level, findings) {
   }
 }
 
+// ── SMS delivery, certificate, clock and heartbeat (parts of `check`) ────────────────────────────────
+
+/** Read inside the API container with its own admin token (never through the proxy): outbox health and SMS mode. */
+const SMS_HEALTH_SCRIPT = `
+import json, os, urllib.request
+def get(path):
+    req = urllib.request.Request("http://127.0.0.1:8000" + path, headers={"X-Admin-Token": os.environ["CONGRESS_PLATFORM_ADMIN_TOKEN"]})
+    return json.load(urllib.request.urlopen(req, timeout=10))
+print(json.dumps({"outbox": get("/api/platform/sms/outbox"), "sms": get("/api/platform/sms")}))`;
+
+/**
+ * Findings from /api/platform/sms/outbox and /api/platform/sms: delivery impossible (not configured, test mode in
+ * production), queued messages waiting too long, failed or unconfirmed messages nobody has handled, platform caps
+ * reached or close, and cap refusals logged in the last 15 minutes.
+ */
+export function smsFindings({ outbox, sms }, env = {}, { now = Date.now(), capRefusals = 0 } = {}) {
+  const findings = [];
+  const note = (level, text) => findings.push({ level, text });
+  const production = env.CONGRESS_ENVIRONMENT === 'production';
+  if (sms.effective === 'unconfigured') note('CRITICAL', 'SMS is not configured (no sms.ir key or line): sign-in codes and ticket confirmations cannot be sent (platform console → SMS)');
+  else if (sms.effective === 'console') note(production ? 'CRITICAL' : 'INFO', 'SMS test mode (console): nothing is sent to phones');
+  const counts = outbox.counts ?? {};
+  const oldest = outbox.oldest_pending_at ? Date.parse(outbox.oldest_pending_at) : NaN;
+  const lagMin = Number.isNaN(oldest) ? 0 : Math.max(0, (now - oldest) / 60_000);
+  const warnMin = Number(env.ALERT_SMS_LAG_MINUTES || 10);
+  const critMin = Number(env.ALERT_SMS_LAG_CRITICAL_MINUTES || 30);
+  const lagText = `SMS outbox: ${counts.pending ?? 0} queued, oldest waiting ${lagMin.toFixed(1)} min`;
+  note(lagMin > critMin ? 'CRITICAL' : lagMin > warnMin ? 'WARNING' : 'OK', lagMin > warnMin ? `${lagText} (limit ${lagMin > critMin ? critMin : warnMin} min): confirmations are not going out` : lagText);
+  const failed = Number(counts.failed ?? 0);
+  const unknown = Number(counts.unknown ?? 0);
+  if (failed + unknown > Number(env.ALERT_SMS_FAILED_MAX || 0)) {
+    note('WARNING', `${failed} failed and ${unknown} unconfirmed SMS wait for a decision (organizer → SMS log: retry or resolve)`);
+  }
+  for (const [name, sent, cap] of [['hourly', outbox.sent_last_hour, outbox.hourly_cap], ['daily', outbox.sent_last_day, outbox.daily_cap]]) {
+    if (!cap) continue;
+    if (sent >= cap) note('CRITICAL', `SMS ${name} cap reached (${sent} of ${cap}): sign-in codes are refused and confirmations wait`);
+    else if (sent >= cap * 0.8) note('WARNING', `SMS ${name} cap at ${sent} of ${cap}`);
+    else note('OK', `SMS ${name}: ${sent} of ${cap} sent`);
+  }
+  if (capRefusals) note('WARNING', `SMS cap refused sends ${capRefusals} times in the last 15 min`);
+  return findings;
+}
+
+/** Days left on a certificate: WARNING under ALERT_CERT_WARN_DAYS (14), CRITICAL under 3 days or expired. */
+export function certFinding(validTo, label, now = Date.now(), warnDays = 14) {
+  const days = (Date.parse(validTo) - now) / 86_400_000;
+  if (Number.isNaN(days)) return { level: 'WARNING', text: `${label}: could not read the certificate's expiry` };
+  const level = days < 3 ? 'CRITICAL' : days < warnDays ? 'WARNING' : 'OK';
+  return { level, text: `${label} certificate ${days < 0 ? 'EXPIRED' : 'expires'} ${new Date(validTo).toISOString().slice(0, 10)} (${Math.floor(days)} days)${level === 'OK' ? '' : ': is Caddy renewing it? (stack.mjs logs web)'}` };
+}
+
+/** Which certificate `check` watches: the CDN's (what visitors see), Caddy's public one, or none (local CA). */
+export function certTarget(env) {
+  const origin = env.CONGRESS_PUBLIC_ORIGIN || '';
+  let url;
+  try { url = new URL(origin); } catch { return null; }
+  if (url.protocol !== 'https:') return null;
+  if ((env.CONGRESS_CDN || 'off') === 'on') return { host: url.hostname, port: Number(url.port || 443), servername: url.hostname, label: 'CDN (public)' };
+  if (!(env.CONGRESS_TLS || '').includes('@')) return null; // Caddy's local CA: short-lived, renewed by Caddy itself
+  return { host: '127.0.0.1', port: Number(env.CONGRESS_HTTPS_PORT || 443), servername: url.hostname, label: `ACME (${url.hostname})` };
+}
+
+function peerCertificateExpiry({ host, port, servername }) {
+  return new Promise((done) => {
+    const socket = tls.connect({ host, port, servername, rejectUnauthorized: false, timeout: 10000 }, () => {
+      const cert = socket.getPeerCertificate();
+      socket.end();
+      done(cert?.valid_to ?? null);
+    });
+    socket.on('timeout', () => socket.destroy(new Error('timeout')));
+    socket.on('error', () => done(null));
+  });
+}
+
+/** Linux hosts: is the clock synchronised (NTP)? Scan times, code lifetimes and token expiry rely on it. */
+function clockFinding() {
+  if (process.platform !== 'linux') return null;
+  const r = run('timedatectl', ['show', '-p', 'NTPSynchronized', '--value'], { allowFail: true });
+  if (r.status !== 0) return null;
+  return r.stdout.trim() === 'yes'
+    ? { level: 'OK', text: 'system clock synchronised (NTP)' }
+    : { level: 'WARNING', text: 'system clock is NOT synchronised (timedatectl): enable NTP (timedatectl set-ntp true)' };
+}
+
+/**
+ * Dead man's switch: after a check that found nothing critical, request ALERT_HEARTBEAT_URL (e.g. a healthchecks.io
+ * or Uptime Kuma push URL). When the server, Docker or the timer dies, the pings stop and that service alerts.
+ */
+async function pingHeartbeat(env, level) {
+  const url = env.ALERT_HEARTBEAT_URL?.trim();
+  if (!url || level >= 2) return;
+  let host = 'the heartbeat URL';
+  try { host = new URL(url).host; } catch { /* reported below */ }
+  try {
+    const r = await fetch(url, { signal: AbortSignal.timeout(10000) });
+    say(r.ok ? `  heartbeat sent to ${host}` : `  WARNING heartbeat to ${host} answered ${r.status}`);
+  } catch (e) {
+    say(`  WARNING heartbeat to ${host} failed: ${String(e.message).slice(0, 120)}`);
+  }
+}
+
 // ── Operator health check ────────────────────────────────────────────────────────────────────────
 
 export async function healthCheck() {
@@ -1172,8 +1379,26 @@ export async function healthCheck() {
   const errors = logs.filter((l) => /"status":5\d\d/.test(l)).length;
   const total = logs.filter((l) => /"status":\d{3}/.test(l)).length;
   note(errors > 20 || (total > 50 && errors / total > 0.05) ? 'WARNING' : 'OK', `HTTP 5xx in the last 15 min: ${errors} of ${total} requests`);
-  const apiErrors = compose(PROJECT, ['logs', '--since', '15m', '--no-log-prefix', 'api'], { allowFail: true }).stdout.split(/\r?\n/).filter((l) => /Traceback|ERROR/.test(l)).length;
+  const apiLog = compose(PROJECT, ['logs', '--since', '15m', '--no-log-prefix', 'api'], { allowFail: true }).stdout.split(/\r?\n/);
+  const apiErrors = apiLog.filter((l) => /Traceback|ERROR/.test(l)).length;
   note(apiErrors ? 'WARNING' : 'OK', `API error lines in the last 15 min: ${apiErrors}`);
+  // SMS delivery: the outbox and the platform caps, read inside the API container.
+  const sms = compose(PROJECT, ['exec', '-T', 'api', 'python', '-c', SMS_HEALTH_SCRIPT], { allowFail: true });
+  let smsHealth = null;
+  try { smsHealth = JSON.parse(sms.stdout.trim().split('\n').at(-1)); } catch { /* reported below */ }
+  if (!smsHealth) note('WARNING', 'could not read SMS delivery health from the API (/api/platform/sms/outbox)');
+  else {
+    const capRefusals = apiLog.filter((l) => l.includes('SMS platform cap reached')).length;
+    for (const f of smsFindings(smsHealth, env, { capRefusals })) note(f.level, f.text);
+  }
+  const target = certTarget(env);
+  if (target) {
+    const validTo = await peerCertificateExpiry(target);
+    const f = validTo ? certFinding(validTo, target.label, Date.now(), Number(env.ALERT_CERT_WARN_DAYS || 14)) : { level: 'WARNING', text: `${target.label}: no certificate answered on ${target.host}:${target.port}` };
+    note(f.level, f.text);
+  }
+  const clock = clockFinding();
+  if (clock) note(clock.level, clock.text);
   // Disk: the filesystem holding Docker volumes, plus each persistent volume.
   const probe = `${PROJECT}-check-${randomBytes(3).toString('hex')}`;
   const { postgres, media } = persistentPaths();
@@ -1199,6 +1424,7 @@ export async function healthCheck() {
   const level = findings.some((f) => f.level === 'CRITICAL') ? 2 : findings.some((f) => f.level === 'WARNING') ? 1 : 0;
   say(`check: ${['OK', 'WARNING', 'CRITICAL'][level]}`);
   await deliverAlert(env, level, findings);
+  await pingHeartbeat(env, level);
   return level;
 }
 
@@ -1333,6 +1559,12 @@ export async function restoreVerify(name, { keep = false, fromOffsite = false } 
   }
 }
 
+/**
+ * A drill's API (restore-verify, pitr-restore) runs on a copy of real data with the real settings: it must never
+ * send the copy's queued SMS to attendees again, nor purge anything while it is being compared.
+ */
+export const DRILL_API_ENV = { CONGRESS_SMS_OUTBOX_ENABLED: 'false', CONGRESS_RETENTION_ENABLED: 'false' };
+
 /** Deletes a disposable restore folder; PostgreSQL's files in it belong to the container's postgres user. */
 function removeRestoreRoot(dir) {
   if (!existsSync(dir)) return;
@@ -1347,7 +1579,7 @@ async function verifyRestore(name, dir, { keep }) {
   }
   const project = `congress-restore-${randomBytes(3).toString('hex')}`;
   const restoreRoot = join(STATE, 'restores', project);
-  const envOverride = { CONGRESS_PERSISTENT_DATA_ROOT: restoreRoot };
+  const envOverride = { CONGRESS_PERSISTENT_DATA_ROOT: restoreRoot, ...DRILL_API_ENV };
   mkdirSync(restoreRoot, { recursive: true });
   run(join(root, 'scripts/staging/fix-persistent-permissions.sh'), [], {
     allowFail: true,
@@ -1373,13 +1605,14 @@ async function verifyRestore(name, dir, { keep }) {
     } finally {
       run('docker', ['rm', '-f', helper], { allowFail: true });
     }
-    // Normal startup path: migrate (no-op at the same revision) then the API with the schema guard.
-    compose(project, ['up', '-d', '--wait', '--wait-timeout', '180', 'api'], { envOverride });
-    check('migrate service accepted the restored schema', psql(project, 'select version_num from alembic_version') === manifest.alembic_revision, manifest.alembic_revision);
+    // Counted before the API starts, so nothing it does on startup can change them.
     for (const [table, expected] of Object.entries(manifest.counts)) {
-      const got = Number(psql(project, table === 'published_pages' ? 'select count(*) from event_pages where published is not null' : `select count(*) from ${table}`));
+      const got = Number(psql(project, table === 'published_pages' ? 'select count(*) from event_pages where published is not null' : `select count(*) from "${table.replace(/"/g, '""')}"`, { envOverride }));
       check(`${table} rows`, got === expected, `${got}/${expected}`);
     }
+    // Normal startup path: migrate (no-op at the same revision) then the API with the schema guard.
+    compose(project, ['up', '-d', '--wait', '--wait-timeout', '180', 'api'], { envOverride });
+    check('migrate service accepted the restored schema', psql(project, 'select version_num from alembic_version', { envOverride }) === manifest.alembic_revision, manifest.alembic_revision);
     // Through the restored API: published pages and every published image, byte-for-byte.
     const probe = `
 import hashlib, json, sys, urllib.request
@@ -1411,7 +1644,7 @@ async function main() {
   const [cmd = 'status', ...rest] = process.argv.slice(2);
   if (rest.includes('-v') || rest.includes('--volumes')) throw new Error('Refusing: this tool never removes staging volumes.');
   switch (cmd) {
-    case 'init': return init();
+    case 'init': return init(rest);
     case 'up': return up();
     case 'status': return status();
     case 'logs': return say(compose(PROJECT, ['logs', '--tail', '200', ...rest]).stdout);

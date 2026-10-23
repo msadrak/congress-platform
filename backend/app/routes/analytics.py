@@ -9,25 +9,24 @@ One set of filters (`AnalyticsFilters`: check-in point, ticket tier, date range,
 dashboard and both exports alike. The exports are streamed from a server-side cursor.
 """
 
-import csv
 import uuid
 from collections import defaultdict
-from collections.abc import AsyncIterator, Callable, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta, timezone
-from typing import Annotated, Any, Unpack
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Query, Request, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import ColumnElement, Date, DateTime, Row, Select, String, cast, func, literal, literal_column, select
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy import ColumnElement, Date, DateTime, String, cast, func, literal, literal_column, select
 
+from app.csv_export import AnyRow, AnySelect, csv_response, csv_stream
 from app.db import SessionDep
 from app.errors import ApiError, error_responses
 from app.models import CheckIn, CheckInPoint, Event, Ticket, TicketTier, User
-from app.routes.events import OwnedEventDep
-from app.security import sanitize_csv_cell
+from app.routes.checkin import _inside_count, admission_window
+from app.routes.events import OwnedEventDep, event_zone
 
 router = APIRouter(tags=["analytics"])
 
@@ -36,11 +35,6 @@ ADMITTED = "ADMITTED"
 ACTIVE = "active"
 # The day picker lists every day from the event's first to its last; longer spans list only days with scans.
 MAX_LISTED_EVENT_DAYS = 62
-CSV_BATCH_ROWS = 1_000
-
-# A SELECT and a result row of any number of columns of any type.
-AnySelect = Select[Unpack[tuple[Any, ...]]]
-AnyRow = Row[Unpack[tuple[Any, ...]]]
 
 
 def event_timezone(event: Event) -> str:
@@ -56,8 +50,8 @@ class HourlyScanCount(BaseModel):
     day: date = Field(description="Local date in the event's timezone.")
     hour: str = Field(description='Local hour, "HH:00".')
     starts_at: str = Field(description="Start of the hour as an ISO 8601 local time with the event's UTC offset.")
-    count: int
-    admitted: int
+    count: int = Field(description="Every scan: admitted entries, rejections and accepted exits.")
+    admitted: int = Field(description="Admitted entries.")
     rejected: int
 
 
@@ -68,10 +62,16 @@ class GateMetric(BaseModel):
     policy_type: str
     total_admitted: int
     total_rejected: int
-    admissions: int = Field(description="Cumulative admissions at this point; exits are not tracked.")
+    admissions: int = Field(description="Cumulative admitted entries at this point (exits are not admissions).")
     current_occupancy: int = Field(
         deprecated=True,
-        description="Deprecated: the cumulative admissions (same as `admissions`), not who is inside now.",
+        description="Deprecated: the cumulative admissions (same as `admissions`), not who is inside now; "
+        "read `occupancy` for that.",
+    )
+    occupancy: int | None = Field(
+        default=None,
+        description="People inside now (points that track occupancy, in the current admission window); "
+        "null for points without entry and exit scans. Not scoped by the date or tier filters.",
     )
     hourly_scans: list[HourlyScanCount]
 
@@ -235,15 +235,17 @@ async def get_attendance_analytics(filters: FiltersDep, session: SessionDep) -> 
     scans = filters.scans(
         CheckIn.checkin_point_id.label("point_id"),
         CheckIn.status.label("status"),
+        CheckIn.direction.label("direction"),
         func.date_trunc(literal_column("'hour'"), filters.local(CheckIn.scanned_at), type_=DateTime()).label(
             "bucket"
         ),
     ).subquery()
     bucket_utc = func.timezone(literal("UTC", String), func.timezone(literal(tz, String), scans.c.bucket))
-    admitted_count = func.count().filter(scans.c.status == ADMITTED)
+    admitted_count = func.count().filter(scans.c.status == ADMITTED, scans.c.direction == "IN")
+    rejected_count = func.count().filter(scans.c.status != ADMITTED)
     bucket_rows = (
         await session.execute(
-            select(scans.c.point_id, scans.c.bucket, bucket_utc, admitted_count, func.count())
+            select(scans.c.point_id, scans.c.bucket, bucket_utc, admitted_count, rejected_count, func.count())
             .group_by(scans.c.point_id, scans.c.bucket)
             .order_by(scans.c.bucket)
         )
@@ -252,7 +254,7 @@ async def get_attendance_analytics(filters: FiltersDep, session: SessionDep) -> 
     unique_admitted = (
         await session.scalar(
             filters.scans(func.count(CheckIn.ticket_id.distinct())).where(
-                CheckIn.status == ADMITTED, CheckIn.ticket_id.is_not(None)
+                CheckIn.status == ADMITTED, CheckIn.direction == "IN", CheckIn.ticket_id.is_not(None)
             )
         )
     ) or 0
@@ -280,23 +282,25 @@ async def get_attendance_analytics(filters: FiltersDep, session: SessionDep) -> 
 
     gate_hourly: dict[uuid.UUID, list[HourlyScanCount]] = defaultdict(list)
     event_hourly: dict[datetime, HourlyScanCount] = {}
-    for point_id, bucket, utc, admitted, count in bucket_rows:
+    for point_id, bucket, utc, admitted, rejected, count in bucket_rows:
         hour = HourlyScanCount(
             day=bucket.date(),
             hour=bucket.strftime("%H:00"),
             starts_at=local_iso(bucket, utc),
             count=count,
             admitted=admitted,
-            rejected=count - admitted,
+            rejected=rejected,
         )
         gate_hourly[point_id].append(hour)
         total = event_hourly.setdefault(bucket, hour.model_copy(update={"count": 0, "admitted": 0, "rejected": 0}))
         total.count += count
         total.admitted += admitted
-        total.rejected += count - admitted
+        total.rejected += rejected
 
     gate_breakdown: list[GateMetric] = []
     catering_metrics: list[CateringMetric] = []
+    zone = event_zone(event)
+    now = datetime.now(UTC)  # occupancy is "now": the current admission window, no extra statement
     for point in points:
         hourly = gate_hourly[point.id]
         admitted = sum(h.admitted for h in hourly)
@@ -310,6 +314,11 @@ async def get_attendance_analytics(filters: FiltersDep, session: SessionDep) -> 
                 total_rejected=sum(h.rejected for h in hourly),
                 admissions=admitted,
                 current_occupancy=admitted,
+                occupancy=(
+                    await _inside_count(session, point, admission_window(point, zone, now))
+                    if point.tracks_occupancy
+                    else None
+                ),
                 hourly_scans=hourly,
             )
         )
@@ -354,36 +363,6 @@ def attendee_columns() -> tuple[Any, ...]:
 ATTENDEE_HEADERS = ["Attendee Name", "Attendee Mobile", "Organization", "Title"]
 
 
-class _Echo:
-    """A file whose `write` returns the text, so `csv.writer(...).writerow` yields one encoded line."""
-
-    def write(self, value: str) -> str:
-        return value
-
-
-async def _csv_stream(
-    sessionmaker: async_sessionmaker[AsyncSession],
-    header: list[str],
-    statement: AnySelect,
-    to_cells: Callable[[AnyRow], Sequence[object]],
-) -> AsyncIterator[bytes]:
-    writer = csv.writer(_Echo())
-    yield ("﻿" + writer.writerow(header)).encode()
-    # Its own session: the request's may be closed while the body is still streaming.
-    async with sessionmaker() as session:
-        result = await session.stream(statement.execution_options(yield_per=CSV_BATCH_ROWS))
-        async for rows in result.partitions():
-            yield "".join(writer.writerow([sanitize_csv_cell(c) for c in to_cells(row)]) for row in rows).encode()
-
-
-def _csv_response(filename: str, body: AsyncIterator[bytes]) -> StreamingResponse:
-    return StreamingResponse(
-        body,
-        media_type="text/csv; charset=utf-8",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
-    )
-
-
 @router.get(
     "/api/events/{event_id}/analytics/export-csv",
     response_class=StreamingResponse,
@@ -404,6 +383,7 @@ async def export_attendance_csv(request: Request, filters: FiltersDep) -> Stream
             *attendee_columns(),
             TicketTier.name.label("tier_name"),
             Ticket.status.label("ticket_status"),
+            CheckIn.direction,
             by_tier=False,
         )
         .outerjoin(Ticket, CheckIn.ticket_id == Ticket.id)
@@ -424,6 +404,7 @@ async def export_attendance_csv(request: Request, filters: FiltersDep) -> Stream
         *ATTENDEE_HEADERS,
         "Ticket Tier",
         "Ticket Status",
+        "Direction",
     ]
 
     def cells(row: AnyRow) -> Sequence[object]:
@@ -431,8 +412,8 @@ async def export_attendance_csv(request: Request, filters: FiltersDep) -> Stream
         scanned_utc = scanned_at.astimezone(UTC).isoformat()
         return [scan_id, point, policy, scan_status, reason, scanned_utc, local_iso(local, utc), *rest]
 
-    body = _csv_stream(request.app.state.sessionmaker, header, statement, cells)
-    return _csv_response(f"{filters.event.slug}-attendance.csv", body)
+    body = csv_stream(request.app.state.sessionmaker, header, statement, cells)
+    return csv_response(f"{filters.event.slug}-attendance.csv", body)
 
 
 @router.get(
@@ -451,7 +432,7 @@ async def export_registrations_csv(request: Request, filters: FiltersDep) -> Str
             func.count().label("admissions"),
             by_tier=False,
         )
-        .where(CheckIn.status == ADMITTED, CheckIn.ticket_id.is_not(None))
+        .where(CheckIn.status == ADMITTED, CheckIn.direction == "IN", CheckIn.ticket_id.is_not(None))
         .group_by(CheckIn.ticket_id)
         .subquery()
     )
@@ -496,5 +477,5 @@ async def export_registrations_csv(request: Request, filters: FiltersDep) -> Str
             count,
         ]
 
-    body = _csv_stream(request.app.state.sessionmaker, header, statement, cells)
-    return _csv_response(f"{filters.event.slug}-registrations.csv", body)
+    body = csv_stream(request.app.state.sessionmaker, header, statement, cells)
+    return csv_response(f"{filters.event.slug}-registrations.csv", body)

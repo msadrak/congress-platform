@@ -7,6 +7,7 @@ import {
   type ScannerDeviceOut,
   type ScannerTokenOut,
 } from "../../api/client";
+import { SCANNER_APP_VERSION } from "../../lib/appBuild";
 import { formatLocalizedNumber } from "../../lib/i18n";
 import { isLoopbackHost, scannerPairingUrl } from "../../lib/scannerPairing";
 import { Badge } from "../ui/Badge";
@@ -117,7 +118,7 @@ export function ScannerPairingDialog({ point, apiKey, locale, isRtl, onClose }: 
         setDeviceName("");
         const now = new Date().toISOString();
         setDevices((prev) => [
-          { id: data.device_id, checkin_point_id: data.point_id, event_id: data.event_id, device_name: name, is_revoked: false, revoked_at: null, created_at: now, last_seen_at: null },
+          { id: data.device_id, checkin_point_id: data.point_id, event_id: data.event_id, device_name: name, is_revoked: false, revoked_at: null, created_at: now, last_seen_at: null, stale: false },
           ...prev.filter((d) => d.id !== data.device_id),
         ]);
       }
@@ -171,7 +172,7 @@ export function ScannerPairingDialog({ point, apiKey, locale, isRtl, onClose }: 
         title={isRtl ? "اتصال دستگاه اسکنر" : "Pair a scanner device"}
         description={
           isRtl
-            ? `یک تلفن یا تبلت را به گیت «${point.name}» متصل کنید. هر دستگاه کلید جداگانه‌ای دارد که می‌توانید هر زمان لغو کنید.`
+            ? `یک تلفن یا تبلت را به نقطه ورود «${point.name}» متصل کنید. هر دستگاه کلید جداگانه‌ای دارد که می‌توانید هر زمان لغو کنید.`
             : `Connect a phone or tablet to “${point.name}”. Each device gets its own key, which you can revoke at any time.`
         }
         size="lg"
@@ -251,7 +252,7 @@ export function ScannerPairingDialog({ point, apiKey, locale, isRtl, onClose }: 
                   value={deviceName}
                   onChange={(e) => setDeviceName(e.target.value)}
                   aria-invalid={(formError !== null && !deviceName.trim()) || undefined}
-                  placeholder={isRtl ? "مثال: گیت اصلی - تلفن ۱" : "e.g. Main gate - phone 1"}
+                  placeholder={isRtl ? "مثال: نقطه ورود اصلی - تلفن ۱" : "e.g. Main gate - phone 1"}
                   className="ui-input"
                 />
               </Field>
@@ -277,11 +278,17 @@ export function ScannerPairingDialog({ point, apiKey, locale, isRtl, onClose }: 
                 {isRtl ? `${formatLocalizedNumber(activeCount, locale)} فعال` : `${activeCount} active`}
               </Badge>
             </div>
+            <p className="text-[0.6875rem] text-text-muted">
+              {isRtl ? "نسخهٔ فعلی: " : "Current build: "}
+              <bdi dir="ltr" className="font-mono" data-testid="console-app-version">
+                {SCANNER_APP_VERSION}
+              </bdi>
+            </p>
             {devicesError && <FormAlert>{devicesError}</FormAlert>}
             {devicesLoading ? (
               <p className="text-xs text-text-muted">{isRtl ? "در حال بارگذاری…" : "Loading…"}</p>
             ) : devices.length === 0 ? (
-              <p className="text-xs text-text-muted">{isRtl ? "هنوز دستگاهی به این گیت متصل نشده است." : "No device has been paired with this gate yet."}</p>
+              <p className="text-xs text-text-muted">{isRtl ? "هنوز دستگاهی به این نقطه ورود متصل نشده است." : "No device has been paired with this gate yet."}</p>
             ) : (
               <ul className="divide-y divide-border-subtle rounded-xl border border-border-default">
                 {devices.map((d) => (
@@ -296,6 +303,32 @@ export function ScannerPairingDialog({ point, apiKey, locale, isRtl, onClose }: 
                         {formatDateTime(d.created_at, locale)}
                         {d.last_seen_at ? ` · ${isRtl ? "آخرین فعالیت: " : "last seen "}${formatDateTime(d.last_seen_at, locale)}` : ""}
                       </p>
+                      {(d.unsynced_count !== null && d.unsynced_count !== undefined) || d.app_version ? (
+                        <p className="text-[0.6875rem] text-text-muted" data-testid="device-report">
+                          {d.unsynced_count !== null && d.unsynced_count !== undefined
+                            ? isRtl
+                              ? `${formatLocalizedNumber(d.unsynced_count, locale)} اسکن همگام‌نشده`
+                              : `${d.unsynced_count} unsynced scan(s)`
+                            : ""}
+                          {d.app_version ? <> · <bdi dir="ltr">{d.app_version}</bdi></> : null}
+                        </p>
+                      ) : null}
+                      {!d.is_revoked && d.app_version && d.app_version !== SCANNER_APP_VERSION && (
+                        <p className="flex items-center gap-1 text-[0.6875rem] font-semibold text-status-warning-text" role="status" data-testid="device-version-mismatch">
+                          <Icon name="alert" size={13} />
+                          {isRtl
+                            ? "نسخهٔ این دستگاه با نسخهٔ فعلی فرق دارد؛ صفحهٔ اسکنر را روی دستگاه تازه کنید تا به‌روز شود."
+                            : "This device runs a different build: reload the scanner on it to update."}
+                        </p>
+                      )}
+                      {d.stale && (
+                        <p className="flex items-center gap-1 text-[0.6875rem] font-semibold text-status-warning-text" role="status">
+                          <Icon name="alert" size={13} />
+                          {isRtl
+                            ? "بیش از ۱۰ دقیقه است که به سرور وصل نشده؛ اتصال اینترنت دستگاه را بررسی کنید."
+                            : "Not in touch for over 10 minutes: check the device's connection."}
+                        </p>
+                      )}
                     </div>
                     {d.is_revoked ? (
                       <Badge variant="neutral" size="sm">

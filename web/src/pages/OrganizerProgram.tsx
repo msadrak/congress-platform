@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useOutletContext, useParams } from "react-router-dom";
 import {
   createApiClient,
-  formatApiError,
   localizedApiError,
   type EventOut,
   type EventSessionCreate,
@@ -21,7 +20,8 @@ import { EmptyState, FormAlert, Notice, SectionHeader } from "../components/orga
 import { SessionFormDialog } from "../components/organizer/SessionFormDialog";
 import { ScheduleFilesManager } from "../components/organizer/ScheduleFilesManager";
 import { TimetableImport } from "../components/organizer/TimetableImport";
-import { eventTimeZone, sessionDateFormats, toDateTimeLocal } from "../components/organizer/sessionTime";
+import { eventTimeZone, sessionDateFormats, toZonedDateTimeLocal } from "../components/organizer/sessionTime";
+import { sessionAllows } from "../components/organizer/roleAccess";
 
 /** The API's program order: start, then title, then id. */
 const bySchedule = (a: EventSessionOut, b: EventSessionOut) =>
@@ -35,7 +35,8 @@ export default function OrganizerProgram() {
 
 function OrganizerProgramContent() {
   const { eventId } = useParams<{ eventId: string }>();
-  const { apiKey, onKeyRejected, reportEvent, locale, isRtl } = useOutletContext<OrganizerOutletContext>();
+  const { apiKey, onKeyRejected, reportEvent, session, locale, isRtl } = useOutletContext<OrganizerOutletContext>();
+  const canManage = sessionAllows(session, "manager");
 
   const [event, setEvent] = useState<EventOut | null>(null);
   const [sessions, setSessions] = useState<EventSessionOut[]>([]);
@@ -50,7 +51,9 @@ function OrganizerProgramContent() {
   const [importOpen, setImportOpen] = useState(false);
 
   const client = useMemo(() => (apiKey ? createApiClient({ kind: "organizer", token: apiKey }) : null), [apiKey]);
-  const rejected = useCallback(
+  // The schedule files use raw `fetch`, so they report a 401 themselves; `client` requests reach the layout's
+  // key gate through the API client (registerUnauthorizedHandler).
+  const filesStatus = useCallback(
     (status: number) => {
       if (status === 401 && apiKey) onKeyRejected(apiKey);
     },
@@ -68,13 +71,12 @@ function OrganizerProgramContent() {
         client.GET("/api/events/{event_id}/sessions", { params: { path } }),
         client.GET("/api/events/{event_id}/venue-places", { params: { path } }),
       ]);
-      [ev, list, places].forEach((r) => rejected(r.response.status));
       if (!active) return;
       if (ev.data) setEvent(ev.data);
       if (list.data) setSessions(list.data);
       if (places.data) setHalls(places.data.filter((p) => p.kind === "hall"));
       const failure = ev.error ?? list.error ?? places.error;
-      if (failure) setLoadError(formatApiError(failure));
+      if (failure) setLoadError(localizedApiError(failure, locale));
       setLoading(false);
     })().catch(() => {
       if (active) {
@@ -87,13 +89,15 @@ function OrganizerProgramContent() {
     };
     // Load once per event and key; the copy language does not trigger a reload.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [client, eventId, rejected]);
+  }, [client, eventId]);
 
   useEffect(() => {
     if (event) reportEvent(event);
   }, [event, reportEvent]);
 
-  const formats = useMemo(() => sessionDateFormats(locale), [locale]);
+  // Sessions are shown, grouped and entered on the event's clock, whatever the browser's zone.
+  const zone = event ? eventTimeZone(event) : undefined;
+  const formats = useMemo(() => sessionDateFormats(locale, zone), [locale, zone]);
   const tracks = useMemo(() => {
     const used = [...new Set(sessions.map((s) => s.track.trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
     const suggested = isRtl ? ["سخنرانی", "سمینار", "کارگاه", "پنل", "نمایشگاه"] : ["Keynote", "Seminar", "Workshop", "Panel", "Exhibition"];
@@ -102,11 +106,11 @@ function OrganizerProgramContent() {
   const days = useMemo(() => {
     const groups = new Map<string, EventSessionOut[]>();
     for (const s of sessions) {
-      const day = toDateTimeLocal(s.starts_at).slice(0, 10);
+      const day = (zone ? toZonedDateTimeLocal(s.starts_at, zone) : s.starts_at).slice(0, 10);
       groups.set(day, [...(groups.get(day) ?? []), s]);
     }
     return [...groups.entries()].sort(([a], [b]) => a.localeCompare(b));
-  }, [sessions]);
+  }, [sessions, zone]);
 
   if (loading) {
     return (
@@ -121,7 +125,8 @@ function OrganizerProgramContent() {
   }
 
   const fmt = (n: number) => formatLocalizedNumber(n, locale);
-  const eventDay = toDateTimeLocal(event.starts_at).slice(0, 10);
+  const timeZone = eventTimeZone(event);
+  const eventDay = toZonedDateTimeLocal(event.starts_at, timeZone).slice(0, 10);
   const path = { event_id: eventId };
 
   const reloadProgram = async () => {
@@ -129,8 +134,6 @@ function OrganizerProgramContent() {
       client.GET("/api/events/{event_id}/sessions", { params: { path } }),
       client.GET("/api/events/{event_id}/venue-places", { params: { path } }),
     ]);
-    rejected(list.response.status);
-    rejected(places.response.status);
     if (list.data) setSessions(list.data);
     if (places.data) setHalls(places.data.filter((p) => p.kind === "hall"));
   };
@@ -144,7 +147,6 @@ function OrganizerProgramContent() {
             body,
           })
         : await client.POST("/api/events/{event_id}/sessions", { params: { path }, body });
-    rejected(result.response.status);
     if (!result.data) return localizedApiError(result.error, locale);
     const saved = result.data;
     setSessions((prev) => [...prev.filter((s) => s.id !== saved.id), saved].sort(bySchedule));
@@ -161,7 +163,6 @@ function OrganizerProgramContent() {
     const { error, response } = await client.DELETE("/api/events/{event_id}/sessions/{session_id}", {
       params: { path: { event_id: eventId, session_id: session.id } },
     });
-    rejected(response.status);
     setDeletingId(null);
     if (response.ok) {
       setSessions((prev) => prev.filter((s) => s.id !== session.id));
@@ -172,19 +173,18 @@ function OrganizerProgramContent() {
   };
 
   const importTimetable = async (body: EventSessionImport) => {
-    const { data, error, response } = await client.POST("/api/events/{event_id}/sessions/import", { params: { path }, body });
-    rejected(response.status);
+    const { data, error } = await client.POST("/api/events/{event_id}/sessions/import", { params: { path }, body });
     return data ? { result: data } : { error: localizedApiError(error, locale) };
   };
 
   const timeRange = (s: EventSessionOut) => {
     const start = new Date(s.starts_at);
     const end = new Date(s.ends_at);
-    const endsOtherDay = toDateTimeLocal(s.ends_at).slice(0, 10) !== toDateTimeLocal(s.starts_at).slice(0, 10);
+    const endsOtherDay = toZonedDateTimeLocal(s.ends_at, timeZone).slice(0, 10) !== toZonedDateTimeLocal(s.starts_at, timeZone).slice(0, 10);
     return `${formats.time.format(start)} – ${endsOtherDay ? `${formats.shortDay.format(end)} ` : ""}${formats.time.format(end)}`;
   };
 
-  const headerActions = (
+  const headerActions = canManage ? (
     <>
       <Button type="button" variant="secondary" size="md" onClick={() => setImportOpen(true)} disabled={importOpen} aria-expanded={importOpen}>
         <Icon name="upload" size={18} />
@@ -195,7 +195,7 @@ function OrganizerProgramContent() {
         <span>{isRtl ? "افزودن جلسه" : "Add session"}</span>
       </Button>
     </>
-  );
+  ) : undefined;
 
   return (
     <div className="space-y-8">
@@ -223,7 +223,7 @@ function OrganizerProgramContent() {
           halls={halls}
           templateDay={eventDay}
           fileBase={event.slug}
-          timeZone={eventTimeZone(event)}
+          timeZone={timeZone}
           locale={locale}
           isRtl={isRtl}
           onImport={importTimetable}
@@ -298,23 +298,25 @@ function OrganizerProgramContent() {
                         </p>
                       )}
                     </div>
-                    <div className="flex items-center gap-1 sm:justify-end">
-                      <Button type="button" variant="ghost" size="sm" onClick={() => setEditing(s)} aria-label={isRtl ? `ویرایش ${s.title}` : `Edit ${s.title}`}>
-                        <Icon name="note" size={16} />
-                        <span>{isRtl ? "ویرایش" : "Edit"}</span>
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        disabled={deletingId === s.id}
-                        onClick={() => setDeleteTarget(s)}
-                        aria-label={isRtl ? `حذف ${s.title}` : `Delete ${s.title}`}
-                      >
-                        <Icon name="trash" size={16} />
-                        <span>{isRtl ? "حذف" : "Delete"}</span>
-                      </Button>
-                    </div>
+                    {canManage && (
+                      <div className="flex items-center gap-1 sm:justify-end">
+                        <Button type="button" variant="ghost" size="sm" onClick={() => setEditing(s)} aria-label={isRtl ? `ویرایش ${s.title}` : `Edit ${s.title}`}>
+                          <Icon name="note" size={16} />
+                          <span>{isRtl ? "ویرایش" : "Edit"}</span>
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          disabled={deletingId === s.id}
+                          onClick={() => setDeleteTarget(s)}
+                          aria-label={isRtl ? `حذف ${s.title}` : `Delete ${s.title}`}
+                        >
+                          <Icon name="trash" size={16} />
+                          <span>{isRtl ? "حذف" : "Delete"}</span>
+                        </Button>
+                      </div>
+                    )}
                   </li>
                 ))}
               </ol>
@@ -323,7 +325,7 @@ function OrganizerProgramContent() {
         </div>
       )}
 
-      <ScheduleFilesManager apiKey={apiKey} eventId={eventId} locale={locale} isRtl={isRtl} onStatus={rejected} />
+      <ScheduleFilesManager apiKey={apiKey} eventId={eventId} locale={locale} isRtl={isRtl} onStatus={filesStatus} readOnly={!canManage} />
 
       {editing && (
         <SessionFormDialog
@@ -332,6 +334,7 @@ function OrganizerProgramContent() {
           halls={halls}
           tracks={tracks}
           defaultDay={eventDay}
+          timeZone={timeZone}
           venuePath={eventWorkspacePath(eventId, "/venue")}
           isRtl={isRtl}
           onSave={saveSession}

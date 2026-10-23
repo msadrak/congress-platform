@@ -8,7 +8,8 @@
  *    only render the outcome (`attendeeResponseState`).
  * 2. A 401 for a token that is no longer stored (another tab signed in, out or switched accounts) is
  *    ignored: a newer session is never deleted by a late response.
- * 3. Signing out removes the token and the cached passes, even when the token was removed first.
+ * 3. Signing out removes the token and the cached passes, even when the token was removed first, and
+ *    asks the server to end the account's sessions everywhere (best effort, `POST /api/auth/logout`).
  * 4. The one exception: My Tickets, given a 401 while it already shows the owner's cached pass, keeps
  *    the token so the pass stays on screen labelled "session expired" (and "Log out" stays offered)
  *    until the attendee signs out or another page meets the same 401 (`keepPassOnExpiredSession`).
@@ -90,9 +91,23 @@ export function storeAttendeeToken(token: string): void {
   notify();
 }
 
-/** Explicit sign-out on this device: the token and every cached pass go (policy 3). */
+/**
+ * Explicit sign-out: the server ends every session of the account (on all devices), and on this device
+ * the token and every cached pass go (policy 3). The server call is best effort: offline or failing, the
+ * device is signed out all the same, and the server session then simply runs out.
+ */
 export function signOutAttendee(): void {
-  clearOwnerScopedTickets(readAttendeeToken());
+  const token = readAttendeeToken();
+  if (token !== null) {
+    // keepalive: the request survives a page unload right after signing out. A late 401 is harmless: the
+    // token is no longer stored by then (policy 2).
+    void fetch("/api/auth/logout", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      keepalive: true,
+    }).catch(() => undefined);
+  }
+  clearOwnerScopedTickets(token);
   endedByRejection = false;
   try {
     localStorage.removeItem(ATTENDEE_TOKEN_STORAGE);

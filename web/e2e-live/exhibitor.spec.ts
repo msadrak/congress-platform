@@ -51,7 +51,7 @@ test('exhibitor: booth and staff set up by the organizer, staff signs in, captur
     await dialog.getByRole('button', { name: 'ثبت غرفه نمایشگاهی' }).click();
     await expect(page.getByRole('status').filter({ hasText: boothName })).toBeVisible();
     await page.getByRole('button', { name: 'تخصیص نماینده غرفه' }).click();
-    const staff = page.getByRole('dialog', { name: 'تخصیص کارشناس به غرفه' });
+    const staff = page.getByRole('dialog', { name: 'نمایندگان غرفه' });
     await staff.getByLabel('نام نماینده').fill(staffName);
     await staff.getByLabel('شماره موبایل کارشناس').fill(staffMobile);
     await staff.getByRole('button', { name: 'تخصیص دسترسی نماینده' }).click();

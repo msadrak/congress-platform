@@ -1,10 +1,11 @@
+import json
 from ipaddress import IPv4Network, IPv6Network, ip_network
 from pathlib import Path
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 from urllib.parse import urlsplit
 
 from pydantic import Field, ValidationError, field_validator, model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 Environment = Literal["development", "test", "staging", "production"]
 # smsir: real delivery through sms.ir. console: nothing is sent, messages are kept in memory (development,
@@ -53,7 +54,9 @@ def _is_placeholder(value: str) -> bool:
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="CONGRESS_", env_file=".env")
+    # An empty variable means "unset": Compose forwards every optional setting as `${CONGRESS_X:-}` (see
+    # deploy/staging/compose.yaml), so an operator who leaves one blank gets the default below, not an error.
+    model_config = SettingsConfigDict(env_prefix="CONGRESS_", env_file=".env", env_ignore_empty=True)
 
     # Unset means production: a deployment that forgets to say what it is gets the strict checks.
     environment: Environment = "production"
@@ -65,7 +68,8 @@ class Settings(BaseSettings):
     # Encrypts credentials stored in the database (app/secret_box.py). Optional: without it they are sealed with
     # a key derived from the JWT secret, which values sealed that way keep opening with.
     secret_box_key: str = ""
-    cors_origins: list[str] = ["http://localhost:5173"]
+    # A JSON list (`["https://congress.example.org"]`); decoded below, after blank values were dropped.
+    cors_origins: Annotated[list[str], NoDecode] = ["http://localhost:5173"]
     # Uploaded Page Studio images. Must be a durable volume (or mount) outside the application image.
     media_root: Path
     # Throttle repeated failed sign-ins / admin-token / API-key attempts (see app/rate_limit.py).
@@ -129,11 +133,18 @@ class Settings(BaseSettings):
     # How often each API process checks platform_settings for changes saved by another process.
     platform_settings_refresh_seconds: float = Field(default=3.0, gt=0, le=300)
 
-    # Data retention (app/retention.py): used/expired sign-in codes and the text of sent SMS are removed.
+    # Data retention (app/retention.py): used/expired sign-in codes, the text of sent SMS, sign-in SMS log rows,
+    # full numbers in the SMS log, expired short links and expired bookkeeping rows are removed on a schedule.
     retention_enabled: bool = True
     retention_interval_seconds: float = Field(default=3600.0, gt=0, le=86_400)
     otp_retention_hours: int = Field(default=24, ge=1)
     sms_body_retention_days: int = Field(default=30, ge=1)
+    otp_sms_log_retention_days: int = Field(default=30, ge=1)
+    sms_mobile_retention_days: int = Field(default=90, ge=1)
+    short_link_grace_days: int = Field(default=30, ge=0)
+    # Audit log entries older than this many days may be purged, only by an explicit operator command
+    # (`python -m app.retention purge-audit`). Unset (default): the audit log is kept forever.
+    audit_retention_days: int | None = Field(default=None, ge=180)
 
     # ── Operations: logs, metrics, error reporting (app/logging_setup.py, app/observability.py) ──
     # json = one object per line (log shippers), text = human-readable. Unset: json in staging/production.
@@ -168,6 +179,15 @@ class Settings(BaseSettings):
 
     @model_validator(mode="before")
     @classmethod
+    def _blank_optional_values_are_unset(cls, data: Any) -> Any:
+        # Whitespace-only values too (env_ignore_empty only skips ""); required settings keep their own messages.
+        if not isinstance(data, dict):
+            return data
+        optional = {name for name, field in cls.model_fields.items() if not field.is_required()}
+        return {k: v for k, v in data.items() if not (k in optional and isinstance(v, str) and not v.strip())}
+
+    @model_validator(mode="before")
+    @classmethod
     def _environment_defaults(cls, data: Any) -> Any:
         if not isinstance(data, dict):
             return data
@@ -193,6 +213,11 @@ class Settings(BaseSettings):
         if not str(data.get("media_root") or "").strip():
             data["media_root"] = DEV_MEDIA_ROOT
         return data
+
+    @field_validator("cors_origins", mode="before")
+    @classmethod
+    def _cors_origins_json(cls, v: Any) -> Any:
+        return json.loads(v) if isinstance(v, str) else v
 
     @field_validator("smsir_line_number", mode="before")
     @classmethod

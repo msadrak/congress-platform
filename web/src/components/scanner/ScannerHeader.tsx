@@ -11,6 +11,10 @@ interface ScannerHeaderProps {
   onToggleLocale: () => void;
   pointName: string;
   policyType: string;
+  /** "DAY": the point admits once per day. */
+  resetWindow?: string;
+  /** People inside now (points that track occupancy), else null. */
+  occupancy?: number | null;
   location: string | null | undefined;
   cachedTickets: number;
   conflictCount: number;
@@ -83,6 +87,13 @@ export function ScannerHeader(props: ScannerHeaderProps) {
             <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[13px] text-ink-300">
               {copy.policy[props.policyType] && (
                 <span className={`scanner-policy ${policyTone[props.policyType] ?? ""}`}>{copy.policy[props.policyType]}</span>
+              )}
+              {props.resetWindow === "DAY" && <span className="scanner-policy">{copy.dailyWindow}</span>}
+              {props.occupancy !== null && props.occupancy !== undefined && (
+                <span className="inline-flex items-center gap-1" data-testid="scanner-occupancy">
+                  <Icon name="users" size={14} className="text-ink-400" />
+                  {copy.occupancyLabel}: <span className="font-mono tabular text-ink-100">{props.occupancy}</span>
+                </span>
               )}
               <span className="inline-flex min-w-0 items-center gap-1">
                 <Icon name="pin" size={14} className="text-ink-400" />

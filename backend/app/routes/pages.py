@@ -19,6 +19,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import SessionDep
+from app.errors import ApiError, error_responses
 from app.media import (
     ACCEPTED_UPLOAD_TYPES,
     RejectedImage,
@@ -113,9 +114,10 @@ async def _page(session: AsyncSession, event: Event, *, for_update: bool = False
     return page
 
 
-def _stale(page: EventPage) -> HTTPException:
-    return HTTPException(
+def _stale(page: EventPage) -> ApiError:
+    return ApiError(
         status.HTTP_409_CONFLICT,
+        "PAGE_DRAFT_STALE",
         f"The page was changed elsewhere (now at revision {page.draft_revision}). "
         "Reload the page studio before saving or publishing again.",
     )
@@ -145,7 +147,7 @@ async def get_page(event: OwnedEventDep, session: SessionDep) -> PageStateOut:
     return _state(page)
 
 
-@router.put("/api/events/{event_id}/page")
+@router.put("/api/events/{event_id}/page", responses=error_responses(status.HTTP_409_CONFLICT))
 async def save_page_draft(body: PageDraftUpdate, event: WritableEventDep, session: SessionDep) -> PageStateOut:
     page = await _page(session, event, for_update=True)
     if body.revision != page.draft_revision:
@@ -159,7 +161,7 @@ async def save_page_draft(body: PageDraftUpdate, event: WritableEventDep, sessio
     return _state(page)
 
 
-@router.post("/api/events/{event_id}/page/publish")
+@router.post("/api/events/{event_id}/page/publish", responses=error_responses(status.HTTP_409_CONFLICT))
 async def publish_page(body: PageRevision, event: WritableEventDep, session: SessionDep) -> PageStateOut:
     """Replaces the public page with the draft at `revision`, in one transaction."""
     page = await _page(session, event, for_update=True)
@@ -177,7 +179,7 @@ async def publish_page(body: PageRevision, event: WritableEventDep, session: Ses
 
 
 @router.post("/api/events/{event_id}/page/unpublish")
-async def unpublish_page(event: OwnedEventDep, session: SessionDep) -> PageStateOut:
+async def unpublish_page(event: WritableEventDep, session: SessionDep) -> PageStateOut:
     """Takes the public page (and the event's public booth pages) offline. The draft is kept; issued tickets,
     check-in and reception are unaffected, but attendees cannot reserve until the page is published again."""
     page = await _page(session, event, for_update=True)
@@ -190,7 +192,7 @@ async def unpublish_page(event: OwnedEventDep, session: SessionDep) -> PageState
     return _state(page)
 
 
-@router.post("/api/events/{event_id}/page/discard")
+@router.post("/api/events/{event_id}/page/discard", responses=error_responses(status.HTTP_409_CONFLICT))
 async def discard_page_draft(body: PageRevision, event: WritableEventDep, session: SessionDep) -> PageStateOut:
     """Throws away unpublished edits: the draft becomes the published page again."""
     page = await _page(session, event, for_update=True)
@@ -350,7 +352,7 @@ async def organizer_media_content(
 
 
 @router.delete("/api/events/{event_id}/media/{asset_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_media(asset_id: uuid.UUID, request: Request, event: OwnedEventDep, session: SessionDep) -> Response:
+async def delete_media(asset_id: uuid.UUID, request: Request, event: WritableEventDep, session: SessionDep) -> Response:
     page = await _page(session, event, for_update=True)
     asset = await _own_asset(session, event, asset_id)
     in_draft = asset.id in PageDocument.model_validate(page.draft).asset_ids()

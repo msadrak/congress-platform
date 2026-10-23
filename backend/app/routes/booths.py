@@ -16,7 +16,7 @@ from app.errors import ApiError, error_responses
 from app.models import Booth, BoothBookmark, BoothStaff, EntityQR, Event, EventPage, Lead, Organizer, Ticket, User
 from app.rate_limit import Budget, client_ip, ip_group, limiter
 from app.routes.auth import CurrentUserDep
-from app.routes.events import OwnedEventDep
+from app.routes.events import OwnedEventDep, WritableEventDep
 from app.security import generate_entity_qr_secret
 from app.sms.outbox import queue_staff_invite
 from app.sms.phone import IranMobile
@@ -166,9 +166,10 @@ class BookmarkedBoothOut(BaseModel):
 @router.post(
     "/api/events/{event_id}/booths",
     status_code=status.HTTP_201_CREATED,
+    responses=error_responses(status.HTTP_409_CONFLICT),
 )
 async def create_booth(
-    event: OwnedEventDep,
+    event: WritableEventDep,
     body: BoothCreate,
     session: SessionDep,
 ) -> BoothOut:
@@ -185,8 +186,8 @@ async def create_booth(
     try:
         await session.flush()
     except IntegrityError:
-        raise HTTPException(
-            status.HTTP_409_CONFLICT, "Booth slug already in use for this event"
+        raise ApiError(
+            status.HTTP_409_CONFLICT, "BOOTH_SLUG_TAKEN", "Booth slug already in use for this event"
         ) from None
 
     secret = generate_entity_qr_secret()
@@ -329,9 +330,9 @@ async def require_active_ticket(session: AsyncSession, user_id: uuid.UUID, event
         )
 
 
-@router.patch("/api/events/{event_id}/booths/{booth_id}")
+@router.patch("/api/events/{event_id}/booths/{booth_id}", responses=error_responses(status.HTTP_404_NOT_FOUND, status.HTTP_409_CONFLICT))
 async def update_booth(
-    event: OwnedEventDep,
+    event: WritableEventDep,
     booth_id: uuid.UUID,
     body: BoothUpdate,
     session: SessionDep,
@@ -352,8 +353,8 @@ async def update_booth(
     try:
         await session.flush()
     except IntegrityError:
-        raise HTTPException(
-            status.HTTP_409_CONFLICT, "Booth slug already in use for this event"
+        raise ApiError(
+            status.HTTP_409_CONFLICT, "BOOTH_SLUG_TAKEN", "Booth slug already in use for this event"
         ) from None
     secret = await session.scalar(
         select(EntityQR.secret).where(
@@ -380,9 +381,10 @@ async def update_booth(
 @router.delete(
     "/api/events/{event_id}/booths/{booth_id}",
     status_code=status.HTTP_204_NO_CONTENT,
+    responses=error_responses(status.HTTP_404_NOT_FOUND, status.HTTP_409_CONFLICT),
 )
 async def delete_booth(
-    event: OwnedEventDep,
+    event: WritableEventDep,
     booth_id: uuid.UUID,
     session: SessionDep,
 ) -> Response:
@@ -403,9 +405,10 @@ async def delete_booth(
 @router.post(
     "/api/events/{event_id}/booths/{booth_id}/staff",
     status_code=status.HTTP_201_CREATED,
+    responses=error_responses(status.HTTP_404_NOT_FOUND, status.HTTP_409_CONFLICT),
 )
 async def assign_booth_staff(
-    event: OwnedEventDep,
+    event: WritableEventDep,
     booth_id: uuid.UUID,
     body: BoothStaffAssign,
     request: Request,
@@ -488,10 +491,10 @@ async def list_booth_staff(
 @router.delete(
     "/api/events/{event_id}/booths/{booth_id}/staff/{staff_id}",
     status_code=status.HTTP_204_NO_CONTENT,
-    responses=error_responses(status.HTTP_404_NOT_FOUND),
+    responses=error_responses(status.HTTP_404_NOT_FOUND, status.HTTP_409_CONFLICT),
 )
 async def remove_booth_staff(
-    event: OwnedEventDep,
+    event: WritableEventDep,
     booth_id: uuid.UUID,
     staff_id: uuid.UUID,
     session: SessionDep,

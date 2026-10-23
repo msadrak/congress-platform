@@ -10,7 +10,7 @@ import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Event, ShortLink, Ticket
@@ -64,6 +64,18 @@ async def active_ticket_link(session: AsyncSession, ticket: Ticket, event: Event
         .limit(1)
     )
     return link if link is not None else await mint_ticket_link(session, ticket, event)
+
+
+async def follow_event_end(session: AsyncSession, event_id: uuid.UUID, ends_at: datetime) -> None:
+    """The event's end moved: its live links now expire 30 days after the new end (caller commits). A link is
+    never shortened to before now (moving the event into the past expires it now, not retroactively), and one
+    that has already expired stays expired unless the new end lies beyond its old expiry."""
+    now = datetime.now(timezone.utc)
+    await session.execute(
+        update(ShortLink)
+        .where(ShortLink.event_id == event_id, ShortLink.revoked_at.is_(None))
+        .values(expires_at=func.greatest(ends_at + LINK_LIFETIME_AFTER_EVENT, func.least(ShortLink.expires_at, now)))
+    )
 
 
 async def revoke_ticket_links(session: AsyncSession, ticket_id: uuid.UUID) -> int:

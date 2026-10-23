@@ -8,6 +8,7 @@ from typing import Any
 
 from httpx import AsyncClient
 
+from tests.conftest import ADMIN_TOKEN
 from tests.helpers import bearer, provision_organizer, publish_page, sign_in
 from tests.test_ticket_tiers import create_event, tier
 
@@ -65,11 +66,9 @@ async def test_reservation_errors_keep_status_and_detail_and_add_a_code(client: 
 
 
 async def test_unconverted_errors_and_validation_errors_are_unchanged(client: AsyncClient) -> None:
-    organizer = await provision_organizer(client, "Acme Congress Co")
-
-    missing = await client.get(f"/api/events/{uuid.uuid4()}", headers=bearer(organizer))
+    missing = await client.post(f"/api/organizers/{uuid.uuid4()}/revoke", headers={"X-Admin-Token": ADMIN_TOKEN})
     assert missing.status_code == 404
-    assert missing.json() == {"detail": "Event not found"}
+    assert missing.json() == {"detail": "Organizer not found"}
 
     _, token = await sign_in(client, "09121000903")
     invalid = await client.post(

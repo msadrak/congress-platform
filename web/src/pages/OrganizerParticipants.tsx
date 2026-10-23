@@ -40,7 +40,11 @@ type Action = "edit" | "cancel" | "reissue" | "transfer" | "delete";
 export default function OrganizerParticipants() {
   // The workspace loads the event (for the header) and reports it to the layout; a 401 on the organizer key
   // reaches the layout's handler from every request below (registerUnauthorizedHandler).
-  const { eventId, event, client, apiKey, locale } = useEventWorkspace();
+  const { eventId, event, client, apiKey, locale, can } = useEventWorkspace();
+  // Staff look participants up; changing a ticket and the export are a manager's (backend/app/roles.py).
+  const canManage = can("manager");
+  // The list itself carries personal data: staff and up (a viewer is answered ROLE_FORBIDDEN).
+  const canLookUp = can("staff");
   const copy = PARTICIPANTS_COPY[locale];
 
   const api = useMemo(() => (apiKey && eventId ? createParticipantsApi(apiKey, eventId) : null), [apiKey, eventId]);
@@ -94,7 +98,7 @@ export default function OrganizerParticipants() {
 
   const requestSeq = useRef(0);
   useEffect(() => {
-    if (!api) return;
+    if (!api || !canLookUp) return;
     const seq = ++requestSeq.current;
     setLoading(true);
     setLoadError(null);
@@ -118,7 +122,7 @@ export default function OrganizerParticipants() {
       });
     // The copy language does not trigger a reload.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [api, filters, reloadToken]);
+  }, [api, canLookUp, filters, reloadToken]);
 
   const reload = useCallback(() => setReloadToken((n) => n + 1), []);
 
@@ -189,15 +193,30 @@ export default function OrganizerParticipants() {
       title={copy.title}
       description={copy.description}
       action={
-        <Button type="button" variant="secondary" size="md" onClick={() => void handleExport()} disabled={exporting || !api} aria-busy={exporting}>
-          <Icon name="download" size={16} />
-          {exporting ? copy.exporting : copy.exportCsv}
-        </Button>
+        canManage ? (
+          <Button type="button" variant="secondary" size="md" onClick={() => void handleExport()} disabled={exporting || !api} aria-busy={exporting}>
+            <Icon name="download" size={16} />
+            {exporting ? copy.exporting : copy.exportCsv}
+          </Button>
+        ) : undefined
       }
     />
   );
 
   const range = data ? pageRange(data.offset, data.items.length, data.total) : null;
+
+  if (!canLookUp) {
+    return (
+      <div className="space-y-6">
+        {header}
+        <EmptyState icon="lock" title={locale === "fa" ? "فهرست شرکت‌کنندگان برای نقش شما در دسترس نیست." : "The participant list is not available to your role."}>
+          {locale === "fa"
+            ? "اطلاعات شخصی شرکت‌کنندگان را کارکنان و مدیران سازمان می‌بینند. آمار کلی در بخش تحلیل در دسترس است."
+            : "Participants' personal data is for the organization's staff and managers. Aggregate figures are in Analytics."}
+        </EmptyState>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -328,16 +347,18 @@ export default function OrganizerParticipants() {
                     </td>
                     <td className="text-end">
                       <div className="flex flex-wrap justify-end gap-1.5">
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => setAction({ kind: "edit", participant: p })}
-                          aria-label={`${copy.edit}: ${p.attendee_full_name}`}
-                        >
-                          <Icon name="note" size={15} />
-                          {copy.edit}
-                        </Button>
+                        {canManage && (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setAction({ kind: "edit", participant: p })}
+                            aria-label={`${copy.edit}: ${p.attendee_full_name}`}
+                          >
+                            <Icon name="note" size={15} />
+                            {copy.edit}
+                          </Button>
+                        )}
                         <Button
                           type="button"
                           variant="secondary"
@@ -407,7 +428,7 @@ export default function OrganizerParticipants() {
             <div className="skeleton h-32" />
           </div>
         ) : (
-          <ParticipantDrawer participant={detail} copy={copy} locale={locale} onAction={(kind) => setAction({ kind, participant: detail })} />
+          <ParticipantDrawer participant={detail} copy={copy} locale={locale} canManage={canManage} onAction={(kind) => setAction({ kind, participant: detail })} />
         )}
       </Dialog>
 
@@ -496,11 +517,14 @@ function ParticipantDrawer({
   participant: p,
   copy,
   locale,
+  canManage,
   onAction,
 }: {
   participant: ParticipantDetail;
   copy: ParticipantsCopy;
   locale: "fa" | "en";
+  /** The signed-in role may change tickets; otherwise the drawer only shows them. */
+  canManage: boolean;
   onAction: (kind: Action) => void;
 }) {
   const active = p.status === "active";
@@ -547,41 +571,43 @@ function ParticipantDrawer({
         )}
       </dl>
 
-      <div className="flex flex-wrap gap-2">
-        <Button type="button" variant="secondary" size="sm" onClick={() => onAction("edit")}>
-          <Icon name="note" size={15} />
-          {copy.edit}
-        </Button>
-        {active && (
-          <>
-            <Button type="button" variant="secondary" size="sm" onClick={() => onAction("reissue")}>
-              <Icon name="qr" size={15} />
-              {copy.reissue}
-            </Button>
-            <Button type="button" variant="secondary" size="sm" onClick={() => onAction("transfer")}>
-              <Icon name="user-plus" size={15} />
-              {copy.transfer}
-            </Button>
-            <Button
-              type="button"
-              variant="secondary"
-              size="sm"
-              onClick={() => onAction("cancel")}
-              className="!text-status-danger-text hover:!border-status-danger-border hover:!bg-status-danger-bg"
-            >
-              <Icon name="x-circle" size={15} />
-              {copy.cancelTicket}
-            </Button>
-          </>
-        )}
-        {p.can_delete && (
-          <Button type="button" variant="ghost" size="sm" onClick={() => onAction("delete")} className="!text-status-danger-text">
-            <Icon name="trash" size={15} />
-            {copy.delete}
+      {canManage && (
+        <div className="flex flex-wrap gap-2">
+          <Button type="button" variant="secondary" size="sm" onClick={() => onAction("edit")}>
+            <Icon name="note" size={15} />
+            {copy.edit}
           </Button>
-        )}
-      </div>
-      {!p.can_delete && <p className="text-xs leading-relaxed text-text-muted">{copy.deleteBlocked}</p>}
+          {active && (
+            <>
+              <Button type="button" variant="secondary" size="sm" onClick={() => onAction("reissue")}>
+                <Icon name="qr" size={15} />
+                {copy.reissue}
+              </Button>
+              <Button type="button" variant="secondary" size="sm" onClick={() => onAction("transfer")}>
+                <Icon name="user-plus" size={15} />
+                {copy.transfer}
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                onClick={() => onAction("cancel")}
+                className="!text-status-danger-text hover:!border-status-danger-border hover:!bg-status-danger-bg"
+              >
+                <Icon name="x-circle" size={15} />
+                {copy.cancelTicket}
+              </Button>
+            </>
+          )}
+          {p.can_delete && (
+            <Button type="button" variant="ghost" size="sm" onClick={() => onAction("delete")} className="!text-status-danger-text">
+              <Icon name="trash" size={15} />
+              {copy.delete}
+            </Button>
+          )}
+        </div>
+      )}
+      {canManage && !p.can_delete && <p className="text-xs leading-relaxed text-text-muted">{copy.deleteBlocked}</p>}
 
       <section aria-labelledby="participant-scans" className="space-y-2">
         <h3 id="participant-scans" className="text-sm font-bold text-text-primary">

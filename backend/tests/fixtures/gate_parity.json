@@ -1,0 +1,127 @@
+{
+  "about": "Gate rule scenarios that the server (backend/tests/test_gate_rules.py, over HTTP) and the web scanner's local engine (web/tests/scannerParity.test.ts) must decide alike. A step without `at` happens `start` plus its index in minutes; `expect` is ADMITTED or the rejection reason; a `parent` step admits the ticket at the point this one requires.",
+  "timezone": "Asia/Tehran",
+  "scenarios": [
+    {
+      "name": "single use, event window: once per event",
+      "point": {"policy_type": "SINGLE_USE", "reset_window": "EVENT"},
+      "tickets": {"a": "General", "b": "General"},
+      "start": "2025-11-10T08:00:00Z",
+      "steps": [
+        {"ticket": "a", "expect": "ADMITTED"},
+        {"ticket": "a", "at": "2025-11-11T08:00:00Z", "expect": "ALREADY_ADMITTED"},
+        {"ticket": "b", "at": "2025-11-11T08:01:00Z", "expect": "ADMITTED"}
+      ]
+    },
+    {
+      "name": "single use, day window: once per Tehran calendar day",
+      "point": {"policy_type": "SINGLE_USE", "reset_window": "DAY"},
+      "tickets": {"a": "General"},
+      "start": "2025-11-10T20:00:00Z",
+      "steps": [
+        {"ticket": "a", "at": "2025-11-10T20:29:00Z", "expect": "ADMITTED"},
+        {"ticket": "a", "at": "2025-11-10T20:29:30Z", "expect": "ALREADY_ADMITTED"},
+        {"ticket": "a", "at": "2025-11-10T20:31:00Z", "expect": "ADMITTED"},
+        {"ticket": "a", "at": "2025-11-10T20:32:00Z", "expect": "ALREADY_ADMITTED"}
+      ]
+    },
+    {
+      "name": "tier filter on a single-use point",
+      "point": {"policy_type": "SINGLE_USE", "allowed_tiers": ["VIP"]},
+      "tickets": {"g": "General", "v": "VIP"},
+      "start": "2025-11-10T08:00:00Z",
+      "steps": [
+        {"ticket": "g", "expect": "TIER_NOT_ALLOWED"},
+        {"ticket": "v", "expect": "ADMITTED"},
+        {"ticket": "v", "expect": "ALREADY_ADMITTED"}
+      ]
+    },
+    {
+      "name": "tier restricted is multi entry with a tier filter",
+      "point": {"policy_type": "TIER_RESTRICTED", "allowed_tiers": ["VIP"]},
+      "tickets": {"g": "General", "v": "VIP"},
+      "start": "2025-11-10T08:00:00Z",
+      "steps": [
+        {"ticket": "v", "expect": "ADMITTED"},
+        {"ticket": "v", "expect": "ADMITTED"},
+        {"ticket": "g", "expect": "TIER_NOT_ALLOWED"}
+      ]
+    },
+    {
+      "name": "capacity without occupancy counts admissions",
+      "point": {"policy_type": "CAPACITY_CAPPED", "max_capacity": 2},
+      "tickets": {"a": "General", "b": "General"},
+      "start": "2025-11-10T08:00:00Z",
+      "steps": [
+        {"ticket": "a", "expect": "ADMITTED"},
+        {"ticket": "a", "expect": "ADMITTED"},
+        {"ticket": "b", "expect": "CAPACITY_REACHED"}
+      ]
+    },
+    {
+      "name": "capacity with occupancy counts the people inside",
+      "point": {"policy_type": "CAPACITY_CAPPED", "max_capacity": 2, "tracks_occupancy": true},
+      "tickets": {"a": "General", "b": "General", "c": "VIP", "d": "General"},
+      "start": "2025-11-10T08:00:00Z",
+      "steps": [
+        {"ticket": "a", "expect": "ADMITTED"},
+        {"ticket": "b", "expect": "ADMITTED"},
+        {"ticket": "c", "expect": "CAPACITY_REACHED"},
+        {"ticket": "a", "expect": "ADMITTED"},
+        {"ticket": "a", "direction": "OUT", "expect": "ADMITTED"},
+        {"ticket": "c", "expect": "ADMITTED"},
+        {"ticket": "b", "direction": "OUT", "expect": "ADMITTED"},
+        {"ticket": "b", "direction": "OUT", "expect": "NOT_INSIDE"},
+        {"ticket": "d", "direction": "OUT", "expect": "NOT_INSIDE"},
+        {"ticket": "d", "expect": "ADMITTED"},
+        {"ticket": "b", "expect": "CAPACITY_REACHED"}
+      ]
+    },
+    {
+      "name": "an exit at a point without occupancy is refused",
+      "point": {"policy_type": "MULTI_ENTRY"},
+      "tickets": {"a": "General"},
+      "start": "2025-11-10T08:00:00Z",
+      "steps": [
+        {"ticket": "a", "direction": "OUT", "expect": "EXIT_NOT_TRACKED"},
+        {"ticket": "a", "expect": "ADMITTED"}
+      ]
+    },
+    {
+      "name": "a required point must be visited first",
+      "point": {"policy_type": "MULTI_ENTRY", "requires_parent": true},
+      "tickets": {"a": "General"},
+      "start": "2025-11-10T08:00:00Z",
+      "steps": [
+        {"ticket": "a", "expect": "REQUIRED_POINT_NOT_VISITED"},
+        {"ticket": "a", "parent": true},
+        {"ticket": "a", "expect": "ADMITTED"}
+      ]
+    },
+    {
+      "name": "the tier filter is checked before the required point and single use",
+      "point": {"policy_type": "SINGLE_USE", "allowed_tiers": ["VIP"], "requires_parent": true},
+      "tickets": {"g": "General", "v": "VIP"},
+      "start": "2025-11-10T08:00:00Z",
+      "steps": [
+        {"ticket": "g", "expect": "TIER_NOT_ALLOWED"},
+        {"ticket": "v", "expect": "REQUIRED_POINT_NOT_VISITED"},
+        {"ticket": "v", "parent": true},
+        {"ticket": "v", "expect": "ADMITTED"},
+        {"ticket": "v", "expect": "ALREADY_ADMITTED"}
+      ]
+    },
+    {
+      "name": "a day window resets who is inside at Tehran midnight",
+      "point": {"policy_type": "MULTI_ENTRY", "reset_window": "DAY", "tracks_occupancy": true},
+      "tickets": {"a": "General"},
+      "start": "2025-11-10T20:00:00Z",
+      "steps": [
+        {"ticket": "a", "at": "2025-11-10T20:20:00Z", "expect": "ADMITTED"},
+        {"ticket": "a", "at": "2025-11-10T20:40:00Z", "direction": "OUT", "expect": "NOT_INSIDE"},
+        {"ticket": "a", "at": "2025-11-10T20:41:00Z", "expect": "ADMITTED"},
+        {"ticket": "a", "at": "2025-11-10T20:42:00Z", "direction": "OUT", "expect": "ADMITTED"}
+      ]
+    }
+  ]
+}

@@ -15,6 +15,7 @@ import re
 import tempfile
 import uuid
 import warnings
+import zlib
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -92,10 +93,25 @@ def process_image(raw: bytes) -> ProcessedImage:
 
 
 PDF_MAGIC = b"%PDF-"
-# Active content a schedule never needs. A heuristic (names inside compressed object streams are not seen),
-# kept as defence in depth: the file is also served sandboxed and never executed by this server.
-_PDF_ACTIVE_CONTENT = re.compile(rb"/(?:JavaScript|JS|Launch|EmbeddedFiles?|RichMedia|XFA)(?![A-Za-z0-9])")
+# Names a schedule never needs: scripts, launching programs, embedded files and multimedia, forms (XFA, submit,
+# import), automatic actions (/AA), web links (/URI) and jumps into other documents. Compared after decoding
+# `#xx` escapes, so `/J#61vaScript` is `/JavaScript`.
+_PDF_BLOCKED_NAMES = frozenset(
+    {
+        b"JavaScript", b"JS", b"Launch", b"EmbeddedFile", b"EmbeddedFiles", b"RichMedia", b"XFA", b"AA", b"URI",
+        b"SubmitForm", b"ImportData", b"GoToR", b"GoToE", b"Rendition", b"Sound", b"Movie",
+    }
+)
+# A name token: a slash and every following byte up to whitespace or a delimiter (PDF 32000-1, 7.3.5).
+_PDF_NAME = re.compile(rb"/([^\x00\t\n\f\r ()<>\[\]{}/%]*)")
+_PDF_NAME_ESCAPE = re.compile(rb"#([0-9A-Fa-f]{2})")
+_PDF_WHITESPACE = b"\x00\t\n\f\r "
+# The `stream` keyword that opens a stream's data (not the end of `endstream`).
+_PDF_STREAM = re.compile(rb"(?<![A-Za-z])stream\r?\n")
 _PDF_PAGE = re.compile(rb"/Type\s*/Page(?![A-Za-z0-9])")
+# Object streams hold whole dictionaries compressed; they are inflated and checked too, within this budget.
+MAX_PDF_INFLATED_BYTES = 32 * 1024 * 1024
+_PDF_DICT_LOOKBACK = 4096
 
 
 class RejectedPdf(ValueError):
@@ -109,13 +125,74 @@ class CheckedPdf:
     page_count: int | None
 
 
+def _pdf_names(data: bytes) -> list[tuple[bytes, int]]:
+    """Every name in `data`, `#xx` escapes decoded, with the offset just after it."""
+    return [
+        (_PDF_NAME_ESCAPE.sub(lambda e: bytes([int(e.group(1), 16)]), m.group(1)), m.end())
+        for m in _PDF_NAME.finditer(data)
+    ]
+
+
+def _refuse_active_names(data: bytes) -> None:
+    for name, end in _pdf_names(data):
+        if name in _PDF_BLOCKED_NAMES:
+            raise RejectedPdf(ACTIVE_PDF)
+        # A document-open action is accepted only as an explicit destination (`[page /Fit]`), which merely sets
+        # the first view; a dictionary or a reference can be an action.
+        if name == b"OpenAction" and data[end:].lstrip(_PDF_WHITESPACE)[:1] != b"[":
+            raise RejectedPdf(ACTIVE_PDF)
+
+
+def _object_streams(raw: bytes) -> list[bytes]:
+    """The inflated contents of every object stream (`/Type /ObjStm`). One that cannot be decoded is refused:
+    what it holds cannot be checked."""
+    inflated: list[bytes] = []
+    budget = MAX_PDF_INFLATED_BYTES
+    for match in _PDF_STREAM.finditer(raw):
+        head = raw[max(0, match.start() - _PDF_DICT_LOOKBACK) : match.start()]
+        dictionary = head[head.rfind(b"obj") + 3 :] if b"obj" in head else head
+        names = [name for name, _ in _pdf_names(dictionary)]
+        if b"ObjStm" not in names:
+            continue
+        end = raw.find(b"endstream", match.end())
+        body = raw[match.end() : end if end >= 0 else len(raw)]
+        filters = [n for n in names if n.endswith(b"Decode") or n in (b"Fl", b"AHx", b"A85", b"LZW", b"RL")]
+        if not filters:
+            content = body
+        elif filters in ([b"FlateDecode"], [b"Fl"]):
+            decoder = zlib.decompressobj()
+            try:
+                content = decoder.decompress(body, budget + 1)
+            except zlib.error:
+                raise RejectedPdf(UNCHECKABLE_PDF) from None
+        else:
+            raise RejectedPdf(UNCHECKABLE_PDF)
+        budget -= len(content)
+        if budget < 0:
+            raise RejectedPdf(UNCHECKABLE_PDF)
+        inflated.append(content)
+    return inflated
+
+
+ACTIVE_PDF = "PDFs with scripts, automatic actions, web links, forms or embedded files are not accepted."
+UNCHECKABLE_PDF = "This PDF stores its content in a way that cannot be checked; save or print it again as a PDF."
+
+
 def check_pdf(raw: bytes) -> CheckedPdf:
-    """Accepts a PDF by its magic bytes and refuses active content. The bytes are stored as uploaded (they are
-    never parsed or rendered server-side), under a generated name, and served sandboxed."""
+    """Accepts a PDF by its magic bytes and refuses active content: blocked names (escapes decoded) anywhere in
+    the file and inside its object streams, and any /OpenAction that is not a plain destination. A heuristic
+    kept as defence in depth: names inside other compressed streams (page content) are not read, and the bytes
+    are stored as uploaded, never parsed or rendered server-side.
+
+    The file is served inline (so browsers show it in their PDF viewer) with `X-Content-Type-Options: nosniff`
+    and `Content-Security-Policy: sandbox` (app/routes/program_files.py): the viewer runs in a sandboxed, opaque
+    origin without scripts, verified to display schedules in Chrome. That, not this check, is what keeps a PDF
+    from acting on the site; downloading as an attachment was not needed."""
     if not raw.startswith(PDF_MAGIC):
         raise RejectedPdf("The file is not a PDF.")
-    if _PDF_ACTIVE_CONTENT.search(raw):
-        raise RejectedPdf("PDFs with scripts, launch actions or embedded files are not accepted.")
+    _refuse_active_names(raw)
+    for content in _object_streams(raw):
+        _refuse_active_names(content)
     pages = len(_PDF_PAGE.findall(raw))
     return CheckedPdf(sha256=hashlib.sha256(raw).hexdigest(), page_count=pages or None)
 

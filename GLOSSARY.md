@@ -88,6 +88,18 @@ _Avoid_: Gate rule, scan constraint, access limit
 The verified admission event of an attendee at a Check-In Point.
 _Avoid_: Entry, scan (as an entity), arrival
 
+**Admission Window**:
+The span within which a single-use Check-In Point admits a ticket once: the whole event, or each calendar day in the event's time zone (e.g. one lunch per day). Every Check-In records the window it fell in (ADR 0010).
+_Avoid_: Meal slot, service period
+
+**Occupancy**:
+The people inside a Check-In Point that records entries and exits: per ticket, the latest accepted entry or exit decides. A capped point with occupancy caps the people inside, not the cumulative admissions (ADR 0010).
+_Avoid_: Current admissions, headcount (for cumulative admissions)
+
+**Session Door**:
+A Check-In Point linked to a programme session; its admissions are the session's attendance (ADR 0004).
+_Avoid_: Hall scanner
+
 **Exhibitor**:
 A commercial organization, company, or sponsor presenting products and services at an event from one or more Booths. In the planned Partner model, an Exhibitor is the kind of Partner that operates Booths.
 _Avoid_: Vendor, seller; Partner when the Booth-operating organization is meant

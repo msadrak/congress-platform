@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   addSection,
+  documentDiff,
   localized,
   moveSection,
   normalizeDocument,
@@ -55,6 +56,30 @@ test("reordering moves one step and stops at the ends", () => {
   assert.deepEqual(moveSection(doc, "passes", -1).sections.map((s) => s.id), ["about", "passes", "highlights", "exhibitors"]);
   assert.equal(moveSection(doc, "about", -1), doc);
   assert.equal(moveSection(doc, "exhibitors", 1), doc);
+});
+
+test("a stale-save conflict is summarised by what the other saved version changes", () => {
+  const mine = standardDocument();
+  assert.deepEqual(documentDiff(mine, mine), { hero: false, branding: false, seo: false, order: false, added: [], removed: [], changed: [] });
+
+  const withFaq = addSection(mine, "faq", "about");
+  const theirs = moveSection(
+    { ...withFaq.doc, hero: { ...withFaq.doc.hero, subtitle: { fa: "", en: "Other editor" } } },
+    "passes",
+    -1,
+  );
+  const highlights = theirs.sections.find((s) => s.id === "highlights");
+  assert.ok(highlights);
+  const edited = { ...theirs, sections: theirs.sections.map((s) => (s.id === "highlights" ? { ...s, visible: false } : s)) };
+  const diff = documentDiff(mine, edited);
+  assert.equal(diff.hero, true);
+  assert.equal(diff.branding, false);
+  assert.equal(diff.seo, false);
+  assert.equal(diff.order, true);
+  assert.deepEqual(diff.added.map((s) => s.id), ["faq-1"]);
+  assert.deepEqual(diff.removed, []);
+  assert.deepEqual(diff.changed.map((s) => s.id), ["highlights"]);
+  assert.deepEqual(documentDiff(withFaq.doc, mine).removed.map((s) => s.id), ["faq-1"]);
 });
 
 test("historic anchors survive so existing #passes / #exhibition links keep working", () => {

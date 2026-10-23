@@ -14,7 +14,7 @@ export interface AttendeeSession {
   readonly signedIn: boolean;
   /** No session because a 401 ended this tab's (show "session expired", not a plain sign-in). */
   readonly expired: boolean;
-  /** Removes the token and every cached pass on this device. */
+  /** Signs out everywhere (best effort on the server) and removes the token and every cached pass here. */
   readonly signOut: () => void;
   /** After a 401 for `token`: removes it and its owner's cached passes, only if it is still stored. */
   readonly rejectToken: (token: string) => boolean;

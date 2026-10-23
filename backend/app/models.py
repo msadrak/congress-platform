@@ -159,6 +159,7 @@ class User(Base):
     """An attendee, booth staff or desk operator account. Identity is the mobile number, proven by SMS code."""
 
     __tablename__ = "users"
+    __table_args__ = (CheckConstraint("session_version >= 0", name="ck_users_session_version"),)
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     # Canonical 09xxxxxxxxx (app/sms/phone.py). NULL only for a walk-in who gave no number; such an account
@@ -179,6 +180,9 @@ class User(Base):
     )
     # Set when the person deleted their account: the row stays (anonymised) so check-in statistics add up.
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Carried by every access token as `sv` (migration 0030). Signing out and deleting the account increment it,
+    # so every session of the account ends at once (app/routes/auth.py).
+    session_version: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
 
 
 class DeskOperator(Base):
@@ -314,6 +318,10 @@ class EntityQR(Base):
     )
 
 
+RESET_WINDOWS = ("EVENT", "DAY")
+RESET_WINDOWS_SQL = "('EVENT', 'DAY')"
+
+
 class CheckInPoint(Base):
     """A physical or logical admission station (e.g. Entrance, Dining Hall, Hall A)."""
 
@@ -324,6 +332,7 @@ class CheckInPoint(Base):
             name="ck_checkin_points_policy_type",
         ),
         CheckConstraint("max_capacity IS NULL OR max_capacity > 0", name="ck_checkin_points_max_capacity"),
+        CheckConstraint(f"reset_window IN {RESET_WINDOWS_SQL}", name="ck_checkin_points_reset_window"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
@@ -336,6 +345,24 @@ class CheckInPoint(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
+    # ── Gate rules (migration 0025) ──
+    # EVENT: a SINGLE_USE point admits a ticket once per event; DAY: once per calendar day in the event's zone.
+    reset_window: Mapped[str] = mapped_column(String(8), default="EVENT", server_default="EVENT")
+    # Scans carry a direction (IN/OUT) and the point knows who is inside; a capped point caps the people inside.
+    tracks_occupancy: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
+    # A ticket must have been admitted at this point (same event) first, e.g. the venue entrance before a hall.
+    requires_point_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("checkin_points.id", ondelete="SET NULL", name="fk_checkin_points_requires_point_id"),
+        nullable=True,
+    )
+    # The door of a programme session: its admissions are the session's attendance.
+    session_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("event_sessions.id", ondelete="SET NULL", name="fk_checkin_points_session_id"),
+        nullable=True,
+        index=True,
+    )
+    # Hidden from scanners and pairing; kept, with its scans, for analytics.
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class CheckIn(Base):
@@ -343,11 +370,13 @@ class CheckIn(Base):
 
     __tablename__ = "checkins"
     __table_args__ = (
-        # At most one admission per ticket at a SINGLE_USE point, enforced under concurrency (migration 0009).
+        # At most one admission per ticket and admission window at a SINGLE_USE point, enforced under
+        # concurrency (migration 0009, per window since 0025).
         Index(
-            "uq_checkin_single_use_admitted",
+            "uq_checkin_single_use_window",
             "checkin_point_id",
             "ticket_id",
+            "admission_window",
             unique=True,
             postgresql_where=text("status = 'ADMITTED' AND policy_type = 'SINGLE_USE' AND ticket_id IS NOT NULL"),
         ),
@@ -359,6 +388,11 @@ class CheckIn(Base):
         CheckConstraint(
             "policy_type IN ('MULTI_ENTRY', 'SINGLE_USE', 'TIER_RESTRICTED', 'CAPACITY_CAPPED')",
             name="ck_checkins_policy_type",
+        ),
+        CheckConstraint("direction IN ('IN', 'OUT')", name="ck_checkins_direction"),
+        CheckConstraint(
+            "admission_window = 'event' OR admission_window ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'",
+            name="ck_checkins_admission_window",
         ),
     )
 
@@ -382,6 +416,10 @@ class CheckIn(Base):
     # The device clock claimed a time later than the server allows: scanned_at is the receive time instead.
     clock_skew: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
     client_scanned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Entry or exit (exits only at points that track occupancy); an accepted exit is status ADMITTED, direction OUT.
+    direction: Mapped[str] = mapped_column(String(3), default="IN", server_default="IN")
+    # 'event', or the scan's local date (YYYY-MM-DD, event time zone) at a point whose reset_window is DAY.
+    admission_window: Mapped[str] = mapped_column(String(10), default="event", server_default="event")
 
 class ScannerDevice(Base):
     """A registered scanner client device authorized for a CheckInPoint."""
@@ -404,6 +442,10 @@ class ScannerDevice(Base):
     last_seen_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # What the scanner last reported in its heartbeat (migration 0025).
+    unsynced_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    app_version: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    last_heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 class Booth(Base):
     """An exhibition stall or space assigned to a commercial sponsor."""

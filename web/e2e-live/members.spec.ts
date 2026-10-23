@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { createEvent, createOrganizer, organizerSignIn, signInWithCode, uid, uniqueMobile, waitForSms } from './support/live';
+import { call, createEvent, createOrganizer, organizerSignIn, signInWithCode, uid, uniqueMobile, waitForSms } from './support/live';
 
 test.use({ viewport: { width: 1280, height: 900 } });
 
@@ -35,16 +35,18 @@ test('member roles: owner invites a viewer, who signs in by SMS code, cannot edi
     await expect(viewer.getByRole('article', { name: event.name })).toBeVisible();
   });
 
-  await test.step('viewer cannot create an event: the refusal is explained in Persian', async () => {
-    await viewer.getByRole('button', { name: 'ایجاد همایش جدید' }).first().click();
-    const dialog = viewer.getByRole('dialog', { name: 'ثبت همایش جدید' });
-    await dialog.getByLabel('عنوان رسمی همایش').fill(`همایش ممنوع ${uid()}`);
-    await dialog.getByLabel(/شناسه اینترنتی/).fill(`forbidden-${uid()}`);
-    await dialog.getByLabel('زمان آغاز همایش').fill('2027-05-10T09:00');
-    await dialog.getByLabel('زمان پایان همایش').fill('2027-05-10T17:00');
-    await dialog.getByLabel(/محل برگزاری/).fill('سالن');
-    await dialog.getByRole('button', { name: 'ثبت و ایجاد همایش' }).click();
-    await expect(dialog.getByText('نقش شما در این سازمان اجازهٔ این کار را نمی‌دهد. از مالک یا مدیر سازمان بخواهید.')).toBeVisible();
+  await test.step('viewer is not offered event creation, and the server refuses it for their role', async () => {
+    // The console hides what a viewer can never do (components/organizer/roleAccess.ts); the server still decides.
+    await expect(viewer.getByRole('button', { name: 'ایجاد همایش جدید' })).toHaveCount(0);
+    const token = await viewer.evaluate(() => sessionStorage.getItem('congress_organizer_api_key'));
+    expect(token).toBeTruthy();
+    const refused = await call<{ code?: string }>('POST', '/api/events', {
+      token: token ?? '',
+      expect: [403],
+      body: { name: `همایش ممنوع ${uid()}`, slug: `forbidden-${uid()}`, starts_at: '2027-05-10T05:30:00Z', ends_at: '2027-05-10T13:30:00Z', location: 'سالن' },
+    });
+    expect(refused.status).toBe(403);
+    expect(refused.json.code).toBe('ROLE_FORBIDDEN');
   });
 
   await test.step('the activity log records the invite', async () => {

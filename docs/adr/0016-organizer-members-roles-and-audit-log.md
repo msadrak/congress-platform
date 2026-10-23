@@ -66,6 +66,10 @@ and desk session handed out with the old key working, so it did not fully recove
 - Rotating the key now interrupts paired scanners and signed-in desk operators: rotate before the gates open, or
   re-pair afterwards.
 - The audit log grows with every change; it has no retention policy yet (rows are small, and changes, not
-  scans, are recorded). TRUNCATE by a database operator is outside what the trigger prevents.
+  scans, are recorded). TRUNCATE by a database operator is outside what the trigger prevents. Since FIX-2 an
+  operator can purge entries older than `CONGRESS_AUDIT_RETENTION_DAYS` with `python -m app.retention
+  purge-audit` (unset by default: nothing is purged; see `docs/deployment/STAGING_OPERATIONS.md`, Data
+  retention). Entries keep the actor's name (`actor_label`) even after that person deletes their account,
+  until such a purge removes them.
 - Persian copy of the console for members, roles and activity is in `web/src/lib/organizerConsole.ts`; error codes
   are in `web/src/lib/errorMessages.ts`.

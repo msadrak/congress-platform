@@ -130,12 +130,9 @@ test('organizer: platform admin provisions the organizer, who sets up and publis
   });
 });
 
-// Known gap, owned by ws/b6a-organizer-ui ("program times in event timezone", docs/handover/UPGRADE_HANDOVER.md §5):
-// the session form reads its times on the browser's clock, so an organizer in Tehran planning an Istanbul congress
-// stores 09:30 Istanbul as 09:30 Tehran (06:00Z instead of 06:30Z). Marked as failing; when the fix lands this test
-// reports "expected to fail but passed": remove the `test.fail` line then.
+// The session form reads and writes times on the event's clock (ws/b6a-organizer-ui): an organizer in Tehran
+// planning an Istanbul congress who enters 09:30 stores 09:30 Istanbul (06:30Z), not 09:30 Tehran (06:00Z).
 test('organizer: program session times are entered on the event clock, not the browser clock', async ({ page }) => {
-  test.fail(true, 'session form uses the browser timezone (fixed on ws/b6a-organizer-ui)');
   const organizer = await createOrganizer();
   const id = uid();
   const DAY = 86_400_000;

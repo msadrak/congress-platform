@@ -6,24 +6,23 @@ transferring and deleting go through app/ticket_lifecycle.py. Organizer API key 
 event or ticket is a 404 (OwnedEventDep).
 """
 
-import csv
-import io
 import re
 import uuid
 from datetime import datetime
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Query, Request, Response, status
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, StringConstraints
 from sqlalchemy import ColumnElement, Select, delete, exists, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import QueryableAttribute
 
+from app.csv_export import csv_response, csv_stream
 from app.db import SessionDep
 from app.errors import ApiError, error_responses
 from app.models import CheckIn, CheckInPoint, DeskOperator, EntityQR, Event, Lead, Ticket, TicketTier, User
-from app.routes.events import OwnedEventDep
-from app.security import sanitize_csv_cell
+from app.routes.events import OwnedEventDep, WritableEventDep
 from app.sms.budgets import charge_organizer_notice
 from app.sms.outbox import link_origin
 from app.sms.phone import IranMobile, ascii_digits, search_digits
@@ -158,7 +157,7 @@ class ParticipantTransfer(BaseModel):
 def _checkin_count() -> Any:
     return (
         select(func.count(CheckIn.id))
-        .where(CheckIn.ticket_id == Ticket.id, CheckIn.status == "ADMITTED")
+        .where(CheckIn.ticket_id == Ticket.id, CheckIn.status == "ADMITTED", CheckIn.direction == "IN")
         .correlate(Ticket)
         .scalar_subquery()
     )
@@ -307,49 +306,32 @@ async def list_participants(
     return ParticipantPage(items=[_participant(r) for r in rows.all()], total=total or 0, limit=limit, offset=offset)
 
 
-@router.get("/export-csv")
+@router.get("/export-csv", response_class=StreamingResponse)
 async def export_participants_csv(
     event: OwnedEventDep,
-    session: SessionDep,
+    request: Request,
     q: Annotated[str, Query(max_length=200)] = "",
     tier_id: Annotated[uuid.UUID | None, Query()] = None,
     ticket_status: Annotated[TicketStatus | None, Query(alias="status")] = None,
-) -> Response:
-    """Every registration matching the list filters, as CSV (UTF-8 with BOM for Excel; formula-safe cells)."""
-    rows = await session.execute(
-        _filtered(_base_query(event.id), q, tier_id, ticket_status).order_by(Ticket.created_at, Ticket.id)
-    )
-    output = io.StringIO()
-    writer = csv.writer(output)
-    writer.writerow(
-        [
-            "Ticket ID", "Full Name", "Mobile", "Organization", "Title", "Ticket Tier", "Status",
-            "Registered At (UTC)", "Cancelled At (UTC)", "Cancellation Reason", "Check-ins", "Issued By",
-        ]
-    )
-    for row in rows.all():
+) -> StreamingResponse:
+    """Every registration matching the list filters, as CSV (UTF-8 with BOM for Excel; formula-safe cells),
+    streamed in batches."""
+    statement = _filtered(_base_query(event.id), q, tier_id, ticket_status).order_by(Ticket.created_at, Ticket.id)
+    header = [
+        "Ticket ID", "Full Name", "Mobile", "Organization", "Title", "Ticket Tier", "Status",
+        "Registered At (UTC)", "Cancelled At (UTC)", "Cancellation Reason", "Check-ins", "Issued By",
+    ]
+
+    def cells(row: Any) -> list[object]:
         p = _participant(row)
-        writer.writerow(
-            [
-                str(p.ticket_id),
-                sanitize_csv_cell(p.attendee_full_name),
-                sanitize_csv_cell(p.mobile),
-                sanitize_csv_cell(p.attendee_organization),
-                sanitize_csv_cell(p.attendee_title),
-                sanitize_csv_cell(p.ticket_tier_name),
-                p.status,
-                p.created_at.isoformat(),
-                p.cancelled_at.isoformat() if p.cancelled_at else "",
-                sanitize_csv_cell(p.cancelled_reason),
-                p.checkin_count,
-                sanitize_csv_cell(p.issued_by),
-            ]
-        )
-    return Response(
-        content="﻿" + output.getvalue(),
-        media_type="text/csv; charset=utf-8",
-        headers={"Content-Disposition": f'attachment; filename="{event.slug}-participants.csv"'},
-    )
+        return [
+            p.ticket_id, p.attendee_full_name, p.mobile, p.attendee_organization, p.attendee_title,
+            p.ticket_tier_name, p.status, p.created_at.isoformat(),
+            p.cancelled_at.isoformat() if p.cancelled_at else "", p.cancelled_reason, p.checkin_count, p.issued_by,
+        ]
+
+    body = csv_stream(request.app.state.sessionmaker, header, statement, cells)
+    return csv_response(f"{event.slug}-participants.csv", body)
 
 
 @router.get("/{ticket_id}", responses=NOT_FOUND)
@@ -357,9 +339,9 @@ async def get_participant(event: OwnedEventDep, ticket_id: uuid.UUID, session: S
     return await _detail(session, event, ticket_id)
 
 
-@router.patch("/{ticket_id}", responses=NOT_FOUND)
+@router.patch("/{ticket_id}", responses=NOT_FOUND_OR_CONFLICT)
 async def update_participant(
-    event: OwnedEventDep, ticket_id: uuid.UUID, body: ParticipantUpdate, session: SessionDep
+    event: WritableEventDep, ticket_id: uuid.UUID, body: ParticipantUpdate, session: SessionDep
 ) -> ParticipantDetail:
     """Correct the registration's name, organization or title for this congress only."""
     ticket = await _owned_ticket(session, event, ticket_id)
@@ -375,7 +357,7 @@ async def update_participant(
 
 @router.post("/{ticket_id}/cancel", responses=NOTICE_RESPONSES)
 async def cancel_participant(
-    event: OwnedEventDep, ticket_id: uuid.UUID, body: ParticipantCancel, request: Request, session: SessionDep
+    event: WritableEventDep, ticket_id: uuid.UUID, body: ParticipantCancel, request: Request, session: SessionDep
 ) -> ParticipantDetail:
     """Cancel the ticket: its place returns to the tier and its pass stops working."""
     ticket = await _owned_ticket(session, event, ticket_id)
@@ -394,7 +376,7 @@ async def cancel_participant(
 
 @router.post("/{ticket_id}/reissue", responses=NOTICE_RESPONSES)
 async def reissue_participant(
-    event: OwnedEventDep, ticket_id: uuid.UUID, body: ParticipantReissue, request: Request, session: SessionDep
+    event: WritableEventDep, ticket_id: uuid.UUID, body: ParticipantReissue, request: Request, session: SessionDep
 ) -> ParticipantDetail:
     """Issue a new pass (new QR code); the old one stops working."""
     ticket = await _owned_ticket(session, event, ticket_id)
@@ -410,7 +392,7 @@ async def reissue_participant(
 
 @router.post("/{ticket_id}/transfer", responses=NOTICE_RESPONSES)
 async def transfer_participant(
-    event: OwnedEventDep, ticket_id: uuid.UUID, body: ParticipantTransfer, request: Request, session: SessionDep
+    event: WritableEventDep, ticket_id: uuid.UUID, body: ParticipantTransfer, request: Request, session: SessionDep
 ) -> ParticipantDetail:
     """Give the ticket's place to another person (by mobile). Returns the new holder's registration."""
     ticket = await _owned_ticket(session, event, ticket_id)
@@ -450,7 +432,7 @@ async def transfer_participant(
 
 
 @router.delete("/{ticket_id}", status_code=status.HTTP_204_NO_CONTENT, responses=NOT_FOUND_OR_CONFLICT)
-async def delete_participant(event: OwnedEventDep, ticket_id: uuid.UUID, session: SessionDep) -> Response:
+async def delete_participant(event: WritableEventDep, ticket_id: uuid.UUID, session: SessionDep) -> Response:
     """Remove a registration made by mistake. A ticket that was scanned or captured as a lead is part of the
     congress's history: cancel it instead (409)."""
     ticket = await _owned_ticket(session, event, ticket_id)
