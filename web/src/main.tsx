@@ -8,6 +8,8 @@ import "@fontsource/ibm-plex-mono/latin-500.css";
 import "./index.css";
 // Register PWA service worker (side-effect import — must remain top-level)
 import "./lib/pwaRegistration";
+// Keeps the one-time `beforeinstallprompt` for the pass page's "add to home screen" hint.
+import "./lib/installPrompt";
 import App from "./App";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(

@@ -14,7 +14,7 @@ const PLACEHOLDER_LABELS: Record<string, { fa: string; en: string }> = {
   minutes: { fa: "دقیقه اعتبار", en: "Minutes valid" },
   name: { fa: "نام شرکت‌کننده", en: "Attendee name" },
   event: { fa: "نام همایش", en: "Congress name" },
-  tier: { fa: "رده بلیط", en: "Ticket tier" },
+  tier: { fa: "رده بلیت", en: "Ticket tier" },
   location: { fa: "محل برگزاری", en: "Venue" },
   link: { fa: "لینک کارت ورود", en: "Pass link" },
 };

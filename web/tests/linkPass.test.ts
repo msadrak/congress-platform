@@ -138,6 +138,7 @@ test("the pass card shows the link pass without the mobile number", () => {
     attendee_name: "Dr. Neda Karimi",
     qr_secret: "qr-spring",
     created_at: "2027-01-10T09:00:00Z",
+    status: "active",
   });
   assert.equal(isLinkPass(pass()), true);
   assert.equal(isLinkPass({ ...pass(), qr_secret: "" }), false);

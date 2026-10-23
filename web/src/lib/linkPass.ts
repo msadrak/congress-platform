@@ -111,6 +111,7 @@ export function linkPassCard(pass: LinkPass): PassCardTicket {
     attendee_name: pass.attendee.full_name,
     qr_secret: pass.qr_secret,
     created_at: pass.issued_at,
+    status: pass.status,
   };
 }
 

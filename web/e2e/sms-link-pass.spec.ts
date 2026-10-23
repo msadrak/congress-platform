@@ -92,7 +92,7 @@ test('an unknown link offers the general sign-in; a pass is never invented', asy
   await page.goto('/t/nope234567');
 
   await expect(page.getByText('این پیوند معتبر نیست')).toBeVisible();
-  await expect(page.getByRole('link', { name: /ورود و دیدن کارت ورود/ })).toHaveAttribute('href', '/sign-in?next=%2Fmy-tickets');
+  await expect(page.getByRole('link', { name: /ورود و دیدن کارت ورود/ })).toHaveAttribute('href', '/sign-in?next=%2Fme');
   expect(await page.locator('a[href="/"]').count()).toBe(0);
   await page.goto('/c/alpha/my-ticket');
   await expect(page.getByTestId('link-pass-note')).toHaveCount(0);
