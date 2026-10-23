@@ -493,3 +493,58 @@ async def test_point_without_scans_is_deleted_unless_another_requires_it(client:
     assert (await client.delete(f"{base}/{entrance['id']}", headers=c.auth)).status_code == 204
     assert (await client.get(base, headers=c.auth)).json() == []
     assert (await client.delete(f"{base}/{entrance['id']}", headers=c.auth)).status_code == 404
+
+
+async def test_archived_event_refuses_point_writes_and_pairing(client: AsyncClient) -> None:
+    c = await congress(client)
+    point = await c.point(name="Entrance")
+    archived = await client.post(f"/api/events/{c.event_id}/archive", json={"archived": True}, headers=c.auth)
+    assert archived.status_code == 200, archived.text
+    base = f"/api/events/{c.event_id}/checkin-points"
+    pid = point["id"]
+    attempts: list[tuple[str, str, dict[str, Any] | None]] = [
+        ("POST", base, {"name": "New"}),
+        ("PATCH", f"{base}/{pid}", {"name": "Renamed"}),
+        ("POST", f"{base}/{pid}/archive", None),
+        ("POST", f"{base}/{pid}/unarchive", None),
+        ("DELETE", f"{base}/{pid}", None),
+        ("POST", f"/api/checkin-points/{pid}/token", None),
+    ]
+    for method, url, body in attempts:
+        refused = await client.request(method, url, json=body, headers=c.auth)
+        assert refused.status_code == 409, refused.text
+        assert refused.json()["code"] == "EVENT_ARCHIVED"
+    # Reading stays possible.
+    assert (await client.get(base, headers=c.auth)).status_code == 200
+
+
+async def test_deleting_an_empty_event_removes_its_point_hierarchy_and_session_doors(client: AsyncClient) -> None:
+    c = await congress(client)
+    keynote = await _session(c)
+    entrance = await c.point(name="Entrance", tracks_occupancy=True, reset_window="DAY")
+    await c.point(name="Hall", requires_point_id=entrance["id"], session_id=keynote["id"])
+    await c.device(entrance["id"])
+    deleted = await client.delete(f"/api/events/{c.event_id}", headers=c.auth)
+    assert deleted.status_code == 204, deleted.text
+
+
+async def test_scanner_authorization_failures_carry_codes(client: AsyncClient) -> None:
+    c = await congress(client)
+    point = await c.point()
+    other = await c.point(name="Other")
+    device = await c.device(point["id"])
+    scanner = {"Authorization": device["Authorization"]}
+    manifest = f"/api/checkin-points/{point['id']}/manifest"
+
+    missing = await client.get(manifest)
+    assert (missing.status_code, missing.json()["code"]) == (401, "SCANNER_CREDENTIALS_MISSING")
+    garbage = await client.get(manifest, headers={"Authorization": "Bearer not-a-token"})
+    assert (garbage.status_code, garbage.json()["code"]) == (401, "SCANNER_TOKEN_INVALID")
+    wrong_point = await client.get(f"/api/checkin-points/{other['id']}/manifest", headers=scanner)
+    assert (wrong_point.status_code, wrong_point.json()["code"]) == (403, "SCANNER_SCOPE_MISMATCH")
+    unknown = await client.get(f"/api/checkin-points/{uuid.uuid4()}/manifest", headers=scanner)
+    assert (unknown.status_code, unknown.json()["code"]) == (404, "POINT_NOT_FOUND")
+    await client.post(f"/api/checkin-points/{point['id']}/devices/{device['device_id']}/revoke", headers=c.auth)
+    revoked = await client.get(manifest, headers=scanner)
+    assert (revoked.status_code, revoked.json()["code"]) == (401, "SCANNER_REVOKED")
+    assert revoked.json()["detail"] == "Scanner device token has been revoked"

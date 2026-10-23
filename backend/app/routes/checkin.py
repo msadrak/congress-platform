@@ -45,7 +45,7 @@ from app.models import (
     TicketTier,
     User,
 )
-from app.routes.events import OwnedEventDep, event_zone
+from app.routes.events import ARCHIVED_READ_ONLY, OwnedEventDep, WritableEventDep, event_zone
 from app.security import create_scanner_token, decode_access_token
 
 _bearer = HTTPBearer(auto_error=False)
@@ -270,15 +270,16 @@ OCCUPANCY_POLICIES = ("MULTI_ENTRY", "TIER_RESTRICTED", "CAPACITY_CAPPED")
 def _admission_policy(raw: str) -> str:
     policy = raw.strip().upper()
     if policy not in ADMISSION_POLICIES:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Invalid policy_type: {policy}")
+        raise ApiError(status.HTTP_400_BAD_REQUEST, "CHECKIN_POLICY_INVALID", f"Invalid policy_type: {policy}")
     return policy
 
 
 def _require_tiers_for_tier_policy(policy: str, tier_ids: list[str]) -> None:
     """A tier-restricted point with no tiers would admit nobody (or, on a lenient client, everybody)."""
     if policy == "TIER_RESTRICTED" and not tier_ids:
-        raise HTTPException(
+        raise ApiError(
             status.HTTP_422_UNPROCESSABLE_CONTENT,
+            "TIER_FILTER_REQUIRED",
             "A TIER_RESTRICTED check-in point needs at least one allowed ticket tier",
         )
 
@@ -300,8 +301,9 @@ async def _require_event_tiers(session: SessionDep, event: Event, tier_ids: list
     valid_tier_strs = {str(t_id) for t_id in valid_tiers}
     for tier_id_str in tier_ids:
         if tier_id_str not in valid_tier_strs:
-            raise HTTPException(
+            raise ApiError(
                 status.HTTP_400_BAD_REQUEST,
+                "TIER_NOT_IN_EVENT",
                 f"Tier ID '{tier_id_str}' does not belong to this event",
             )
 
@@ -348,7 +350,10 @@ async def _require_event_session(session: SessionDep, event: Event, session_id: 
 
 
 POINT_WRITE_ERRORS = error_responses(
-    status.HTTP_400_BAD_REQUEST, status.HTTP_404_NOT_FOUND, status.HTTP_409_CONFLICT, status.HTTP_422_UNPROCESSABLE_CONTENT
+    status.HTTP_400_BAD_REQUEST,
+    status.HTTP_404_NOT_FOUND,
+    status.HTTP_409_CONFLICT,
+    status.HTTP_422_UNPROCESSABLE_CONTENT,
 )
 
 
@@ -358,7 +363,7 @@ POINT_WRITE_ERRORS = error_responses(
     responses=POINT_WRITE_ERRORS,
 )
 async def create_checkin_point(
-    body: CheckInPointCreate, event: OwnedEventDep, session: SessionDep
+    body: CheckInPointCreate, event: WritableEventDep, session: SessionDep
 ) -> CheckInPointOut:
     policy = _admission_policy(body.policy_type)
     _require_tiers_for_tier_policy(policy, body.allowed_tier_ids)
@@ -400,7 +405,7 @@ async def _owned_point(session: SessionDep, event: Event, point_id: uuid.UUID, l
     stmt = select(CheckInPoint).where(CheckInPoint.id == point_id, CheckInPoint.event_id == event.id)
     point = await session.scalar(stmt.with_for_update() if lock else stmt)
     if point is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Check-in point not found")
+        raise ApiError(status.HTTP_404_NOT_FOUND, "POINT_NOT_FOUND", "Check-in point not found")
     return point
 
 
@@ -412,7 +417,7 @@ async def _has_scans(session: SessionDep, point_id: uuid.UUID) -> bool:
 async def update_checkin_point(
     point_id: uuid.UUID,
     body: CheckInPointUpdate,
-    event: OwnedEventDep,
+    event: WritableEventDep,
     session: SessionDep,
 ) -> CheckInPointOut:
     point = await _owned_point(session, event, point_id, lock=True)
@@ -457,9 +462,10 @@ async def update_checkin_point(
 
 
 @router.post(
-    "/api/events/{event_id}/checkin-points/{point_id}/archive", responses=error_responses(status.HTTP_404_NOT_FOUND)
+    "/api/events/{event_id}/checkin-points/{point_id}/archive",
+    responses=error_responses(status.HTTP_404_NOT_FOUND, status.HTTP_409_CONFLICT),
 )
-async def archive_checkin_point(point_id: uuid.UUID, event: OwnedEventDep, session: SessionDep) -> CheckInPointOut:
+async def archive_checkin_point(point_id: uuid.UUID, event: WritableEventDep, session: SessionDep) -> CheckInPointOut:
     """Hide the point from scanners and pairing; its scans stay in analytics. Its devices stop working until it is
     unarchived."""
     point = await _owned_point(session, event, point_id, lock=True)
@@ -470,9 +476,10 @@ async def archive_checkin_point(point_id: uuid.UUID, event: OwnedEventDep, sessi
 
 
 @router.post(
-    "/api/events/{event_id}/checkin-points/{point_id}/unarchive", responses=error_responses(status.HTTP_404_NOT_FOUND)
+    "/api/events/{event_id}/checkin-points/{point_id}/unarchive",
+    responses=error_responses(status.HTTP_404_NOT_FOUND, status.HTTP_409_CONFLICT),
 )
-async def unarchive_checkin_point(point_id: uuid.UUID, event: OwnedEventDep, session: SessionDep) -> CheckInPointOut:
+async def unarchive_checkin_point(point_id: uuid.UUID, event: WritableEventDep, session: SessionDep) -> CheckInPointOut:
     point = await _owned_point(session, event, point_id, lock=True)
     point.archived_at = None
     await session.commit()
@@ -484,7 +491,7 @@ async def unarchive_checkin_point(point_id: uuid.UUID, event: OwnedEventDep, ses
     status_code=status.HTTP_204_NO_CONTENT,
     responses=error_responses(status.HTTP_404_NOT_FOUND, status.HTTP_409_CONFLICT),
 )
-async def delete_checkin_point(point_id: uuid.UUID, event: OwnedEventDep, session: SessionDep) -> Response:
+async def delete_checkin_point(point_id: uuid.UUID, event: WritableEventDep, session: SessionDep) -> Response:
     """Only a point without scans is deleted (with its paired devices); a point with scans is archived instead."""
     point = await _owned_point(session, event, point_id, lock=True)
     if await _has_scans(session, point.id):
@@ -510,9 +517,10 @@ async def delete_checkin_point(point_id: uuid.UUID, event: OwnedEventDep, sessio
 # --- Authorization ------------------------------------------------------------------------------------------
 
 
-def _missing_credentials() -> HTTPException:
-    return HTTPException(
+def _missing_credentials() -> ApiError:
+    return ApiError(
         status.HTTP_401_UNAUTHORIZED,
+        "SCANNER_CREDENTIALS_MISSING",
         "Missing authorization credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
@@ -525,13 +533,15 @@ async def _scanner_device(
     token_point_id = payload.get("point_id")
     token_event_id = payload.get("event_id")
     if str(point.id) != token_point_id:
-        raise HTTPException(
+        raise ApiError(
             status.HTTP_403_FORBIDDEN,
+            "SCANNER_SCOPE_MISMATCH",
             "Scanner token is not authorized for this check-in point",
         )
     if str(point.event_id) != token_event_id:
-        raise HTTPException(
+        raise ApiError(
             status.HTTP_403_FORBIDDEN,
+            "SCANNER_SCOPE_MISMATCH",
             "Scanner token is not authorized for this event",
         )
     # Every scanner token names its registered device (jti); revocation is per device, so a token
@@ -539,32 +549,37 @@ async def _scanner_device(
     try:
         device_uuid = uuid.UUID(str(payload.get("jti")))
     except (ValueError, TypeError):
-        raise HTTPException(
+        raise ApiError(
             status.HTTP_401_UNAUTHORIZED,
+            "SCANNER_TOKEN_INVALID",
             "Invalid scanner device identifier in token",
             headers={"WWW-Authenticate": "Bearer"},
         )
     device = await session.get(ScannerDevice, device_uuid)
     if device is None:
-        raise HTTPException(
+        raise ApiError(
             status.HTTP_401_UNAUTHORIZED,
+            "SCANNER_TOKEN_INVALID",
             "Scanner device is not registered",
             headers={"WWW-Authenticate": "Bearer"},
         )
     if device.is_revoked:
-        raise HTTPException(
+        raise ApiError(
             status.HTTP_401_UNAUTHORIZED,
+            "SCANNER_REVOKED",
             "Scanner device token has been revoked",
             headers={"WWW-Authenticate": "Bearer"},
         )
     if device.checkin_point_id != point.id:
-        raise HTTPException(
+        raise ApiError(
             status.HTTP_403_FORBIDDEN,
+            "SCANNER_SCOPE_MISMATCH",
             "Scanner token is not authorized for this check-in point",
         )
     if not await organizer_accepts_token(session, event.organizer_id, payload.get("iat")):
-        raise HTTPException(
+        raise ApiError(
             status.HTTP_401_UNAUTHORIZED,
+            "SCANNER_TOKEN_INVALID",
             "Scanner token is no longer valid",
             headers={"WWW-Authenticate": "Bearer"},
         )
@@ -575,10 +590,10 @@ async def _scanner_device(
 async def _point_and_event(session: SessionDep, point_id: uuid.UUID) -> tuple[CheckInPoint, Event]:
     point = await session.get(CheckInPoint, point_id)
     if point is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Check-in point not found")
+        raise ApiError(status.HTTP_404_NOT_FOUND, "POINT_NOT_FOUND", "Check-in point not found")
     event = await session.get(Event, point.event_id)
     if event is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Event not found")
+        raise ApiError(status.HTTP_404_NOT_FOUND, "EVENT_NOT_FOUND", "Event not found")
     return point, event
 
 
@@ -602,8 +617,9 @@ async def authorized_checkin_point(
         if payload.get("type") == "scanner":
             await _scanner_device(session, point, event, payload)
             return point
-        raise HTTPException(
+        raise ApiError(
             status.HTTP_403_FORBIDDEN,
+            "SCANNER_CREDENTIALS_REQUIRED",
             "Insufficient permissions for check-in point scanning",
         )
 
@@ -612,12 +628,13 @@ async def authorized_checkin_point(
     if principal is not None:
         if event.organizer_id != principal.organizer.id:
             # Mask presence of foreign organizer's check-in point with 404
-            raise HTTPException(status.HTTP_404_NOT_FOUND, "Check-in point not found")
+            raise ApiError(status.HTTP_404_NOT_FOUND, "POINT_NOT_FOUND", "Check-in point not found")
         authorize(request, principal)
         return point
 
-    raise HTTPException(
+    raise ApiError(
         status.HTTP_401_UNAUTHORIZED,
+        "SCANNER_TOKEN_INVALID",
         "Invalid authorization credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
@@ -638,7 +655,7 @@ async def paired_scanner_device(
     point, event = await _point_and_event(session, point_id)
     payload = decode_access_token(credentials.credentials, request.app.state.settings.jwt_secret)
     if payload is None or payload.get("type") != "scanner":
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Scanner credentials required")
+        raise ApiError(status.HTTP_403_FORBIDDEN, "SCANNER_CREDENTIALS_REQUIRED", "Scanner credentials required")
     return await _scanner_device(session, point, event, payload)
 
 
@@ -663,10 +680,13 @@ async def create_checkin_point_scanner_token(
 ) -> ScannerTokenOut:
     point = await session.get(CheckInPoint, point_id)
     if point is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Check-in point not found")
+        raise ApiError(status.HTTP_404_NOT_FOUND, "POINT_NOT_FOUND", "Check-in point not found")
     event = await session.get(Event, point.event_id)
     if event is None or event.organizer_id != organizer.id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Check-in point not found")
+        raise ApiError(status.HTTP_404_NOT_FOUND, "POINT_NOT_FOUND", "Check-in point not found")
+    if event.archived_at is not None:
+        # An archived congress is read-only: no new scanner devices (its points' archive is separate).
+        raise ApiError(status.HTTP_409_CONFLICT, "EVENT_ARCHIVED", ARCHIVED_READ_ONLY)
     if point.archived_at is not None:
         raise ApiError(status.HTTP_409_CONFLICT, "CHECKIN_POINT_ARCHIVED", ARCHIVED)
 
@@ -711,10 +731,10 @@ async def list_checkin_point_devices(
     """Newest first, with what each device last reported: last contact, unsynced scans, app version, staleness."""
     point = await session.get(CheckInPoint, point_id)
     if point is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Check-in point not found")
+        raise ApiError(status.HTTP_404_NOT_FOUND, "POINT_NOT_FOUND", "Check-in point not found")
     event = await session.get(Event, point.event_id)
     if event is None or event.organizer_id != organizer.id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Check-in point not found")
+        raise ApiError(status.HTTP_404_NOT_FOUND, "POINT_NOT_FOUND", "Check-in point not found")
 
     devices = await session.scalars(
         select(ScannerDevice)
@@ -763,29 +783,32 @@ async def revoke_current_scanner_device(
 
     payload = decode_access_token(credentials.credentials, request.app.state.settings.jwt_secret)
     if payload is None:
-        raise HTTPException(
+        raise ApiError(
             status.HTTP_401_UNAUTHORIZED,
+            "SCANNER_TOKEN_INVALID",
             "Invalid or expired scanner token",
             headers={"WWW-Authenticate": "Bearer"},
         )
     if payload.get("type") != "scanner":
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Scanner credentials required")
+        raise ApiError(status.HTTP_403_FORBIDDEN, "SCANNER_CREDENTIALS_REQUIRED", "Scanner credentials required")
     if payload.get("point_id") != str(point_id):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Scanner token scope mismatch")
+        raise ApiError(status.HTTP_403_FORBIDDEN, "SCANNER_SCOPE_MISMATCH", "Scanner token scope mismatch")
 
     try:
         device_id = uuid.UUID(str(payload.get("jti", "")))
     except ValueError as exc:
-        raise HTTPException(
-            status.HTTP_401_UNAUTHORIZED, "Scanner token has no valid device identity",
+        raise ApiError(
+            status.HTTP_401_UNAUTHORIZED,
+            "SCANNER_TOKEN_INVALID",
+            "Scanner token has no valid device identity",
             headers={"WWW-Authenticate": "Bearer"},
         ) from exc
 
     point = await session.get(CheckInPoint, point_id)
     if point is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Check-in point not found")
+        raise ApiError(status.HTTP_404_NOT_FOUND, "POINT_NOT_FOUND", "Check-in point not found")
     if payload.get("event_id") != str(point.event_id):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Scanner token scope mismatch")
+        raise ApiError(status.HTTP_403_FORBIDDEN, "SCANNER_SCOPE_MISMATCH", "Scanner token scope mismatch")
 
     device = await session.scalar(
         select(ScannerDevice)
@@ -797,14 +820,16 @@ async def revoke_current_scanner_device(
         or device.checkin_point_id != point.id
         or device.event_id != point.event_id
     ):
-        raise HTTPException(
+        raise ApiError(
             status.HTTP_401_UNAUTHORIZED,
+            "SCANNER_REVOKED",
             "Scanner device is no longer authorized",
             headers={"WWW-Authenticate": "Bearer"},
         )
     if device.is_revoked:
-        raise HTTPException(
+        raise ApiError(
             status.HTTP_401_UNAUTHORIZED,
+            "SCANNER_REVOKED",
             "Scanner device has been revoked",
             headers={"WWW-Authenticate": "Bearer"},
         )
@@ -828,14 +853,14 @@ async def revoke_checkin_point_device(
 ) -> ScannerDeviceOut:
     point = await session.get(CheckInPoint, point_id)
     if point is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Check-in point not found")
+        raise ApiError(status.HTTP_404_NOT_FOUND, "POINT_NOT_FOUND", "Check-in point not found")
     event = await session.get(Event, point.event_id)
     if event is None or event.organizer_id != organizer.id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Check-in point not found")
+        raise ApiError(status.HTTP_404_NOT_FOUND, "POINT_NOT_FOUND", "Check-in point not found")
 
     device = await session.get(ScannerDevice, device_id)
     if device is None or device.checkin_point_id != point.id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Scanner device not found")
+        raise ApiError(status.HTTP_404_NOT_FOUND, "SCANNER_DEVICE_NOT_FOUND", "Scanner device not found")
 
     now = datetime.now(timezone.utc)
     device.is_revoked = True
@@ -875,7 +900,9 @@ async def _inside_count(session: SessionDep, point: CheckInPoint, window: str) -
     latest = _latest_presence(point)
     return (
         await session.scalar(
-            select(func.count()).select_from(latest).where(latest.c.admission_window == window, latest.c.direction == "IN")
+            select(func.count())
+            .select_from(latest)
+            .where(latest.c.admission_window == window, latest.c.direction == "IN")
         )
     ) or 0
 
