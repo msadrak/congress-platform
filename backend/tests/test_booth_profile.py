@@ -435,3 +435,16 @@ def test_the_logo_migration_reverses_cleanly() -> None:
         assert asyncio.run(_logo_column_exists())
     finally:
         command.upgrade(alembic_config(), "head")
+
+
+async def test_deleting_a_booth_deletes_its_logo_unless_still_used(client: AsyncClient, app: FastAPI, media_root: Path) -> None:
+    congress = await setup_congress(client)
+    await put_logo(client, congress, image_bytes())
+    [asset] = await assets_of(app, congress.event_id)
+    path = resolve_storage_path(media_root, asset.storage_key)
+    deleted = await client.delete(
+        f"/api/events/{congress.event_id}/booths/{congress.booth_id}", headers=bearer(congress.organizer)
+    )
+    assert deleted.status_code == 204, deleted.text
+    assert await assets_of(app, congress.event_id) == []
+    assert not path.exists()

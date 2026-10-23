@@ -279,7 +279,7 @@ export default function PublicBooth() {
           </nav>
           <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
             <div className="flex min-w-0 items-center gap-4">
-              <BoothLogo src={booth.logo_url} alt={booth.name} size="header" className="border-transparent" />
+              <BoothLogo src={booth.logo_url} alt={booth.name} size="header" />
               <div className="min-w-0 space-y-2">
                 <h1 id="booth-title" className="text-title-lg font-bold text-white break-words sm:text-display">
                   <Bidi text={booth.name} />

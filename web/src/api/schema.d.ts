@@ -1391,7 +1391,8 @@ export interface paths {
         /**
          * Delete Booth
          * @description Removes the booth with everything that only exists for it: captured leads, staff assignments,
-         *     attendee bookmarks and its booth QR (which then no longer resolves).
+         *     attendee bookmarks, its booth QR (which then no longer resolves) and its logo, unless the page or another
+         *     booth uses that image.
          */
         delete: operations["delete_booth_api_events__event_id__booths__booth_id__delete"];
         options?: never;

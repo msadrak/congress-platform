@@ -417,11 +417,14 @@ async def update_booth(
 async def delete_booth(
     event: WritableEventDep,
     booth_id: uuid.UUID,
+    request: Request,
     session: SessionDep,
 ) -> Response:
     """Removes the booth with everything that only exists for it: captured leads, staff assignments,
-    attendee bookmarks and its booth QR (which then no longer resolves)."""
+    attendee bookmarks, its booth QR (which then no longer resolves) and its logo, unless the page or another
+    booth uses that image."""
     booth = await _own_booth(session, event, booth_id)
+    logo = booth.logo_asset_id
     await session.execute(delete(Lead).where(Lead.booth_id == booth.id))
     await session.execute(delete(BoothStaff).where(BoothStaff.booth_id == booth.id))
     await session.execute(delete(BoothBookmark).where(BoothBookmark.booth_id == booth.id))
@@ -429,7 +432,10 @@ async def delete_booth(
         delete(EntityQR).where(EntityQR.entity_id == booth.id, EntityQR.entity_type == "booth")
     )
     await session.delete(booth)
+    await session.flush()
+    unused = await delete_if_unused(session, event.id, logo)
     await session.commit()
+    await delete_media_file(request, unused)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
