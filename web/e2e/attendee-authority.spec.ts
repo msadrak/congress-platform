@@ -55,6 +55,7 @@ async function fixture(page: Page, options: Options = {}) {
       if (rest === '') return json(200, boothOf(id));
       if (rest === '/leads/export-csv') return route.fulfill({ status: 200, contentType: 'text/csv; charset=utf-8', body: 'name,notes\nZoë Müller,café\n' });
       if (rest === '/leads/scan') return json(201, leadOf('lead-new', 'Captured Lead'));
+      if (rest === '/leads/search') return json(200, { items: [leadOf('lead-1')], total: 1, next_cursor: null });
       if (rest.startsWith('/leads/')) return json(200, { ...leadOf('lead-1'), rating: 'HOT' });
       if (rest === '/leads') return json(200, [leadOf('lead-1')]);
     }
@@ -369,7 +370,7 @@ test('booth staff workflow: load, capture, qualify and UTF-8 CSV export use only
   const file = await download;
   expect(file.suggestedFilename()).toBe('slug-booth-1-leads.csv');
   expect(await readFile(await file.path(), 'utf8')).toBe('name,notes\nZoë Müller,café\n');
-  expect(requests.map(r => `${r.method} ${r.path}`)).toEqual(expect.arrayContaining(['GET /api/booths/booth-1', 'GET /api/booths/booth-1/leads', 'POST /api/booths/booth-1/leads/scan', 'PATCH /api/booths/booth-1/leads/lead-new', 'GET /api/booths/booth-1/leads/export-csv']));
+  expect(requests.map(r => `${r.method} ${r.path}`)).toEqual(expect.arrayContaining(['GET /api/booths/booth-1', 'GET /api/booths/booth-1/leads/search', 'POST /api/booths/booth-1/leads/scan', 'PATCH /api/booths/booth-1/leads/lead-new', 'GET /api/booths/booth-1/leads/export-csv']));
   expect(onlyUser(requests, tokenA)).toBe(true);
   await otherCredentialsIntact(page);
 });
@@ -505,7 +506,7 @@ test('R2 a reservation answered after the session changed shows no success for t
 
 test('account switch: user A leads are not shown to user B when B leads cannot load', async ({ page }) => {
   await fixture(page);
-  await page.route('**/api/booths/booth-1/leads', async route => {
+  await page.route('**/api/booths/booth-1/leads/search*', async route => {
     if (route.request().headers().authorization === bearer(tokenB)) {
       return route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ detail: 'Server error' }) });
     }
