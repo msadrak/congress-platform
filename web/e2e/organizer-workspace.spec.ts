@@ -589,9 +589,10 @@ test('reception shows which authority is acting when both credentials exist', as
   await fixture(page);
   await seed(page, { desk: true });
   await page.goto('/organizer/events/event-a/desk');
-  await expect(page.getByTestId('desk-active-mode')).toHaveText('Acting as: reception operator');
-  await page.getByRole('button', { name: 'Organizer', exact: true }).click();
-  await expect(page.getByTestId('desk-active-mode')).toHaveText('Acting as: organizer');
+  await page.getByRole('button', { name: 'Menu' }).click();
+  await page.getByRole('menuitem', { name: 'Organizer mode' }).click();
+  await page.getByRole('button', { name: 'Menu' }).click();
+  await expect(page.getByRole('menuitem', { name: 'Operator mode' })).toBeVisible();
   await expect(workspaceNav(page).getByRole('link', { name: /Front Desk/ })).toHaveAttribute('aria-current', 'page');
 });
 

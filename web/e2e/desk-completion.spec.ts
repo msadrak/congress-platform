@@ -38,10 +38,16 @@ async function deskFixture(page: Page) {
     const rest = match[2];
     if (request.headers().authorization !== `Bearer ${TOKEN}`) return json(401, { detail: 'Invalid desk token' });
     if (rest === 'desk/me') return json(200, { operator_id: 'op-1', operator_name: 'Sara', event_id: EVENT, event_name: 'Gamma Congress', event_slug: 'gamma', is_organizer_admin: false });
-    if (rest === 'desk/tiers') return json(200, [{ id: 'tier-1', name: 'VIP', description: '', quota: 100, reserved_count: 1, is_open: true }]);
+    if (rest === 'desk/tiers') {
+      return json(200, [
+        { id: 'tier-1', name: 'VIP', description: '', quota: 100, reserved_count: 1, is_open: true },
+        { id: 'tier-2', name: 'Student', description: '', quota: 50, reserved_count: 50, is_open: true },
+      ]);
+    }
     if (rest === 'desk/checkin-points') {
       return json(200, [
         { id: 'point-lunch', event_id: EVENT, name: 'Lunch', location: '', policy_type: 'SINGLE_USE', allowed_tier_ids: [], max_capacity: null, created_at: '2099-01-01T00:00:00Z' },
+        { id: 'point-hall', event_id: EVENT, name: 'Hall B', location: '', policy_type: 'SINGLE_USE', allowed_tier_ids: [], max_capacity: null, created_at: '2099-01-01T00:00:00Z' },
       ]);
     }
     const item = { ...card, attendee_id: card.attendee_id, checkin_count: card.scan_history.filter(s => s.status === 'ADMITTED').length };
@@ -66,8 +72,9 @@ async function deskFixture(page: Page) {
     if (rest === 'attendees/ticket-1/admit') {
       const again = admitted.has(body.checkin_point_id);
       admitted.add(body.checkin_point_id);
-      const verdict = { scan_id: body.scan_id, status: again ? 'REJECTED' : 'ADMITTED', rejection_reason: again ? 'ALREADY_ADMITTED' : null, checkin_point_id: body.checkin_point_id, checkin_point_name: 'Lunch', attendee_name: card.attendee_name, ticket_tier_name: 'VIP' };
-      card.scan_history.unshift({ checkin_point_name: 'Lunch', status: verdict.status, rejection_reason: verdict.rejection_reason, scanned_at: '2099-01-01T10:00:00Z', recorded_by: 'Sara' });
+      const pointName = body.checkin_point_id === 'point-hall' ? 'Hall B' : 'Lunch';
+      const verdict = { scan_id: body.scan_id, status: again ? 'REJECTED' : 'ADMITTED', rejection_reason: again ? 'ALREADY_ADMITTED' : null, checkin_point_id: body.checkin_point_id, checkin_point_name: pointName, attendee_name: card.attendee_name, ticket_tier_name: 'VIP' };
+      card.scan_history.unshift({ checkin_point_name: pointName, status: verdict.status, rejection_reason: verdict.rejection_reason, scanned_at: '2099-01-01T10:00:00Z', recorded_by: 'Sara' });
       return json(200, verdict);
     }
     return json(404, { detail: 'Not found' });
@@ -75,19 +82,31 @@ async function deskFixture(page: Page) {
   return { requests, card };
 }
 
-async function openDesk(page: Page) {
+async function openDesk(page: Page, locale: 'en' | 'fa' = 'en') {
   await page.goto('/');
-  await page.evaluate(({ event, token }) => {
-    localStorage.setItem('congress_attendee_locale', 'en');
+  await page.evaluate(({ event, token, locale }) => {
+    localStorage.setItem('congress_attendee_locale', locale);
     sessionStorage.setItem(`congress_desk_token_${event}`, token);
-  }, { event: EVENT, token: TOKEN });
+  }, { event: EVENT, token: TOKEN, locale });
   await page.addInitScript(() => { (window as unknown as { __prints: number }).__prints = 0; window.print = () => { (window as unknown as { __prints: number }).__prints += 1; }; });
   await page.goto(`/reception/${EVENT}`);
-  await expect(page.getByTestId('reception-operator')).toContainText('Sara');
+  await expect(page.getByText('Sara', { exact: true })).toBeVisible();
 }
 
 const search = (page: Page) => page.getByRole('searchbox');
 const prints = (page: Page) => page.evaluate(() => (window as unknown as { __prints: number }).__prints);
+const card = (page: Page) => page.getByRole('region', { name: 'Neda Amini' });
+const actionBar = (page: Page) => page.getByTestId('desk-action-bar');
+/** A barcode gun: the code typed at 4 ms per key, then Enter. */
+async function gunScan(page: Page, code: string) {
+  await page.keyboard.type(code, { delay: 4 });
+  await page.keyboard.press('Enter');
+}
+async function openCard(page: Page) {
+  await search(page).fill(SECRET);
+  await search(page).press('Enter');
+  await expect(card(page)).toBeVisible();
+}
 
 test('a badge scanned into the search box by a barcode gun opens the attendee, even under a Persian layout', async ({ page }) => {
   const fx = await deskFixture(page);
@@ -112,30 +131,63 @@ test('a badge scanned into the search box by a barcode gun opens the attendee, e
   await expect(page.getByTestId('badge-lookup-notice')).toContainText('belongs to no ticket of this congress');
 });
 
-test('the desk admits at a point with the gate rules and shows a single-use refusal', async ({ page }) => {
+test('F-D1: a gun scan with the cursor in the desk registration form opens the card and never issues a pass', async ({ page }) => {
   const fx = await deskFixture(page);
   await openDesk(page);
-  await search(page).fill(SECRET);
-  await search(page).press('Enter');
-  const panel = page.getByTestId('desk-admit');
-  await expect(panel.getByLabel('Admit at')).toHaveValue('point-lunch');
-  await panel.getByRole('button', { name: 'Admit' }).click();
-  await expect(page.getByTestId('desk-admit-verdict')).toContainText('Admitted at Lunch.');
+  await page.getByRole('button', { name: 'Desk registration' }).click();
+  const form = page.getByRole('dialog', { name: 'Desk registration' });
+  const name = form.getByLabel('Full name');
+  await name.fill('Maryam');
+  await name.focus();
+  await gunScan(page, SECRET);
+  await expect(page.getByRole('heading', { name: 'Neda Amini', level: 2 })).toBeVisible();
+  expect(fx.requests.filter(r => r.path.endsWith('/desk-registrations'))).toHaveLength(0);
+  expect(fx.requests.filter(r => r.path.endsWith('/attendees/qr-lookup')).map(r => r.body)).toEqual([{ qr: SECRET }]);
+
+  // With the focus on the card, a scan is not lost either.
+  await page.getByRole('heading', { name: 'Neda Amini', level: 2 }).click();
+  await gunScan(page, SECRET);
+  await expect.poll(() => fx.requests.filter(r => r.path.endsWith('/attendees/qr-lookup')).length).toBe(2);
+  await expect(card(page)).toBeVisible();
+  expect(fx.requests.filter(r => r.path.endsWith('/desk-registrations'))).toHaveLength(0);
+
+  // The draft is untouched by the scans' keys.
+  await actionBar(page).getByRole('button', { name: 'Next' }).click();
+  await page.getByRole('button', { name: 'Desk registration' }).click();
+  await expect(form.getByLabel('Full name')).toHaveValue('Maryam');
+});
+
+test('the desk admits with one button per point, remembers the last point and shows the verdict banner', async ({ page }) => {
+  const fx = await deskFixture(page);
+  await openDesk(page);
+  await openCard(page);
+  const admit = page.getByTestId('desk-admit');
+  await admit.getByRole('button', { name: 'Admit at Lunch' }).click();
+  await expect(page.getByTestId('desk-admit-verdict')).toContainText('Admitted');
+  await expect(page.getByTestId('desk-admit-verdict')).toContainText('Lunch');
+  await card(page).getByText('Details').click();
   await expect(page.getByText('At the desk: Sara').first()).toBeVisible();
 
-  await page.getByTestId('desk-admit').getByRole('button', { name: 'Admit' }).click();
-  await expect(page.getByTestId('desk-admit-verdict')).toContainText('Already admitted at this point (single use).');
+  await admit.getByRole('button', { name: 'Admit at Lunch' }).click();
+  await expect(page.getByTestId('desk-admit-verdict')).toContainText('Already admitted here (single use).');
   const admits = fx.requests.filter(r => r.path.endsWith('/admit'));
   expect(admits).toHaveLength(2);
   expect(admits[0].body).toMatchObject({ checkin_point_id: 'point-lunch' });
+
+  await admit.getByRole('button', { name: 'Admit at Hall B' }).click();
+  await expect(page.getByTestId('desk-admit-verdict')).toContainText('Hall B');
+  expect(await page.evaluate(event => localStorage.getItem(`congress_desk_point_${event}`), EVENT)).toBe('point-hall');
+  // The verdict leaves after 3 s, like the gate's.
+  await expect(page.getByTestId('desk-admit-verdict')).toHaveCount(0, { timeout: 5000 });
 });
 
-test('the printed badge shows name, title, organization, tier and QR, and printing is recorded', async ({ page }) => {
+test('the printed badge shows name, title, organization, tier and QR; Print leads until printed, then Admit at the last point', async ({ page }) => {
   const fx = await deskFixture(page);
   await openDesk(page);
-  await search(page).fill(SECRET);
-  await search(page).press('Enter');
-  await expect(page.getByTestId('badge-print-state')).toContainText('not been printed yet');
+  await page.evaluate(event => localStorage.setItem(`congress_desk_point_${event}`, 'point-hall'), EVENT);
+  await openCard(page);
+  await expect(page.getByTestId('badge-print-state')).toContainText('Not printed');
+  await expect(actionBar(page).getByRole('button', { name: 'Print pass' })).toHaveClass(/bg-action-primary/);
 
   const badge = page.getByTestId('badge-print');
   await expect(badge).toBeHidden();
@@ -149,49 +201,146 @@ test('the printed badge shows name, title, organization, tier and QR, and printi
   expect(width).toBeLessThanOrEqual(76 * 96 / 25.4 + 1); // at most 76 mm: fits an 80 mm thermal roll
   await page.emulateMedia({ media: 'screen' });
 
-  await page.getByRole('button', { name: 'Print Badge Pass' }).click();
+  await actionBar(page).getByRole('button', { name: 'Print pass' }).click();
   await expect.poll(() => prints(page)).toBe(1);
   expect(fx.requests.filter(r => r.path.endsWith('/prints'))).toHaveLength(1);
-  await expect(page.getByTestId('badge-print-state')).toContainText('Printed 1 time');
-  await expect(page.getByRole('button', { name: 'Reprint Badge' })).toBeVisible();
+  await expect(page.getByTestId('badge-print-state')).toHaveCount(0);
+  await expect(actionBar(page).getByRole('button', { name: 'Reprint' })).not.toHaveClass(/bg-action-primary/);
+  await expect(actionBar(page).getByRole('button', { name: 'Admit at Hall B' })).toHaveClass(/bg-action-primary/);
+  await expect(actionBar(page).getByRole('button', { name: 'Admit at Lunch' })).not.toHaveClass(/bg-action-primary/);
 });
 
-test('editing the registration after printing flags the badge for reprinting', async ({ page }) => {
+test('editing the registration after printing flags the badge for reprinting; the actions live in the ⋯ menu', async ({ page }) => {
   const fx = await deskFixture(page);
   await openDesk(page);
-  await search(page).fill(SECRET);
-  await search(page).press('Enter');
-  await page.getByRole('button', { name: 'Print Badge Pass' }).click();
-  await expect(page.getByTestId('badge-print-state')).toContainText('Printed 1 time');
+  await openCard(page);
+  await actionBar(page).getByRole('button', { name: 'Print pass' }).click();
+  await expect(page.getByTestId('badge-print-state')).toHaveCount(0);
 
-  await page.getByRole('button', { name: 'Edit details' }).click();
-  const dialog = page.getByRole('dialog', { name: 'Edit registration details' });
+  await page.getByRole('button', { name: 'More actions for Neda Amini' }).click();
+  for (const item of ['Resend pass link', 'Edit', 'Transfer', 'Reissue', 'Cancel pass']) await expect(page.getByRole('menuitem', { name: item })).toBeVisible();
+  await page.getByRole('menuitem', { name: 'Edit' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Edit details' });
   await dialog.getByLabel('Title').fill('Professor');
   await dialog.getByRole('button', { name: 'Save' }).click();
   await expect(dialog).toBeHidden();
-  await expect(page.getByTestId('badge-print-state')).toContainText('Needs reprint');
+  await expect(page.getByTestId('toast')).toContainText('Details saved.');
+  await expect(page.getByTestId('badge-print-state')).toContainText('Changed since last print; reprint.');
   expect(fx.requests.find(r => r.method === 'PATCH')?.body).toEqual({ attendee_full_name: 'Neda Amini', attendee_organization: 'Heart Center', attendee_title: 'Professor' });
   await expect(page.getByTestId('badge-print')).toContainText('Professor · Heart Center');
 
-  await page.getByRole('button', { name: 'Reprint Badge' }).click();
-  await expect(page.getByTestId('badge-print-state')).toContainText('Printed 2 times');
+  await actionBar(page).getByRole('button', { name: 'Reprint' }).click();
+  await expect.poll(() => prints(page)).toBe(2);
+  await expect(page.getByTestId('badge-print-state')).toHaveCount(0);
+
+  // Destructive items ask first; cancelling the question sends nothing.
+  await page.getByRole('button', { name: 'More actions for Neda Amini' }).click();
+  await page.getByRole('menuitem', { name: 'Cancel pass' }).click();
+  const confirm = page.getByRole('dialog', { name: 'Cancel this pass?' });
+  await expect(confirm).toBeVisible();
+  await confirm.getByRole('button', { name: 'Cancel', exact: true }).click();
+  expect(fx.requests.filter(r => r.path.endsWith('/cancel'))).toHaveLength(0);
 });
 
-test('an archived congress keeps lookups but offers no issuing, printing or changes', async ({ page }) => {
+test('Esc is «Next»: the card closes and the cursor is back in the search', async ({ page }) => {
+  await deskFixture(page);
+  await openDesk(page);
+  await openCard(page);
+  await page.keyboard.press('Escape');
+  await expect(card(page)).toHaveCount(0);
+  await expect(search(page)).toBeFocused();
+  await expect(search(page)).toHaveValue('');
+});
+
+test('desk registration: pass types show seats left, a full type is disabled, and the button says what it does', async ({ page }) => {
+  await deskFixture(page);
+  await openDesk(page);
+  await page.getByRole('button', { name: 'Desk registration' }).click();
+  const form = page.getByRole('dialog', { name: 'Desk registration' });
+  const type = form.getByLabel('Pass type');
+  await expect(type.locator('option', { hasText: 'VIP · 99 left' })).toHaveJSProperty('disabled', false);
+  await expect(type.locator('option', { hasText: 'Student · Full' })).toHaveJSProperty('disabled', true);
+  await expect(type).toHaveValue('tier-1');
+  await expect(form.getByRole('button', { name: 'Issue pass' })).toBeVisible();
+  await expect(page.getByText(/Walk-In/)).toHaveCount(0);
+});
+
+test('fa: scan history shows Persian clock times; the station carries no clear-form wording, pass id or section numbers', async ({ page }) => {
+  const fx = await deskFixture(page);
+  fx.card.scan_history.push({ checkin_point_name: 'Lunch', status: 'ADMITTED', rejection_reason: null, scanned_at: '2099-01-01T06:30:00Z', recorded_by: null });
+  await openDesk(page, 'fa');
+  await openCard(page);
+  await card(page).getByText('جزئیات').click();
+  const history = page.getByTestId('scan-history');
+  await expect(history.getByRole('listitem').first()).toHaveText(/[۰-۹]{2}:[۰-۹]{2}/);
+  for (const locale of ['fa', 'en'] as const) {
+    if (locale === 'en') {
+      await page.keyboard.press('Escape');
+      await page.getByRole('button', { name: 'منو' }).click();
+      await page.getByRole('menuitem', { name: 'English' }).click();
+      await openCard(page);
+    }
+    const text = await page.locator('body').innerText();
+    for (const banned of ['پاکسازی فرم', 'Pass ID', 'Walk-In']) expect(text, `${locale}: ${banned}`).not.toContain(banned);
+    // Section numbers «01 02 03» are gone (a mobile number may still contain the digits).
+    expect(text, `${locale}: section numbers`).not.toMatch(/(?:^|\s)0[1-3](?:\s|$)/);
+  }
+});
+
+test('1180×820 kiosk: list 38 % and card 62 %, Print inside the viewport after a search', async ({ page }) => {
+  await page.setViewportSize({ width: 1180, height: 820 });
+  await deskFixture(page);
+  await openDesk(page);
+  await openCard(page);
+  const print = actionBar(page).getByRole('button', { name: 'Print pass' });
+  const box = (await print.boundingBox())!;
+  expect(box.y).toBeGreaterThanOrEqual(0);
+  expect(box.y + box.height).toBeLessThanOrEqual(820);
+  const pane = (await page.locator('.rx-pane').boundingBox())!;
+  expect(Math.round((pane.width / 1180) * 100)).toBeGreaterThanOrEqual(60);
+  expect(await page.evaluate(() => document.documentElement.scrollHeight)).toBeLessThanOrEqual(820);
+});
+
+test('390×844 phone: the card opens as a full-screen sheet with Print visible without scrolling', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await deskFixture(page);
+  await openDesk(page);
+  await openCard(page);
+  const sheet = (await page.locator('.rx-pane').boundingBox())!;
+  expect(sheet).toMatchObject({ x: 0, y: 0, width: 390, height: 844 });
+  const box = (await actionBar(page).getByRole('button', { name: 'Print pass' }).boundingBox())!;
+  expect(box.y + box.height).toBeLessThanOrEqual(844);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBe(0);
+});
+
+test('an archived congress keeps lookups but has no desk registration, no action bar and an «Archived» pill', async ({ page }) => {
   await deskFixture(page);
   await page.route(/\/desk\/me$/, route => route.fulfill({
     status: 200, contentType: 'application/json',
     body: JSON.stringify({ operator_id: 'op-1', operator_name: 'Sara', event_id: EVENT, event_name: 'Gamma Congress', event_slug: 'gamma', is_organizer_admin: false, is_archived: true }),
   }));
   await openDesk(page);
-  await expect(page.getByTestId('desk-archived')).toContainText('archived');
-  await search(page).fill(SECRET);
-  await search(page).press('Enter');
+  await expect(page.locator('[data-status="archived"]')).toContainText('Archived');
+  await openCard(page);
   await expect(page.getByRole('heading', { name: 'Neda Amini', level: 2 })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Print Badge Pass' })).toBeDisabled();
+  await expect(actionBar(page)).toHaveCount(0);
   await expect(page.getByTestId('desk-admit')).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'Edit details' })).toHaveCount(0);
-  await expect(page.getByRole('button', { name: /Mint & Present Pass/ })).toBeDisabled();
+  await expect(page.getByRole('button', { name: /More actions/ })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Desk registration' })).toHaveCount(0);
+});
+
+test('offline: the pill says so and the action bar is disabled with one line; no install prompt on the desk', async ({ page, context }) => {
+  await deskFixture(page);
+  await openDesk(page);
+  await openCard(page);
+  await expect(page.locator('[data-status="online"]')).toBeVisible();
+  await context.setOffline(true);
+  await expect(page.locator('[data-status="offline"]')).toBeVisible();
+  await expect(actionBar(page)).toContainText('No connection');
+  await expect(actionBar(page).getByRole('button', { name: 'Print pass' })).toBeDisabled();
+  await expect(actionBar(page).getByRole('button', { name: 'Next' })).toBeEnabled();
+  await context.setOffline(false);
+  await expect(page.getByText(/Add to Home Screen|Install/)).toHaveCount(0);
 });
 
 test('the operators page shows the reception address with a QR code and restores a revoked operator', async ({ page }) => {

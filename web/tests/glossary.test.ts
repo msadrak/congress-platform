@@ -56,14 +56,6 @@ const ALLOWED: Readonly<Record<string, readonly string[]>> = {
   "web/src/components/organizer/studio/studioCopy.ts": ["جست‌وجو", "فضای کاری"],
   "web/src/components/public/copy.ts": ["بلیت", "گیت", "سرنخ", "نشست"],
   "web/src/components/public/homeCopy.ts": ["گیت", "سرنخ", "فضای کاری", "جست‌وجو", "پرتال"],
-  "web/src/components/reception/AttendeeCard.tsx": ["تلاش مجدد"],
-  "web/src/components/reception/AttendeeSearch.tsx": ["تلاش مجدد"],
-  "web/src/components/reception/DeskAuthGate.tsx": ["نشست", "گردید"],
-  "web/src/components/reception/MintedDialog.tsx": ["لینک"],
-  "web/src/components/reception/ModeSwitch.tsx": ["نشست"],
-  "web/src/components/reception/ReceptionStation.tsx": ["تلاش مجدد"],
-  "web/src/components/reception/ResendPassSms.tsx": ["لینک"],
-  "web/src/components/reception/WalkInForm.tsx": ["لینک"],
   "web/src/components/scanner/copy.ts": ["توکن", "ابطال", "کنسول"],
   "web/src/components/sms/SmsTemplateEditor.tsx": ["رده", "بلیت", "لینک"],
   "web/src/lib/attendeeSession.ts": ["نشست"],
@@ -74,7 +66,6 @@ const ALLOWED: Readonly<Record<string, readonly string[]>> = {
   "web/src/pages/OrganizerLayout.tsx": ["فضای کاری", "کنسول"],
   "web/src/pages/OrganizerPanel.tsx": ["بلیت"],
   "web/src/pages/OrganizerSms.tsx": ["بلیت"],
-  "web/src/pages/ReceptionPortal.tsx": ["ایستگاه", "نمایید"],
   "web/src/pages/organizer/EventOperators.tsx": ["نشست"],
 };
 
