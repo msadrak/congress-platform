@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
-import { createApiClient, localizedApiError, type LeadOut } from "../../api/client";
+import { createApiClient, type LeadOut } from "../../api/client";
+import { boothText, codedMessage } from "./boothText";
 import { isBoothAccessRevoked } from "../../lib/leadList";
 import { attendeeResponseState, isStoredAttendeeToken, sessionChangedMessage } from "../../lib/attendeeSession";
 import { codeFontClass, formatLocalizedDate, translations, type AttendeeLocale } from "../../lib/i18n";
@@ -112,7 +113,7 @@ export function QualifyDialog({ lead, onClose, boothId, token, locale, tagPreset
         onAccessRevoked();
       } else if (err) {
         // LEAD_DELETED (another device moved it to the trash), LEAD_NOT_FOUND …: in the reader's language.
-        setEditError(localizedApiError(err, locale));
+        setEditError(codedMessage(err, locale) ?? boothText(locale).saveFailed);
       } else if (data) {
         onSaved(data);
         setEditTags(tags);

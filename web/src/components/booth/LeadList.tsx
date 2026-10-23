@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import { createApiClient, localizedApiError, type LeadOut } from "../../api/client";
+import { createApiClient, type LeadOut } from "../../api/client";
 import { attendeeResponseState, isStoredAttendeeToken, sessionChangedMessage } from "../../lib/attendeeSession";
 import { formatLocalizedDate, formatLocalizedNumber, translations, type AttendeeLocale } from "../../lib/i18n";
 import { LEAD_SEARCH_MAX_LENGTH, hasLeadFilters, isBoothAccessRevoked, totalOf } from "../../lib/leadList";
@@ -9,7 +9,7 @@ import { BoothSpinner } from "./BoothSpinner";
 import { LeadCard, type LeadCardLabels } from "./LeadCard";
 import { PendingSyncPanel } from "./PendingSyncPanel";
 import { UndoToast } from "./UndoToast";
-import { boothText } from "./boothText";
+import { boothText, codedMessage } from "./boothText";
 import { LEAD_RATINGS, RATING_META, type LeadRating } from "./rating";
 import type { LeadCounts, LeadListState } from "./useLeadList";
 import type { LeadQueueState } from "./useLeadQueue";
@@ -24,6 +24,8 @@ interface LeadListProps {
   queue: LeadQueueState;
   /** Announced after queued scans were sent. */
   syncNotice: string | null;
+  /** The stored session changed in another tab (kept by the portal across the reload). */
+  sessionNotice: string | null;
   onQualify: (lead: LeadOut) => void;
   onCapture: () => void;
   onAccessRevoked: () => void;
@@ -37,7 +39,7 @@ type Client = ReturnType<typeof createApiClient>;
  * The booth's lead worklist and trash: server-side search and rating filter, paging by cursor, delete with undo,
  * restore, CSV export (optionally with deleted leads) and the scans still waiting on this device.
  */
-export function LeadList({ boothId, boothSlug, token, locale, list, counts, queue, syncNotice, onQualify, onCapture, onAccessRevoked, onSessionChanged }: LeadListProps) {
+export function LeadList({ boothId, boothSlug, token, locale, list, counts, queue, syncNotice, sessionNotice, onQualify, onCapture, onAccessRevoked, onSessionChanged }: LeadListProps) {
   const t = translations[locale];
   const text = boothText(locale);
   const isRtl = locale === "fa";
@@ -70,7 +72,7 @@ export function LeadList({ boothId, boothSlug, token, locale, list, counts, queu
       if (attendeeResponseState(token, res.response.status) !== "current") return { ok: false };
       if (res.response.ok) return { ok: true, data: res.data };
       if (isBoothAccessRevoked(res.response.status, res.error)) onAccessRevoked();
-      else setActionError(res.error ? localizedApiError(res.error, locale) : failure);
+      else setActionError(codedMessage(res.error, locale) ?? failure);
     } catch {
       setActionError(failure);
     }
@@ -201,7 +203,7 @@ export function LeadList({ boothId, boothSlug, token, locale, list, counts, queu
               type="button"
               variant="outline"
               size="md"
-              disabled={isExporting || !exportable}
+              disabled={isExporting || !exportable || !queue.online}
               aria-busy={isExporting}
               onClick={handleExportCsv}
             >
@@ -321,10 +323,10 @@ export function LeadList({ boothId, boothSlug, token, locale, list, counts, queu
         </div>
       )}
 
-      {(exportError || actionError) && (
+      {(exportError || actionError || sessionNotice) && (
         <div role="alert" aria-live="assertive" className="flex items-start gap-2.5 rounded-xl border border-status-danger-border bg-status-danger-bg p-3.5 text-[13px] leading-relaxed text-status-danger-text">
           <Icon name="alert" size={18} className="shrink-0" />
-          <span>{actionError ?? exportError}</span>
+          <span>{actionError ?? exportError ?? sessionNotice}</span>
         </div>
       )}
 
@@ -387,6 +389,7 @@ export function LeadList({ boothId, boothSlug, token, locale, list, counts, queu
               deletedAt={lead.deleted_at ? formatLocalizedDate(lead.deleted_at, locale) : undefined}
               labels={labels}
               busy={busyId === lead.id}
+              actionsDisabled={!queue.online}
               onQualify={lead.deleted_at ? undefined : () => onQualify(lead)}
               onDelete={lead.deleted_at ? undefined : () => void deleteLead(lead)}
               onRestore={lead.deleted_at ? () => void restoreLead(lead, false) : undefined}
@@ -400,7 +403,7 @@ export function LeadList({ boothId, boothSlug, token, locale, list, counts, queu
           {list.loadMoreError !== null && (
             <p role="alert" className="text-center text-[13px] text-status-danger-text">{list.loadMoreError || text.loadMoreFailed}</p>
           )}
-          <Button type="button" variant="secondary" size="lg" disabled={list.loadingMore} aria-busy={list.loadingMore} onClick={list.loadMore} className="w-full sm:w-auto">
+          <Button type="button" variant="secondary" size="lg" disabled={list.loadingMore || !queue.online} aria-busy={list.loadingMore} onClick={list.loadMore} className="w-full sm:w-auto">
             {list.loadingMore ? <BoothSpinner /> : <Icon name="chevron-down" size={18} />}
             <span>{list.loadingMore ? text.loadingMore : text.loadMore}</span>
             {!list.loadingMore && <span className="tabular text-text-muted">({formatLocalizedNumber(remaining, locale)})</span>}

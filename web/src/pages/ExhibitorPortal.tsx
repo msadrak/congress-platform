@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useReducer, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { createApiClient, localizedApiError, type BoothOut, type LeadOut } from "../api/client";
-import { attendeeResponseState } from "../lib/attendeeSession";
+import { createApiClient, type BoothOut, type LeadOut } from "../api/client";
+import { attendeeResponseState, sessionChangedMessage } from "../lib/attendeeSession";
 import { useAttendeeSession } from "../hooks/useAttendeeSession";
 import { usePageTitle } from "../hooks/usePageTitle";
 import { useAttendeeLocale, formatLocalizedNumber } from "../lib/i18n";
@@ -17,7 +17,7 @@ import { BoothGate } from "../components/booth/BoothGate";
 import { CaptureDialog } from "../components/booth/CaptureDialog";
 import { LeadList } from "../components/booth/LeadList";
 import { QualifyDialog } from "../components/booth/QualifyDialog";
-import { boothText } from "../components/booth/boothText";
+import { boothText, codedMessage } from "../components/booth/boothText";
 import { useLeadCounts, useLeadList } from "../components/booth/useLeadList";
 import { useLeadQueue } from "../components/booth/useLeadQueue";
 import { LEAD_RATINGS, RATING_META } from "../components/booth/rating";
@@ -66,8 +66,10 @@ function ExhibitorPortalContent() {
 
   const sessionRef = useRef<string | null>(token);
   const revoke = useCallback(() => setAccessRevoked(true), []);
-  // A child noticed the stored session changed: re-render, so the session store hands over the current token.
-  const [, rerender] = useReducer((n: number) => n + 1, 0);
+  // A child found the stored session changed (another tab): say so, and re-render so the session store hands over the
+  // current token. Kept here, so the notice survives the reload for the new session.
+  const [sessionNotice, setSessionNotice] = useState<string | null>(null);
+  const noteSessionChanged = () => setSessionNotice(sessionChangedMessage(locale));
   const live = !accessRevoked && Boolean(token);
 
   const list = useLeadList({ boothId, token, locale, enabled: live, onAccessRevoked: revoke });
@@ -125,7 +127,7 @@ function ExhibitorPortalContent() {
 
         if (boothRes.error) {
           if (boothRes.response.status >= 500) setLoadFailed(true);
-          else setAuthError(localizedApiError(boothRes.error, locale));
+          else setAuthError(codedMessage(boothRes.error, locale) ?? t.unauthorizedExhibitorDesc);
         } else if (boothRes.data) {
           setBooth(boothRes.data);
           const mine = accessRes.data?.events.find((e) => e.booth_ids.includes(boothId));
@@ -373,16 +375,16 @@ function ExhibitorPortalContent() {
               {booth.name}
             </h1>
 
-            <div className="booth-placard mt-6 grid max-w-full grid-cols-[auto_minmax(0,1fr)] sm:inline-grid">
-              <div className="booth-placard__cell px-4 py-2.5">
+            <div data-testid="booth-placard" className="booth-placard mt-6 grid max-w-full grid-cols-1 sm:inline-grid sm:grid-cols-[minmax(0,1fr)_auto]">
+              <div className="booth-placard__cell min-w-0 px-4 py-2.5">
                 <p className="booth-ink-label">{isRtl ? "جایگاه" : "Stand"}</p>
-                <p className="mt-1 text-[15px] font-semibold text-white">
+                <p className="mt-1 text-[15px] font-semibold text-white break-words">
                   {booth.location || (isRtl ? "سالن اصلی نمایشگاه" : "Exhibition Floor")}
                 </p>
               </div>
               <div className="booth-placard__cell min-w-0 px-4 py-2.5">
                 <p className="booth-ink-label">{isRtl ? "کد غرفه" : "Booth code"}</p>
-                <p className="ltr-isolate mt-1 break-all font-mono text-[14px] text-white/90">{booth.slug}</p>
+                <p data-testid="booth-code" className="ltr-isolate mt-1 font-mono text-[14px] text-white/90 [overflow-wrap:anywhere]">{booth.slug}</p>
               </div>
             </div>
 
@@ -487,10 +489,11 @@ function ExhibitorPortalContent() {
             counts={counts}
             queue={queue}
             syncNotice={syncNotice}
+            sessionNotice={sessionNotice}
             onQualify={setEditingLead}
             onCapture={openCapture}
             onAccessRevoked={revoke}
-            onSessionChanged={rerender}
+            onSessionChanged={noteSessionChanged}
           />
         </div>
       </main>
@@ -518,6 +521,7 @@ function ExhibitorPortalContent() {
         tagPresets={tagPresets}
         onCaptured={() => {
           setSyncNotice(null);
+          setSessionNotice(null);
           reloadList();
           refreshCounts();
         }}
@@ -527,7 +531,7 @@ function ExhibitorPortalContent() {
         }}
         onQueue={queue.enqueue}
         onAccessRevoked={revoke}
-        onSessionChanged={rerender}
+        onSessionChanged={noteSessionChanged}
       />
 
       {/* 5. Lead detail + qualification */}
@@ -543,7 +547,7 @@ function ExhibitorPortalContent() {
           refreshCounts();
         }}
         onAccessRevoked={revoke}
-        onSessionChanged={rerender}
+        onSessionChanged={noteSessionChanged}
       />
 
 

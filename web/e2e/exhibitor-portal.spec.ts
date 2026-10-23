@@ -24,6 +24,8 @@ interface Options {
   extraLeads?: number;
   /** Flip `removed` to answer booth-a calls with 403 BOOTH_STAFF_REQUIRED, as for a removed representative. */
   control?: { removed: boolean };
+  /** Stand name shown on the booth placard. */
+  boothLocation?: string;
 }
 const REMOVED = { detail: 'You are not authorized to access this booth portal', code: 'BOOTH_STAFF_REQUIRED' };
 
@@ -72,7 +74,7 @@ async function fixture(page: Page, options: Options = {}) {
     if (!isStaff || id !== 'booth-a') return json(403, { detail: 'You are not authorized to access this booth portal' });
     if (options.control?.removed) return json(403, REMOVED);
     const active = () => leads[id].filter(l => !l.deleted_at);
-    if (rest === '') return json(200, BOOTH(id));
+    if (rest === '') return json(200, { ...BOOTH(id), ...(options.boothLocation ? { location: options.boothLocation } : {}) });
     if (rest === '/leads' && method === 'GET') return json(200, active());
     if (rest === '/leads/search' && method === 'GET') {
       const q = (url.searchParams.get('q') ?? '').toLowerCase();
@@ -499,6 +501,32 @@ test.describe('layout and language', () => {
     expect(await overflow(page)).toBe(0);
   });
 
+  test('a long stand name never squeezes the booth code at 390 px (cells stack), in both languages', async ({ page }) => {
+    await fixture(page, { boothLocation: 'Main Exhibition Hall, North Wing, Second Floor, Stand A-12 beside the café' });
+    for (const locale of ['en', 'fa']) {
+      await seed(page, STAFF, locale);
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.goto('/booth/booth-a');
+      const code = page.getByTestId('booth-code');
+      await expect(code).toHaveText('alpha-devices');
+      const box = (await code.boundingBox())!;
+      const lineHeight = await code.evaluate(el => parseFloat(getComputedStyle(el).lineHeight) || 21);
+      // One line, and wide enough for the whole code.
+      expect(box.height).toBeLessThanOrEqual(lineHeight * 1.5);
+      expect(box.width).toBeGreaterThan(80);
+      expect(await overflow(page)).toBe(0);
+    }
+  });
+
+  test('server errors without a known code reach Persian readers in Persian, never as English detail', async ({ page }) => {
+    await fixture(page);
+    await seed(page, STAFF, 'fa');
+    await page.route('**/api/booths/booth-a/leads/search*', route => route.fulfill({ status: 500, contentType: 'application/json', body: '{"detail":"Server error"}' }));
+    await page.goto('/booth/booth-a');
+    await expect(page.getByRole('alert').filter({ hasText: 'فهرست لیدها بارگذاری نشد.' })).toBeVisible();
+    await expect(page.getByText('Server error')).toHaveCount(0);
+  });
+
   test('Persian RTL at 320px fits for the workspace, the capture dialog and the sign-in page', async ({ page }) => {
     await fixture(page);
     await seed(page, STAFF, 'fa');
@@ -651,6 +679,9 @@ test.describe('paged list, trash and offline capture', () => {
     await expect(page.getByText('Lead One').first()).toBeVisible();
     await context.setOffline(true);
     await expect(page.getByTestId('offline-banner')).toBeVisible();
+    // What needs the server is disabled while offline; capture stays available (it queues).
+    await expect(page.getByRole('button', { name: 'Export CSV' })).toBeDisabled();
+    await expect(card(page, 'Lead One').getByRole('button', { name: 'Delete lead Lead One' })).toBeDisabled();
 
     await openCapture(page);
     await codeInput(page).fill('offline-attendee');

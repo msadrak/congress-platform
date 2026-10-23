@@ -48,11 +48,13 @@ interface LeadCardProps {
   onQualify?: () => void;
   onDelete?: () => void;
   onRestore?: () => void;
+  /** Delete and restore cannot work now (no connection). */
+  actionsDisabled?: boolean;
   /** Its delete or restore request is in flight. */
   busy?: boolean;
 }
 
-export function LeadCard({ lead, locale, capturedAt, deletedAt, labels, onQualify, onDelete, onRestore, busy = false }: LeadCardProps) {
+export function LeadCard({ lead, locale, capturedAt, deletedAt, labels, onQualify, onDelete, onRestore, actionsDisabled = false, busy = false }: LeadCardProps) {
   const tone = RATING_META[asRating(lead.rating)].tone;
   const role = [lead.title, lead.organization].filter(Boolean).join(" · ");
   return (
@@ -147,7 +149,7 @@ export function LeadCard({ lead, locale, capturedAt, deletedAt, labels, onQualif
           <div className="flex w-full shrink-0 gap-2 sm:w-auto">
             {deletedAt ? (
               onRestore && (
-                <Button type="button" variant="secondary" size="md" disabled={busy} aria-busy={busy} onClick={onRestore} aria-label={labels.restoreOf(lead.attendee_name)} className="flex-1 sm:flex-none">
+                <Button type="button" variant="secondary" size="md" disabled={busy || actionsDisabled} aria-busy={busy} onClick={onRestore} aria-label={labels.restoreOf(lead.attendee_name)} className="flex-1 sm:flex-none">
                   <Icon name="sync" size={16} />
                   <span>{labels.restore}</span>
                 </Button>
@@ -155,7 +157,7 @@ export function LeadCard({ lead, locale, capturedAt, deletedAt, labels, onQualif
             ) : (
               <>
                 {onDelete && (
-                  <Button type="button" variant="ghost" size="md" disabled={busy} aria-busy={busy} onClick={onDelete} aria-label={labels.deleteOf(lead.attendee_name)} className="shrink-0 text-status-danger-text hover:text-status-danger-text">
+                  <Button type="button" variant="ghost" size="md" disabled={busy || actionsDisabled} aria-busy={busy} onClick={onDelete} aria-label={labels.deleteOf(lead.attendee_name)} className="shrink-0 text-status-danger-text hover:text-status-danger-text">
                     <Icon name="trash" size={16} />
                     <span className="max-[359px]:sr-only">{labels.delete}</span>
                   </Button>

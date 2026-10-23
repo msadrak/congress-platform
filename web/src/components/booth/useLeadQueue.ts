@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { apiErrorCode, createApiClient, formatApiError, type LeadOut, type LeadScanInput, type LeadScanRequest } from "../../api/client";
+import { apiErrorCode, createApiClient, type LeadOut, type LeadScanInput, type LeadScanRequest } from "../../api/client";
 import { isStoredAttendeeToken } from "../../lib/attendeeSession";
 import {
   enqueueLeadScan,
@@ -116,7 +116,6 @@ export function useLeadQueue({ boothId, token, enabled, onSynced, onAccessRevoke
           status: response.status,
           ...(data ? { data } : {}),
           ...(code ? { code } : {}),
-          ...(error ? { detail: formatApiError(error) } : {}),
         };
       } catch {
         return { network: true };

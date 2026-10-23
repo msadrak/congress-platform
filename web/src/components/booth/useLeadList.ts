@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { createApiClient, localizedApiError, type LeadOut } from "../../api/client";
+import { createApiClient, type LeadOut } from "../../api/client";
+import { codedMessage } from "./boothText";
 import { attendeeResponseState, isStoredAttendeeToken } from "../../lib/attendeeSession";
 import type { AttendeeLocale } from "../../lib/i18n";
 import {
@@ -132,7 +133,7 @@ export function useLeadList({ boothId, token, locale, enabled, onAccessRevoked }
           setTotal(0);
           setCursor(null);
           setStatus("error");
-          setError(localizedApiError(res.error, localeRef.current));
+          setError(codedMessage(res.error, localeRef.current));
         }
       } catch {
         if (mine !== generation.current) return;
@@ -168,7 +169,7 @@ export function useLeadList({ boothId, token, locale, enabled, onAccessRevoked }
           // The position no longer exists: start the list again rather than show a gap.
           setReloadNonce((n) => n + 1);
         } else {
-          setLoadMoreError(localizedApiError(res.error, localeRef.current));
+          setLoadMoreError(codedMessage(res.error, localeRef.current) ?? "");
         }
       } catch {
         if (mine === generation.current) setLoadMoreError("");

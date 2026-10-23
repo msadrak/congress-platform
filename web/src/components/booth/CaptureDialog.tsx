@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import {
   apiErrorCode,
   createApiClient,
-  localizedApiError,
+
   type LeadOut,
   type LeadScanInput,
   type LeadScanRequest,
@@ -10,7 +10,7 @@ import {
 import { attendeeResponseState, isStoredAttendeeToken, sessionChangedMessage } from "../../lib/attendeeSession";
 import { translations, type AttendeeLocale } from "../../lib/i18n";
 import { isBoothAccessRevoked } from "../../lib/leadList";
-import { boothText } from "./boothText";
+import { boothText, codedMessage } from "./boothText";
 import { QrCameraInput } from "../QrCameraInput";
 import { Badge } from "../ui/Badge";
 import { Button } from "../ui/Button";
@@ -150,7 +150,7 @@ export function CaptureDialog({ isOpen, onClose, boothId, token, locale, tagPres
               ? text.badgeOtherEvent
               : response.status === 403 && !coded
                 ? isRtl ? "شما اجازهٔ ثبت لید برای این غرفه را ندارید." : "You are not authorized to capture leads for this booth."
-                : localizedApiError(err, locale)
+                : codedMessage(err, locale) ?? text.scanFailed
         );
       } else if (data) {
         // 201 = new lead, 200 = this attendee was already a lead of this booth.
