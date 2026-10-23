@@ -1,16 +1,25 @@
 import csv
 import io
 import uuid
+from datetime import timedelta
 
+import pytest
 from fastapi import FastAPI
 from httpx import AsyncClient, Response
 from sqlalchemy import update
 
 from app.models import Ticket
+from app.routes import checkin
 from tests.helpers import bearer, provision_organizer
 from tests.test_events import EVENT
 from tests.test_ticket_tiers import create_event, tier
 from tests.test_tickets import register_user
+
+
+@pytest.fixture(autouse=True)
+def trust_future_scan_times(monkeypatch: pytest.MonkeyPatch) -> None:
+    """These tests replay a congress dated in the future; the gate's clock-skew guard would move those scans to now."""
+    monkeypatch.setattr(checkin, "CLOCK_SKEW_TOLERANCE", timedelta(days=3650))
 
 
 async def setup_event_with_scans(
