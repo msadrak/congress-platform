@@ -23,6 +23,8 @@ interface TimetableImportProps {
   templateDay: string;
   /** Slug-like base for the template file name. */
   fileBase: string;
+  /** The event's IANA zone: the file's wall-clock times are read, and previewed, in it. */
+  timeZone: string;
   locale: "fa" | "en";
   isRtl: boolean;
   onImport: (body: EventSessionImport) => Promise<{ result?: EventSessionImportOut; error?: string }>;
@@ -51,7 +53,7 @@ function decodeCsv(bytes: ArrayBuffer): string {
   }
 }
 
-export function TimetableImport({ existingCount, halls, templateDay, fileBase, locale, isRtl, onImport, onDone, onCancel }: TimetableImportProps) {
+export function TimetableImport({ existingCount, halls, templateDay, fileBase, timeZone, locale, isRtl, onImport, onDone, onCancel }: TimetableImportProps) {
   const fileInputId = useId();
   const replaceId = useId();
   const [fileName, setFileName] = useState<string | null>(null);
@@ -64,7 +66,7 @@ export function TimetableImport({ existingCount, halls, templateDay, fileBase, l
   const fmt = (n: number) => formatLocalizedNumber(n, locale);
   const sessionsEn = (n: number) => `${n} ${n === 1 ? "session" : "sessions"}`;
   const lang = isRtl ? "fa" : "en";
-  const formats = useMemo(() => sessionDateFormats(locale), [locale]);
+  const formats = useMemo(() => sessionDateFormats(locale, timeZone), [locale, timeZone]);
 
   const rows = parsed?.ok ? parsed.rows : [];
   const invalidRows = rows.filter((r) => r.problems.length > 0);
@@ -94,7 +96,7 @@ export function TimetableImport({ existingCount, halls, templateDay, fileBase, l
       return;
     }
     try {
-      setParsed(parseSessionCsv(decodeCsv(await file.arrayBuffer())));
+      setParsed(parseSessionCsv(decodeCsv(await file.arrayBuffer()), { timeZone }));
     } catch {
       setReadError(isRtl ? "فایل خوانده نشد." : "The file could not be read.");
     }
@@ -132,14 +134,10 @@ export function TimetableImport({ existingCount, halls, templateDay, fileBase, l
         return isRtl ? `${fieldName(p.field)} بیش از ${fmt(p.max)} نویسه است` : `${fieldName(p.field)} is longer than ${p.max} characters`;
       case "invalid_date":
         return isRtl
-          ? `${fieldName(p.field)} تاریخ معتبر نیست (نمونه: 2026-11-02 09:00)`
-          : `${fieldName(p.field)} is not a valid date (e.g. 2026-11-02 09:00)`;
-      case "jalali_date":
-        return isRtl
-          ? `${fieldName(p.field)} شمسی است؛ تاریخ میلادی وارد کنید (نمونه: 2026-11-02 09:00)`
-          : `${fieldName(p.field)} looks like a Solar Hijri date; use a Gregorian date (e.g. 2026-11-02 09:00)`;
+          ? `${fieldName(p.field)} تاریخ معتبر نیست (نمونه: 1405/08/11 09:00 یا 2026-11-02 09:00)`
+          : `${fieldName(p.field)} is not a valid date (e.g. 2026-11-02 09:00 or 1405/08/11 09:00)`;
       case "ends_before_start":
-        return isRtl ? "پایان پیش از شروع است" : "ends before it starts";
+        return isRtl ? "پایان باید بعد از شروع باشد" : "must end after it starts";
     }
   };
 
@@ -182,8 +180,8 @@ export function TimetableImport({ existingCount, halls, templateDay, fileBase, l
           </h2>
           <p className="max-w-2xl text-sm leading-relaxed text-text-secondary">
             {isRtl
-              ? "در اکسل یک سطر عنوان و برای هر جلسه یک سطر بنویسید و با «CSV UTF-8» ذخیره کنید. ستون‌ها: title (عنوان)، track (نوع)، hall (سالن)، speakers (سخنرانان)، description (توضیحات)، starts_at (شروع) و ends_at (پایان). زمان‌ها به وقت محلی و میلادی، مانند 2026-11-02 09:00. سالن‌هایی که هنوز تعریف نشده‌اند ساخته می‌شوند."
-              : "Write one header row and one row per session in Excel, then save as “CSV UTF-8”. Columns: title, track, hall, speakers, description, starts_at and ends_at. Times are local and Gregorian, like 2026-11-02 09:00. Halls that don't exist yet are created."}
+              ? `در اکسل یک سطر عنوان و برای هر جلسه یک سطر بنویسید و با «CSV UTF-8» ذخیره کنید. ستون‌ها: title (عنوان)، track (نوع)، hall (سالن)، speakers (سخنرانان)، description (توضیحات)، starts_at (شروع) و ends_at (پایان). تاریخ‌ها شمسی یا میلادی، مانند 1405/08/11 09:00 یا 2026-11-02 09:00 (قالب 11/2/2026 9:00 اکسل هم پذیرفته می‌شود)، به وقت همایش (${timeZone}). سالن‌هایی که هنوز تعریف نشده‌اند ساخته می‌شوند.`
+              : `Write one header row and one row per session in Excel, then save as “CSV UTF-8”. Columns: title, track, hall, speakers, description, starts_at and ends_at. Dates are Gregorian or Solar Hijri, like 2026-11-02 09:00 or 1405/08/11 09:00 (Excel's 11/2/2026 9:00 works too), in the congress time zone (${timeZone}). Halls that don't exist yet are created.`}
           </p>
         </div>
         <Button type="button" variant="secondary" size="sm" onClick={downloadTemplate}>
