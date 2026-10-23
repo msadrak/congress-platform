@@ -65,6 +65,8 @@ export function ScheduleFilesManager({ apiKey, eventId, locale, isRtl, onStatus 
   const [loadError, setLoadError] = useState<ProgramFileErrorCode | null>(null);
   const [label, setLabel] = useState("");
   const [file, setFile] = useState<File | null>(null);
+  /** The label last suggested from a file name: replaced by the next suggestion unless the organizer edited it. */
+  const [suggestedLabel, setSuggestedLabel] = useState("");
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<ProgramFileErrorCode | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -104,7 +106,11 @@ export function ScheduleFilesManager({ apiKey, eventId, locale, isRtl, onStatus 
     const chosen = e.currentTarget.files?.[0] ?? null;
     setFile(chosen);
     setUploadError(null);
-    if (chosen && !label.trim()) setLabel(labelFromFileName(chosen.name));
+    if (chosen && (!label.trim() || label === suggestedLabel)) {
+      const suggestion = labelFromFileName(chosen.name);
+      setLabel(suggestion);
+      setSuggestedLabel(suggestion);
+    }
   };
 
   const upload = async (e: FormEvent) => {
@@ -128,6 +134,7 @@ export function ScheduleFilesManager({ apiKey, eventId, locale, isRtl, onStatus 
     setFiles((prev) => [...prev, saved].sort(byPosition));
     setFile(null);
     setLabel("");
+    setSuggestedLabel("");
     setInputKey((k) => k + 1);
     setNotice({ tone: "ok", text: isRtl ? `فایل «${saved.label}» بارگذاری شد.` : `“${saved.label}” uploaded.` });
   };
