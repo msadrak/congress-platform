@@ -20,6 +20,7 @@ from app.ticket_lifecycle import (
     TicketStateError,
     attendee_snapshot,
     cancel_ticket,
+    locked_status,
     queue_ticket_sms,
     reactivate_ticket,
 )
@@ -187,9 +188,12 @@ async def _register_again(
         raise ApiError(status.HTTP_404_NOT_FOUND, "TIER_NOT_FOUND", "Ticket tier not found")
     if not tier.is_open:
         raise ApiError(status.HTTP_400_BAD_REQUEST, "TIER_CLOSED", "Ticket tier is closed for registration")
+    # The ticket was read without a lock: a concurrent request may have registered it again meanwhile.
+    if await locked_status(session, ticket) != "cancelled":
+        raise ApiError(status.HTTP_409_CONFLICT, "ALREADY_REGISTERED", "User already holds a ticket for this event")
     try:
         secret, code = await reactivate_ticket(session, ticket, tier.id, user, event)
-    except TicketStateError:
+    except TicketStateError:  # the status is locked above, so only the quota can refuse
         raise ApiError(status.HTTP_410_GONE, "TIER_SOLD_OUT", "Ticket tier is sold out / quota exhausted") from None
     await queue_ticket_sms(
         session, link_origin(request.app.state.settings, str(request.base_url)), "ticket_confirmation",

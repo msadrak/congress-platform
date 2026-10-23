@@ -116,6 +116,15 @@ async def queue_ticket_sms(
     )
 
 
+async def locked_status(session: AsyncSession, ticket: Ticket) -> str | None:
+    """Lock the ticket row until the transaction ends and return its current status (None once deleted).
+
+    A ticket read without a lock may be stale: two concurrent re-registrations of one cancelled ticket would
+    both see "cancelled" and both take a place. Whoever waits for the lock sees the other's committed change."""
+    status: str | None = await session.scalar(select(Ticket.status).where(Ticket.id == ticket.id).with_for_update())
+    return status
+
+
 async def _release_quota(session: AsyncSession, tier_id: uuid.UUID) -> None:
     await session.execute(
         update(TicketTier)
@@ -197,7 +206,7 @@ async def reactivate_ticket(
     the row. With `reserve_quota` the tier's place is taken atomically (the caller has already checked the
     tier exists and maps a failure to the right answer by raising TicketStateError("quota")).
     """
-    if ticket.status != "cancelled":
+    if await locked_status(session, ticket) != "cancelled":
         raise TicketStateError("This ticket is still active.")
     if reserve_quota:
         reserved = await session.execute(
