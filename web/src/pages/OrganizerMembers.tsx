@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from "react";
 import { useOutletContext } from "react-router-dom";
 import { createApiClient, localizedApiError, type MemberOut, type OrganizerRole } from "../api/client";
-import { formatLocalizedDate } from "../lib/i18n";
+import { codeFontClass, formatLocalizedDate } from "../lib/i18n";
 import { formatMobile, normalizeIranMobile } from "../lib/mobile";
-import { CONSOLE_COPY, ORGANIZER_ROLES, ROLE_COPY, isOrganizerRole } from "../lib/organizerConsole";
+import { CONSOLE_COPY, ORGANIZER_ROLES, ROLE_COPY, inviterLabel, isOrganizerRole } from "../lib/organizerConsole";
 import type { OrganizerOutletContext } from "./OrganizerLayout";
 import { Badge } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
@@ -167,12 +167,12 @@ export default function OrganizerMembers() {
                             {isSelf && <span className="ms-2 text-xs font-medium text-text-muted">({copy.you})</span>}
                           </h3>
                           {member.mobile && (
-                            <p className="break-all font-mono text-xs text-text-muted">
+                            <p className={`break-all text-xs text-text-muted ${codeFontClass(formatMobile(member.mobile, locale))}`}>
                               <bdi dir="ltr">{formatMobile(member.mobile, locale)}</bdi>
                             </p>
                           )}
                           <p className="text-xs text-text-muted">
-                            {copy.invitedBy(member.invited_by)} · {formatLocalizedDate(member.created_at, locale)}
+                            {copy.invitedBy(inviterLabel(member.invited_by, locale))} · {formatLocalizedDate(member.created_at, locale)}
                           </p>
                         </div>
                       </div>
@@ -324,7 +324,7 @@ function InviteDialog({ isOpen, onClose, onSaved }: { isOpen: boolean; onClose: 
             value={mobileInput}
             onChange={(e) => setMobileInput(e.target.value)}
             placeholder="09xx xxx xxxx"
-            className="ui-input font-mono"
+            className={`ui-input ${codeFontClass(mobileInput)}`}
           />
         </Field>
         <fieldset className="space-y-2">
