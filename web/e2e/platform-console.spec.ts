@@ -254,7 +254,7 @@ test('organizers are created, rotated and revoked from the console; keys are sho
   await expect(page.getByText('new-organizer-key-0001')).toHaveCount(0);
 
   const row = page.getByTestId('organizer-list').getByRole('listitem').filter({ hasText: 'Alpha Society' });
-  const more = row.getByRole('button', { name: 'More actions for “Alpha Society”' });
+  const more = row.getByRole('button', { name: /^More actions for “.?Alpha Society.?”$/ });
   // Only Members is a row button; rotating and removing access live in the ⋯ menu.
   await expect(row.getByRole('button', { name: 'Members' })).toBeVisible();
   await expect(row.getByRole('button', { name: 'Remove access' })).toHaveCount(0);
@@ -267,7 +267,7 @@ test('organizers are created, rotated and revoked from the console; keys are sho
 
   await more.click();
   await page.getByRole('menuitem', { name: 'Remove access' }).click();
-  const confirm = page.getByRole('dialog', { name: 'Remove access for “Alpha Society”?' });
+  const confirm = page.getByRole('dialog', { name: /^Remove access for “.?Alpha Society.?”\?$/ });
   await expect(confirm).toContainText('their congresses are kept');
   await confirm.getByRole('button', { name: 'Remove access' }).click();
   await expect(row.getByText('Access removed')).toBeVisible();
@@ -360,7 +360,7 @@ test('the platform admin lists an organizer\'s members and adds its first owner'
   await expect(page.getByRole('heading', { name: 'Organizers', level: 1 })).toBeVisible();
 
   await page.getByRole('button', { name: 'Members', exact: true }).click();
-  const dialog = page.getByRole('dialog', { name: 'Members of “Alpha Society”' });
+  const dialog = page.getByRole('dialog', { name: /^Members of “.?Alpha Society.?”$/ });
   await expect(dialog.getByText('No members yet. Add the first owner.')).toBeVisible();
   // The shared RolePicker (radio cards), not a select.
   const roles = dialog.getByRole('group', { name: 'Role' });
@@ -370,7 +370,7 @@ test('the platform admin lists an organizer\'s members and adds its first owner'
   await dialog.getByLabel('Full name').fill('Neda Karimi');
   await dialog.getByLabel('Mobile number').fill('0912 345 6789');
   await dialog.getByRole('button', { name: 'Add and send SMS' }).click();
-  await expect(dialog.getByRole('status').filter({ hasText: 'Neda Karimi was added' })).toBeVisible();
+  await expect(dialog.getByRole('status').filter({ hasText: /Neda Karimi.? was added/ })).toBeVisible();
   const list = dialog.getByTestId('platform-members');
   await expect(list).toContainText('Neda Karimi');
   await expect(list).toContainText('0912 345 6789');
@@ -397,7 +397,7 @@ test('Persian console: localized environment, members and coded errors, no raw E
 
   await tab(page, 'برگزارکنندگان').click();
   await page.getByRole('button', { name: 'اعضا', exact: true }).click();
-  const dialog = page.getByRole('dialog', { name: 'اعضای «Alpha Society»' });
+  const dialog = page.getByRole('dialog', { name: /^اعضای «.?Alpha Society.?»$/ });
   const list = dialog.getByTestId('platform-members');
   await expect(list).toContainText('افزوده‌شده به دست کلید API');
   await expect(list).toContainText('۰۹۱۲ ۱۱۱ ۲۲۳۳');

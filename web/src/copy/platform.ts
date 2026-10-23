@@ -1,5 +1,8 @@
 import type { CopyShape } from "./useCopy";
 
+/** A name from people inside a sentence, bidi-isolated (FSI … PDI) so a Latin name keeps its place in Persian and back. */
+const bdi = (name: string) => `\u2068${name}\u2069`;
+
 /*
  * Platform admin (`/platform`, copy deck §4.8; org spec §3 "Platform console"). The portal is named once, in the
  * header. Values that come from the server's environment carry one «از تنظیمات سرور» tag, never a file name.
@@ -141,24 +144,24 @@ const fa = {
     title: "برگزارکنندگان",
     newName: "نام برگزارکنندهٔ جدید",
     create: "افزودن برگزارکننده",
-    issued: (name: string) => `کلید سازمان «${name}»؛ فقط همین یک‌بار نمایش داده می‌شود.`,
+    issued: (name: string) => `کلید سازمان «${bdi(name)}»؛ فقط همین یک‌بار نمایش داده می‌شود.`,
     copyKey: "کپی کلید",
     hideKey: "پنهان کردن کلید",
     created: (date: string) => `ساخته‌شده در ${date}`,
     rotated: (date: string) => `کلید تعویض‌شده در ${date}`,
     members: "اعضا",
-    membersOf: (name: string) => `اعضای «${name}»`,
-    moreFor: (name: string) => `گزینه‌های بیشتر برای «${name}»`,
+    membersOf: (name: string) => `اعضای «${bdi(name)}»`,
+    moreFor: (name: string) => `گزینه‌های بیشتر برای «${bdi(name)}»`,
     rotate: "تعویض کلید",
     reinstate: "فعال‌سازی با کلید تازه",
     revoke: "لغو دسترسی",
-    revokeTitle: (name: string) => `دسترسی «${name}» لغو شود؟`,
+    revokeTitle: (name: string) => `دسترسی «${bdi(name)}» لغو شود؟`,
     revokeBody: "دیگر نمی‌تواند وارد شود؛ همایش‌هایش حفظ می‌شوند.",
     rotateTitle: "کلید تازه صادر شود؟",
-    rotateBody: (name: string) => `کلید فعلی «${name}» بلافاصله از کار می‌افتد.`,
+    rotateBody: (name: string) => `کلید فعلی «${bdi(name)}» بلافاصله از کار می‌افتد.`,
     rotateAction: "صدور کلید تازه",
     reinstateTitle: "دسترسی این برگزارکننده بازگردانده شود؟",
-    reinstateBody: (name: string) => `«${name}» با کلیدی تازه که یک‌بار نمایش داده می‌شود دوباره وارد می‌شود.`,
+    reinstateBody: (name: string) => `«${bdi(name)}» با کلیدی تازه که یک‌بار نمایش داده می‌شود دوباره وارد می‌شود.`,
     reinstateAction: "بازگرداندن دسترسی",
     empty: "هنوز برگزارکننده‌ای نیست",
     loadFailed: "فهرست برگزارکنندگان بارگذاری نشد",
@@ -173,7 +176,7 @@ const fa = {
     mobile: "شمارهٔ موبایل",
     nameRequired: "نام عضو را وارد کنید.",
     submit: "افزودن و ارسال پیامک",
-    added: (name: string) => `${name} اضافه شد و پیامک دعوت می‌گیرد.`,
+    added: (name: string) => `${bdi(name)} اضافه شد و پیامک دعوت می‌گیرد.`,
   },
 } as const;
 
@@ -313,24 +316,24 @@ const en: CopyShape<typeof fa> = {
     title: "Organizers",
     newName: "New organizer name",
     create: "Add organizer",
-    issued: (name: string) => `Organizer key for “${name}”, shown only this once.`,
+    issued: (name: string) => `Organizer key for “${bdi(name)}”, shown only this once.`,
     copyKey: "Copy key",
     hideKey: "Hide key",
     created: (date: string) => `Created ${date}`,
     rotated: (date: string) => `key rotated ${date}`,
     members: "Members",
-    membersOf: (name: string) => `Members of “${name}”`,
-    moreFor: (name: string) => `More actions for “${name}”`,
+    membersOf: (name: string) => `Members of “${bdi(name)}”`,
+    moreFor: (name: string) => `More actions for “${bdi(name)}”`,
     rotate: "Rotate key",
     reinstate: "Reinstate with a new key",
     revoke: "Remove access",
-    revokeTitle: (name: string) => `Remove access for “${name}”?`,
+    revokeTitle: (name: string) => `Remove access for “${bdi(name)}”?`,
     revokeBody: "They can no longer sign in; their congresses are kept.",
     rotateTitle: "Issue a new key?",
-    rotateBody: (name: string) => `The current key of “${name}” stops working at once.`,
+    rotateBody: (name: string) => `The current key of “${bdi(name)}” stops working at once.`,
     rotateAction: "Issue new key",
     reinstateTitle: "Reinstate this organizer?",
-    reinstateBody: (name: string) => `“${name}” can sign in again with a new key, shown once.`,
+    reinstateBody: (name: string) => `“${bdi(name)}” can sign in again with a new key, shown once.`,
     reinstateAction: "Reinstate",
     empty: "No organizers yet",
     loadFailed: "Couldn't load the organizers",
@@ -345,7 +348,7 @@ const en: CopyShape<typeof fa> = {
     mobile: "Mobile number",
     nameRequired: "Enter the member's name.",
     submit: "Add and send SMS",
-    added: (name: string) => `${name} was added and will receive an SMS invitation.`,
+    added: (name: string) => `${bdi(name)} was added and will receive an SMS invitation.`,
   },
 };
 

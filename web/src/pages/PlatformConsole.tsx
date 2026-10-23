@@ -216,11 +216,11 @@ export default function PlatformConsole() {
         </div>
         {status && (
           <nav aria-label={copy.sections} className="mx-auto max-w-6xl px-1 sm:px-3">
-            <ul className="-mb-px flex overflow-x-auto [scrollbar-width:none]">
+            <ul className="-mb-px flex overflow-x-auto [scrollbar-width:none] max-sm:pe-6 max-sm:[mask-image:linear-gradient(to_right,black_calc(100%-1.5rem),transparent)] max-sm:rtl:[mask-image:linear-gradient(to_left,black_calc(100%-1.5rem),transparent)]">
               {TABS.map((tab) => (
                 <li key={tab.section} className="shrink-0">
                   <Link to={tab.to} aria-current={section === tab.section ? "page" : undefined} className={TAB_LINK}>
-                    <Icon name={tab.icon} size={18} />
+                    <Icon name={tab.icon} size={18} className="max-sm:hidden" />
                     {copy.tabs[tab.section]}
                   </Link>
                 </li>
