@@ -425,6 +425,7 @@ export const boothCopy = {
     standeeAlready: (name: string) => `${name} از قبل در غرفه‌های نشان‌شدهٔ شماست.`,
     standeeSignIn: "برای نشان کردن این غرفه وارد شوید",
     standeeSignInBody: "پس از ورود به همین صفحه برمی‌گردید و با یک لمس غرفه را نشان می‌کنید.",
+    signInAction: "ورود با شمارهٔ موبایل",
   },
   en: {
     needsPass: "You need an active pass for this congress to save booths.",
@@ -440,5 +441,6 @@ export const boothCopy = {
     standeeAlready: (name: string) => `${name} is already in your saved booths.`,
     standeeSignIn: "Sign in to save this booth",
     standeeSignInBody: "After signing in you come back to this page and save the booth in one tap.",
+    signInAction: "Sign in with your mobile",
   },
 } as const;

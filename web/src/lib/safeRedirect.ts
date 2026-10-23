@@ -14,6 +14,11 @@ const ALLOWED_PATHS: readonly RegExp[] = [
 
 const PLACEHOLDER_ORIGIN = "http://internal.invalid";
 
+/** A public booth page; its standee QR adds `?b=<secret>` for the one-tap save after sign-in. */
+const BOOTH_PAGE = new RegExp(`^/e/${SLUG}/booths/[A-Za-z0-9-]+$`);
+/** The booth secret's shape (backend/app/routes/booths.py `_BOOTH_CODE`, case-insensitive). */
+const BOOTH_CODE = /^[A-Za-z0-9]{8,64}$/;
+
 function hasControlCharacter(value: string): boolean {
   for (let i = 0; i < value.length; i++) {
     const code = value.charCodeAt(i);
@@ -25,7 +30,8 @@ function hasControlCharacter(value: string): boolean {
 /**
  * Resolve a caller-supplied `next` value to an in-app attendee path, or `fallback`.
  * Absolute URLs, protocol-relative and backslash forms, control characters, traversal and any
- * path outside the allow-list are rejected; query and fragment are dropped.
+ * path outside the allow-list are rejected; query and fragment are dropped, except a well-formed standee
+ * code (`?b=`) on a public booth page.
  */
 export function safeNextPath(raw: string | null | undefined, fallback: string): string {
   if (!raw || raw.length > 300 || !raw.startsWith("/") || raw.startsWith("//")) return fallback;
@@ -37,7 +43,11 @@ export function safeNextPath(raw: string | null | undefined, fallback: string): 
     return fallback;
   }
   if (url.origin !== PLACEHOLDER_ORIGIN) return fallback;
-  return ALLOWED_PATHS.some((pattern) => pattern.test(url.pathname)) ? url.pathname : fallback;
+  if (!ALLOWED_PATHS.some((pattern) => pattern.test(url.pathname))) return fallback;
+  // The one query kept: a well-formed standee code on a booth page, so the attendee returns to the one-tap save.
+  const code = url.searchParams.get("b");
+  if (code && BOOTH_PAGE.test(url.pathname) && BOOTH_CODE.test(code)) return `${url.pathname}?b=${code}`;
+  return url.pathname;
 }
 
 /** Sign-in entry for a congress (or the generic sign-in) that returns to `next` afterwards. */

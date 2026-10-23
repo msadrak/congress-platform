@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useLocation, useParams, useSearchParams } from "react-router-dom";
 import {
+  apiErrorCode,
   createApiClient,
+  localizedApiError,
   type PublicBoothOut,
 } from "../api/client";
 import { attendeeResponseState, isStoredAttendeeToken } from "../lib/attendeeSession";
@@ -14,9 +16,20 @@ import { CongressSignature } from "../components/brand/CongressSignature";
 import { contentLocale, indexLabel, proseDir, publicCopy, usePublicLocale } from "../components/public/copy";
 import { Bidi } from "../components/public/Bidi";
 import { signInPath } from "../lib/safeRedirect";
+import { networkErrorMessage } from "../lib/errorMessages";
+import { boothCopy } from "../components/attendee/attendeeCopy";
 
 /** Bookmark feedback, always rendered in the page language. */
 type FeedbackKey = "fbSessionChanged" | "fbSessionExpired" | "fbSaved" | "fbRemoved" | "fbUpdateFailed" | "fbLoadFailed";
+
+/** A refusal with a stable code, in the page language; `register` offers the way to a pass. */
+interface CodedFeedback {
+  text: string;
+  register?: boolean;
+}
+
+/** The standee QR's one-tap save (`?b=<secret>`). */
+type StandeeState = { status: "idle" | "saving" } | { status: "saved"; already: boolean };
 
 const LATIN_CODE = /^[\x20-\x7E]+$/;
 
@@ -30,6 +43,12 @@ function hostOf(url: string): string {
 
 export default function PublicBooth() {
   const { slug, boothId } = useParams<{ slug: string; boothId: string }>();
+  const location = useLocation();
+  // Standee QR: `/e/<slug>/booths/<id>?b=<secret>` lets a signed-in attendee save the booth in one tap.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const standeeCode = searchParams.get("b")?.trim() || null;
+  const [standee, setStandee] = useState<StandeeState>({ status: "idle" });
+  const [codedFeedback, setCodedFeedback] = useState<CodedFeedback | null>(null);
 
   const [booth, setBooth] = useState<PublicBoothOut | null>(null);
   const [loading, setLoading] = useState(true);
@@ -53,6 +72,7 @@ export default function PublicBooth() {
       setBooth(null);
       setLoadError(null);
       setBookmarkFeedback(null);
+      setCodedFeedback(null);
       try {
         const client = createApiClient({ kind: "anonymous" });
         const { data, error: err, response } = await client.GET(
@@ -113,6 +133,7 @@ export default function PublicBooth() {
     if (!context?.active) return;
     setBookmarking(true);
     setBookmarkFeedback(null);
+    setCodedFeedback(null);
     try {
       const client = createApiClient({ kind: "user", token });
       const options = { params: { path: { booth_id: boothId } } };
@@ -122,7 +143,9 @@ export default function PublicBooth() {
       if (!context.active) return;
       const session = attendeeResponseState(token, response.status);
       if (session === "changed") return;
-      if (session === "expired" || err) {
+      if (session !== "expired" && apiErrorCode(err)) {
+        setCodedFeedback(codedFeedbackFor(err));
+      } else if (session === "expired" || err) {
         setBookmarkFeedback(session === "expired" ? "fbSessionExpired" : "fbUpdateFailed");
       } else if (data) {
         setIsBookmarked(data.bookmarked);
@@ -137,6 +160,50 @@ export default function PublicBooth() {
 
   const { locale, setLocale } = usePublicLocale(booth ? contentLocale(booth.event_name) : undefined);
   const c = publicCopy[locale];
+  const bc = boothCopy[locale];
+
+  function codedFeedbackFor(error: unknown): CodedFeedback {
+    return apiErrorCode(error) === "ACTIVE_TICKET_REQUIRED" ? { text: bc.needsPass, register: true } : { text: localizedApiError(error, locale) };
+  }
+
+  // One tap on the standee card: the code is the booth's secret, checked by the server.
+  const saveFromStandee = async () => {
+    if (!token || !standeeCode || standee.status === "saving") return;
+    if (!isStoredAttendeeToken(token)) {
+      setBookmarkFeedback("fbSessionChanged");
+      return;
+    }
+    const context = bookmarkContext.current;
+    setStandee({ status: "saving" });
+    setBookmarkFeedback(null);
+    setCodedFeedback(null);
+    try {
+      const { data, error, response } = await createApiClient({ kind: "user", token }).POST("/api/attendees/me/bookmarks/booths/scan", {
+        body: { code: standeeCode },
+      });
+      if (!context?.active) return;
+      const session = attendeeResponseState(token, response.status);
+      if (session === "changed") return;
+      if (data) {
+        setIsBookmarked(true);
+        setStandee({ status: "saved", already: response.status === 200 });
+        // The secret has done its job: keep it out of the history and of a shared link.
+        setSearchParams((current) => {
+          const next = new URLSearchParams(current);
+          next.delete("b");
+          return next;
+        }, { replace: true });
+        return;
+      }
+      setStandee({ status: "idle" });
+      if (session === "expired") setBookmarkFeedback("fbSessionExpired");
+      else setCodedFeedback(apiErrorCode(error) ? codedFeedbackFor(error) : { text: c.fbUpdateFailed });
+    } catch {
+      if (!context?.active) return;
+      setStandee({ status: "idle" });
+      setCodedFeedback({ text: networkErrorMessage[locale] });
+    }
+  };
   usePageTitle(booth?.name, booth?.event_name);
 
   // Loading skeleton
@@ -260,6 +327,53 @@ export default function PublicBooth() {
         <div className="mx-auto grid max-w-7xl grid-cols-1 gap-12 px-4 pt-12 pb-20 sm:px-6 sm:pt-16 sm:pb-28 lg:grid-cols-12 lg:gap-16 lg:px-10">
           {/* Actions: bookmark, brochure, website */}
           <aside className="space-y-4 lg:order-last lg:col-span-5">
+            {(standeeCode || standee.status === "saved") && (
+              <div className="relative space-y-4 overflow-hidden rounded-2xl border-2 border-event-accent/40 bg-surface-panel p-5 shadow-lift sm:p-6">
+                {standee.status === "saved" || (token && isBookmarked && !bookmarkLoading) ? (
+                  <p role="status" className="flex items-start gap-3 text-base font-semibold leading-relaxed text-status-success-text">
+                    <Icon name="check-circle" size={22} className="mt-0.5 shrink-0" />
+                    <span>
+                      {standee.status === "saved" && !standee.already ? bc.standeeSaved(booth.name) : bc.standeeAlready(booth.name)}
+                    </span>
+                  </p>
+                ) : token ? (
+                  <>
+                    <div className="flex items-start gap-3">
+                      <span className="grid size-11 shrink-0 place-items-center rounded-xl bg-event-accent text-white">
+                        <Icon name="qr" size={20} />
+                      </span>
+                      <div className="space-y-1">
+                        <p className="text-base font-semibold text-text-primary">{bc.standeeTitle}</p>
+                        <p className="text-sm leading-relaxed text-text-secondary">{bc.standeeBody}</p>
+                      </div>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="primary"
+                      size="xl"
+                      isFullWidth
+                      disabled={standee.status === "saving" || bookmarkLoading}
+                      aria-busy={standee.status === "saving"}
+                      onClick={() => void saveFromStandee()}
+                    >
+                      <Icon name="bookmark" size={20} />
+                      {standee.status === "saving" ? bc.standeeSaving : bc.standeeSave}
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <div className="space-y-1">
+                      <p className="text-base font-semibold text-text-primary">{bc.standeeSignIn}</p>
+                      <p className="text-sm leading-relaxed text-text-secondary">{bc.standeeSignInBody}</p>
+                    </div>
+                    <LinkButton to={signInPath(slug, `${location.pathname}${location.search}`)} variant="primary" size="xl" isFullWidth>
+                      <Icon name="user" size={20} />
+                      {bc.signInAction}
+                    </LinkButton>
+                  </>
+                )}
+              </div>
+            )}
             <div className="space-y-4 rounded-2xl border border-border-default bg-surface-panel p-5 shadow-soft sm:p-6">
               <div className="flex items-start gap-3">
                 <span
@@ -285,10 +399,25 @@ export default function PublicBooth() {
                   <span>{c.bookmark}</span>
                 </Button>
               ) : (
-                <LinkButton to={signInPath(slug, `/e/${slug}/booths/${boothId}`)} variant="primary" size="lg" isFullWidth>
+                <LinkButton to={signInPath(slug, `/e/${slug}/booths/${boothId}${location.search}`)} variant="primary" size="lg" isFullWidth>
                   <Icon name="bookmark" size={18} />
                   <span>{c.bookmark}</span>
                 </LinkButton>
+              )}
+
+              {codedFeedback && (
+                <div role="alert" className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border border-status-warning-border bg-status-warning-bg p-3 text-sm leading-relaxed text-status-warning-text">
+                  <p className="flex items-start gap-2.5">
+                    <Icon name="info" size={18} className="mt-0.5 shrink-0" />
+                    <span>{codedFeedback.text}</span>
+                  </p>
+                  {codedFeedback.register && (
+                    <Link to={`/e/${slug}`} className="inline-flex min-h-11 items-center gap-1 font-semibold underline underline-offset-4">
+                      {bc.getPass}
+                      <Icon name="arrow-right" size={14} />
+                    </Link>
+                  )}
+                </div>
               )}
 
               {/* Bookmark Feedback Message */}
