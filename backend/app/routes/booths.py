@@ -295,13 +295,14 @@ async def assign_booth_staff(
     if user is None:
         # The representative signs in later with an SMS code to this number. A concurrent request may create
         # the account first; then that account is used (and keeps its own name).
-        user, created = await add_or_existing(
+        account, created = await add_or_existing(
             session,
             User(mobile=body.mobile, full_name=body.full_name or f"{booth.name} representative", organization=booth.name),
             select(User).where(User.mobile == body.mobile),
         )
         if created:
-            shown_name = user.full_name
+            shown_name = account.full_name
+        user = account
 
     # Assigning twice (or two requests at once) answers with the one assignment.
     staff, _ = await add_or_existing(

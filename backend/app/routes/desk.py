@@ -429,10 +429,11 @@ async def add_desk_operator(
     user = await session.scalar(select(User).where(User.mobile == body.mobile))
     if user is None:
         # A concurrent request may create the account for this number first; then that account is used.
-        user, _ = await add_or_existing(
+        account, _ = await add_or_existing(
             session, User(mobile=body.mobile, full_name=body.operator_name.strip()),
             select(User).where(User.mobile == body.mobile),
         )
+        user = account
 
     existing_op = await session.scalar(
         select(DeskOperator).where(
@@ -774,7 +775,7 @@ async def search_event_attendees(
             )
             .group_by(CheckIn.ticket_id)
         )
-        scan_counts = {ticket_id: count for ticket_id, count in counts.tuples() if ticket_id is not None}
+        scan_counts = {ticket_id: count for ticket_id, count in counts if ticket_id is not None}
 
     return [
         AttendeeSearchItem(

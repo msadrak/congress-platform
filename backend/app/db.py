@@ -32,7 +32,7 @@ async def get_session(request: Request) -> AsyncIterator[AsyncSession]:
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 
 
-async def add_or_existing(session: AsyncSession, row: T, existing: Select[tuple[T]]) -> tuple[T, bool]:
+async def add_or_existing(session: AsyncSession, row: T, existing: Select[T]) -> tuple[T, bool]:
     """Insert `row` in a savepoint; when a unique constraint says a concurrent request inserted it first, return
     that row instead (`existing` selects it). Returns (row, created). Any other integrity error propagates."""
     try:
