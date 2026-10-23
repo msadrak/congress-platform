@@ -8,6 +8,7 @@ an operator unless they check the organizer path, so attribution and isolation a
 import asyncio
 import uuid
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI
@@ -20,6 +21,7 @@ from app.sms.provider import SmsResult
 from tests.helpers import bearer, desk_sign_in, provision_organizer
 from tests.test_events import EVENT
 from tests.test_roles import member_session
+from tests.test_sms_budgets import app_with
 from tests.test_ticket_tiers import tier
 
 OPERATOR_MOBILE = "09121004400"
@@ -584,22 +586,25 @@ async def test_an_archived_congress_s_desk_reads_but_refuses_changes(client: Asy
         assert response.json()["code"] == "EVENT_ARCHIVED"
 
 
-async def test_desk_notices_have_a_per_ticket_sms_budget(client: AsyncClient, app: FastAPI) -> None:
-    desk = await open_desk(client)
-    issued = await walk_in(client, desk, mobile="09121004450")
-    url = f"/api/events/{desk.event_id}/attendees/{issued['ticket_id']}/reissue"
+async def test_desk_notices_count_against_the_organizer_s_notice_allowance(media_root: Path) -> None:
+    async with app_with(media_root, sms_notices_per_organizer_per_hour=3) as (app, client):
+        desk = await open_desk(client)
+        issued = await walk_in(client, desk, mobile="09121004450")
+        base = f"/api/events/{desk.event_id}/attendees/{issued['ticket_id']}"
 
-    statuses = [(await client.post(url, json={"notify": True}, headers=desk.headers)).status_code for _ in range(6)]
+        statuses = [(await client.post(f"{base}/reissue", json={"notify": True}, headers=desk.headers)).status_code for _ in range(2)]
+        statuses.append((await client.post(f"{base}/resend-sms", headers=desk.headers)).status_code)
+        refused = await client.post(f"{base}/cancel", json={"notify": True}, headers=desk.headers)
 
-    assert statuses == [200] * 5 + [429]
-    refused = await client.post(url, json={"notify": True}, headers=desk.headers)
-    assert refused.json()["code"] == "DESK_SMS_RATE_LIMITED"
-    # Without an SMS the change still goes through.
-    assert (await client.post(url, json={"notify": False}, headers=desk.headers)).status_code == 200
-    async with app.state.sessionmaker() as session:
-        assert await session.scalar(
-            select(func.count()).select_from(SmsMessage).where(SmsMessage.kind == "ticket_reissued")
-        ) == 5
+        assert statuses == [200, 200, 200]
+        assert (refused.status_code, refused.json()["code"]) == (429, "SMS_NOTICE_LIMIT_REACHED")
+        assert (await card(client, desk, issued["ticket_id"]))["status"] == "active"  # a refused change did not happen
+        # Without an SMS the change still goes through.
+        assert (await client.post(f"{base}/reissue", json={"notify": False}, headers=desk.headers)).status_code == 200
+        async with app.state.sessionmaker() as session:
+            assert await session.scalar(
+                select(func.count()).select_from(SmsMessage).where(SmsMessage.kind == "ticket_reissued")
+            ) == 2
 
 
 async def test_the_resend_cooldown_holds_under_concurrent_clicks(client: AsyncClient) -> None:

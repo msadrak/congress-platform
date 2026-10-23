@@ -50,6 +50,7 @@ from app.security import (
     generate_entity_qr_secret,
 )
 from app.sms import SmsGateway, sms_provider
+from app.sms.budgets import charge_organizer_notice
 from app.sms.outbox import link_origin, queue_operator_invite, queue_ticket_confirmation, ticket_confirmation_text
 from app.search import fold, text_matches
 from app.sms.phone import IranMobile, OptionalIranMobile, search_digits
@@ -363,22 +364,11 @@ async def writable_desk(desk_ctx: AuthorizedDeskDep) -> AuthorizedDeskContext:
 
 WritableDeskDep = Annotated[AuthorizedDeskContext, Depends(writable_desk)]
 
-# SMS notices a desk change sends (cancel, reissue, transfer): spaced out per ticket and capped per desk actor
-# and per congress, so a desk cannot run the platform's SMS allowance down. Without an SMS the change is free.
-DESK_NOTICE_PER_TICKET = Budget(5, LONGEST_WINDOW_SECONDS)
-DESK_NOTICE_PER_ACTOR = Budget(100, LONGEST_WINDOW_SECONDS)
-DESK_NOTICE_PER_EVENT = Budget(300, LONGEST_WINDOW_SECONDS)
-
-
-async def _consume_notice_budget(request: Request, desk_ctx: AuthorizedDeskContext, ticket_id: uuid.UUID) -> None:
-    actor = f"operator:{desk_ctx.operator.id}" if desk_ctx.operator else "organizer"
-    await limiter(request).consume(
-        (f"sms:desk-notice:{ticket_id}", DESK_NOTICE_PER_TICKET),
-        (f"sms:desk-notice:actor:{desk_ctx.event.id}:{actor}", DESK_NOTICE_PER_ACTOR),
-        (f"sms:desk-notice:event:{desk_ctx.event.id}", DESK_NOTICE_PER_EVENT),
-        detail="Too many messages were sent for this ticket from the desk. Try again later, or without an SMS.",
-        code="DESK_SMS_RATE_LIMITED",
-    )
+async def _consume_notice_budget(desk_ctx: AuthorizedDeskContext, request: Request) -> None:
+    """SMS notices a desk change sends (cancel, reissue, transfer, a resent pass) count against the organizer's
+    hourly notice allowance like its own console's (app.sms.budgets; 429 SMS_NOTICE_LIMIT_REACHED), so a desk
+    cannot run the platform's SMS allowance down. Without an SMS the change is free."""
+    await charge_organizer_notice(request, desk_ctx.event.organizer_id)
 
 
 # -----------------------------------------------------------------------------
@@ -1172,7 +1162,7 @@ async def cancel_attendee_ticket(
     event = desk_ctx.event
     ticket = await _desk_ticket(session, event, ticket_id)
     if body.notify and ticket.status == "active":
-        await _consume_notice_budget(request, desk_ctx, ticket.id)
+        await _consume_notice_budget(desk_ctx, request)
     try:
         await cancel_ticket(
             session, ticket, actor="organizer", reason=body.reason,
@@ -1200,7 +1190,7 @@ async def reissue_attendee_ticket(
     event = desk_ctx.event
     ticket = await _desk_ticket(session, event, ticket_id)
     if body.notify and ticket.status == "active":
-        await _consume_notice_budget(request, desk_ctx, ticket.id)
+        await _consume_notice_budget(desk_ctx, request)
     try:
         await reissue_ticket(session, ticket, event, notify_origin=_sms_origin(request) if body.notify else None)
     except TicketStateError as exc:
@@ -1225,7 +1215,7 @@ async def transfer_attendee_ticket(
     event = desk_ctx.event
     ticket = await _desk_ticket(session, event, ticket_id)
     if ticket.status == "active":  # a transfer always texts both holders
-        await _consume_notice_budget(request, desk_ctx, ticket.id)
+        await _consume_notice_budget(desk_ctx, request)
     target, snapshot = await transfer_target(session, body)
     try:
         new_ticket = await transfer_ticket(
@@ -1396,6 +1386,7 @@ async def resend_pass_sms(
         detail="The pass link was sent recently. Try again later.",
         code="PASS_SMS_RATE_LIMITED",
     )
+    await _consume_notice_budget(desk_ctx, request)
 
     link = await active_ticket_link(session, ticket, event)
     text = await ticket_confirmation_text(

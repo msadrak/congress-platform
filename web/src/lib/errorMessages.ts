@@ -48,7 +48,6 @@ export const errorMessages: Record<AttendeeLocale, Record<string, string>> = {
     CHECKIN_POINT_NOT_FOUND: "این نقطه ورود دیگر وجود ندارد؛ صفحه را تازه کنید.",
     OPERATOR_NOT_FOUND: "این اپراتور در این همایش یافت نشد. فهرست را به‌روز کنید.",
     OPERATOR_NOT_REVOKED: "دسترسی این اپراتور لغو نشده است.",
-    DESK_SMS_RATE_LIMITED: "برای این کارت ورود پیامک‌های زیادی فرستاده شده است. کمی بعد دوباره تلاش کنید یا بدون پیامک انجام دهید.",
     PASS_SMS_RATE_LIMITED: "لینک کارت ورود همین الان فرستاده شد. کمی بعد دوباره تلاش کنید.",
     // Sign-in codes and SMS (backend/app/routes/auth.py, sms.py, platform.py)
     OTP_RATE_LIMITED: "درخواست کد بیش از حد مجاز بود. کمی بعد دوباره تلاش کنید.",
@@ -147,7 +146,6 @@ export const errorMessages: Record<AttendeeLocale, Record<string, string>> = {
     CHECKIN_POINT_NOT_FOUND: "This check-in point no longer exists; reload the page.",
     OPERATOR_NOT_FOUND: "This operator was not found for this congress. Refresh the list.",
     OPERATOR_NOT_REVOKED: "This operator's access is not revoked.",
-    DESK_SMS_RATE_LIMITED: "Too many messages were sent for this ticket. Try again later, or go ahead without an SMS.",
     PASS_SMS_RATE_LIMITED: "The pass link was sent moments ago. Try again shortly.",
     // Sign-in codes and SMS (backend/app/routes/auth.py, sms.py, platform.py)
     OTP_RATE_LIMITED: "Too many codes requested. Try again in a little while.",
