@@ -30,10 +30,12 @@ const inkSurface: Record<CoreVariant, string> = {
 /** The dark "ink" button used on light surfaces; kept as-is until its call sites migrate. */
 const legacyInk = "bg-surface-ink text-white border border-transparent shadow-soft hover:bg-ink-800 active:bg-ink-950";
 
+// The height and radius are `!important`: a call site may widen, wrap or re-pad a button, but it can't
+// leave the 40/48/56 scale or the control radius. `sm` grows to 48 on touch screens (≥ 44 px targets).
 const sizeStyles: Record<"sm" | "md" | "lg", string> = {
-  sm: "min-h-(--control-sm) px-3.5 py-1 gap-1.5 text-body-sm",
-  md: "min-h-(--control-md) px-4 py-1.5 gap-2 text-body-sm",
-  lg: "min-h-(--control-lg) px-5 py-2 gap-2.5 text-body",
+  sm: "min-h-(--control-sm)! pointer-coarse:min-h-(--control-md)! px-3.5 py-1 gap-1.5 text-body-sm",
+  md: "min-h-(--control-md)! px-4 py-1.5 gap-2 text-body-sm",
+  lg: "min-h-(--control-lg)! px-5 py-2 gap-2.5 text-body",
 };
 
 /** Icon size that matches each button size. */
@@ -41,7 +43,7 @@ export const buttonIconSize: Record<ButtonSize, number> = { sm: 16, md: 18, lg: 
 
 // No outline colour here: the global :focus-visible rule supplies --focus-ring (orchid inside .surface-ink).
 const baseStyles =
-  "relative inline-flex items-center justify-center text-center font-semibold rounded-control select-none whitespace-nowrap cursor-pointer transition-[background-color,border-color,color,filter] duration-150 motion-reduce:transition-none disabled:opacity-55 disabled:cursor-not-allowed aria-busy:cursor-progress";
+  "inline-flex items-center justify-center text-center font-semibold select-none whitespace-nowrap cursor-pointer transition-[background-color,border-color,color,filter] duration-150 motion-reduce:transition-none disabled:opacity-55 disabled:cursor-not-allowed aria-busy:cursor-progress";
 
 function variantClass(variant: ButtonVariant, tone: ButtonTone): string {
   if (variant === "ink") return legacyInk;
@@ -64,7 +66,7 @@ export function buttonClassName({
   className?: string;
 }): string {
   const sizeClass = sizeStyles[size === "xl" ? "lg" : size];
-  return `${baseStyles} ${variantClass(variant, tone)} ${sizeClass} ${isFullWidth ? "w-full" : ""} ${className}`.trim();
+  return `${baseStyles} relative rounded-control! ${variantClass(variant, tone)} ${sizeClass} ${isFullWidth ? "w-full" : ""} ${className}`.trim();
 }
 
 /** Square icon-only button: 44×44 (`md`), or 40×40 (`sm`) for dense desktop rows. */
@@ -80,7 +82,7 @@ export function iconButtonClassName({
   className?: string;
 }): string {
   const box = size === "sm" ? "size-10" : "size-11";
-  return `${baseStyles} ${variantClass(variant, tone)} ${box} shrink-0 p-0 ${className}`.trim();
+  return `${baseStyles} rounded-control ${variantClass(variant, tone)} ${box} shrink-0 p-0 ${className}`.trim();
 }
 
 /**

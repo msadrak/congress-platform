@@ -46,7 +46,7 @@ export const CodeInput = React.forwardRef<HTMLInputElement, TextInputProps>(func
       autoCorrect="off"
       autoComplete="off"
       spellCheck={false}
-      className={`ui-input font-mono placeholder:font-sans ${lookClass({ size, tone })} ${className}`.trim()}
+      className={`ui-input font-mono placeholder:font-sans placeholder-shown:[direction:inherit] ${lookClass({ size, tone })} ${className}`.trim()}
       {...props}
     />
   );

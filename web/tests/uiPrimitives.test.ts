@@ -81,11 +81,11 @@ test("Button: loading sets aria-busy, keeps the label for width and ignores acti
 });
 
 test("Button sizes use the 40/48/56 control tokens and the 12 px control radius", () => {
-  assert.match(buttonClassName({ size: "sm" }), /min-h-\(--control-sm\)/);
+  assert.match(buttonClassName({ size: "sm" }), /min-h-\(--control-sm\)!/);
   assert.match(buttonClassName({ size: "md" }), /min-h-\(--control-md\)/);
   assert.match(buttonClassName({ size: "lg" }), /min-h-\(--control-lg\)/);
   assert.match(buttonClassName({ size: "xl" }), /min-h-\(--control-lg\)/);
-  for (const size of ["sm", "md", "lg", "xl"] as const) assert.match(buttonClassName({ size }), /\brounded-control\b/);
+  for (const size of ["sm", "md", "lg", "xl"] as const) assert.match(buttonClassName({ size }), /\brounded-control!/);
 });
 
 test("SegmentedControl arrow keys follow the visual order and wrap", () => {

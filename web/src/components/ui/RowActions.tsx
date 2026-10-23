@@ -55,7 +55,6 @@ export function RowActions({ actions, visible = 2, menuLabel, className = "" }: 
           icon={action.icon}
           disabled={action.disabled}
           onClick={action.onSelect}
-          className="pointer-coarse:min-h-(--control-md)"
         >
           {action.label}
         </Button>
@@ -86,6 +85,7 @@ function ActionMenu({ items, label, onSelect }: { items: readonly RowAction[]; l
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const itemRefs = useRef<(HTMLButtonElement | null)[]>([]);
+  const anchorRef = useRef<{ top: number; left: number } | null>(null);
   const [position, setPosition] = useState<CSSProperties | null>(null);
   const [startAt, setStartAt] = useState<"first" | "last">("first");
   const open = position !== null;
@@ -95,6 +95,7 @@ function ActionMenu({ items, label, onSelect }: { items: readonly RowAction[]; l
     const trigger = triggerRef.current;
     if (!trigger) return;
     const rect = trigger.getBoundingClientRect();
+    anchorRef.current = { top: rect.top, left: rect.left };
     const rtl = getComputedStyle(trigger).direction === "rtl";
     const height = items.length * MENU_ITEM_HEIGHT + 12;
     const fitsBelow = window.innerHeight - rect.bottom >= height || rect.top < height;
@@ -121,8 +122,11 @@ function ActionMenu({ items, label, onSelect }: { items: readonly RowAction[]; l
       if (menuRef.current?.contains(target) || triggerRef.current?.contains(target)) return;
       setPosition(null);
     }
-    function onViewportChange(event: Event) {
-      if (event.type === "scroll" && menuRef.current?.contains(event.target as Node)) return;
+    // The menu is fixed to where the button was: close it once the button moves (scroll, resize, layout).
+    function onViewportChange() {
+      const rect = triggerRef.current?.getBoundingClientRect();
+      const anchor = anchorRef.current;
+      if (rect && anchor && Math.abs(rect.top - anchor.top) < 1 && Math.abs(rect.left - anchor.left) < 1) return;
       setPosition(null);
     }
     document.addEventListener("pointerdown", onPointerDown);
