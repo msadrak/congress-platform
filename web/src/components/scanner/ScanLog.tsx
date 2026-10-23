@@ -87,7 +87,7 @@ export function ScanLog({ scans, copy, t }: { scans: QueuedScan[]; copy: Scanner
                   </p>
                   {s.rejection_reason && (
                     <p className="mt-0.5 text-[12px] leading-snug text-ink-300">
-                      {rejectionLabel(t, s.rejection_reason) ?? (
+                      {rejectionLabel(t, copy, s.rejection_reason) ?? (
                         <span className="font-mono text-[11px]" dir="ltr">
                           {s.rejection_reason}
                         </span>
