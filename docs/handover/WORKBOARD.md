@@ -63,12 +63,12 @@ Branch `ws/ux-<id>` (team2: `ws/team2-ux-<id>`). A phase-1 package starts when t
 
 | ID | Phase | Needs | Owner | Status |
 |---|---|---|---|---|
-| UX-F1 tokens | 0 | — | coordinator team | taken (`ws/ux-f1`) |
+| UX-F1 tokens | 0 | — | coordinator team | merged (`ws/ux-f1` a3b34a7) |
 | UX-F2 format & Jalali dates | 0 | — | coordinator team | taken (`ws/ux-f2`) |
 | UX-F3 copy foundation + guards | 0 | — | coordinator team | taken (`ws/ux-f3`) |
 | UX-F5 PWA launch, install, offline sign-in, device hooks (critical) | 0 | — | team2 | taken |
-| UX-F6 operator shell components | 0 | — | coordinator team | taken (`ws/ux-f6`) |
-| UX-F7 backend: booth `event_archived`, SMS default texts | 0 | — | coordinator team | ready to merge (`ws/ux-f7` 3940717) |
+| UX-F6 operator shell components | 0 | — | coordinator team | merged (`ws/ux-f6` d245b42) |
+| UX-F7 backend: booth `event_archived`, SMS default texts | 0 | — | coordinator team | merged (`ws/ux-f7` 3940717) |
 | UX-F4 shared ui primitives | 0 | F1 | coordinator team | taken |
 | UX-F8 organizer scaffold (`canEdit`, offline, RolePicker) | 0 | F4 | coordinator team | taken |
 | UX-SCAN scanner | 1 | F1–F6 | coordinator team | waiting |

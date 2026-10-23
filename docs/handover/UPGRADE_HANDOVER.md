@@ -113,6 +113,7 @@ image run on the newer schema (`stack.mjs rollback`). Unmarked ones need a resto
 | PERF-1 | `ws/perf1-reservations` | Reservations and walk-ins take the tier place last (50/s met), `CONGRESS_API_WORKERS`, retention advisory lock |
 | PWA-1, POLISH-2 (team2) | `ws/team2-pwa1-pwa-settings`, `ws/team2-polish2` | Manifest `orientation: any` + stable id, launch reopens the paired scanner; Persian number separators, Persian fallback for uncoded errors, `event_timezone` on passes |
 | PDF links | `ws/pdf-allow-links` | Schedule PDFs may contain ordinary links (http/https/mailto/tel/relative); unsafe schemes refused, strings decoded like a PDF reader |
+| UX foundations F1, F6, F7 | `ws/ux-f1`, `ws/ux-f6`, `ws/ux-f7` | F1 design tokens in `index.css` (radius scale in `@theme`, type and control-height tokens, 3:1 `--border-input`, one focus style, 48 px `.ui-*` controls) plus the cascade-layer order declared inline in `index.html` (production chunk CSS had let preflight beat component styles); F6 operator shell components, `ui/Toast`, `copy/operator.ts`; F7 booth `event_archived` and shorter default SMS texts |
 
 ### Client-reported issues
 | # | Issue | Status |
@@ -186,6 +187,7 @@ the API image now starts with `python -m app.serve`), `ALERT_HEARTBEAT_URL`, `AL
    an installed scanner reopens its paired point.
 9. Schedule PDFs with ordinary web links are accepted; javascript:/data:/file: links are refused.
 10. Errors without a known code show a Persian sentence in fa instead of the server's English text.
+11. SMS default texts are shorter (saved overrides untouched); booth API has `event_archived`.
 
 ## 8. Environment and tooling notes (important)
 
