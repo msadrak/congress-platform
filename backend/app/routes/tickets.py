@@ -15,6 +15,7 @@ from app.routes.auth import CurrentUserDep
 from app.routes.events import registration_problem
 from app.routes.ticket_tiers import tier_sales_problem
 from app.security import generate_entity_qr_secret
+from app.sms.budgets import attendee_notice_allowed, charge_attendee_notice
 from app.sms.outbox import link_origin, queue_ticket_confirmation
 from app.ticket_lifecycle import (
     TicketStateError,
@@ -67,7 +68,8 @@ class AttendeeTicketDetail(BaseModel):
     "/api/events/{event_id}/tickets/reserve",
     status_code=status.HTTP_201_CREATED,
     responses=error_responses(
-        status.HTTP_400_BAD_REQUEST, status.HTTP_404_NOT_FOUND, status.HTTP_409_CONFLICT, status.HTTP_410_GONE
+        status.HTTP_400_BAD_REQUEST, status.HTTP_404_NOT_FOUND, status.HTTP_409_CONFLICT, status.HTTP_410_GONE,
+        status.HTTP_429_TOO_MANY_REQUESTS,
     ),
 )
 async def reserve_ticket(
@@ -191,6 +193,8 @@ async def _register_again(
     # The ticket was read without a lock: a concurrent request may have registered it again meanwhile.
     if await locked_status(session, ticket) != "cancelled":
         raise ApiError(status.HTTP_409_CONFLICT, "ALREADY_REGISTERED", "User already holds a ticket for this event")
+    if user.mobile:  # registering again texts a new pass: bounded, so cancel/register loops cannot spend SMS
+        await charge_attendee_notice(request, user.id, ticket.id)
     try:
         secret, code = await reactivate_ticket(session, ticket, tier.id, user, event)
     except TicketStateError:  # the status is locked above, so only the quota can refuse
@@ -233,8 +237,10 @@ async def cancel_my_ticket(
             "The congress has started; ask the organizer to cancel the registration.",
         )
     origin = link_origin(request.app.state.settings, str(request.base_url))
+    # Over the attendee's notice budget the cancellation still goes ahead (it frees a place), without its text.
+    texted = ticket.status == "active" and await attendee_notice_allowed(request, user.id, ticket.id)
     try:
-        await cancel_ticket(session, ticket, actor="attendee", notify=(origin, event))
+        await cancel_ticket(session, ticket, actor="attendee", notify=(origin, event) if texted else None)
     except TicketStateError as exc:
         raise ApiError(status.HTTP_409_CONFLICT, "TICKET_ALREADY_CANCELLED", str(exc)) from None
     await session.commit()

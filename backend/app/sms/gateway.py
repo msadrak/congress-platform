@@ -7,7 +7,9 @@ queued confirmations go out once the gateway is configured).
 
 Every send first counts against the platform-wide hourly and daily caps (shared by every API process); above a
 cap it answers HOURLY_CAP_REACHED / DAILY_CAP_REACHED without calling the provider, and crossing 80 % of a cap is
-logged once on `congress.sms.alerts` and passed to `on_cap_warning`. At most `max_concurrent` provider calls are
+logged once on `congress.sms.alerts` and passed to `on_cap_warning`. A share of each cap
+(`otp_reserve_percent`) is kept for sign-in codes: every other kind of message stops at the rest, so a burst of
+ticket notices can never leave people unable to sign in. At most `max_concurrent` provider calls are
 in flight per process; a send that cannot start within the provider timeout answers BUSY (nothing was sent).
 """
 
@@ -32,6 +34,8 @@ HOURLY_KEY = "sms:platform:hour"
 DAILY_KEY = "sms:platform:day"
 WARN_FRACTION = 0.8
 UNCAPPED = 2**31 - 1
+# The kinds that may use the share of the caps kept for sign-in.
+SIGN_IN_KINDS = frozenset({"otp"})
 
 logger = logging.getLogger("congress.sms")
 alerts = logging.getLogger("congress.sms.alerts")
@@ -72,7 +76,7 @@ class SmsGateway:
         config = self.config
         if config is None or config.effective == "unconfigured":
             return SmsResult(ok=False, error=NOT_CONFIGURED, retryable=True)
-        refused = await self._reserve(config)
+        refused = await self._reserve(config, kind)
         if refused is not None:
             return SmsResult(ok=False, error=refused, retryable=True)
         try:
@@ -89,11 +93,11 @@ class SmsGateway:
         finally:
             self._slots.release()
 
-    async def _reserve(self, config: SmsConfig) -> str | None:
+    async def _reserve(self, config: SmsConfig, kind: str) -> str | None:
         """Count this send against the platform caps; the error to answer when a cap is reached."""
         # Counted even without a cap (0), so the console can show how many SMS went out.
         caps = [
-            (name, key, Budget(cap or UNCAPPED, window), error)
+            (name, key, cap, Budget(_limit(cap, config.otp_reserve_percent, kind), window), error)
             for name, key, cap, window, error in (
                 ("hourly", HOURLY_KEY, config.hourly_cap, LONGEST_WINDOW_SECONDS, HOURLY_CAP_REACHED),
                 ("daily", DAILY_KEY, config.daily_cap, DAY_SECONDS, DAILY_CAP_REACHED),
@@ -102,16 +106,17 @@ class SmsGateway:
         if self.counters is None:
             return None
         try:
-            totals = await self.counters.take(*((key, budget) for _, key, budget, _ in caps))
+            totals = await self.counters.take(*((key, budget) for _, key, _, budget, _ in caps))
         except LimitExceeded as exc:
-            error = next(error for _, key, _, error in caps if key == exc.key)
-            alerts.error("SMS platform cap reached (%s): sends are refused until it frees up", error)
+            error = next(error for _, key, _, _, error in caps if key == exc.key)
+            share = "" if kind in SIGN_IN_KINDS else " for messages other than sign-in codes"
+            alerts.error("SMS platform cap reached%s (%s): sends are refused until it frees up", share, error)
             return error
-        for (name, _, budget, _), total in zip(caps, totals):
-            if budget.limit != UNCAPPED and total == math.ceil(budget.limit * WARN_FRACTION):
-                alerts.warning("SMS platform %s cap at %d of %d", name, total, budget.limit)
+        for (name, _, cap, _, _), total in zip(caps, totals):
+            if cap and total == math.ceil(cap * WARN_FRACTION):
+                alerts.warning("SMS platform %s cap at %d of %d", name, total, cap)
                 if self.on_cap_warning is not None:
-                    self.on_cap_warning(name, total, budget.limit)
+                    self.on_cap_warning(name, total, cap)
         return None
 
     async def aclose(self) -> None:
@@ -120,3 +125,13 @@ class SmsGateway:
         self._retired.clear()
         self._live = None
         self._live_for = None
+
+
+def _limit(cap: int, otp_reserve_percent: int, kind: str) -> int:
+    """How many sends of this kind a cap allows: all of it for sign-in codes, the rest after the reserved share for
+    anything else (at least one while the cap is set; no cap means no limit)."""
+    if not cap:
+        return UNCAPPED
+    if kind in SIGN_IN_KINDS:
+        return cap
+    return max(1, cap - cap * otp_reserve_percent // 100)

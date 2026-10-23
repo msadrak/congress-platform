@@ -92,6 +92,8 @@ export const errorMessages: Record<AttendeeLocale, Record<string, string>> = {
     LAST_OWNER: "پیش از حذف یا تغییر نقش آخرین مالک، مالک دیگری اضافه کنید.",
     // Expired sessions and SMS notice limits (backend/app/auth.py, app/sms/budgets.py)
     TOKEN_EXPIRED: "نشست شما به پایان رسیده است. دوباره وارد شوید.",
+    TICKET_CHANGES_RATE_LIMITED: "تغییرات این ثبت‌نام بیش از حد مجاز بود. کمی بعد دوباره تلاش کنید.",
+    SMS_NOTICE_LIMIT_REACHED: "سهمیهٔ ساعتی پیامک‌های اطلاع‌رسانی شما تمام شده است. کمی بعد دوباره تلاش کنید یا این تغییر را بدون ارسال پیامک انجام دهید.",
   },
   en: {
     EVENT_NOT_FOUND: "This congress could not be found.",
@@ -179,6 +181,8 @@ export const errorMessages: Record<AttendeeLocale, Record<string, string>> = {
     LAST_OWNER: "Add another owner before removing or demoting the last one.",
     // Expired sessions and SMS notice limits (backend/app/auth.py, app/sms/budgets.py)
     TOKEN_EXPIRED: "Your session has expired. Sign in again.",
+    TICKET_CHANGES_RATE_LIMITED: "Too many changes to this registration. Try again in a little while.",
+    SMS_NOTICE_LIMIT_REACHED: "Your hourly allowance of SMS notices is used up. Try again later, or make the change without notifying the attendee.",
   },
 };
 

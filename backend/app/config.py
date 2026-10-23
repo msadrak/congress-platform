@@ -111,6 +111,17 @@ class Settings(BaseSettings):
     otp_sends_per_trusted_ip_per_hour: int = Field(default=2000, ge=1)
     sms_hourly_cap: int = Field(default=2000, ge=0)
     sms_daily_cap: int = Field(default=20000, ge=0)
+    # Share of each platform cap (percent) kept for sign-in codes: every other SMS (ticket notices, invites,
+    # resends, test sends) stops at the rest, so a burst of notices cannot stop people signing in.
+    sms_otp_reserve_percent: int = Field(default=20, ge=0, le=90)
+    # SMS notices an attendee's own changes can trigger (cancelling, registering again after a cancellation), per
+    # person per rolling hour and per ticket per rolling day. Above them, cancelling still works without a text and
+    # registering again answers 429 TICKET_CHANGES_RATE_LIMITED.
+    sms_notices_per_attendee_per_hour: int = Field(default=6, ge=1)
+    sms_notices_per_ticket_per_day: int = Field(default=6, ge=1)
+    # Organizer changes that text an attendee (cancel, reissue or transfer with a notice), per organizer per
+    # rolling hour; above it the change answers 429 SMS_NOTICE_LIMIT_REACHED (app/sms/budgets.py).
+    sms_notices_per_organizer_per_hour: int = Field(default=300, ge=1)
     # Organizer test sends (any of the organizer's events, per rolling 24 hours).
     sms_test_sends_per_organizer_per_day: int = Field(default=20, ge=1)
     # Provider calls in flight per API process; more wait (up to the provider timeout) instead of piling up.
