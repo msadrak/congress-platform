@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { createApiClient, type AttendeeTicketDetail } from "../api/client";
+import { passCopy } from "../copy/pass";
 import { loadOwnerScopedTickets, saveOwnerScopedTickets } from "../lib/ticketCache";
 import { isStoredAttendeeToken, keepPassOnExpiredSession, sessionChangedMessage } from "../lib/attendeeSession";
 import { useAttendeeSession } from "../hooks/useAttendeeSession";
@@ -11,90 +12,14 @@ import { signInPath } from "../lib/safeRedirect";
 import { readableApiError } from "../lib/attendeeErrors";
 import { isLinkPass, linkPassCard, loadLinkPasses, type LinkPass } from "../lib/linkPass";
 import { canSelfCancel, isCancelledStatus, passSwitchLabels, passesForCongress } from "../lib/attendeePasses";
+import { MobileOtpForm } from "../components/auth/MobileOtpForm";
 import { Button, LinkButton } from "../components/ui/Button";
-import { Icon, type IconName } from "../components/ui/Icon";
+import { Icon } from "../components/ui/Icon";
 import { ConfirmDialog } from "../components/ui/ConfirmDialog";
+import { Notice } from "../components/ui/Notice";
 import { DigitalPassCard, type PassCardTicket } from "../components/attendee/DigitalPassCard";
 import { QrFullscreen } from "../components/attendee/QrFullscreen";
 import { InstallHint } from "../components/attendee/InstallHint";
-import { SignInPrompt } from "../components/attendee/SignInPrompt";
-
-const COPY = {
-  fa: {
-    online: "به‌روز و آماده نشان دادن در ورودی",
-    refreshing: "در حال به‌روزرسانی کارت ورود…",
-    sessionExpired: "نشست شما معتبر نیست؛ نسخه ذخیره‌شده نمایش داده می‌شود.",
-    loadFailed: "کارت ورود بارگذاری نشد",
-    loadFailedBody: "اتصال را بررسی کنید و دوباره تلاش کنید.",
-    retry: "تلاش دوباره",
-    noPassTitle: "برای این همایش کارت ورود ندارید",
-    noPassBody: "برای شرکت در همایش، از صفحه همایش کارت ورود رزرو کنید.",
-    reserve: "رزرو کارت ورود",
-    cancelledTitle: "این کارت ورود لغو شده است",
-    cancelledBody: "کد QR آن دیگر در ورودی پذیرفته نمی‌شود. اگر می‌خواهید در همایش شرکت کنید، دوباره کارت ورود رزرو کنید.",
-    choosePass: "کارت‌های ورود شما",
-    selfCancel: "لغو ثبت‌نام",
-    selfCancelHint: "تا پیش از آغاز همایش می‌توانید ثبت‌نام خود را لغو کنید.",
-    cancelling: "در حال لغو…",
-    confirmTitle: "ثبت‌نام لغو شود؟",
-    confirmBody: (event: string) =>
-      `ثبت‌نام شما در «${event}» لغو می‌شود، کد QR این کارت ورود دیگر در ورودی کار نمی‌کند و جای شما آزاد می‌شود. این کار برگشت‌پذیر نیست؛ برای شرکت دوباره باید از نو ثبت‌نام کنید.`,
-    confirmAction: "بله، لغو شود",
-    keepAction: "نه، نگه دار",
-    cancelDone: "ثبت‌نام شما لغو شد.",
-    cancelFailed: "لغو انجام نشد؛ دوباره تلاش کنید.",
-    cancelOffline: "اتصال برقرار نشد؛ ثبت‌نام لغو نشد.",
-  },
-  en: {
-    online: "Up to date and ready to show at the entrance",
-    refreshing: "Updating your pass…",
-    sessionExpired: "Your session is no longer valid — showing your saved copy.",
-    loadFailed: "Couldn't load your pass",
-    loadFailedBody: "Check your connection and try again.",
-    retry: "Try again",
-    noPassTitle: "You have no pass for this congress",
-    noPassBody: "To attend, reserve a pass on the congress page.",
-    reserve: "Reserve a pass",
-    cancelledTitle: "This pass has been cancelled",
-    cancelledBody: "Its QR code is no longer accepted at the entrance. To attend the congress, reserve a pass again.",
-    choosePass: "Your passes",
-    selfCancel: "Cancel registration",
-    selfCancelHint: "You can cancel your registration until the congress starts.",
-    cancelling: "Cancelling…",
-    confirmTitle: "Cancel your registration?",
-    confirmBody: (event: string) =>
-      `Your registration for “${event}” is cancelled, this pass's QR code stops working at the entrance and your place is released. This can't be undone; to attend you would need to register again.`,
-    confirmAction: "Yes, cancel it",
-    keepAction: "Keep my pass",
-    cancelDone: "Your registration has been cancelled.",
-    cancelFailed: "Couldn't cancel — try again.",
-    cancelOffline: "Couldn't connect; your registration was not cancelled.",
-  },
-} as const;
-
-type LineTone = "success" | "neutral" | "warning" | "danger" | "info";
-const LINE_TONES: Record<LineTone, string> = {
-  success: "border-status-success-border bg-status-success-bg text-status-success-text",
-  neutral: "border-border-default bg-surface-panel text-text-secondary",
-  warning: "border-status-warning-border bg-status-warning-bg text-status-warning-text",
-  danger: "border-status-danger-border bg-status-danger-bg text-status-danger-text",
-  info: "border-action-subtle-border bg-action-subtle text-action-primary",
-};
-
-/** The pass page's one status line: online, offline copy, session expired or opened from the SMS link. */
-function StatusLine({ tone, icon, text, action, testId }: { tone: LineTone; icon: IconName; text: string; action?: ReactNode; testId?: string }) {
-  return (
-    <div
-      role={tone === "danger" ? "alert" : "status"}
-      data-testid={testId ?? "pass-status-line"}
-      className={`at-print-collapse flex flex-wrap items-center gap-x-2.5 gap-y-1 rounded-2xl border px-3.5 py-2.5 text-xs font-semibold leading-relaxed ${LINE_TONES[tone]}`}
-    >
-      <Icon name={icon} size={16} className="shrink-0" />
-      <span className="min-w-0 flex-1">{text}</span>
-      {action}
-    </div>
-  );
-}
 
 /** Several passes for one congress: a switcher with distinct labels (tier and issue date). */
 function PassSwitcher({ labels, selected, onSelect, title }: { labels: string[]; selected: number; onSelect: (i: number) => void; title: string }) {
@@ -128,11 +53,12 @@ function hasQrFlag(state: unknown): boolean {
 export default function MyTickets() {
   const localeHook = useAttendeeLocale();
   const { locale, t } = localeHook;
-  const copy = COPY[locale];
+  const copy = passCopy[locale].page;
+  const cancelCopy = passCopy[locale].cancel;
   const { slug = "" } = useParams<{ slug: string }>();
   const location = useLocation();
   const navigate = useNavigate();
-  const { token } = useAttendeeSession();
+  const { token, signIn } = useAttendeeSession();
 
   const [allTickets, setTickets] = useState<AttendeeTicketDetail[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -273,12 +199,12 @@ export default function MyTickets() {
         const next = allTickets.map((tkt) => (tkt.id === data.id ? data : tkt));
         setTickets(next);
         saveOwnerScopedTickets(token, next.filter((tkt) => !isCancelledStatus(tkt.status)));
-        setNotice({ text: copy.cancelDone, tone: "success" });
+        setNotice({ text: cancelCopy.done, tone: "success" });
       } else {
-        setNotice({ text: readableApiError(error, locale) ?? copy.cancelFailed, tone: "danger" });
+        setNotice({ text: readableApiError(error, locale) ?? cancelCopy.failed, tone: "danger" });
       }
     } catch {
-      setNotice({ text: copy.cancelOffline, tone: "danger" });
+      setNotice({ text: cancelCopy.offline, tone: "danger" });
     } finally {
       setCancelling(false);
     }
@@ -293,28 +219,23 @@ export default function MyTickets() {
     qrOpen && !isCancelledStatus(pass.status ?? "active") ? (
       <QrFullscreen value={pass.qr_secret} holder={pass.attendee_name} tier={pass.ticket_tier_name} locale={locale} onClose={closeQr} />
     ) : null;
+  // The one status line, under the card and only when there is something to say: a notice, a session that ended, or
+  // an offline copy. Online and up to date says nothing.
+  const statusLine = (line: ReactNode, testId = "pass-status-line") =>
+    line ? <div data-testid={testId} className="at-print-collapse">{line}</div> : null;
   const noticeLine = notice ? (
-    <StatusLine tone={notice.tone} icon={notice.tone === "success" ? "check-circle" : "alert"} text={notice.text} testId="pass-notice" />
+    <Notice tone={notice.tone} icon={notice.tone === "success" ? "check-circle" : "alert"}>
+      {notice.text}
+    </Notice>
   ) : null;
+  const noticeBlock = statusLine(noticeLine, "pass-notice");
 
-  // Opened from the SMS link without signing in: that pass, read-only, with a way to sign in for the rest.
+  // Opened from the SMS link without signing in: that pass, read-only, then one line to sign in for the rest.
   const linkPass = !token ? (linkPasses[linkPassIndex] ?? linkPasses[0]) : undefined;
   if (linkPass) {
     const card = linkPassCard(linkPass);
     return shell(
       <>
-        <StatusLine
-          tone="info"
-          icon="link"
-          text={t.linkPassNote}
-          testId="link-pass-note"
-          action={
-            <LinkButton to={signInPath(slug, congressPath(slug, "my-congress"))} variant="ghost" size="sm" className="min-h-9 !px-2">
-              {t.linkPassSignInAction}
-              <Icon name="arrow-right" size={14} />
-            </LinkButton>
-          }
-        />
         {linkPasses.length > 1 && (
           <PassSwitcher
             title={copy.choosePass}
@@ -323,26 +244,26 @@ export default function MyTickets() {
             onSelect={setLinkPassIndex}
           />
         )}
-        <DigitalPassCard ticket={card} locale={locale} t={t} onPrint={handlePrint} onExpand={openQr} />
+        <DigitalPassCard ticket={card} locale={locale} onPrint={handlePrint} onExpand={openQr} />
+        <div className="at-print-collapse text-center">
+          <LinkButton to={signInPath(slug, congressPath(slug, "my-congress"))} variant="ghost" size="sm">
+            {t.linkPassSignInAction}
+            <Icon name="arrow-right" size={14} />
+          </LinkButton>
+        </div>
         <InstallHint locale={locale} />
         {qrView(card)}
       </>,
     );
   }
 
-  // Unauthenticated view (fails closed)
+  // Signed out (fails closed): the phone form is on the page, so the way to the pass is one step.
   if (!token) {
-    return (
-      <AttendeeLayout localeProps={localeHook} eventSlug={slug} destination="my-ticket">
-        <SignInPrompt
-          seed={slug}
-          icon="ticket"
-          title={t.unauthenticatedTitle}
-          description={t.unauthenticatedDesc}
-          actionLabel={t.loginAction}
-          to={signInPath(slug, congressPath(slug, "my-ticket"))}
-        />
-      </AttendeeLayout>
+    return shell(
+      <section className="space-y-5 pt-2">
+        <h1 className="text-xl font-semibold tracking-[-0.02em] text-text-primary text-balance">{copy.signInTitle}</h1>
+        <MobileOtpForm locale={locale} onSignedIn={(auth) => signIn(auth.access_token)} />
+      </section>,
     );
   }
 
@@ -357,15 +278,17 @@ export default function MyTickets() {
     );
   }
 
-  // A failed load is never presented as "no pass".
+  // A failed load is never presented as "no pass". With no response at all and nothing saved here yet, the first load
+  // needs a connection.
   if (loadError && nothingYet) {
-    const detail = loadError.body === null ? null : readableApiError(loadError.body, locale);
+    const offline = loadError.body === null;
+    const detail = offline ? null : readableApiError(loadError.body, locale);
     return shell(
       <div role="alert" data-testid="pass-load-error" className="space-y-4 rounded-2xl border border-status-danger-border bg-status-danger-bg p-5 text-status-danger-text">
         <div className="flex items-start gap-3">
           <Icon name="alert" size={20} className="mt-0.5 shrink-0" />
           <div className="space-y-1">
-            <p className="text-sm font-semibold">{copy.loadFailed}</p>
+            <p className="text-sm font-semibold">{offline ? copy.connectOnce : copy.loadFailed}</p>
             <p className="text-xs leading-relaxed">{detail ?? copy.loadFailedBody}</p>
           </div>
         </div>
@@ -378,25 +301,26 @@ export default function MyTickets() {
   }
 
   const sessionLine = sessionRejected ? (
-    <StatusLine
+    <Notice
       tone="danger"
       icon="key"
-      text={copy.sessionExpired}
       action={
-        <LinkButton to={signInPath(slug, congressPath(slug, "my-ticket"))} variant="ghost" size="sm" className="min-h-9 !px-2">
-          {t.loginAction}
+        <LinkButton to={signInPath(slug, congressPath(slug, "my-ticket"))} variant="ghost" size="sm">
+          {copy.signIn}
           <Icon name="arrow-right" size={14} />
         </LinkButton>
       }
-    />
+    >
+      {copy.sessionExpired}
+    </Notice>
   ) : null;
 
   if (!current) {
     const cancelled = cancelledPasses[0];
     return shell(
       <>
-        {noticeLine ?? sessionLine}
-        {cancelled && <DigitalPassCard ticket={cancelled} locale={locale} t={t} />}
+        {cancelled && <DigitalPassCard ticket={cancelled} locale={locale} />}
+        {noticeBlock ?? statusLine(sessionLine)}
         <div
           data-testid={cancelled ? "pass-cancelled" : "pass-empty"}
           className="relative overflow-hidden shape-arc-lg border border-border-default bg-surface-panel p-6 text-center shadow-soft sm:p-8"
@@ -422,21 +346,15 @@ export default function MyTickets() {
     );
   }
 
-  // One status line, most important first.
-  const line =
-    noticeLine ??
-    sessionLine ??
-    (isOffline || (isCachedPass && !refreshing) ? (
-      <StatusLine tone="warning" icon="wifi-off" text={t.offlineNotice} />
-    ) : refreshing ? (
-      <StatusLine tone="neutral" icon="sync" text={copy.refreshing} />
-    ) : (
-      <StatusLine tone="success" icon="check-circle" text={copy.online} />
-    ));
+  const offlineLine =
+    isOffline || (isCachedPass && !refreshing) ? (
+      <Notice tone="warning" icon="wifi-off">
+        {t.offlineNotice}
+      </Notice>
+    ) : null;
 
   return shell(
     <>
-      {line}
       {activePasses.length > 1 && (
         <PassSwitcher
           title={copy.choosePass}
@@ -445,30 +363,22 @@ export default function MyTickets() {
           onSelect={(i) => setSelectedId(activePasses[i]?.id ?? null)}
         />
       )}
-      <DigitalPassCard ticket={current} locale={locale} t={t} onPrint={handlePrint} onExpand={openQr} />
+      <DigitalPassCard ticket={current} locale={locale} onPrint={handlePrint} onExpand={openQr} />
+      {noticeBlock ?? statusLine(sessionLine ?? offlineLine)}
       <InstallHint locale={locale} />
       {verified && canSelfCancel(current) && (
-        <div className="at-print-collapse flex flex-col items-center gap-1 pt-2 text-center">
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            disabled={cancelling}
-            onClick={() => setConfirmingCancel(true)}
-            className="min-h-11 text-status-danger-text hover:bg-status-danger-bg"
-          >
-            <Icon name="x-circle" size={16} />
-            {cancelling ? copy.cancelling : copy.selfCancel}
+        <div className="at-print-collapse border-t border-border-default pt-2 text-center">
+          <Button type="button" variant="ghost" size="sm" disabled={cancelling} onClick={() => setConfirmingCancel(true)}>
+            {cancelling ? cancelCopy.busy : cancelCopy.action}
           </Button>
-          <p className="text-xs text-text-muted">{copy.selfCancelHint}</p>
         </div>
       )}
       <ConfirmDialog
         isOpen={confirmingCancel}
-        title={copy.confirmTitle}
-        description={copy.confirmBody(current.event_name)}
-        confirmLabel={copy.confirmAction}
-        cancelLabel={copy.keepAction}
+        title={cancelCopy.title}
+        description={cancelCopy.body}
+        confirmLabel={cancelCopy.action}
+        cancelLabel={cancelCopy.keep}
         tone="danger"
         onConfirm={() => {
           setConfirmingCancel(false);

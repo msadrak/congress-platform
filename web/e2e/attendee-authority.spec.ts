@@ -165,8 +165,8 @@ test('ticket-list 401 with a valid owner cache keeps the labelled pass, the toke
   requests.length = 0;
   await page.goto('/c/t06-fixture/my-ticket');
   await expect(page.getByText('Event of A').first()).toBeVisible();
-  // One status line: the expired session (which also says the copy is the saved one).
-  await expect(page.getByText('Your session is no longer valid')).toBeVisible();
+  // One status line: the signed-out session (which also says the copy is the saved one).
+  await expect(page.getByText('Signed out; showing the saved pass.')).toBeVisible();
   await expect(page.getByTestId('pass-status-line')).toHaveCount(1);
   expect(await storedUser(page)).toBe(tokenA);
   expect(panelOnlyUser(requests, tokenA)).toBe(true);
@@ -178,7 +178,8 @@ test('ticket-list 401 without a cache clears exactly the sent token and shows si
   await seed(page, tokenA);
   requests.length = 0;
   await page.goto('/c/t06-fixture/my-ticket');
-  await expect(page.getByRole('heading', { name: 'Sign In to Attendee Portal' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Sign in to see your pass' })).toBeVisible();
+  await expect(page.getByTestId('otp-mobile-step')).toBeVisible();
   expect(await storedUser(page)).toBeNull();
   expect(panelOnlyUser(requests, tokenA)).toBe(true);
   await otherCredentialsIntact(page);
@@ -218,7 +219,7 @@ test('R3 a delayed 401 for token A cannot remove token B', async ({ page }) => {
   held.release();
   await expect(page.getByText('Event of B').first()).toBeVisible();
   expect(await storedUser(page)).toBe(tokenB);
-  await expect(page.getByText('Your session is no longer valid')).toHaveCount(0);
+  await expect(page.getByText('Signed out; showing the saved pass.')).toHaveCount(0);
   await otherCredentialsIntact(page);
 });
 

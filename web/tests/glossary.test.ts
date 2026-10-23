@@ -73,7 +73,6 @@ const ALLOWED: Readonly<Record<string, readonly string[]>> = {
   "web/src/lib/participants.ts": ["بلیت", "گیت"],
   "web/src/pages/AttendeeSignIn.tsx": ["فضای کاری", "پرتال", "سرنخ"],
   "web/src/pages/ExhibitorPortal.tsx": ["پیشخوان", "تلاش مجدد", "نشست", "پرتال"],
-  "web/src/pages/MyTickets.tsx": ["نشست"],
   "web/src/pages/OrganizerEvents.tsx": ["بلیت"],
   "web/src/pages/OrganizerLayout.tsx": ["فضای کاری", "کنسول"],
   "web/src/pages/OrganizerPanel.tsx": ["بلیت"],

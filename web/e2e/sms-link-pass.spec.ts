@@ -48,7 +48,6 @@ test('the SMS link opens the pass without signing in, and the code leaves the ad
 
   await expect(page).toHaveURL(/\/c\/alpha\/my-ticket$/);
   expect(page.url()).not.toContain(GOOD);
-  await expect(page.getByText('Pass from your SMS link')).toBeVisible();
   await expect(page.getByText('Sara Fixture').first()).toBeVisible();
   await expect(page.getByText('Delegate pass')).toBeVisible();
   await expect(page.locator('main svg[viewBox^="0 0"]').first()).toBeVisible();
@@ -67,7 +66,7 @@ test('the SMS link opens the pass without signing in, and the code leaves the ad
   await fixture(page, { apiDown: true });
   await page.goto('/c/alpha/my-ticket');
   await expect(page.getByText('Sara Fixture').first()).toBeVisible();
-  await expect(page.getByText('Pass from your SMS link')).toBeVisible();
+  await expect(page.getByRole('link', { name: /Sign in for networking/ })).toBeVisible();
 });
 
 test('an expired link shows a friendly page with a sign-in to that congress', async ({ page }) => {
@@ -77,8 +76,7 @@ test('an expired link shows a friendly page with a sign-in to that congress', as
   await page.goto(`/t/${GONE}`);
 
   await expect(page.getByText('This link is no longer valid')).toBeVisible();
-  const signIn = page.getByRole('link', { name: /Sign in to see your pass/ });
-  await expect(signIn).toHaveAttribute('href', '/c/alpha/sign-in?next=%2Fc%2Falpha%2Fmy-ticket');
+  await expect(page.getByTestId('otp-mobile-step')).toBeVisible();
   expect(await page.locator('a[href="/"]').count()).toBe(0);
 
   await page.getByRole('button', { name: 'فارسی' }).click();
@@ -95,5 +93,6 @@ test('an unknown link offers the general sign-in; a pass is never invented', asy
   await expect(page.getByRole('link', { name: /ورود و دیدن کارت ورود/ })).toHaveAttribute('href', '/sign-in?next=%2Fme');
   expect(await page.locator('a[href="/"]').count()).toBe(0);
   await page.goto('/c/alpha/my-ticket');
-  await expect(page.getByTestId('link-pass-note')).toHaveCount(0);
+  await expect(page.getByRole('link', { name: /برای شبکه‌سازی وارد شوید/ })).toHaveCount(0);
+  await expect(page.getByTestId('otp-mobile-step')).toBeVisible();
 });
