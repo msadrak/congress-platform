@@ -405,6 +405,53 @@ class ScannerDevice(Base):
         DateTime(timezone=True), nullable=True
     )
 
+
+class DeskCheckIn(Base):
+    """A check-in recorded from the reception desk ("admit at point X") and who recorded it (migration 0026).
+
+    The check-in itself is an ordinary `checkins` row decided by the gate rules (app/routes/checkin.py); this row
+    only says it came from the desk, by which operator (or organizer member: `desk_operator_id` NULL).
+    """
+
+    __tablename__ = "desk_checkins"
+
+    checkin_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("checkins.id", ondelete="CASCADE"), primary_key=True)
+    desk_operator_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("desk_operators.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    # app.models.AUDIT_ACTOR_TYPES: desk_operator, organizer_member or organizer_key.
+    actor_type: Mapped[str] = mapped_column(String(32))
+    actor_label: Mapped[str] = mapped_column(String(200), default="", server_default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class TicketPrint(Base):
+    """One printing of a ticket's badge at the reception desk (migration 0026).
+
+    `content_fingerprint` is a hash of what the badge showed (registration name, organization, title, tier and QR
+    secret, app.routes.desk.badge_fingerprint): when the ticket's current fingerprint differs from its last
+    print's, the printed badge is out of date ("needs reprint"). Only the hash is kept, never the details.
+    """
+
+    __tablename__ = "ticket_prints"
+    __table_args__ = (
+        CheckConstraint("reason IN ('first', 'reprint')", name="ck_ticket_prints_reason"),
+        Index("ix_ticket_prints_ticket_printed_at", "ticket_id", "printed_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    ticket_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tickets.id", ondelete="CASCADE"))
+    event_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("events.id", ondelete="CASCADE"), index=True)
+    printed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    # Who printed: an app.models.AUDIT_ACTOR_TYPES value, its id and the name the desk shows.
+    printed_by_type: Mapped[str] = mapped_column(String(32))
+    printed_by_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    printed_by_label: Mapped[str] = mapped_column(String(200), default="", server_default="")
+    # first | reprint
+    reason: Mapped[str] = mapped_column(String(16))
+    content_fingerprint: Mapped[str] = mapped_column(String(64))
+
+
 class Booth(Base):
     """An exhibition stall or space assigned to a commercial sponsor."""
 
