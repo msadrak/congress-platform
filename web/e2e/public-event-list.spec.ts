@@ -30,9 +30,22 @@ async function fixture(page: Page, options: { items?: typeof ALL; status?: numbe
   return queries;
 }
 
+/** The home list sits below the hero and loads once scrolled to. */
+const scrollToList = (page: Page) => page.getByTestId('public-event-list-sentinel').scrollIntoViewIfNeeded();
+
+test('a home visit that never scrolls to the list asks nothing of the API', async ({ page }) => {
+  const queries = await fixture(page);
+  await page.goto('/');
+  await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+  await page.waitForTimeout(500);
+  expect(queries).toEqual([]);
+  await expect(page.getByTestId('public-event-list')).toHaveCount(0);
+});
+
 test('the home page lists upcoming congresses a page at a time, linking to each congress page, never past ones', async ({ page }) => {
   const queries = await fixture(page);
   await page.goto('/');
+  await scrollToList(page);
   const list = page.getByTestId('public-event-list');
   await expect(list.getByRole('heading', { name: 'Upcoming congresses', level: 2 })).toBeVisible();
   const cards = list.getByTestId('public-event-card');
@@ -52,6 +65,7 @@ test('the home page lists upcoming congresses a page at a time, linking to each 
 test('with nothing listed the home page shows no empty band', async ({ page }) => {
   await fixture(page, { items: [summary(9, -30, -29)] });
   await page.goto('/');
+  await scrollToList(page);
   await expect(page.getByRole('heading', { name: 'Six environments, one congress' })).toBeVisible();
   await expect(page.getByTestId('public-event-list')).toHaveCount(0);
   await expect(page.locator('#congresses')).toBeHidden();
@@ -60,6 +74,7 @@ test('with nothing listed the home page shows no empty band', async ({ page }) =
 test('a failed list load says so and can be retried', async ({ page }) => {
   await fixture(page, { status: 500 });
   await page.goto('/');
+  await scrollToList(page);
   const list = page.getByTestId('public-event-list');
   await expect(list.getByRole('alert')).toContainText("Couldn't load the list of congresses.");
   await expect(list.getByRole('button', { name: 'Try Again' })).toBeVisible();
@@ -78,6 +93,7 @@ test('signed out, /me offers the upcoming congresses as well as signing in', asy
 test('Persian home lists the congresses in Persian', async ({ page }) => {
   await fixture(page, { locale: 'fa', items: [summary(2, 5, 6)] });
   await page.goto('/');
+  await scrollToList(page);
   const list = page.getByTestId('public-event-list');
   await expect(list.getByRole('heading', { name: 'همایش‌های پیش رو' })).toBeVisible();
   await expect(list.getByTestId('public-event-card')).toContainText('۵ روز تا آغاز');

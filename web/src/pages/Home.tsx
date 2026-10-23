@@ -117,10 +117,10 @@ export default function Home() {
         </div>
       </section>
 
-      {/* Listed congresses (renders nothing while none is listed). */}
-      <div id="congresses" className="hidden scroll-mt-20 bg-surface-page has-[section]:block">
-        <div className="mx-auto max-w-7xl px-4 pt-20 sm:px-6 sm:pt-28 lg:px-10">
-          <PublicEventList locale={locale} />
+      {/* Listed congresses, loaded when scrolled to (renders nothing while none is listed). */}
+      <div id="congresses" className="scroll-mt-20 bg-surface-page">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-10">
+          <PublicEventList locale={locale} lazy className="pt-20 sm:pt-28" />
         </div>
       </div>
 

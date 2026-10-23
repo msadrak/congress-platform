@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { createApiClient, localizedApiError, type PublicEventSummary } from "../../api/client";
 import { CongressSignature } from "../brand/CongressSignature";
@@ -23,6 +23,10 @@ interface PublicEventListProps {
   variant?: "section" | "panel";
   /** Heading id (several lists never share a page). */
   headingId?: string;
+  /** Load only when the list scrolls into view (below the fold). */
+  lazy?: boolean;
+  /** Extra classes for the rendered section (e.g. its spacing); nothing is rendered while there is no list. */
+  className?: string;
 }
 
 /** The API lists upcoming and running congresses first, then past ones: a page ending in a past one is the last page. */
@@ -91,13 +95,32 @@ function EventCard({ event, locale, now }: { event: PublicEventSummary; locale: 
  * published, not archived), upcoming and running ones only, soonest first, a page at a time. Renders nothing
  * when there is none, so the page never shows an empty band.
  */
-export function PublicEventList({ locale, variant = "section", headingId = "public-events-heading" }: PublicEventListProps) {
+export function PublicEventList({ locale, variant = "section", headingId = "public-events-heading", lazy = false, className = "" }: PublicEventListProps) {
   const c = publicCopy[locale];
   const [state, setState] = useState<ListState>({ status: "loading" });
   const [attempt, setAttempt] = useState(0);
+  const [wanted, setWanted] = useState(!lazy);
+  const sentinel = useRef<HTMLDivElement>(null);
   const now = useNow(60_000);
 
+  // Below the fold: load once the visitor scrolls toward it (a landing visit that leaves at once asks nothing).
   useEffect(() => {
+    if (wanted || !sentinel.current) return;
+    if (typeof IntersectionObserver === "undefined") {
+      // oxlint-disable-next-line react/set-state-in-effect -- no observer (very old browser): load at once.
+      setWanted(true);
+      return;
+    }
+    // The bottom inset keeps a sentinel that merely touches the viewport's lower edge from counting.
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((e) => e.isIntersecting)) setWanted(true);
+    }, { rootMargin: "0px 0px -2px 0px" });
+    observer.observe(sentinel.current);
+    return () => observer.disconnect();
+  }, [wanted]);
+
+  useEffect(() => {
+    if (!wanted) return;
     let active = true;
     // oxlint-disable-next-line react/set-state-in-effect -- a retry starts from the loading state.
     setState({ status: "loading" });
@@ -117,7 +140,7 @@ export function PublicEventList({ locale, variant = "section", headingId = "publ
     return () => {
       active = false;
     };
-  }, [attempt]);
+  }, [attempt, wanted]);
 
   const loadMore = async () => {
     if (state.status !== "ready" || state.loadingMore) return;
@@ -135,6 +158,7 @@ export function PublicEventList({ locale, variant = "section", headingId = "publ
     });
   };
 
+  if (!wanted) return <div ref={sentinel} aria-hidden="true" data-testid="public-event-list-sentinel" className="h-px" />;
   if (state.status === "ready" && state.items.length === 0) return null;
 
   const panel = variant === "panel";
@@ -203,7 +227,7 @@ export function PublicEventList({ locale, variant = "section", headingId = "publ
   }
 
   return (
-    <section aria-labelledby={headingId} data-testid="public-event-list" className={panel ? "space-y-4" : "space-y-10"}>
+    <section aria-labelledby={headingId} data-testid="public-event-list" className={`${panel ? "space-y-4" : "space-y-10"} ${className}`.trim()}>
       {heading}
       {body}
     </section>
