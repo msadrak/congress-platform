@@ -41,6 +41,9 @@ DAY_SECONDS = 24 * 60 * 60
 MIN_BUCKET_SECONDS = 5.0
 CLEANUP_EVERY_SECONDS = 60.0
 DEFAULT_DETAIL = "Too many failed attempts. Try again later."
+# A 429's message and stable code: one for every key, or per key ({key: ...}).
+Message = str | dict[str, str]
+ErrorCode = str | dict[str, str] | None
 
 
 @dataclass(frozen=True)
@@ -162,7 +165,7 @@ class FailureLimiter:
     # --- the request-facing interface ---------------------------------------------------------------------------
 
     async def check(
-        self, *limits: tuple[str, Budget], detail: str = DEFAULT_DETAIL, code: str | None = None
+        self, *limits: tuple[str, Budget], detail: Message = DEFAULT_DETAIL, code: ErrorCode = None
     ) -> None:
         """Raise 429 if any key has used up its budget (counts nothing)."""
         if not self.enabled:
@@ -173,7 +176,7 @@ class FailureLimiter:
             raise _too_many(exc, detail, code) from None
 
     async def consume(
-        self, *limits: tuple[str, Budget], detail: str = DEFAULT_DETAIL, code: str | None = None
+        self, *limits: tuple[str, Budget], detail: Message = DEFAULT_DETAIL, code: ErrorCode = None
     ) -> None:
         """Count one attempt against every key, or raise 429 (counting nothing) if any budget is used up."""
         if not self.enabled:
@@ -346,11 +349,14 @@ def _active(limits: tuple[tuple[str, Budget], ...]) -> tuple[tuple[str, Budget],
     return tuple((key, budget) for key, budget in limits if budget.window > 0)
 
 
-def _too_many(exc: LimitExceeded, detail: str, code: str | None) -> HTTPException:
+def _too_many(exc: LimitExceeded, detail: Message, code: ErrorCode) -> HTTPException:
+    """429 with Retry-After; `detail` and `code` may be given per key (the first key over its budget wins)."""
     headers = {"Retry-After": str(exc.retry_after)}
-    if code is None:
-        return HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, detail, headers=headers)
-    return ApiError(status.HTTP_429_TOO_MANY_REQUESTS, code, detail, headers=headers)
+    text = detail.get(exc.key, DEFAULT_DETAIL) if isinstance(detail, dict) else detail
+    error_code = code.get(exc.key) if isinstance(code, dict) else code
+    if error_code is None:
+        return HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, text, headers=headers)
+    return ApiError(status.HTTP_429_TOO_MANY_REQUESTS, error_code, text, headers=headers)
 
 
 def limiter(request: Request) -> FailureLimiter:
