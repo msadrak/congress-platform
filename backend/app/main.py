@@ -14,7 +14,7 @@ from app.config import STRICT_ENVIRONMENTS, Settings, describe_settings_error
 from app.db import build_engine
 from app.errors import ApiError, api_error_handler
 from app.logging_setup import configure_logging
-from app.observability import install_observability
+from app.observability import install_observability, retention_sessionmaker
 from app.rate_limit import FailureLimiter
 from app.roles import document_role_errors
 from app.schema_guard import assert_schema_current
@@ -72,7 +72,10 @@ def create_app(settings: Settings) -> FastAPI:
             else None
         )
         retention = (
-            asyncio.create_task(run_retention(app.state.sessionmaker, settings)) if settings.retention_enabled else None
+            # Its own sessions, so each completed pass shows in the metrics.
+            asyncio.create_task(run_retention(retention_sessionmaker(engine, app.state.metrics), settings))
+            if settings.retention_enabled
+            else None
         )
         yield
         for task in (outbox, retention, platform_loader):

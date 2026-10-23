@@ -1,0 +1,135 @@
+# Example Prometheus alert rules for the Congress Platform API (/api/metrics; docs/deployment/STAGING_OPERATIONS.md
+# → Monitoring). Starting points for one server running one API process; tune after the first congress.
+#
+#   prometheus.yml:
+#     rule_files: [alerts.yml]
+#     scrape_configs:
+#       - job_name: congress-api
+#         scheme: https
+#         metrics_path: /api/metrics
+#         authorization: { credentials: <CONGRESS_METRICS_TOKEN> }
+#         static_configs: [{ targets: ["congress.example.org"] }]
+#
+# Validate: promtool check rules deploy/monitoring/alerts.yml
+# The scraper's address must be in CONGRESS_METRICS_ALLOW. Route alerts through Alertmanager (e.g. a Telegram receiver).
+groups:
+  - name: congress-availability
+    rules:
+      - alert: CongressApiDown
+        expr: up{job="congress-api"} == 0
+        for: 3m
+        labels: { severity: critical }
+        annotations:
+          summary: "Congress API metrics unreachable for 3 minutes"
+          description: "Prometheus cannot scrape /api/metrics: the API, Caddy or the server is down (or the token / allow-list changed). On the server: node scripts/staging/stack.mjs check"
+      - alert: CongressDatabaseUnreachable
+        expr: congress_database_up == 0
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: "The API cannot query PostgreSQL"
+          description: "Scrape-time database queries fail. Check: stack.mjs status, stack.mjs logs db"
+      - alert: CongressHigh5xxRate
+        expr: |
+          sum(rate(congress_http_requests_total{status=~"5.."}[5m]))
+            / clamp_min(sum(rate(congress_http_requests_total[5m])), 0.001) > 0.05
+          and sum(rate(congress_http_requests_total[5m])) > 0.2
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "More than 5% of API requests fail with 5xx"
+          description: "Look for the request ids of failing requests in the API log (stack.mjs logs api)."
+      - alert: CongressSlowRequests
+        expr: |
+          histogram_quantile(0.95, sum by (le) (rate(congress_http_request_duration_seconds_bucket[5m]))) > 2
+          and sum(rate(congress_http_request_duration_seconds_count[5m])) > 0.2
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "95th percentile API latency above 2 s"
+          description: "Check database pool saturation (CongressDbPoolSaturated) and the host's CPU/disk."
+
+  - name: congress-sms
+    rules:
+      - alert: CongressSmsOutboxLagging
+        expr: congress_sms_outbox_lag_seconds > 600
+        for: 2m
+        labels: { severity: warning }
+        annotations:
+          summary: "Queued SMS have waited more than 10 minutes"
+          description: "Ticket confirmations are not going out: sms.ir unreachable, gateway not configured, or a platform cap reached. Platform console → SMS; stack.mjs check."
+      - alert: CongressSmsOutboxStalled
+        expr: congress_sms_outbox_lag_seconds > 1800
+        labels: { severity: critical }
+        annotations:
+          summary: "Queued SMS have waited more than 30 minutes"
+          description: "Attendees are not receiving their pass links. Platform console → SMS; stack.mjs logs api."
+      - alert: CongressSmsFailuresIncreasing
+        expr: increase(congress_sms_messages{status=~"failed|unknown"}[30m]) > 5
+        labels: { severity: warning }
+        annotations:
+          summary: "More than 5 SMS failed or stayed unconfirmed in 30 minutes"
+          description: "Organizers can retry or resolve them in their SMS log; check sms.ir credit and line in the platform console."
+      - alert: CongressSmsCapNear
+        expr: congress_sms_cap_limit > 0 and congress_sms_cap_sent / congress_sms_cap_limit >= 0.8
+        labels: { severity: warning }
+        annotations:
+          summary: "SMS {{ $labels.window }} cap at {{ $value | humanizePercentage }}"
+          description: "At 100% sign-in codes are refused and confirmations wait. Raise the cap in the platform console if this traffic is expected."
+      - alert: CongressSmsCapReached
+        expr: congress_sms_cap_limit > 0 and congress_sms_cap_sent >= congress_sms_cap_limit
+        labels: { severity: critical }
+        annotations:
+          summary: "SMS {{ $labels.window }} cap reached: sign-in codes are refused"
+          description: "Platform console → SMS: raise the cap, or find the abuse (OTP 429 rates, organizer test sends)."
+
+  - name: congress-sign-in
+    rules:
+      - alert: CongressOtpRateLimitedSurge
+        expr: sum by (purpose) (rate(congress_otp_requests_total{outcome="rate_limited"}[10m])) * 600 > 50
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "More than 50 sign-in requests refused (429) in 10 minutes ({{ $labels.purpose }})"
+          description: "Either abuse, or a venue Wi-Fi behind one address: add the venue's public address to CONGRESS_OTP_TRUSTED_NETWORKS (or the platform console's sign-in rules)."
+      - alert: CongressOtpErrors
+        expr: sum(rate(congress_otp_requests_total{outcome="error"}[10m])) * 600 > 5
+        labels: { severity: warning }
+        annotations:
+          summary: "Sign-in code requests failing with 5xx"
+          description: "Usually sms.ir unreachable (503). Check the platform console → SMS → connection check."
+      - alert: CongressRateLimiterDegraded
+        expr: increase(congress_rate_limiter_degraded_total[10m]) > 0
+        labels: { severity: warning }
+        annotations:
+          summary: "Rate limits fell back to per-process memory"
+          description: "The shared counters in PostgreSQL were unreachable; limits stay enforced but only per process. Check the database."
+
+  - name: congress-capacity
+    rules:
+      - alert: CongressDbPoolSaturated
+        expr: congress_db_pool_checked_out / congress_db_pool_capacity >= 0.9
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "Database pool at {{ $value | humanizePercentage }} of capacity"
+          description: "Requests will start waiting up to CONGRESS_DB_POOL_TIMEOUT_SECONDS and then fail. Look for slow queries; raise CONGRESS_DB_POOL_SIZE only within PostgreSQL's max_connections."
+      - alert: CongressRetentionStalled
+        expr: congress_retention_last_success_timestamp_seconds > 0 and time() - congress_retention_last_success_timestamp_seconds > 3 * 3600
+        labels: { severity: warning }
+        annotations:
+          summary: "The data retention job has not completed a pass for 3 hours"
+          description: "Used sign-in codes and old SMS texts are not being removed. Look for 'Retention pass failed' in the API log."
+
+  - name: congress-event-day
+    rules:
+      # Fires only after earlier scanner traffic, so it stays quiet outside a congress.
+      - alert: CongressScannersSilent
+        expr: |
+          sum(rate(congress_scanner_requests_total[30m] offset 30m)) > 0.05
+          and sum(rate(congress_scanner_requests_total[10m])) == 0
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "Scanner devices stopped contacting the API"
+          description: "No manifest, scan, batch or heartbeat requests for 10 minutes after earlier traffic: venue network, captive portal, or the edge. Devices keep scanning offline; check a gate."
