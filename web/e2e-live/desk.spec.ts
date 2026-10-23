@@ -67,7 +67,8 @@ test('desk: operator added by the organizer signs in by SMS code, searches, issu
         await route.continue();
       }
     });
-    const form = desk.getByRole('region', { name: 'ثبت‌نام و پذیرش حضوری (Walk-In)' });
+    // The walk-in section, by the settled glossary term «ثبت‌نام حضوری» (C2 renamed the rest of its heading).
+    const form = desk.getByRole('region', { name: /ثبت‌نام حضوری/ });
     await form.getByLabel('نام و نام خانوادگی شرکت‌کننده').fill(walkIn);
     await form.getByLabel('شماره موبایل (اختیاری)').fill(walkInMobile);
     await form.getByRole('button', { name: 'صدور و چاپ کارت ورود' }).click();
