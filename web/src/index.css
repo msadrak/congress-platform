@@ -19,7 +19,6 @@
   --aiteb-slate: #486284;    /* [official] section heading colour */
 
   --grad-aiteb: linear-gradient(90deg, var(--aiteb-orchid), var(--aiteb-violet));
-  --grad-aiteb-deep: linear-gradient(90deg, var(--aiteb-magenta), var(--aiteb-blue));
 
   /* ── Surfaces ───────────────────────────────────────────────── */
   --surface-page: #F8F7FC;
@@ -176,7 +175,7 @@
   --radius-3xl: 24px;
   --radius-control: var(--radius-lg);
   --radius-card: var(--radius-xl);
-  /* Deprecated (UX-Z removes it): its call sites sit on rounded-2xl, so the arc corner now matches them. */
+  /* Deprecated: only UX-ATT-SHELL (team2) attendee files still use it; delete once that branch has merged. */
   --radius-arc: var(--radius-2xl);
 
   --shadow-soft: 0 1px 1px rgb(14 12 43 / 0.03), 0 2px 6px -2px rgb(14 12 43 / 0.08);
@@ -315,8 +314,8 @@
 
 @layer components {
   /*
-   * Neutralised decoration (UX-F1). The class names stay so call sites compile; UX-Z deletes them.
-   * .eyebrow is plain muted meta text; arcs, rules and the meridian grid draw nothing.
+   * Neutralised decoration (UX-F1), kept only for the attendee screens UX-ATT-SHELL (team2) is still rewriting:
+   * .eyebrow is plain muted meta text and .shape-arc* the card radius. Delete both once that branch has merged.
    */
   .eyebrow {
     display: inline-flex;
@@ -327,22 +326,9 @@
     color: var(--text-muted);
   }
 
-  .text-gradient-aiteb {
-    background: var(--grad-aiteb-deep);
-    -webkit-background-clip: text;
-    background-clip: text;
-    color: transparent;
-  }
-
   .shape-arc,
   .shape-arc-lg {
     border-radius: var(--radius-card);
-  }
-
-  .rule-arc,
-  .bg-meridian,
-  .bg-meridian-ink {
-    background: none;
   }
 
   /* Form controls */

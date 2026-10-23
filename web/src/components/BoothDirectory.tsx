@@ -11,7 +11,7 @@ import { Button } from "./ui/Button";
 import { Icon } from "./ui/Icon";
 import { Notice } from "./ui/Notice";
 import { SearchInput } from "./ui/Input";
-import { SectionHeader } from "./attendee/SectionHeader";
+import { SectionHeader } from "./ui/PageHeader";
 
 export type BoothList =
   | { status: "loading" }
@@ -42,7 +42,7 @@ interface BoothDirectoryProps {
   /** The stored attendee token for personal bookmark state; null when signed out. */
   token: string | null;
   isRtl: boolean;
-  /** Pre-formatted section index shown beside the heading ("03" / "۰۳"). */
+  /** Ignored: section indexes are gone. The attendee home (UX-ATT-SHELL, team2) still passes it. */
   index?: string;
   /** Heading and lede from the published page's exhibitors section. */
   title: string;
@@ -54,7 +54,7 @@ interface BoothDirectoryProps {
  * when the attendee returns to the tab); bookmark state and changes use explicit User authority and never
  * gate the list.
  */
-export function BoothDirectory({ slug, eventId, token, isRtl, index, title, lead }: BoothDirectoryProps) {
+export function BoothDirectory({ slug, eventId, token, isRtl, title, lead }: BoothDirectoryProps) {
   const copy = boothDirectoryCopy[localeFor(isRtl)];
   const [directory, setDirectory] = useState<BoothList>({ status: "loading" });
   const [reloadKey, setReloadKey] = useState(0);
@@ -158,7 +158,6 @@ export function BoothDirectory({ slug, eventId, token, isRtl, index, title, lead
     <BoothDirectoryView
       slug={slug}
       isRtl={isRtl}
-      index={index}
       title={title}
       lead={lead}
       directory={directory}
@@ -175,7 +174,6 @@ export function BoothDirectory({ slug, eventId, token, isRtl, index, title, lead
 interface BoothDirectoryViewProps {
   slug: string;
   isRtl: boolean;
-  index?: string;
   title: string;
   lead: string;
   directory: BoothList;
@@ -193,7 +191,6 @@ interface BoothDirectoryViewProps {
 export function BoothDirectoryView({
   slug,
   isRtl,
-  index,
   title,
   lead,
   directory,
@@ -232,7 +229,7 @@ export function BoothDirectoryView({
 
   return (
     <section role="region" className="space-y-5" aria-labelledby="booth-directory-title">
-      <SectionHeader index={index} id="booth-directory-title" title={<bdi>{title}</bdi>} description={<bdi>{lead}</bdi>} aside={counts} />
+      <SectionHeader id="booth-directory-title" title={<bdi>{title}</bdi>} description={<bdi>{lead}</bdi>} action={counts} />
 
       {directory.status === "loading" && (
         <div role="status" aria-label={title} className="grid gap-3 sm:grid-cols-2">

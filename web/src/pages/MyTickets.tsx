@@ -323,12 +323,11 @@ export default function MyTickets() {
         {noticeBlock ?? statusLine(sessionLine)}
         <div
           data-testid={cancelled ? "pass-cancelled" : "pass-empty"}
-          className="relative overflow-hidden shape-arc-lg border border-border-default bg-surface-panel p-6 text-center shadow-soft sm:p-8"
+          className="relative overflow-hidden rounded-card border border-border-default bg-surface-panel p-6 text-center shadow-soft sm:p-8"
         >
-          <div aria-hidden="true" className="bg-meridian absolute inset-0 opacity-60" />
           <div className="relative space-y-4">
             {!cancelled && (
-              <span aria-hidden="true" className="mx-auto grid size-14 place-items-center rounded-2xl [border-start-end-radius:24px] bg-surface-ink text-white shadow-lift">
+              <span aria-hidden="true" className="mx-auto grid size-14 place-items-center rounded-card bg-surface-ink text-white shadow-lift">
                 <Icon name="ticket" size={26} />
               </span>
             )}

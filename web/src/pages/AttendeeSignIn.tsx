@@ -7,7 +7,7 @@ import { Icon } from "../components/ui/Icon";
 import { SkipLink } from "../components/ui/SkipLink";
 import { AitebAttribution } from "../components/brand/Aiteb";
 import { CongressSignature } from "../components/brand/CongressSignature";
-import { Monogram } from "../components/attendee/Monogram";
+import { Avatar } from "../components/ui/Avatar";
 import { PhaseBadge } from "../components/attendee/PhaseBadge";
 import { formatDateRange } from "../components/attendee/congressTime";
 import { congressPath, useCongressEvent } from "../lib/congressContext";
@@ -221,7 +221,7 @@ export default function AttendeeSignIn() {
                 onPointerDown={() => setAutoContinue(false)}
               >
                 <div className="flex items-center gap-4 rounded-2xl border border-border-default bg-surface-panel p-4 shadow-soft">
-                  <Monogram name={session.user.full_name} seed={session.user.id} size="md" />
+                  <Avatar name={session.user.full_name} seed={session.user.id} size="md" ring />
                   <p className="min-w-0 text-sm text-text-secondary">
                     {copy.signedInAs}{" "}
                     <bdi className="block truncate font-semibold text-text-primary">{session.user.full_name}</bdi>

@@ -52,7 +52,7 @@ export function DigitalPassCard({ ticket, locale, onPrint, onExpand }: DigitalPa
     />
   );
   return (
-    <article aria-labelledby="ticket-title" className="print-pass at-pass mx-auto w-full max-w-[440px] overflow-hidden shape-arc-lg shadow-pop lg:mx-0">
+    <article aria-labelledby="ticket-title" className="print-pass at-pass mx-auto w-full max-w-[440px] overflow-hidden rounded-card shadow-pop lg:mx-0">
       <div aria-hidden="true" className="at-print-hide pointer-events-none absolute inset-x-0 top-0 -z-10 h-56 overflow-hidden">
         <CongressSignature seed={ticket.event_slug} tone="ink" className="size-full" />
         <div className="absolute inset-0 bg-linear-to-b from-surface-ink/40 via-surface-ink/80 to-surface-ink" />

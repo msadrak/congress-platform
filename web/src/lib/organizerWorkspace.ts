@@ -45,16 +45,6 @@ const SECTION_OF_SEGMENT: Record<string, EventWorkspaceSection> = {
   panel: "page",
 };
 
-/** @deprecated Section numbers are gone from the navigation (org spec H1); kept until the section pages drop `index`. */
-export function eventSectionNumber(_key: string): number {
-  return 0;
-}
-
-/** @deprecated See `eventSectionNumber`. */
-export function eventOperationNumber(_key: string): number {
-  return 0;
-}
-
 export function eventWorkspacePath(eventId: string, path: string): string {
   return `/organizer/events/${encodeURIComponent(eventId)}${path}`;
 }

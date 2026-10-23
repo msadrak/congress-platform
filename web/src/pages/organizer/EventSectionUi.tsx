@@ -43,7 +43,7 @@ export function EventSectionGate({ listsLoaded = true, children }: EventSectionG
     return (
       <div role="status" className="space-y-6">
         <span className="sr-only">{copy.loading}</span>
-        <div className="skeleton h-60 shape-arc-lg" aria-hidden="true" />
+        <div className="skeleton h-60 rounded-card" aria-hidden="true" />
         <div className="grid grid-cols-2 gap-4 lg:grid-cols-4" aria-hidden="true">
           <div className="skeleton h-32 rounded-2xl" />
           <div className="skeleton h-32 rounded-2xl" />

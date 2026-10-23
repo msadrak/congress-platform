@@ -24,18 +24,6 @@ export function EventStatusBadge({ status, isRtl, size = "sm" }: { status: Event
   );
 }
 
-/**
- * Two-digit mono index ("01", "02" …).
- * @deprecated Section indexes are being removed (UX plan, org §3); UX-Z deletes this.
- */
-export function SectionIndex({ n, className = "" }: { n: number; className?: string }) {
-  return (
-    <span aria-hidden="true" className={`font-mono text-[0.6875rem] font-medium text-aiteb-indigo ${className}`.trim()}>
-      {String(n).padStart(2, "0")}
-    </span>
-  );
-}
-
 interface SectionHeaderProps {
   title: ReactNode;
   /** The section's one primary action (or a small group, such as a filter), at the end. */
@@ -43,12 +31,6 @@ interface SectionHeaderProps {
   /** `h1` (default) is the page title; `h2` a section inside a page. */
   as?: "h1" | "h2";
   titleId?: string;
-  /** @deprecated Not shown: section indexes are removed. */
-  index?: number;
-  /** @deprecated Not shown: the console already names the congress / organizer. */
-  eyebrow?: ReactNode;
-  /** @deprecated Not shown: headers carry no description paragraph. */
-  description?: ReactNode;
 }
 
 /** Page or section header: the title and one action slot. No index, eyebrow, description or rule. */

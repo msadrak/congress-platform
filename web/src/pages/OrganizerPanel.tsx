@@ -202,11 +202,10 @@ export function OrganizerPanelFrame() {
               tickets: [{ id: sample.id, ticket_tier_name: sample.ticket_tier_name, attendee_name: sample.attendee_name, status: "active", qr_secret: sample.qr_secret }],
               fromCache: false, connectionCount: 0, otherCongresses: [] },
           }}
-          booths={(index) => (
+          booths={() => (
             <BoothDirectoryView
               slug={slug}
               isRtl={isRtl}
-              index={index}
               title={labels.boothsTitle}
               lead={labels.boothsLead}
               directory={{ status: "ready", booths: preview.booths }}
