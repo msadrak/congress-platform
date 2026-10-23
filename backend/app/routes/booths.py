@@ -95,6 +95,8 @@ class BoothOut(BaseModel):
     brochure_url: str
     qr_secret: str
     created_at: datetime
+    # The booth's congress is archived: its leads stay readable and exportable but no new capture is taken.
+    event_archived: bool
 
 
 class BoothStaffAssign(BaseModel):
@@ -211,6 +213,7 @@ async def create_booth(
         brochure_url=booth.brochure_url,
         qr_secret=secret,
         created_at=booth.created_at,
+        event_archived=event.archived_at is not None,
     )
 
 
@@ -243,6 +246,7 @@ async def list_event_booths(
             brochure_url=b.brochure_url,
             qr_secret=qr.secret,
             created_at=b.created_at,
+            event_archived=event.archived_at is not None,
         )
         for b, qr in rows
     ]
@@ -375,6 +379,7 @@ async def update_booth(
         brochure_url=booth.brochure_url,
         qr_secret=secret or "",
         created_at=booth.created_at,
+        event_archived=event.archived_at is not None,
     )
 
 
@@ -553,7 +558,7 @@ async def get_my_assigned_booths(
     session: SessionDep,
 ) -> list[BoothOut]:
     query = (
-        select(Booth, EntityQR)
+        select(Booth, EntityQR, Event.archived_at)
         .join(BoothStaff, BoothStaff.booth_id == Booth.id)
         .join(
             EntityQR,
@@ -580,8 +585,9 @@ async def get_my_assigned_booths(
             brochure_url=b.brochure_url,
             qr_secret=qr.secret,
             created_at=b.created_at,
+            event_archived=archived_at is not None,
         )
-        for b, qr in rows
+        for b, qr, archived_at in rows
     ]
 
 
@@ -593,7 +599,7 @@ async def get_booth_portal(
 ) -> BoothOut:
     """The booth portal, for the booth's current staff (an archived congress's portal stays readable)."""
     # Commercial isolation: only the booth's current staff (a removed representative is refused at once).
-    booth, _ = await booth_for_staff(
+    booth, event = await booth_for_staff(
         session, booth_id, user, not_staff="Access to this booth portal is restricted to authorized staff"
     )
 
@@ -616,6 +622,7 @@ async def get_booth_portal(
         brochure_url=booth.brochure_url,
         qr_secret=qr.secret,
         created_at=booth.created_at,
+        event_archived=event.archived_at is not None,
     )
 
 

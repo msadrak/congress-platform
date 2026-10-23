@@ -14,7 +14,7 @@ from app.models import ShortLink, SmsMessage
 from app.sms.outbox import deliver_due
 from app.sms.gateway import SmsGateway
 from app.sms.provider import RecordingProvider, SmsResult
-from app.sms.templates import KINDS
+from app.sms.templates import KINDS, render, validate_body
 from tests.conftest import ADMIN_TOKEN, _truncate_all, make_test_settings
 from tests.helpers import bearer, pass_link, provision_organizer, publish_page, request_code, sign_in
 from tests.test_events import EVENT
@@ -70,6 +70,20 @@ async def test_panel_starts_from_the_default_wording_with_this_events_sample(cli
     assert body["sample"]["tier"] == "VIP Pass"
     assert body["sample"]["location"] == EVENT["location"]
     assert body["sample"]["link"] == f"http://test/t/{SAMPLE_CODE}"
+
+
+def test_every_default_is_short_valid_and_keeps_the_link_whole() -> None:
+    """One greeting, one fact, one link: at most two lines besides the link, glossary terms only."""
+    long_link = "https://congress-registration.example-medical-university.ac.ir/t/k7m2x9q4"
+    for kind, spec in KINDS.items():
+        assert validate_body(kind, spec.default) == spec.default, kind
+        text = render(spec.default, {p: long_link if p == "link" else "x" * 80 for p in spec.placeholders})
+        lines = text.split("\n")
+        assert len([line for line in lines if long_link not in line]) <= 2, kind
+        if "{link}" in spec.default:
+            assert any(line.endswith(long_link) for line in lines), kind  # whole, and ends its line
+        for banned in ("بلیت", "بلیط", "لینک", "کنسول", "توکن"):
+            assert banned not in spec.default, (kind, banned)
 
 
 async def test_the_panel_shows_what_the_platform_gateway_actually_does(client: AsyncClient) -> None:
@@ -177,7 +191,7 @@ async def test_platform_sets_the_sign_in_code_text(app: FastAPI, client: AsyncCl
 
     await client.delete("/api/platform/sms-templates/otp", headers=ADMIN)
     code = await request_code(client, MOBILE)
-    assert recorder(app).sent_to(MOBILE)[-1].text.startswith(f"کد ورود شما به سامانه همایش: {code}")
+    assert recorder(app).sent_to(MOBILE)[-1].text.startswith(f"کد ورود همایش: {code}")
 
 
 async def test_another_organizer_cannot_read_edit_test_or_list(client: AsyncClient) -> None:

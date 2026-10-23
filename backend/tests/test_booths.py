@@ -136,6 +136,33 @@ async def test_assigned_booth_staff_can_access_their_booth_portal(
     assert my_booths.json()[0]["id"] == booth_id
 
 
+async def test_the_booth_says_when_its_congress_is_archived(client: AsyncClient) -> None:
+    """The booth panel learns the congress is closed before the representative fills a capture form."""
+    organizer = await provision_organizer(client, "Acme Congress Co")
+    event_id = await create_event(client, organizer)
+    created = await client.post(f"/api/events/{event_id}/booths", json=BOOTH_PAYLOAD, headers=bearer(organizer))
+    assert created.json()["event_archived"] is False
+    booth_id = created.json()["id"]
+    _, token = await register_user(client, "09121000019", "Rep Archive")
+    await client.post(
+        f"/api/events/{event_id}/booths/{booth_id}/staff", json={"mobile": "09121000019"}, headers=bearer(organizer)
+    )
+    staff = {"Authorization": f"Bearer {token}"}
+
+    async def flags() -> list[bool]:
+        portal = (await client.get(f"/api/booths/{booth_id}", headers=staff)).json()
+        (mine,) = (await client.get("/api/booths/me", headers=staff)).json()
+        (listed,) = (await client.get(f"/api/events/{event_id}/booths", headers=bearer(organizer))).json()
+        return [portal["event_archived"], mine["event_archived"], listed["event_archived"]]
+
+    assert await flags() == [False, False, False]
+    archived = await client.post(f"/api/events/{event_id}/archive", json={"archived": True}, headers=bearer(organizer))
+    assert archived.status_code == 200, archived.text
+    assert await flags() == [True, True, True]
+    await client.post(f"/api/events/{event_id}/archive", json={"archived": False}, headers=bearer(organizer))
+    assert await flags() == [False, False, False]
+
+
 async def test_commercial_isolation_between_booth_staff(
     client: AsyncClient,
 ) -> None:

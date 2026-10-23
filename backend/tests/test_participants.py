@@ -210,7 +210,7 @@ async def test_cancel_releases_the_place_once_and_revokes_the_pass(app: FastAPI,
     await deliver_due(app.state.sessionmaker, app.state.sms)
     notice = sms_to(app, "09121230041")[-1]
     assert notice.kind == "ticket_cancelled"
-    assert notice.text == f"Dr. Cancel Me عزیز، بلیت شما در «{EVENT['name']}» لغو شد و کارت ورود آن دیگر معتبر نیست."
+    assert notice.text == f"Dr. Cancel Me عزیز، کارت ورود شما در «{EVENT['name']}» لغو شد."
     # Reissuing a cancelled ticket is refused.
     assert (await client.post(f"{item}/reissue", json={}, headers=bearer(organizer))).status_code == 409
 
@@ -271,7 +271,7 @@ async def test_reissue_replaces_the_secret_and_texts_the_new_pass(app: FastAPI, 
     await deliver_due(app.state.sessionmaker, app.state.sms)
     notice = sms_to(app, "09121230061")[-1]
     assert notice.kind == "ticket_reissued"
-    assert "دوباره صادر شد" in notice.text and "/t/" in notice.text
+    assert "کارت ورود تازهٔ شما" in notice.text and "/t/" in notice.text
 
 
 async def test_transfer_moves_the_place_to_another_person(app: FastAPI, client: AsyncClient) -> None:
