@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { createApiClient, formatApiError, type EventOut } from "../../api/client";
+import { createApiClient, formatApiError, type EventOut, type OrganizerRole } from "../../api/client";
+import { sessionAllows } from "../../lib/organizerConsole";
 import type { OrganizerOutletContext } from "../../pages/OrganizerLayout";
 import { EventWorkspaceContext } from "./eventWorkspaceContext";
 
@@ -30,11 +31,10 @@ export function EventWorkspaceProvider({ eventId, organizer, children }: EventWo
     const loadEvent = async () => {
       setLoading(true);
       setError(null);
-      const { data, error: err, response } = await client.GET("/api/events/{event_id}", {
+      // A 401 reaches the layout's key gate through the API client (registerUnauthorizedHandler).
+      const { data, error: err } = await client.GET("/api/events/{event_id}", {
         params: { path: { event_id: eventId } },
       });
-      // 401 invalidates only the key that was sent, even if this workspace has since unmounted.
-      if (response.status === 401) onKeyRejected(apiKey);
       if (!isMounted) return;
       if (err) {
         setError(formatApiError(err));
@@ -48,7 +48,7 @@ export function EventWorkspaceProvider({ eventId, organizer, children }: EventWo
     return () => {
       isMounted = false;
     };
-  }, [active, eventId, apiKey, client, onKeyRejected, reloadToken]);
+  }, [active, eventId, apiKey, client, reloadToken]);
 
   useEffect(() => {
     if (event) reportEvent(event);
@@ -56,6 +56,7 @@ export function EventWorkspaceProvider({ eventId, organizer, children }: EventWo
 
   const activate = useCallback(() => setActive(true), []);
   const reload = useCallback(() => setReloadToken((n) => n + 1), []);
+  const can = useCallback((needed: OrganizerRole) => sessionAllows(session, needed), [session]);
 
   const value = useMemo(
     () => ({
@@ -74,9 +75,10 @@ export function EventWorkspaceProvider({ eventId, organizer, children }: EventWo
       reload,
       replaceEvent: setEvent,
       client,
+      can,
       activate,
     }),
-    [apiKey, onKeyRejected, reportEvent, session, locale, t, isRtl, dir, eventId, event, loading, error, reload, client, activate],
+    [apiKey, onKeyRejected, reportEvent, session, locale, t, isRtl, dir, eventId, event, loading, error, reload, client, can, activate],
   );
 
   return <EventWorkspaceContext.Provider value={value}>{children}</EventWorkspaceContext.Provider>;

@@ -19,6 +19,15 @@ export function roleAtLeast(role: OrganizerRole | null | undefined, needed: Orga
   return role != null && RANK[role] >= RANK[needed];
 }
 
+/**
+ * Whether the console offers an action that needs `needed` to this session. The API key session is the owner.
+ * While the session is unknown (/api/organizer/me has not answered, or failed) the action is offered: an owner
+ * never sees their controls vanish, and the server still refuses a lower role with ROLE_FORBIDDEN.
+ */
+export function sessionAllows(session: { role: OrganizerRole } | null | undefined, needed: OrganizerRole): boolean {
+  return session == null || roleAtLeast(session.role, needed);
+}
+
 export const ROLE_COPY: Record<AttendeeLocale, Record<OrganizerRole, { label: string; summary: string }>> = {
   fa: {
     owner: { label: "مالک", summary: "همهٔ کارها، از جمله مدیریت اعضا" },
