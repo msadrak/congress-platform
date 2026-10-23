@@ -75,7 +75,7 @@ Branch `ws/ux-<id>` (team2: `ws/team2-ux-<id>`). A phase-1 package starts when t
 | UX-DESK reception desk | 1 | F1–F6 | coordinator team | merged (`ws/ux-desk` 64de308) |
 | UX-BOOTH booth panel | 1 | F1–F7 | coordinator team | merged (`ws/ux-booth` 025aa2a) |
 | UX-ATT-PASS pass + link pass (also `lib/ticketCache.ts`) | 1 | F1–F5 | team2 | merged (`ws/team2-ux-att-pass` 389dfbc; report below) |
-| UX-ATT-SHELL attendee shell, Home/Program, /me, Network, Profile | 1 | F1–F5 | team2 | ready to merge (`ws/team2-ux-att-shell` df31cd4; report below) |
+| UX-ATT-SHELL attendee shell, Home/Program, /me, Network, Profile | 1 | F1–F5 | team2 | merged (`ws/team2-ux-att-shell` df31cd4; report below) |
 | UX-PUB platform home, public congress, reservation, booth page | 1 | F1–F4 | coordinator team | merged (`ws/ux-pub` b4134f2) |
 | UX-ORG-1 organizer shell, congress list, overview, members, activity | 1 | F1–F4, F8 | coordinator team | merged (`ws/ux-org1` 0646153) |
 | UX-ORG-2 program, venue, Page Studio | 1 | F1–F4, F8 | coordinator team | merged (`ws/ux-org2` d63916f) |
