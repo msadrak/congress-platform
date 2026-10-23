@@ -66,7 +66,7 @@ Branch `ws/ux-<id>` (team2: `ws/team2-ux-<id>`). A phase-1 package starts when t
 | UX-F1 tokens | 0 | — | coordinator team | merged (`ws/ux-f1` a3b34a7) |
 | UX-F2 format & Jalali dates | 0 | — | coordinator team | taken (`ws/ux-f2`) |
 | UX-F3 copy foundation + guards | 0 | — | coordinator team | taken (`ws/ux-f3`) |
-| UX-F5 PWA launch, install, offline sign-in, device hooks (critical) | 0 | — | team2 | taken |
+| UX-F5 PWA launch, install, offline sign-in, device hooks (critical) | 0 | — | team2 | ready to merge (`ws/team2-ux-f5` 4989c8f; report below) |
 | UX-F6 operator shell components | 0 | — | coordinator team | merged (`ws/ux-f6` d245b42) |
 | UX-F7 backend: booth `event_archived`, SMS default texts | 0 | — | coordinator team | merged (`ws/ux-f7` 3940717) |
 | UX-F4 shared ui primitives | 0 | F1 | coordinator team | taken |
@@ -83,6 +83,35 @@ Branch `ws/ux-<id>` (team2: `ws/team2-ux-<id>`). A phase-1 package starts when t
 | UX-ORG-4 participants, SMS, statistics | 1 | F1–F4, F8 | coordinator team | waiting |
 | UX-PLAT platform admin | 1 | F1–F4, F8 | coordinator team | waiting |
 | UX-Z cleanup, design guard, copy baseline 0, screenshot re-run | 2 | all of phase 1 | coordinator team | waiting |
+
+### UX-F5 report (team2, 2026-10-23) — `ws/team2-ux-f5` at `4989c8f`, from `0170ef6`
+
+Web only: no migration, no env var, no backend, no new dependency, no `schema.d.ts` change. A dry merge into `3bf1b43` is clean (no shared files).
+
+**What changed.**
+- **Launch** (`lib/launchTarget.ts`; `pwa-manifest.ts`, `pwaRegistration.ts`, `vite.config.ts` need no functional change — Workbox already serves offline deep links). The home-screen icon opens, in order: the paired scanner point → the pass (`/c/<slug>/my-ticket`) when the device holds exactly one live/upcoming active pass → `/me` for several → the last booth/desk recorded on the device → `/me` when only a session exists → `/` (clean address). All local-storage/IndexedDB reads; works offline. Cached passes are read without the 7-day cap.
+- **Offline sign-in** (`AttendeeSignIn.tsx`): a stored session with an unreachable server (fetch failure or HTTP ≥500 from `/api/auth/me`) continues to the destination (`?next=` honoured); a 401 still shows the phone form.
+- **Install** (`InstallHint.tsx`, `installPrompt.ts`): one component, `persona` = `attendee | scanner | booth`. T6 rules in `installAllowedOnPath`/`installOffer`: never on public, organizer, platform or desk pages, never when installed (display-mode or `navigator.standalone`), never after «بعداً»/"Not now" (dismissal kept per persona), attendee/booth only on phones. iOS Safari gets a 3-step «چطور؟» sheet and **no offline promise**; iOS in-app browsers (Instagram etc.) get nothing; Android Chrome uses the native prompt, hides on `appinstalled`.
+- **Hooks**: `useHidScanner` (burst of ≥8 keys <60 ms + Enter = a code, `preventDefault` on the burst's keys, slow typing passes through; `createRepeatFilter`), `useWakeLock` (re-acquires on visibility, swallows refusals), `useAppUpdate`. `AppUpdatePrompt` is hidden on `/scan`, `/booth`, `/reception`. `QrCameraInput` gained `autoStart` (only when camera permission is already granted) and `continuous` (repeat-filtered).
+
+**`InstallHint` props (stable):** `{ locale: AttendeeLocale; persona?: "attendee" | "scanner" | "booth" }` (default `"attendee"`). It decides for itself whether to render (route + device + dismissal), so callers just mount it. Test ids: `install-hint`, `install-action`, `install-how`, `install-ios-steps`, `install-ios-step`. Allowed paths: attendee `/c/:slug/my-ticket` and `/t/:code`; scanner `/scan[/:id]`; booth `/booth/:id` (not `/sign-in`). The booth strings are mine (copy SPEC §8 has none).
+
+**Gates (real exit codes).** `npm test` 0 (460 pass) · `npm run lint` 0 · `npx tsc -b` 0 · `vite build` 0 · `e2e/pwa-launch.spec.ts` 0 (27 pass; 3 deliberate source breaks made exactly the 5 expected tests fail) · full Playwright on `vite preview` :47531, `CONGRESS_BROWSER_CHANNEL=chrome` **0 (416 passed, 12.3 min)** · `./scripts/check.sh` **0** (mypy 145 files clean, pytest 762 passed, `schema.d.ts` matches, web unit 460, staging 26, Dart tests + analyze clean). Screenshots (JPEG, fa + en; iOS row, iOS «چطور؟» sheet, Android row at 390×844 and 360×740, desktop with no row at 1440×900): `/tmp/team2-f5-shots/` on the shared Mac. `web/dist` deleted.
+
+**Files outside my list.** `web/e2e/attendee-me-and-pass.spec.ts` (UX-ATT-SHELL's): deleted the single case "the add-to-home-screen hint uses the install prompt and stays dismissed" — it ran on a desktop pointer with the old button names; `pwa-launch.spec.ts` covers the install row on iOS, Android and desktop.
+
+**For the coordinator at merge.**
+1. `web/src/lib/ticketCache.ts` (phase-0 file, not mine): the 7-day TTL defeats offline launch at the gate for a congress that starts later. Keep a cached pass until its congress ends (`launchTarget` already reads the cache without the TTL, so the launch works either way; the pass page does not).
+2. `docs/handover/UPGRADE_HANDOVER.md` ~line 185 describes the launch rewrite as "paired scanner point" only; it now also covers the pass, `/me`, booth and desk.
+3. The att spec suggests emulating `display-mode: standalone` through CDP `Emulation.setEmulatedMedia`; Chrome ignores it. The e2e overrides `matchMedia` instead.
+
+**For the operator packages (UX-SCAN, UX-DESK, UX-BOOTH).**
+- Call `recordOperatorLaunch("scan" | "booth" | "desk", path)` (from `lib/launchTarget`) once the screen is ready. Without it a booth-staff device (which holds an attendee token) opens `/me` from the icon; with it, it reopens its booth or desk.
+- Use `useHidScanner(onCode)`, `useWakeLock()` and `useAppUpdate()` rather than local copies. UX-DESK can delete its `KeyBurst` (the desk passes its `badgeCode` filter inside its own `onCode`).
+- Known limit: the first 1–3 keys of a burst can reach a focused text field before the burst is recognised; clear the field in `onCode`.
+- `QrCameraInput` `autoStart`/`continuous` have unit tests for the repeat filter only; no screen mounts them yet.
+
+**Left over.** `useWakeLock` has no consumer until UX-ATT-PASS wires it into `QrFullscreen`. The pass card still says «شناسه رهگیری بلیت» (ATT-PASS's file; I will fix it there).
 
 ## Later (start after the overlapping branches merge)
 
