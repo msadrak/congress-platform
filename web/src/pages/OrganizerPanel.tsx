@@ -16,6 +16,7 @@ import { translations, type AttendeeLocale } from "../lib/i18n";
 import { eventSectionNumber, eventWorkspacePath } from "../lib/organizerWorkspace";
 import { normalizeDocument } from "../lib/pageDocument";
 import { useOrganizerImages } from "../lib/pageMedia";
+import { usePageTitle } from "../hooks/usePageTitle";
 import type { OrganizerOutletContext } from "./OrganizerLayout";
 import "../styles/attendee.css";
 
@@ -118,6 +119,7 @@ export function OrganizerPanelFrame() {
   }, [view, anchor]);
 
   const preview = load.status === "ready" ? load.preview : null;
+  usePageTitle(locale === "fa" ? "پیش‌نمایش پنل شرکت‌کننده" : "Attendee panel preview", preview?.name);
   const doc = useMemo(() => (preview ? normalizeDocument(preview.page.document) : null), [preview]);
   const images = useOrganizerImages(apiKey, eventId, preview?.page.assets ?? []);
   const isRtl = locale === "fa";

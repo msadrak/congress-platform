@@ -4,6 +4,7 @@ import { Icon } from "../components/ui/Icon";
 import { StatusPanel } from "../components/ui/PortalState";
 import { AitebAttribution } from "../components/brand/Aiteb";
 import { useAttendeeLocale } from "../lib/i18n";
+import { usePageTitle } from "../hooks/usePageTitle";
 
 /**
  * Any address the app does not know. Most visitors are attendees following a link, so the way on is
@@ -12,6 +13,7 @@ import { useAttendeeLocale } from "../lib/i18n";
 export default function NotFound() {
   const { locale, t, dir } = useAttendeeLocale();
   const navigate = useNavigate();
+  usePageTitle(t.notFoundTitle);
   // Opened straight from a link there is nothing to go back to; sign-in is the way on.
   const goBack = () => (window.history.length > 1 ? navigate(-1) : navigate("/sign-in"));
 

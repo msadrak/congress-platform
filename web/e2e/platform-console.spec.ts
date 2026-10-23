@@ -167,6 +167,7 @@ test('organizers are created, rotated and revoked from the console; keys are sho
   await openConsole(page);
   await page.getByRole('link', { name: 'Organizers' }).click();
   await expect(page.getByText('Alpha Society')).toBeVisible();
+  await expect(page).toHaveTitle('Organizers · Platform console');
   await page.getByLabel('New organizer name').fill('Beta Union');
   await page.getByRole('button', { name: 'Create and issue key' }).click();
   await expect(page.getByTestId('issued-key')).toContainText('new-organizer-key-0001');

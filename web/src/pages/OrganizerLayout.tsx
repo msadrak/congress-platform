@@ -14,6 +14,7 @@ import { Icon, type IconName } from "../components/ui/Icon";
 import { AitebAttribution, ArcMotif } from "../components/brand/Aiteb";
 import { CongressSignature } from "../components/brand/CongressSignature";
 import { OrganizerKeyGate } from "../components/organizer/OrganizerKeyGate";
+import { usePageTitle } from "../hooks/usePageTitle";
 import { EventStatusBadge } from "../components/organizer/WorkspaceUi";
 import { eventAccentStyle } from "../lib/eventAccent";
 import "../styles/organizer.css";
@@ -148,6 +149,11 @@ export default function OrganizerLayout() {
   };
 
   const showGate = !apiKey && !isDesk;
+  // The layout names the tab for every section (a section's own effect would run first and be overwritten):
+  // "<section> · <event>", the console name until the event is known, and the console alone at the key gate.
+  const sectionLabel =
+    section === "analytics" ? t.breadcrumbAnalytics : section === "desk" ? t.breadcrumbDesk : section ? setupLabels[section] : t.breadcrumbEvents;
+  usePageTitle(showGate ? t.organizerConsole : sectionLabel, showGate ? null : (contextEvent?.name ?? t.organizerConsole));
   const languageLabel = isRtl ? "Switch language to English" : "تغییر زبان به فارسی";
 
   if (showGate) {

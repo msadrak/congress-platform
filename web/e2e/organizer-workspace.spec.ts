@@ -184,6 +184,7 @@ test('events overview lists authorized events with a status derived from their o
   await page.goto('/organizer');
   await expect(page.getByRole('link', { name: 'Alpha Congress' })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Beta Summit' })).toBeVisible();
+  await expect(page).toHaveTitle('Events List · Organizer Console');
   await expect(page.getByRole('article').filter({ hasText: 'Alpha Congress' }).getByText('Upcoming')).toBeVisible();
   await expect(page.getByRole('article').filter({ hasText: 'Beta Summit' }).getByText('Ended')).toBeVisible();
   expect(requests.every(r => r.auth === bearer)).toBe(true);
@@ -216,6 +217,7 @@ test('one workspace navigation addresses every section of the selected event by 
 
   await page.goto('/organizer/events/event-a/booths');
   await expect(workspaceNav(page).getByRole('link', { name: /Exhibition Booths/ })).toHaveAttribute('aria-current', 'page');
+  await expect(page).toHaveTitle('Exhibition Booths · Alpha Congress');
   await workspaceNav(page).getByRole('link', { name: /Analytics/ }).click();
   await expect(page).toHaveURL(/\/analytics$/);
   await expect(page.getByTestId('active-event')).toHaveText('Alpha Congress');
