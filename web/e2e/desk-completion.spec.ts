@@ -143,10 +143,6 @@ test('F-D1: a gun scan with the cursor in the desk registration form opens the c
   await expect(page.getByRole('heading', { name: 'Neda Amini', level: 2 })).toBeVisible();
   expect(fx.requests.filter(r => r.path.endsWith('/desk-registrations'))).toHaveLength(0);
   expect(fx.requests.filter(r => r.path.endsWith('/attendees/qr-lookup')).map(r => r.body)).toEqual([{ qr: SECRET }]);
-  // The draft is untouched by the scan's keys.
-  await page.getByRole('button', { name: 'Desk registration' }).click();
-  await expect(form.getByLabel('Full name')).toHaveValue('Maryam');
-  await form.getByRole('button', { name: 'Cancel' }).click();
 
   // With the focus on the card, a scan is not lost either.
   await page.getByRole('heading', { name: 'Neda Amini', level: 2 }).click();
@@ -154,6 +150,11 @@ test('F-D1: a gun scan with the cursor in the desk registration form opens the c
   await expect.poll(() => fx.requests.filter(r => r.path.endsWith('/attendees/qr-lookup')).length).toBe(2);
   await expect(card(page)).toBeVisible();
   expect(fx.requests.filter(r => r.path.endsWith('/desk-registrations'))).toHaveLength(0);
+
+  // The draft is untouched by the scans' keys.
+  await actionBar(page).getByRole('button', { name: 'Next' }).click();
+  await page.getByRole('button', { name: 'Desk registration' }).click();
+  await expect(form.getByLabel('Full name')).toHaveValue('Maryam');
 });
 
 test('the desk admits with one button per point, remembers the last point and shows the verdict banner', async ({ page }) => {
@@ -164,6 +165,7 @@ test('the desk admits with one button per point, remembers the last point and sh
   await admit.getByRole('button', { name: 'Admit at Lunch' }).click();
   await expect(page.getByTestId('desk-admit-verdict')).toContainText('Admitted');
   await expect(page.getByTestId('desk-admit-verdict')).toContainText('Lunch');
+  await card(page).getByText('Details').click();
   await expect(page.getByText('At the desk: Sara').first()).toBeVisible();
 
   await admit.getByRole('button', { name: 'Admit at Lunch' }).click();
@@ -256,8 +258,8 @@ test('desk registration: pass types show seats left, a full type is disabled, an
   await page.getByRole('button', { name: 'Desk registration' }).click();
   const form = page.getByRole('dialog', { name: 'Desk registration' });
   const type = form.getByLabel('Pass type');
-  await expect(type.locator('option', { hasText: 'VIP · 99 left' })).toBeEnabled();
-  await expect(type.locator('option', { hasText: 'Student · Full' })).toBeDisabled();
+  await expect(type.locator('option', { hasText: 'VIP · 99 left' })).toHaveJSProperty('disabled', false);
+  await expect(type.locator('option', { hasText: 'Student · Full' })).toHaveJSProperty('disabled', true);
   await expect(type).toHaveValue('tier-1');
   await expect(form.getByRole('button', { name: 'Issue pass' })).toBeVisible();
   await expect(page.getByText(/Walk-In/)).toHaveCount(0);
@@ -268,13 +270,15 @@ test('fa: scan history shows Persian clock times; the station carries no clear-f
   fx.card.scan_history.push({ checkin_point_name: 'Lunch', status: 'ADMITTED', rejection_reason: null, scanned_at: '2099-01-01T06:30:00Z', recorded_by: null });
   await openDesk(page, 'fa');
   await openCard(page);
+  await card(page).getByText('جزئیات').click();
   const history = page.getByTestId('scan-history');
   await expect(history.getByRole('listitem').first()).toHaveText(/[۰-۹]{2}:[۰-۹]{2}/);
   for (const locale of ['fa', 'en'] as const) {
     if (locale === 'en') {
+      await page.keyboard.press('Escape');
       await page.getByRole('button', { name: 'منو' }).click();
       await page.getByRole('menuitem', { name: 'English' }).click();
-      await expect(card(page)).toBeVisible();
+      await openCard(page);
     }
     const text = await page.locator('body').innerText();
     for (const banned of ['پاکسازی فرم', 'Pass ID', 'Walk-In']) expect(text, `${locale}: ${banned}`).not.toContain(banned);

@@ -281,9 +281,10 @@ test.describe('search, review and next attendee', () => {
     await page.getByRole('button', { name: 'Review Alice Rahimi' }).click();
     const review = page.getByRole('region', { name: 'Alice Rahimi' });
     await expect(review.getByText('Active', { exact: true })).toBeVisible();
+    await expect(review.getByRole('heading', { name: 'Alice Rahimi', level: 2 })).toBeFocused();
+    await review.getByText('Details').click();
     await expect(review.getByText('Main Gate')).toBeVisible();
     await expect(review.locator('svg').first()).toBeVisible();
-    await expect(review.getByRole('heading', { name: 'Alice Rahimi', level: 2 })).toBeFocused();
 
     const writesBefore = fx.requests.filter(r => r.method === 'POST').length;
     await review.getByRole('button', { name: 'Print pass' }).click();
@@ -383,6 +384,7 @@ test.describe('desk registration', () => {
     await offer.click();
     await expect(page.getByRole('region', { name: 'Alice Rahimi' })).toBeVisible();
     expect(fx.requests.filter(r => r.path.endsWith('desk-registrations')).length).toBe(1);
+    await page.keyboard.press('Escape');
     await expect((await openWalkIn(page)).getByLabel('Full name')).toHaveValue('Someone Else');
   });
 
@@ -454,6 +456,7 @@ test.describe('session loss', () => {
     await search(page).fill('alice');
     await page.getByRole('button', { name: 'Review Alice Rahimi' }).click();
     await expect(page.getByRole('region', { name: 'Alice Rahimi' })).toBeVisible();
+    await page.keyboard.press('Escape');
     const form = await openWalkIn(page);
     await form.getByLabel('Full name').fill('Unsent Draft');
     await form.getByRole('button', { name: 'Cancel' }).click();

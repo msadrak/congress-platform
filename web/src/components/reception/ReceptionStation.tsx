@@ -73,6 +73,11 @@ function subscribeOnline(onChange: () => void): () => void {
   };
 }
 
+/** A dialog is open (one that is only playing its closing animation does not count). */
+function dialogOpen(): boolean {
+  return Array.from(document.querySelectorAll('[aria-modal="true"]')).some((dialog) => !dialog.closest('[aria-hidden="true"]'));
+}
+
 /** Puts a text field back to `value` the way typing would, so React's controlled state follows. */
 function restoreField(field: HTMLInputElement | HTMLTextAreaElement, value: string): void {
   const proto = field instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
@@ -623,7 +628,10 @@ export function ReceptionStation({ eventId, organizer, locale }: ReceptionStatio
     setReview({ status: "idle" });
     setSearchQuery("");
     setBadgeNotice(null);
-    setTimeout(() => searchInputRef.current?.focus(), 50);
+    // After a closing dialog has handed focus back; never steals it from a dialog opened meanwhile.
+    setTimeout(() => {
+      if (!document.activeElement?.closest('[aria-modal="true"]')) searchInputRef.current?.focus();
+    }, 50);
   }, []);
 
   const openWalkIn = () => {
@@ -699,7 +707,7 @@ export function ReceptionStation({ eventId, organizer, locale }: ReceptionStatio
       if (e.key === "/" && !typing) {
         e.preventDefault();
         searchInputRef.current?.focus();
-      } else if (e.key === "Escape" && !document.querySelector('[aria-modal="true"], [role="menu"]')) {
+      } else if (e.key === "Escape" && !dialogOpen() && !document.querySelector('[role="menu"]')) {
         handleNext();
       }
     };
