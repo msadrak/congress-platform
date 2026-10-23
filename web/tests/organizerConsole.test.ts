@@ -7,6 +7,7 @@ import {
   describeActivity,
   inviterLabel,
   roleAtLeast,
+  sessionAllows,
 } from "../src/lib/organizerConsole.ts";
 
 const automatic = (method: string, route: string) => ({ action: `http.${method.toLowerCase()}`, summary: { route, method, status: 200 } });
@@ -17,6 +18,16 @@ test("roles rank owner > manager > staff > viewer, and no role reaches anything"
   assert.equal(roleAtLeast("staff", "manager"), false);
   assert.equal(roleAtLeast("viewer", "staff"), false);
   assert.equal(roleAtLeast(null, "viewer"), false);
+});
+
+test("the console offers an action to roles that reach it, and to a session it does not know yet", () => {
+  assert.equal(sessionAllows({ role: "owner" }, "manager"), true);
+  assert.equal(sessionAllows({ role: "manager" }, "manager"), true);
+  assert.equal(sessionAllows({ role: "staff" }, "manager"), false);
+  assert.equal(sessionAllows({ role: "staff" }, "staff"), true);
+  assert.equal(sessionAllows({ role: "viewer" }, "staff"), false);
+  assert.equal(sessionAllows(null, "owner"), true);
+  assert.equal(sessionAllows(undefined, "manager"), true);
 });
 
 test("an automatic row reads as a phrase in the reader's language, from its route template", () => {
