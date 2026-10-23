@@ -1,107 +1,46 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { useOutletContext, useParams } from "react-router-dom";
-import {
-  createApiClient,
-  localizedApiError,
-  type EventOut,
-  type EventSessionOut,
-  type VenuePlaceKind,
-  type VenuePlaceOut,
-} from "../api/client";
-import type { OrganizerOutletContext } from "./OrganizerLayout";
-import { formatLocalizedNumber } from "../lib/i18n";
-import { eventSectionNumber } from "../lib/organizerWorkspace";
-import { Button } from "../components/ui/Button";
-import { ConfirmDialog } from "../components/ui/ConfirmDialog";
+import React, { useState } from "react";
+import { Navigate } from "react-router-dom";
+import { localizedApiError, type EventSessionOut, type VenuePlaceKind, type VenuePlaceOut } from "../api/client";
+import { Button, IconButton } from "../components/ui/Button";
 import { Dialog } from "../components/ui/Dialog";
-import { Icon, type IconName } from "../components/ui/Icon";
-import { DialogActions, EmptyState, Field, FormAlert, Notice, SectionHeader } from "../components/organizer/WorkspaceUi";
-import { sessionAllows } from "../components/organizer/roleAccess";
+import { RowActions } from "../components/ui/RowActions";
+import { Field } from "../components/ui/Field";
+import { TextInput, Textarea } from "../components/ui/Input";
+import { EmptyState } from "../components/ui/StateBlock";
+import { SectionHeader } from "../components/ui/PageHeader";
+import { FormAlert } from "../components/organizer/WorkspaceUi";
+import { useEventWorkspace } from "../components/organizer/eventWorkspaceContext";
+import { commonCopy } from "../copy/common";
+import { organizerProgramCopy } from "../copy/organizerProgram";
+import { formatNumber } from "../lib/format";
+import { SectionNotice, type SectionNoticeState } from "./organizer/EventSectionUi";
+import type { EventList } from "./organizer/eventLists";
+
+/** `/organizer/events/:id/venue` is now the program's «سالن‌ها و ورودی‌ها» tab. */
+export default function OrganizerVenueRedirect() {
+  return <Navigate to="../program?tab=venue" relative="path" replace />;
+}
 
 /** The API's order within a kind: position, then creation. */
 const byPosition = (a: VenuePlaceOut, b: VenuePlaceOut) => a.position - b.position || a.created_at.localeCompare(b.created_at);
 
-// Remount per event so a late response for event A can never write into event B's state.
-export default function OrganizerVenue() {
-  const { eventId } = useParams<{ eventId: string }>();
-  return <OrganizerVenueContent key={eventId} />;
+interface VenueDirectoryProps {
+  places: EventList<VenuePlaceOut>;
+  /** The program's sessions: halls show how many use them, and keep their hall name current. */
+  sessions: EventList<EventSessionOut>;
 }
 
-function OrganizerVenueContent() {
-  const { eventId } = useParams<{ eventId: string }>();
-  const { apiKey, reportEvent, session, locale, isRtl } = useOutletContext<OrganizerOutletContext>();
-  // Changing the venue is a manager's (backend/app/roles.py); a lower role only reads it.
-  const canManage = sessionAllows(session, "manager");
-
-  const [event, setEvent] = useState<EventOut | null>(null);
-  const [places, setPlaces] = useState<VenuePlaceOut[]>([]);
-  const [sessions, setSessions] = useState<EventSessionOut[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
+/** Halls and entrances of the venue: a tab of the program. Viewers and archived congresses only read it. */
+export function VenueDirectory({ places, sessions }: VenueDirectoryProps) {
+  const { eventId, client, canEdit, locale } = useEventWorkspace();
+  const c = organizerProgramCopy[locale].venue;
+  const [notice, setNotice] = useState<SectionNoticeState>(null);
   /** The place in the form dialog: a kind to add one, an existing place to edit it, null when closed. */
   const [editing, setEditing] = useState<VenuePlaceOut | { kind: VenuePlaceKind } | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<VenuePlaceOut | null>(null);
   /** Places with a request in flight (reorder, delete): their controls are disabled meanwhile. */
   const [busyIds, setBusyIds] = useState<ReadonlySet<string>>(new Set());
 
-  // A 401 reaches the organizer layout's key gate through the API client (registerUnauthorizedHandler).
-  const client = useMemo(() => (apiKey ? createApiClient({ kind: "organizer", token: apiKey }) : null), [apiKey]);
-
-  const loadPlaces = useCallback(async () => {
-    if (!client || !eventId) return;
-    const { data } = await client.GET("/api/events/{event_id}/venue-places", { params: { path: { event_id: eventId } } });
-    if (data) setPlaces(data);
-  }, [client, eventId]);
-
-  useEffect(() => {
-    // Without an organizer key nothing is dispatched; the layout shows the key gate.
-    if (!client || !eventId) return;
-    let active = true;
-    (async () => {
-      const path = { event_id: eventId };
-      const [ev, list, program] = await Promise.all([
-        client.GET("/api/events/{event_id}", { params: { path } }),
-        client.GET("/api/events/{event_id}/venue-places", { params: { path } }),
-        client.GET("/api/events/{event_id}/sessions", { params: { path } }),
-      ]);
-      if (!active) return;
-      if (ev.data) setEvent(ev.data);
-      if (list.data) setPlaces(list.data);
-      if (program.data) setSessions(program.data);
-      const failure = ev.error ?? list.error;
-      if (failure) setLoadError(localizedApiError(failure, locale));
-      setLoading(false);
-    })().catch(() => {
-      if (active) {
-        setLoadError(isRtl ? "اتصال به سرور برقرار نشد." : "Could not reach the server.");
-        setLoading(false);
-      }
-    });
-    return () => {
-      active = false;
-    };
-    // Load once per event and key; the copy language does not trigger a reload.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [client, eventId]);
-
-  useEffect(() => {
-    if (event) reportEvent(event);
-  }, [event, reportEvent]);
-
-  if (loading) {
-    return (
-      <div role="status" aria-label={isRtl ? "در حال بارگذاری" : "Loading"} className="space-y-4">
-        <div className="skeleton h-10 w-64" />
-        <div className="skeleton h-64" />
-      </div>
-    );
-  }
-  if (loadError || !event || !client || !eventId) {
-    return <FormAlert>{loadError ?? (isRtl ? "سالن‌ها و ورودی‌ها بارگذاری نشد." : "The venue directory could not be loaded.")}</FormAlert>;
-  }
-
-  const fmt = (n: number) => formatLocalizedNumber(n, locale);
+  const fmt = (n: number) => formatNumber(n, locale);
   const setBusy = (ids: string[], busy: boolean) =>
     setBusyIds((prev) => {
       const next = new Set(prev);
@@ -111,13 +50,10 @@ function OrganizerVenueContent() {
       }
       return next;
     });
-  const sessionsIn = (hallId: string) => sessions.filter((s) => s.hall_id === hallId).length;
-  const kindCopy = (kind: VenuePlaceKind) =>
-    kind === "hall"
-      ? { one: isRtl ? "سالن" : "hall", title: isRtl ? "سالن‌ها" : "Halls", empty: isRtl ? "هنوز سالنی تعریف نشده است." : "No hall yet." }
-      : { one: isRtl ? "ورودی" : "entrance", title: isRtl ? "ورودی‌ها" : "Entrances", empty: isRtl ? "هنوز ورودی‌ای تعریف نشده است." : "No entrance yet." };
+  const sessionsIn = (hallId: string) => sessions.items.filter((s) => s.hall_id === hallId).length;
 
   const savePlace = async (target: VenuePlaceOut | { kind: VenuePlaceKind }, name: string, location: string): Promise<string | null> => {
+    if (!client) return commonCopy[locale].generic;
     const result =
       "id" in target
         ? await client.PATCH("/api/events/{event_id}/venue-places/{place_id}", {
@@ -128,29 +64,30 @@ function OrganizerVenueContent() {
             params: { path: { event_id: eventId } },
             body: { kind: target.kind, name, location },
           });
-    if (!result.data) return localizedApiError(result.error, locale);
+    if (!result.data) return localizedApiError(result.error, locale, result.response.status);
     const saved = result.data;
-    setPlaces((prev) => [...prev.filter((p) => p.id !== saved.id), saved]);
+    places.setItems((prev) => [...prev.filter((p) => p.id !== saved.id), saved]);
     if ("id" in target && saved.kind === "hall") {
       // Sessions show their hall's name: keep it current without reloading the program.
-      setSessions((prev) => prev.map((s) => (s.hall_id === saved.id ? { ...s, hall_name: saved.name } : s)));
+      sessions.setItems((prev) => prev.map((s) => (s.hall_id === saved.id ? { ...s, hall_name: saved.name } : s)));
     }
     setEditing(null);
-    setNotice({ tone: "ok", text: isRtl ? `«${saved.name}» ذخیره شد.` : `“${saved.name}” saved.` });
+    setNotice({ tone: "ok", text: c.saved(saved.name) });
     return null;
   };
 
   const move = async (list: VenuePlaceOut[], index: number, delta: -1 | 1) => {
     const target = index + delta;
-    if (target < 0 || target >= list.length || list.some((p) => busyIds.has(p.id))) return;
+    if (!client || target < 0 || target >= list.length || list.some((p) => busyIds.has(p.id))) return;
     const order = [...list];
     [order[index], order[target]] = [order[target], order[index]];
     // Positions become the list order, so gaps or ties left by earlier changes cannot block a swap.
     const changes = order.map((place, position) => ({ place, position })).filter(({ place, position }) => place.position !== position);
-    const ids = changes.map((c) => c.place.id);
+    const ids = changes.map((change) => change.place.id);
     // The row moves right away; a failure reloads the server's order.
-    const moved = new Map(changes.map(({ place, position }) => [place.id, position] as const));
-    setPlaces((prev) => prev.map((p) => (moved.has(p.id) ? { ...p, position: moved.get(p.id) ?? p.position } : p)));
+    const moved: Record<string, number> = {};
+    for (const { place, position } of changes) moved[place.id] = position;
+    places.setItems((prev) => prev.map((p) => (p.id in moved ? { ...p, position: moved[p.id] } : p)));
     setBusy(ids, true);
     const results = await Promise.all(
       changes.map(({ place, position }) =>
@@ -159,113 +96,107 @@ function OrganizerVenueContent() {
           body: { position },
         }),
       ),
-    ).catch(() => null);
+    );
     setBusy(ids, false);
-    const failed = results ? results.find((r) => !r.data) : undefined;
-    if (!results || failed) {
-      const reason = failed ? localizedApiError(failed.error, locale) : isRtl ? "اتصال برقرار نشد." : "No connection.";
-      setNotice({ tone: "error", text: isRtl ? `ترتیب ذخیره نشد: ${reason}` : `The order was not saved: ${reason}` });
-      await loadPlaces();
+    const failed = results.find((r) => !r.data);
+    if (failed) {
+      setNotice({ tone: "error", text: c.orderFailed(localizedApiError(failed.error, locale, failed.response.status)) });
+      places.reload();
       return;
     }
-    const updated = new Map<string, VenuePlaceOut>(results.flatMap((r) => (r.data ? [[r.data.id, r.data] as const] : [])));
-    setPlaces((prev) => prev.map((p) => updated.get(p.id) ?? p));
+    const updated: Record<string, VenuePlaceOut> = {};
+    for (const r of results) if (r.data) updated[r.data.id] = r.data;
+    places.setItems((prev) => prev.map((p) => updated[p.id] ?? p));
   };
 
   const deletePlace = async (place: VenuePlaceOut) => {
+    if (!client) return;
     setBusy([place.id], true);
     const { error, response } = await client.DELETE("/api/events/{event_id}/venue-places/{place_id}", {
       params: { path: { event_id: eventId, place_id: place.id } },
     });
     setBusy([place.id], false);
     if (!response.ok) {
-      setNotice({ tone: "error", text: isRtl ? `حذف نشد: ${localizedApiError(error, locale)}` : `Not deleted: ${localizedApiError(error, locale)}` });
+      setNotice({ tone: "error", text: c.deleteFailed(localizedApiError(error, locale, response.status)) });
       return;
     }
-    setPlaces((prev) => prev.filter((p) => p.id !== place.id));
-    setSessions((prev) => prev.map((s) => (s.hall_id === place.id ? { ...s, hall_id: null, hall_name: "" } : s)));
-    setNotice({ tone: "ok", text: isRtl ? `«${place.name}» حذف شد.` : `“${place.name}” deleted.` });
+    places.setItems((prev) => prev.filter((p) => p.id !== place.id));
+    sessions.setItems((prev) => prev.map((s) => (s.hall_id === place.id ? { ...s, hall_id: null, hall_name: "" } : s)));
+    setNotice({ tone: "ok", text: c.deleted(place.name) });
   };
 
-  const renderList = (kind: VenuePlaceKind, icon: IconName, description: string) => {
-    const list = places.filter((p) => p.kind === kind).sort(byPosition);
-    const copy = kindCopy(kind);
+  const renderList = (kind: VenuePlaceKind) => {
+    const list = places.items.filter((p) => p.kind === kind).sort(byPosition);
     const headingId = `venue-${kind}-title`;
+    const hall = kind === "hall";
     return (
-      <section aria-labelledby={headingId} className="space-y-4">
-        <div className="flex flex-wrap items-end justify-between gap-3">
-          <div className="min-w-0 space-y-1">
-            <h2 id={headingId} className="flex items-center gap-2 text-lg font-bold text-text-primary">
-              <Icon name={icon} size={20} className="text-aiteb-indigo/70" />
-              {copy.title}
-              <span className="text-sm font-semibold text-text-muted">({fmt(list.length)})</span>
-            </h2>
-            <p className="max-w-2xl text-sm leading-relaxed text-text-secondary">{description}</p>
-          </div>
-          {canManage && (
-            <Button type="button" variant="secondary" size="md" onClick={() => setEditing({ kind })}>
-              <Icon name="plus" size={18} />
-              {isRtl ? `افزودن ${copy.one}` : `Add ${copy.one}`}
-            </Button>
-          )}
-        </div>
+      <section aria-labelledby={headingId} className="space-y-3">
+        <SectionHeader
+          id={headingId}
+          title={`${hall ? c.halls : c.entrances} (${fmt(list.length)})`}
+          action={
+            canEdit ? (
+              <Button type="button" variant={hall ? "primary" : "secondary"} size="md" icon="plus" onClick={() => setEditing({ kind })}>
+                {hall ? c.addHall : c.addEntrance}
+              </Button>
+            ) : undefined
+          }
+        />
         {list.length === 0 ? (
-          <EmptyState icon={icon} title={copy.empty} />
+          <EmptyState icon={hall ? "congress" : "gate"} title={hall ? c.noHalls : c.noEntrances} />
         ) : (
-          <ol className="divide-y divide-border-subtle overflow-hidden rounded-2xl border border-border-default bg-surface-panel shadow-soft">
+          <ol className="divide-y divide-border-subtle overflow-hidden rounded-card border border-border-default bg-surface-panel">
             {list.map((place, index) => {
               const busy = busyIds.has(place.id);
-              const used = kind === "hall" ? sessionsIn(place.id) : 0;
+              const used = hall ? sessionsIn(place.id) : 0;
               return (
-                <li key={place.id} data-testid={`venue-${kind}`} className="flex flex-wrap items-start gap-3 px-4 py-3.5 sm:flex-nowrap sm:items-center sm:px-5">
-                  <span aria-hidden="true" className="mt-0.5 font-mono text-[0.6875rem] font-medium text-aiteb-indigo sm:mt-0">
-                    {String(index + 1).padStart(2, "0")}
-                  </span>
+                <li key={place.id} data-testid={`venue-${kind}`} className="flex flex-wrap items-center gap-3 px-4 py-3 sm:flex-nowrap sm:px-5">
                   <div className="min-w-0 flex-1 space-y-0.5">
-                    <p className="break-words text-sm font-bold text-text-primary">
+                    <p className="break-words text-body-sm font-semibold text-text-primary">
                       <bdi>{place.name}</bdi>
                     </p>
-                    {place.location && (
-                      <p dir="auto" className="break-words text-xs leading-relaxed text-text-secondary">
-                        {place.location}
+                    {(place.location || hall) && (
+                      <p className="break-words text-meta text-text-secondary">
+                        {place.location && <bdi>{place.location}</bdi>}
+                        {place.location && hall && " · "}
+                        {hall && c.sessionsIn(fmt(used))}
                       </p>
                     )}
-                    {kind === "hall" && (
-                      <p className="text-xs text-text-muted">{isRtl ? `${fmt(used)} جلسه در این سالن` : `${used} ${used === 1 ? "session" : "sessions"} in this hall`}</p>
-                    )}
                   </div>
-                  {canManage && (
-                    <div className="flex shrink-0 items-center gap-0.5">
-                      <Button
-                        type="button"
-                        variant="ghost"
+                  {canEdit && (
+                    <div className="flex shrink-0 items-center gap-1">
+                      <IconButton
+                        icon="arrow-up"
+                        label={c.moveUp(place.name)}
                         size="sm"
-                        aria-disabled={busy || index === 0}
+                        disabled={busy || index === 0}
                         onClick={() => void move(list, index, -1)}
-                        aria-label={isRtl ? `انتقال «${place.name}» به بالا` : `Move “${place.name}” up`}
-                        className="aria-disabled:cursor-not-allowed aria-disabled:opacity-55"
-                      >
-                        <Icon name="arrow-up" size={16} />
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="ghost"
+                      />
+                      <IconButton
+                        icon="arrow-down"
+                        label={c.moveDown(place.name)}
                         size="sm"
-                        aria-disabled={busy || index === list.length - 1}
+                        disabled={busy || index === list.length - 1}
                         onClick={() => void move(list, index, 1)}
-                        aria-label={isRtl ? `انتقال «${place.name}» به پایین` : `Move “${place.name}” down`}
-                        className="aria-disabled:cursor-not-allowed aria-disabled:opacity-55"
-                      >
-                        <Icon name="arrow-down" size={16} />
-                      </Button>
-                      <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={() => setEditing(place)} aria-label={isRtl ? `ویرایش ${place.name}` : `Edit ${place.name}`}>
-                        <Icon name="note" size={16} />
-                        <span className="hidden sm:inline">{isRtl ? "ویرایش" : "Edit"}</span>
-                      </Button>
-                      <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={() => setDeleteTarget(place)} aria-label={isRtl ? `حذف ${place.name}` : `Delete ${place.name}`}>
-                        <Icon name="trash" size={16} />
-                        <span className="hidden sm:inline">{isRtl ? "حذف" : "Delete"}</span>
-                      </Button>
+                      />
+                      <RowActions
+                        visible={1}
+                        menuLabel={c.more(place.name)}
+                        actions={[
+                          { label: commonCopy[locale].edit, icon: "note", disabled: busy, onSelect: () => setEditing(place) },
+                          {
+                            label: commonCopy[locale].delete,
+                            icon: "trash",
+                            disabled: busy,
+                            onSelect: () => void deletePlace(place),
+                            destructive: {
+                              title: c.deleteTitle(place.name),
+                              description: hall ? c.deleteHallBody(used ? fmt(used) : null) : c.deleteEntranceBody,
+                              confirmLabel: commonCopy[locale].delete,
+                            },
+                          },
+                        ]}
+                      />
                     </div>
                   )}
                 </li>
@@ -277,97 +208,47 @@ function OrganizerVenueContent() {
     );
   };
 
-  const deleteUsed = deleteTarget?.kind === "hall" ? sessionsIn(deleteTarget.id) : 0;
-  const deleteDescription = !deleteTarget
-    ? ""
-    : deleteTarget.kind === "hall"
-      ? isRtl
-        ? `«${deleteTarget.name}» از فهرست سالن‌ها حذف می‌شود. ${deleteUsed ? `${fmt(deleteUsed)} جلسهٔ این سالن در برنامه باقی می‌ماند اما دیگر سالنی ندارد.` : "جلسه‌های برنامه حذف نمی‌شوند."}`
-        : `“${deleteTarget.name}” is removed from the halls. ${deleteUsed ? `Its ${deleteUsed} ${deleteUsed === 1 ? "session stays" : "sessions stay"} in the program without a hall.` : "No session is deleted."}`
-      : isRtl
-        ? `«${deleteTarget.name}» از فهرست ورودی‌ها حذف می‌شود.`
-        : `“${deleteTarget.name}” is removed from the entrances.`;
-
   return (
-    <div className="space-y-10">
-      <SectionHeader
-        index={eventSectionNumber("venue")}
-        eyebrow={<bdi>{event.name}</bdi>}
-        title={isRtl ? "سالن‌ها و ورودی‌ها" : "Venue"}
-        description={
-          isRtl
-            ? "ورودی‌ها و سالن‌های محل برگزاری با نشانی و راهنمای دسترسی. شرکت‌کنندگان این فهرست را بلافاصله در صفحهٔ همایش و پنل خود می‌بینند."
-            : "The venue's entrances and halls with directions. Attendees see this directory on the congress page and in their panel as soon as you save."
-        }
-      />
-
-      {notice && (
-        <Notice tone={notice.tone} onDismiss={() => setNotice(null)} dismissLabel={isRtl ? "بستن پیام" : "Dismiss message"}>
-          {notice.text}
-        </Notice>
-      )}
-
-      {renderList(
-        "entrance",
-        "gate",
-        isRtl ? "درهای ورود به محل همایش؛ مثلاً «ورودی اصلی، خیابان آزادی»." : "Doors into the venue, e.g. “Main entrance, Azadi Street”.",
-      )}
-      {renderList(
-        "hall",
-        "congress",
-        isRtl
-          ? "سالن‌هایی که جلسه‌های برنامه در آن‌ها برگزار می‌شود؛ مثلاً «سالن اصلی، طبقهٔ همکف»."
-          : "Rooms where program sessions take place, e.g. “Main hall, ground floor”.",
-      )}
-
+    <div className="space-y-8">
+      <SectionNotice notice={notice} onDismiss={() => setNotice(null)} />
+      {renderList("hall")}
+      {renderList("entrance")}
       {editing && (
         <VenuePlaceDialog
           key={"id" in editing ? editing.id : `new-${editing.kind}`}
           place={"id" in editing ? editing : null}
-          kindLabel={kindCopy(editing.kind).one}
-          isRtl={isRtl}
+          kind={editing.kind}
           onSave={(name, location) => savePlace(editing, name, location)}
           onClose={() => setEditing(null)}
         />
       )}
-
-      <ConfirmDialog
-        isOpen={deleteTarget !== null}
-        tone="danger"
-        title={deleteTarget?.kind === "hall" ? (isRtl ? "حذف این سالن؟" : "Delete this hall?") : isRtl ? "حذف این ورودی؟" : "Delete this entrance?"}
-        description={deleteDescription}
-        confirmLabel={isRtl ? "حذف" : "Delete"}
-        cancelLabel={isRtl ? "انصراف" : "Cancel"}
-        onCancel={() => setDeleteTarget(null)}
-        onConfirm={() => {
-          const target = deleteTarget;
-          setDeleteTarget(null);
-          if (target) void deletePlace(target);
-        }}
-      />
     </div>
   );
 }
 
 function VenuePlaceDialog({
   place,
-  kindLabel,
-  isRtl,
+  kind,
   onSave,
   onClose,
 }: {
   /** The place being edited, or null to add one. */
   place: VenuePlaceOut | null;
-  kindLabel: string;
-  isRtl: boolean;
+  kind: VenuePlaceKind;
   /** Resolves to an error message, or null when saved (the caller closes the dialog). */
   onSave: (name: string, location: string) => Promise<string | null>;
   onClose: () => void;
 }) {
+  const { locale } = useEventWorkspace();
+  const c = organizerProgramCopy[locale].venue;
+  const common = commonCopy[locale];
   const [name, setName] = useState(place?.name ?? "");
   const [location, setLocation] = useState(place?.location ?? "");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [nameError, setNameError] = useState<string | null>(null);
+  const hall = kind === "hall";
+  const title = place ? (hall ? c.editHall : c.editEntrance) : hall ? c.newHall : c.newEntrance;
 
   const close = () => {
     if (!submitting) onClose();
@@ -377,9 +258,10 @@ function VenuePlaceDialog({
     e.preventDefault();
     setError(null);
     if (!name.trim()) {
-      setError(isRtl ? "نام را وارد کنید." : "Enter a name.");
+      setNameError(c.nameRequired);
       return;
     }
+    setNameError(null);
     setSubmitting(true);
     const failure = await onSave(name.trim(), location.trim());
     setSubmitting(false);
@@ -387,26 +269,30 @@ function VenuePlaceDialog({
   };
 
   return (
-    <Dialog isOpen onClose={close} title={place ? (isRtl ? `ویرایش ${kindLabel}` : `Edit ${kindLabel}`) : isRtl ? `افزودن ${kindLabel}` : `Add ${kindLabel}`} size="md">
-      <form onSubmit={handleSubmit} className="space-y-4" noValidate>
-        <Field label={isRtl ? "نام" : "Name"} required>
-          <input type="text" required maxLength={120} value={name} onChange={(e) => setName(e.target.value)} className="ui-input" />
+    <Dialog
+      isOpen
+      onClose={close}
+      title={title}
+      size="md"
+      footer={
+        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+          <Button type="button" variant="ghost" disabled={submitting} onClick={close}>
+            {common.cancel}
+          </Button>
+          <Button type="submit" form="venue-place-form" variant="primary" loading={submitting}>
+            {place ? common.save : common.add}
+          </Button>
+        </div>
+      }
+    >
+      <form id="venue-place-form" onSubmit={handleSubmit} className="space-y-4" noValidate>
+        <Field label={c.name} required error={nameError}>
+          <TextInput type="text" required maxLength={120} value={name} placeholder={hall ? c.namePlaceholder : undefined} onChange={(e) => setName(e.target.value)} />
         </Field>
-        <Field
-          label={isRtl ? "محل و راهنمای دسترسی" : "Location and directions"}
-          hint={isRtl ? "مثلاً طبقه، ضلع ساختمان یا نزدیک‌ترین ورودی." : "For example the floor, side of the building or nearest entrance."}
-        >
-          <textarea rows={2} maxLength={300} value={location} onChange={(e) => setLocation(e.target.value)} className="ui-textarea" />
+        <Field label={c.location}>
+          <Textarea rows={2} maxLength={300} value={location} placeholder={c.locationPlaceholder} onChange={(e) => setLocation(e.target.value)} />
         </Field>
         {error && <FormAlert>{error}</FormAlert>}
-        <DialogActions>
-          <Button type="button" variant="ghost" size="md" disabled={submitting} onClick={close}>
-            {isRtl ? "انصراف" : "Cancel"}
-          </Button>
-          <Button type="submit" variant="primary" size="md" disabled={submitting}>
-            {submitting ? (isRtl ? "در حال ذخیره…" : "Saving…") : isRtl ? "ذخیره" : "Save"}
-          </Button>
-        </DialogActions>
       </form>
     </Dialog>
   );
