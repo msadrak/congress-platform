@@ -223,6 +223,24 @@ async function waitForSW(page: Page) {
   await page.waitForTimeout(2000);
 }
 
+// ── Helper: wait until the service worker has finished activating ──
+// The app registers with `prompt` and no clientsClaim, so the first page is never controlled; what serves an
+// offline reload is the registration's active worker, and its fetch handler runs once the state is `activated`
+// (install, i.e. precaching the shell, is done before that). No fixed wait: resolve on the state itself.
+async function waitForActivatedSW(page: Page) {
+  await page.evaluate(async () => {
+    const worker = (await navigator.serviceWorker.ready).active;
+    if (!worker) return;
+    const { promise, resolve } = Promise.withResolvers<void>();
+    const settle = () => {
+      if (worker.state === 'activated') resolve();
+    };
+    worker.addEventListener('statechange', settle);
+    settle();
+    await promise;
+  });
+}
+
 // ═══════════════════════════════════════════════════════════
 // T01: Initial online load registers SW and caches app shell
 // ═══════════════════════════════════════════════════════════
@@ -870,6 +888,8 @@ test('U12: Offline unpair remains visibly pending after reload', async ({ contex
     status: 'ADMITTED',
     sync_state: 'PROVISIONAL',
   });
+  // The offline reload below is served by the service worker: it must be active before the network goes.
+  await waitForActivatedSW(page);
   await context.setOffline(true);
   await page.getByRole('button', { name: /Unpair This Scanner/i }).click();
   await page.getByRole('button', { name: /Confirm Unpair/i }).click();
