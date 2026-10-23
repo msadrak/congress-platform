@@ -205,10 +205,12 @@ async def test_platform_sms_caps_are_set_in_the_console(app: FastAPI, client: As
 async def test_the_console_shows_outbox_counts_without_message_text(app: FastAPI, client: AsyncClient) -> None:
     organizer = await provision_organizer(client, "Outbox Co")
     event_id = await create_event(client, organizer)
+    await publish_page(client, organizer, event_id)
     tier_id = (await client.post(f"/api/events/{event_id}/ticket-tiers", json=tier(), headers=bearer(organizer))).json()["id"]
     _, token = await sign_in(client, MOBILE)
-    await client.post(f"/api/events/{event_id}/tickets/reserve", json={"ticket_tier_id": tier_id},
-                      headers={"Authorization": f"Bearer {token}"})
+    reserved = await client.post(f"/api/events/{event_id}/tickets/reserve", json={"ticket_tier_id": tier_id},
+                                 headers={"Authorization": f"Bearer {token}"})
+    assert reserved.status_code == 201, reserved.text
 
     outbox = await client.get("/api/platform/sms/outbox", headers=ADMIN)
     assert outbox.status_code == 200, outbox.text
