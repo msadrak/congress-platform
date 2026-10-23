@@ -1,5 +1,6 @@
 import { daysBetween, safeTimeZone, zonedDayKey } from "../../lib/congressPhase";
 import { formatDate, formatDateRange as formatRange } from "../../lib/format";
+import { asciiDigits } from "../../lib/mobile";
 import type { PublicLocale } from "./copy";
 
 function valid(d: Date) {
@@ -54,4 +55,9 @@ export function venueZoneNote(timeZone: string | null | undefined, at: string): 
     new Intl.DateTimeFormat("en-GB", { timeZone: zone, timeZoneName: "longOffset" }).formatToParts(new Date(at)).find((p) => p.type === "timeZoneName")?.value;
   if (tz === device || offset(tz) === offset(device)) return null;
   return new Intl.DateTimeFormat("en-GB", { timeZone: tz, timeZoneName: "short" }).formatToParts(new Date(at)).find((p) => p.type === "timeZoneName")?.value ?? tz;
+}
+
+/** Search text as typed on any keyboard: Persian/Arabic digits and Arabic yeh/kaf match their Persian forms. */
+export function searchText(text: string): string {
+  return asciiDigits(text).replace(/ي/g, "ی").replace(/ك/g, "ک").toLowerCase();
 }
