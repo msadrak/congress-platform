@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { createApiClient, formatApiError, type BoothOut, type LeadOut } from "../api/client";
-import { attendeeResponseState, isStoredAttendeeToken } from "../lib/attendeeSession";
+import { createApiClient, localizedApiError, type BoothOut, type LeadOut } from "../api/client";
+import { attendeeResponseState } from "../lib/attendeeSession";
 import { useAttendeeSession } from "../hooks/useAttendeeSession";
 import { usePageTitle } from "../hooks/usePageTitle";
 import { useAttendeeLocale, formatLocalizedNumber } from "../lib/i18n";
+import { totalOf } from "../lib/leadList";
 import { SkipLink } from "../components/ui/SkipLink";
 import { boothSignInPath } from "../lib/safeRedirect";
 import { eventAccentStyle } from "../lib/eventAccent";
@@ -16,7 +17,10 @@ import { BoothGate } from "../components/booth/BoothGate";
 import { CaptureDialog } from "../components/booth/CaptureDialog";
 import { LeadList } from "../components/booth/LeadList";
 import { QualifyDialog } from "../components/booth/QualifyDialog";
-import { LEAD_RATINGS, RATING_META, type LeadRating } from "../components/booth/rating";
+import { boothText } from "../components/booth/boothText";
+import { useLeadCounts, useLeadList } from "../components/booth/useLeadList";
+import { useLeadQueue } from "../components/booth/useLeadQueue";
+import { LEAD_RATINGS, RATING_META } from "../components/booth/rating";
 import "../styles/exhibitor.css";
 
 const PRESET_TAG_KEYS = [
@@ -38,17 +42,19 @@ function ExhibitorPortalContent() {
   const { boothId } = useParams<{ boothId: string }>();
   const navigate = useNavigate();
   const { locale, setLocale, t, isRtl, dir } = useAttendeeLocale();
+  const text = boothText(locale);
 
   const [booth, setBooth] = useState<BoothOut | null>(null);
-  // All of this booth's leads; the search and rating filters only narrow what is shown, so
-  // the counts always describe the whole booth.
-  const [allLeads, setAllLeads] = useState<LeadOut[]>([]);
   const [loading, setLoading] = useState(true);
   const [authError, setAuthError] = useState<string | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
-  const [leadsFailed, setLeadsFailed] = useState(false);
   const [reloadNonce, setReloadNonce] = useState(0);
   const [eventContext, setEventContext] = useState<{ name: string; slug: string } | null>(null);
+  // 403 BOOTH_STAFF_REQUIRED after the booth had loaded: this account was removed from the booth's staff.
+  // Final for this page: nothing is fetched or sent any more.
+  const [accessRevoked, setAccessRevoked] = useState(false);
+  const [otherBooths, setOtherBooths] = useState<BoothOut[]>([]);
+  const [syncNotice, setSyncNotice] = useState<string | null>(null);
 
   // Capture dialog: remounted for every opening, so each capture starts clean.
   const [isCaptureOpen, setIsCaptureOpen] = useState(false);
@@ -59,6 +65,24 @@ function ExhibitorPortalContent() {
   const { token, signOut } = useAttendeeSession();
 
   const sessionRef = useRef<string | null>(token);
+  const revoke = useCallback(() => setAccessRevoked(true), []);
+  const live = !accessRevoked && Boolean(token);
+
+  const list = useLeadList({ boothId, token, locale, enabled: live, onAccessRevoked: revoke });
+  const counts = useLeadCounts({ boothId, token, enabled: live, onAccessRevoked: revoke });
+  const { reload: reloadList } = list;
+  const { refresh: refreshCounts } = counts;
+  const queue = useLeadQueue({
+    boothId,
+    token,
+    enabled: live,
+    onAccessRevoked: revoke,
+    onSynced: (synced) => {
+      setSyncNotice(text.syncedCount(formatLocalizedNumber(synced.length, locale)));
+      reloadList();
+      refreshCounts();
+    },
+  });
 
   useEffect(() => {
     let isMounted = true;
@@ -66,11 +90,12 @@ function ExhibitorPortalContent() {
     if (sessionRef.current !== token) {
       sessionRef.current = token;
       setBooth(null);
-      setAllLeads([]);
       setEventContext(null);
       setIsCaptureOpen(false);
       setEditingLead(null);
       setAuthError(null);
+      setAccessRevoked(false);
+      setSyncNotice(null);
     }
     if (!boothId) return;
     // Without a token the render returns the sign-in gate before `loading` is ever read, and the
@@ -81,37 +106,28 @@ function ExhibitorPortalContent() {
       setLoading(true);
       setAuthError(null);
       setLoadFailed(false);
-      setLeadsFailed(false);
       try {
         const client = createApiClient({ kind: "user", token });
-        const [boothRes, leadsRes, accessRes] = await Promise.all([
+        const [boothRes, accessRes] = await Promise.all([
           client.GET("/api/booths/{booth_id}", { params: { path: { booth_id: boothId } } }),
-          client.GET("/api/booths/{booth_id}/leads", { params: { path: { booth_id: boothId } } }),
           client.GET("/api/me/access"),
         ]);
 
         if (!isMounted) return;
         // The stored session changed, or a 401 removed it, while the request was in flight: ignore
         // this response and never delete a newer session. The re-render reads the current token.
-        if ([boothRes, leadsRes].some((res) => attendeeResponseState(token, res.response.status) !== "current")) {
+        if (attendeeResponseState(token, boothRes.response.status) !== "current") {
           setLoading(false);
           return;
         }
 
         if (boothRes.error) {
           if (boothRes.response.status >= 500) setLoadFailed(true);
-          else setAuthError(formatApiError(boothRes.error));
+          else setAuthError(localizedApiError(boothRes.error, locale));
         } else if (boothRes.data) {
           setBooth(boothRes.data);
           const mine = accessRes.data?.events.find((e) => e.booth_ids.includes(boothId));
           setEventContext(mine ? { name: mine.event_name, slug: mine.event_slug } : null);
-        }
-
-        if (leadsRes.data) {
-          setAllLeads(leadsRes.data);
-        } else if (!boothRes.error && leadsRes.response.status !== 401) {
-          // The booth itself is fine; only its lead list is unavailable. Nothing stale is shown.
-          setLeadsFailed(true);
         }
       } catch {
         if (isMounted) setLoadFailed(true);
@@ -123,20 +139,23 @@ function ExhibitorPortalContent() {
     return () => {
       isMounted = false;
     };
-  }, [boothId, token, reloadNonce]);
+    // `locale` only words an error message; switching language does not refetch.
+  }, [boothId, token, reloadNonce]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const refreshLeads = async () => {
-    if (!boothId || !token || !isStoredAttendeeToken(token)) return;
-    try {
-      const client = createApiClient({ kind: "user", token });
-      const { data } = await client.GET("/api/booths/{booth_id}/leads", {
-        params: { path: { booth_id: boothId } },
-      });
-      if (data && isStoredAttendeeToken(token)) setAllLeads(data);
-    } catch {
-      // The list keeps its last confirmed state.
-    }
-  };
+  // Removed from this booth: offer the booths this account still staffs (one request, no retry).
+  useEffect(() => {
+    if (!accessRevoked || !token) return;
+    let current = true;
+    void createApiClient({ kind: "user", token })
+      .GET("/api/booths/me")
+      .then((res) => {
+        if (current && res.data) setOtherBooths(res.data.filter((b) => b.id !== boothId));
+      })
+      .catch(() => undefined);
+    return () => {
+      current = false;
+    };
+  }, [accessRevoked, token, boothId]);
 
   const handleLogout = () => {
     signOut();
@@ -153,10 +172,8 @@ function ExhibitorPortalContent() {
   };
 
   // Counts always describe the whole booth, never the filtered view.
-  const ratingCounts: Record<LeadRating, number> = { HOT: 0, WARM: 0, COLD: 0 };
-  for (const lead of allLeads) {
-    if (lead.rating === "HOT" || lead.rating === "WARM" || lead.rating === "COLD") ratingCounts[lead.rating] += 1;
-  }
+  const ratingCounts = counts.counts;
+  const boothTotal = counts.known ? totalOf(ratingCounts) : list.appliedQuery.view === "active" && !list.appliedQuery.q && !list.appliedQuery.rating ? list.total : 0;
   const tagPresets = PRESET_TAG_KEYS.map((key) => t[key]);
   const workspaceLabel = isRtl ? "پیشخوان غرفه" : "Booth workspace";
   usePageTitle(workspaceLabel, booth?.name);
@@ -251,6 +268,47 @@ function ExhibitorPortalContent() {
       </BoothGate>
     );
   }
+
+  if (accessRevoked) {
+    const unsent = queue.scans.length;
+    return (
+      <BoothGate
+        locale={locale}
+        dir={dir}
+        icon="lock"
+        tone="danger"
+        eyebrow={workspaceLabel}
+        title={text.removedTitle}
+        actions={
+          <>
+            {otherBooths.map((other) => (
+              <LinkButton key={other.id} to={`/booth/${encodeURIComponent(other.id)}`} variant="secondary" size="lg" isFullWidth>
+                <Icon name="booth" size={17} />
+                <span className="truncate">{other.name}</span>
+              </LinkButton>
+            ))}
+            {boothId && (
+              <LinkButton to={boothSignInPath(boothId)} variant={otherBooths.length ? "ghost" : "primary"} size="lg" isFullWidth>
+                {isRtl ? "ورود با حساب دیگر" : "Sign in with a different account"}
+              </LinkButton>
+            )}
+            <LinkButton to="/" variant="ghost" size="md" isFullWidth>
+              <span>{t.platformHome}</span>
+              <Icon name="arrow-right" size={16} />
+            </LinkButton>
+          </>
+        }
+      >
+        <div data-testid="access-removed" className="space-y-3">
+          <p>{text.removedDesc}</p>
+          {unsent > 0 && <p className="font-medium text-status-warning-text">{text.removedPending(formatLocalizedNumber(unsent, locale))}</p>}
+          <p>{text.removedAsk}</p>
+          {otherBooths.length > 0 && <p className="font-semibold text-text-primary">{text.otherBooths}</p>}
+        </div>
+      </BoothGate>
+    );
+  }
+
 
   const inkControl =
     "press inline-flex min-h-[44px] items-center gap-2 rounded-full px-3.5 text-[13px] font-semibold text-white/85 ring-1 ring-white/15 transition-colors hover:bg-white/10 hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-aiteb-orchid cursor-pointer";
@@ -348,7 +406,7 @@ function ExhibitorPortalContent() {
             <div className="border-t border-white/15 pt-4 lg:rounded-2xl lg:border lg:border-white/12 lg:bg-surface-ink/80 lg:p-6">
               <div className="flex items-end gap-3">
                 <p className="text-[2.75rem] font-bold leading-none tracking-[-0.04em] text-white tabular sm:text-5xl">
-                  {formatLocalizedNumber(allLeads.length, locale)}
+                  {formatLocalizedNumber(boothTotal, locale)}
                 </p>
                 <p className="pb-1 text-sm font-medium text-white/70">{t.leadsCountLabel}</p>
               </div>
@@ -387,11 +445,11 @@ function ExhibitorPortalContent() {
                   <span>{isRtl ? "ثبت لید" : "Capture"}</span>
                 </p>
                 <h2 id="capture-heading" className="mt-3 text-xl font-bold leading-snug tracking-[-0.02em] text-text-primary">
-                  {isRtl ? "کارت بازدیدکنندهٔ بعدی را اسکن کنید" : "Scan the next visitor's badge"}
+                  {isRtl ? "کارت ورود بازدیدکنندهٔ بعدی را اسکن کنید" : "Scan the next visitor's badge"}
                 </h2>
                 <p className="mt-2 text-sm leading-relaxed text-text-secondary">
                   {isRtl
-                    ? "با دوربین، بارکدخوان یا تایپ کد. اسکن دوبارهٔ یک کارت فقط همان لید را به‌روز می‌کند."
+                    ? "با دوربین، بارکدخوان یا تایپ کد QR. اسکن دوبارهٔ یک کارت ورود فقط همان لید را به‌روز می‌کند."
                     : "Camera, barcode reader or typed code. Scanning a badge again only updates the same lead."}
                 </p>
                 <Button
@@ -423,13 +481,13 @@ function ExhibitorPortalContent() {
             boothSlug={booth.slug}
             token={token}
             locale={locale}
-            allLeads={allLeads}
-            ratingCounts={ratingCounts}
-            loading={loading}
-            failed={leadsFailed}
-            onRetry={() => setReloadNonce((n) => n + 1)}
+            list={list}
+            counts={counts}
+            queue={queue}
+            syncNotice={syncNotice}
             onQualify={setEditingLead}
             onCapture={openCapture}
+            onAccessRevoked={revoke}
           />
         </div>
       </main>
@@ -455,11 +513,17 @@ function ExhibitorPortalContent() {
         token={token}
         locale={locale}
         tagPresets={tagPresets}
-        onCaptured={() => void refreshLeads()}
+        onCaptured={() => {
+          setSyncNotice(null);
+          reloadList();
+          refreshCounts();
+        }}
         onQualify={(lead) => {
           setIsCaptureOpen(false);
           setEditingLead(lead);
         }}
+        onQueue={queue.enqueue}
+        onAccessRevoked={revoke}
       />
 
       {/* 5. Lead detail + qualification */}
@@ -470,7 +534,12 @@ function ExhibitorPortalContent() {
         token={token}
         locale={locale}
         tagPresets={tagPresets}
-        onSaved={(saved) => setAllLeads((prev) => prev.map((l) => (l.id === saved.id ? saved : l)))}
+        onSaved={(saved) => {
+          setEditingLead(saved);
+          list.applyLead(saved);
+          refreshCounts();
+        }}
+        onAccessRevoked={revoke}
       />
 
 
