@@ -25,31 +25,26 @@ const dotStyles: Record<BadgeVariant, string> = {
   accent: "bg-event-accent",
 };
 
+// 12 px text in both sizes: Persian is never set below 12 px.
 const sizeStyles: Record<BadgeSize, string> = {
-  sm: "text-[11px] px-1.5 py-0.5 gap-1",
-  md: "text-xs px-2 py-1 gap-1.5",
+  sm: "h-5 px-2 gap-1",
+  md: "h-6 px-2.5 gap-1.5",
 };
 
-export interface BadgeProps extends React.HTMLAttributes<HTMLSpanElement> {
+export interface BadgeProps extends React.ComponentProps<"span"> {
   variant?: BadgeVariant;
+  /** `md` 24 px (default), `sm` 20 px inside dense rows. */
   size?: BadgeSize;
   icon?: React.ReactNode;
   /** Leading status dot (live/active states). */
   dot?: boolean;
 }
 
-export function Badge({
-  variant = "brand",
-  size = "md",
-  icon,
-  dot = false,
-  className = "",
-  children,
-  ...props
-}: BadgeProps) {
+/** A short status or category label (≤ 10 characters): a pill, 12 px semibold, optional dot or icon. */
+export function Badge({ variant = "brand", size = "md", icon, dot = false, className = "", children, ...props }: BadgeProps) {
   return (
     <span
-      className={`inline-flex items-center font-semibold leading-none rounded-md border whitespace-nowrap ${variantStyles[variant]} ${sizeStyles[size]} ${className}`.trim()}
+      className={`inline-flex items-center text-caption font-semibold leading-none rounded-full border whitespace-nowrap ${variantStyles[variant]} ${sizeStyles[size]} ${className}`.trim()}
       {...props}
     >
       {dot && <span aria-hidden="true" className={`size-1.5 rounded-full ${dotStyles[variant]}`} />}
