@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db import SessionDep, add_or_existing
 from app.errors import ApiError, error_responses
 from app.models import Booth, BoothBookmark, BoothStaff, EntityQR, Event, EventPage, Lead, Ticket, User
-from app.rate_limit import Budget, FailureLimiter, client_ip, limiter
+from app.rate_limit import Budget, client_ip, limiter
 from app.routes.auth import CurrentUserDep
 from app.routes.events import OwnedEventDep
 from app.security import generate_entity_qr_secret
@@ -27,6 +27,7 @@ public_router = APIRouter(prefix="/api/public/booths", tags=["public"])
 # Per 15 minutes: unknown booth codes per client IP (anonymous) and per signed-in attendee (bookmark scans).
 BOOTH_QR_FAILURES_PER_IP = Budget(20)
 BOOTH_QR_FAILURES_PER_USER = Budget(20)
+THROTTLED = "Too many attempts. Try again later."
 _BOOTH_CODE = re.compile(r"^[a-z0-9]{8,64}$")
 
 SlugStr = Annotated[
@@ -283,14 +284,6 @@ async def require_active_ticket(session: AsyncSession, user_id: uuid.UUID, event
         raise ApiError(
             status.HTTP_403_FORBIDDEN, "ACTIVE_TICKET_REQUIRED", "You need an active ticket for this congress"
         )
-
-
-def throttle_check(throttle: FailureLimiter, code: str, *limits: tuple[str, Budget]) -> None:
-    """`FailureLimiter.check`, answered with a stable error code."""
-    try:
-        throttle.check(*limits, detail="Too many attempts. Try again later.")
-    except HTTPException as exc:
-        raise ApiError(exc.status_code, code, str(exc.detail), dict(exc.headers or {})) from None
 
 
 @router.patch("/api/events/{event_id}/booths/{booth_id}")
@@ -625,10 +618,10 @@ async def bookmark_booth_by_qr(
     """Bookmarks the booth whose QR (secret or standee URL) the attendee scanned: 201 new, 200 already saved."""
     throttle = limiter(request)
     failures = f"boothqr:fail:user:{user.id}"
-    throttle_check(throttle, "BOOTH_QR_RATE_LIMITED", (failures, BOOTH_QR_FAILURES_PER_USER))
+    await throttle.check((failures, BOOTH_QR_FAILURES_PER_USER), detail=THROTTLED, code="BOOTH_QR_RATE_LIMITED")
     found = await booth_by_code(session, body.code)
     if found is None:
-        throttle.fail(failures)
+        await throttle.fail(failures)
         raise ApiError(status.HTTP_404_NOT_FOUND, "BOOTH_QR_NOT_FOUND", "Unrecognized booth QR")
     booth, event = found
     await _require_bookmarkable(session, user.id, booth, body.event_id)
@@ -723,13 +716,13 @@ async def resolve_booth_qr(body: BoothCodeIn, request: Request, session: Session
     """
     throttle = limiter(request)
     failures = f"boothqr:fail:ip:{client_ip(request)}"
-    throttle_check(throttle, "BOOTH_QR_RATE_LIMITED", (failures, BOOTH_QR_FAILURES_PER_IP))
+    await throttle.check((failures, BOOTH_QR_FAILURES_PER_IP), detail=THROTTLED, code="BOOTH_QR_RATE_LIMITED")
     found = await booth_by_code(session, body.code)
     published = found is not None and await session.scalar(
         select(EventPage.event_id).where(EventPage.event_id == found[1].id, EventPage.published.is_not(None))
     )
     if found is None or not published:
-        throttle.fail(failures)
+        await throttle.fail(failures)
         raise ApiError(status.HTTP_404_NOT_FOUND, "BOOTH_QR_NOT_FOUND", "Unrecognized booth QR")
     booth, event = found
     return BoothResolveOut(

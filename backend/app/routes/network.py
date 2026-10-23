@@ -14,7 +14,7 @@ from app.errors import ApiError, error_responses
 from app.models import Connection, EntityQR, Ticket, User
 from app.rate_limit import Budget, limiter
 from app.routes.auth import CurrentUserDep
-from app.routes.booths import require_active_ticket, throttle_check
+from app.routes.booths import THROTTLED, require_active_ticket
 from app.search import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, before_cursor, encode_cursor, text_matches
 from app.sms.phone import search_digits, to_e164
 
@@ -99,10 +99,13 @@ async def scan_peer_badge(
         )
     throttle = limiter(request)
     failures, scans = f"network:fail:user:{current_user.id}", f"network:scan:user:{current_user.id}"
-    throttle_check(
-        throttle, "CONNECTION_SCAN_RATE_LIMITED", (failures, SCAN_FAILURES_PER_USER), (scans, SCANS_PER_USER)
+    await throttle.check(
+        (failures, SCAN_FAILURES_PER_USER),
+        (scans, SCANS_PER_USER),
+        detail=THROTTLED,
+        code="CONNECTION_SCAN_RATE_LIMITED",
     )
-    throttle.hit(scans)
+    await throttle.hit(scans)
     await require_active_ticket(session, current_user.id, body.event_id)
 
     secret = body.qr_secret.strip().lower()
@@ -114,7 +117,7 @@ async def scan_peer_badge(
         )
     )
     if qr is None or qr.entity_type != "attendee_ticket":
-        throttle.fail(failures)
+        await throttle.fail(failures)
         raise ApiError(
             status.HTTP_404_NOT_FOUND, "BADGE_NOT_FOUND", "Invalid or unrecognized attendee badge QR"
         )
@@ -122,7 +125,7 @@ async def scan_peer_badge(
     # 2. Resolve Ticket & Peer User (a cancelled or otherwise inactive ticket is not a badge)
     ticket = await session.get(Ticket, qr.entity_id)
     if ticket is None or ticket.status != "active":
-        throttle.fail(failures)
+        await throttle.fail(failures)
         raise ApiError(
             status.HTTP_404_NOT_FOUND, "BADGE_INACTIVE", "Attendee ticket not found"
         )
@@ -132,7 +135,7 @@ async def scan_peer_badge(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Peer profile not found")
 
     if ticket.event_id != body.event_id:
-        throttle.fail(failures)
+        await throttle.fail(failures)
         raise ApiError(
             status.HTTP_409_CONFLICT,
             "BADGE_OTHER_EVENT",
