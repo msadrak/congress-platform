@@ -56,7 +56,7 @@ test('the program has three tabs, a Jalali day heading and the CSV import in a d
   await expect(tabs(page)).toHaveText(['جلسه‌ها', 'سالن‌ها و ورودی‌ها', 'فایل‌های برنامه']);
   await expect(tabs(page).first()).toHaveAttribute('aria-selected', 'true');
   await expect(page.getByTestId('program-day')).toHaveText('سه‌شنبه ۱۹ آبان ۱۴۰۵');
-  await expect(page.getByTestId('program-session')).toContainText('۰۹:۳۰ – ۱۰:۳۰');
+  await expect(page.getByTestId('program-session')).toContainText('۰۹:۳۰ تا ۱۰:۳۰');
 
   await page.getByRole('button', { name: 'ورود از اکسل' }).click();
   const dialog = page.getByRole('dialog', { name: 'ورود از اکسل' });

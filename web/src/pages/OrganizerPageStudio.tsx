@@ -386,7 +386,7 @@ function PageStudio({ event }: { event: EventOut }) {
       <div className="space-y-5" data-testid="page-studio">
         <header className="sticky top-0 z-30 -mx-4 border-b border-border-default bg-surface-page/95 px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur-md sm:-mx-6 sm:px-6 lg:-mx-10 lg:px-10">
           <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
-            <div className="min-w-0 flex-1 space-y-1">
+            <div className="min-w-0 basis-full space-y-1 sm:basis-auto sm:flex-1">
               <h1 className="text-title font-bold text-text-primary">{copy.title}</h1>
               <p className="flex flex-wrap items-center gap-2">
                 <Badge variant={status.tone} size="md" dot data-testid="page-status">
@@ -470,7 +470,7 @@ function PageStudio({ event }: { event: EventOut }) {
           {/* ── Editor ────────────────────────────────────────────────── */}
           <aside aria-label={copy.title} className={`space-y-4 ${pane === "preview" ? "max-xl:hidden" : ""}`}>
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <div role="tablist" aria-label={copy.title} className="flex overflow-x-auto border-b border-border-subtle [scrollbar-width:none]">
+              <div role="tablist" aria-label={copy.title} className="flex min-w-0 max-w-full overflow-x-auto border-b border-border-subtle [scrollbar-width:none]">
                 {(
                   [
                     ["sections", copy.tabSections, "layers"],

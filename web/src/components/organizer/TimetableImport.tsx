@@ -146,7 +146,7 @@ export function TimetableImport({ existingCount, halls, templateDay, fileBase, t
     const day = (iso: string) => formatDate(iso, "short", locale, timeZone);
     const time = (iso: string) => formatDate(iso, "time", locale, timeZone);
     const sameDay = day(startIso) === day(endIso);
-    return `${day(startIso)} ${time(startIso)} – ${sameDay ? "" : `${day(endIso)} `}${time(endIso)}`;
+    return c.timeRange(`${day(startIso)} ${time(startIso)}`, `${sameDay ? "" : `${day(endIso)} `}${time(endIso)}`);
   };
 
   const close = () => {

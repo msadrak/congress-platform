@@ -69,7 +69,7 @@ export default function OrganizerProgram() {
   return (
     <div className="space-y-6">
       <SectionHeader title={c.title} />
-      <div role="tablist" aria-label={c.tabsLabel} className="-mb-px flex overflow-x-auto border-b border-border-subtle [scrollbar-width:none]">
+      <div role="tablist" aria-label={c.tabsLabel} className="flex overflow-x-auto border-b border-border-subtle [scrollbar-width:none]">
         {TABS.map((key, index) => (
           <button
             key={key}
@@ -175,7 +175,7 @@ function SessionsTab({ event, sessions, places }: { event: EventOut; sessions: E
   const timeRange = (s: EventSessionOut) => {
     const endsOtherDay = toZonedDateTimeLocal(s.ends_at, timeZone).slice(0, 10) !== toZonedDateTimeLocal(s.starts_at, timeZone).slice(0, 10);
     const end = `${endsOtherDay ? `${formatDate(s.ends_at, "short", locale, timeZone)} ` : ""}${formatDate(s.ends_at, "time", locale, timeZone)}`;
-    return `${formatDate(s.starts_at, "time", locale, timeZone)} – ${end}`;
+    return c.timeRange(formatDate(s.starts_at, "time", locale, timeZone), end);
   };
 
   const addButton = (
