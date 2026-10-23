@@ -19,7 +19,7 @@ export function EventStatusBadge({ status, isRtl, size = "sm" }: { status: Event
   const variant = status === "in-progress" ? "success" : status === "upcoming" ? "info" : "neutral";
   return (
     <Badge variant={variant} size={size} dot={status === "in-progress"}>
-      {organizerSharedCopy[isRtl ? "fa" : "en"].eventStatus[status]}
+      {(isRtl ? organizerSharedCopy.fa : organizerSharedCopy.en).eventStatus[status]}
     </Badge>
   );
 }
