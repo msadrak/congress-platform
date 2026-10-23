@@ -1,24 +1,27 @@
 import { useId, useRef, type KeyboardEvent } from "react";
+import { boothCopy } from "../../copy/booth";
 import { Icon } from "../ui/Icon";
 import { LEAD_RATINGS, RATING_META, asRating, type LeadRating } from "./rating";
 
 interface RatingControlProps {
   label: string;
-  /** `null` = nothing chosen yet (capture form: the rating is only sent once the operator picks one). */
+  /** `null` = nothing chosen yet. */
   value: LeadRating | null;
   onChange: (rating: LeadRating) => void;
   locale: "fa" | "en";
-  hint?: string;
+  /** `compact` for the one-tap chips under a capture result. */
+  size?: "md" | "compact";
+  disabled?: boolean;
 }
 
 /**
- * HOT / WARM / COLD segmented control. Toggle buttons (`aria-pressed`) inside a labelled group, with
- * arrow-key movement along the reading direction, Home and End.
+ * High / Medium / Low as three toggle buttons (`aria-pressed`) inside a labelled group, with arrow-key movement
+ * along the reading direction, Home and End.
  */
-export function RatingControl({ label, value, onChange, locale, hint }: RatingControlProps) {
+export function RatingControl({ label, value, onChange, locale, size = "md", disabled = false }: RatingControlProps) {
   const labelId = useId();
-  const hintId = useId();
   const refs = useRef<(HTMLButtonElement | null)[]>([]);
+  const words = boothCopy[locale].rating;
 
   const onKeyDown = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
     const rtl = getComputedStyle(event.currentTarget).direction === "rtl";
@@ -36,11 +39,10 @@ export function RatingControl({ label, value, onChange, locale, hint }: RatingCo
 
   return (
     <div>
-      <p id={labelId} className="ui-label">{label}</p>
-      <div role="group" aria-labelledby={labelId} aria-describedby={hint ? hintId : undefined} className="booth-rating-track grid grid-cols-3 gap-1.5 p-1.5">
+      <p id={labelId} className={size === "compact" ? "sr-only" : "ui-label"}>{label}</p>
+      <div role="group" aria-labelledby={labelId} className="booth-rating-track grid grid-cols-3 gap-1.5 p-1.5">
         {LEAD_RATINGS.map((rating, index) => {
           const meta = RATING_META[rating];
-          const selected = value === rating;
           return (
             <button
               key={rating}
@@ -48,45 +50,32 @@ export function RatingControl({ label, value, onChange, locale, hint }: RatingCo
                 refs.current[index] = el;
               }}
               type="button"
-              aria-pressed={selected}
+              aria-pressed={value === rating}
+              disabled={disabled}
               onClick={() => onChange(rating)}
               onKeyDown={(event) => onKeyDown(event, index)}
-              className={`booth-rating-seg ${meta.tone} press group relative flex min-h-[76px] min-w-0 flex-col items-center justify-start gap-1 rounded-[12px] px-1.5 pb-2.5 pt-3 text-center cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring`}
+              className={`booth-rating-seg ${meta.tone} press flex h-12 min-w-0 items-center justify-center gap-2 rounded-control px-2 text-body-sm font-bold cursor-pointer disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring`}
             >
-              <span aria-hidden="true" className="booth-rating-seg__icon grid size-8 place-items-center rounded-full">
-                <Icon name={meta.icon} size={18} />
-              </span>
-              <span className="text-[13px] font-bold leading-tight">{meta.label[locale]}</span>
-              <span className="booth-rating-seg__hint text-[11px] leading-tight max-[359px]:hidden">{meta.hint[locale]}</span>
-              {selected && (
-                <span aria-hidden="true" className="absolute top-1.5 end-1.5 grid size-4 place-items-center rounded-full bg-white text-[var(--rating-solid)] motion-safe:animate-pop">
-                  <Icon name="check" size={11} strokeWidth={3} />
-                </span>
-              )}
+              <Icon name={meta.icon} size={18} className="booth-rating-seg__icon shrink-0" />
+              <span className="truncate">{words[rating]}</span>
             </button>
           );
         })}
       </div>
-      {hint && (
-        <p id={hintId} className="mt-1.5 text-xs leading-relaxed text-text-muted">
-          {hint}
-        </p>
-      )}
     </div>
   );
 }
 
-/** Read-only rating marker for cards and summaries. */
-export function RatingChip({ rating, locale, size = "md" }: { rating: string; locale: "fa" | "en"; size?: "sm" | "md" }) {
-  const meta = RATING_META[asRating(rating)];
+/** Read-only rating marker for cards. */
+export function RatingChip({ rating, locale }: { rating: string; locale: "fa" | "en" }) {
+  const value = asRating(rating);
+  const meta = RATING_META[value];
   return (
     <span
-      className={`${meta.tone} inline-flex items-center gap-1.5 rounded-full border border-[var(--rating-border)] bg-[var(--rating-bg)] font-semibold text-[var(--rating-fg)] whitespace-nowrap ${
-        size === "sm" ? "px-2 py-0.5 text-[11px]" : "px-2.5 py-1 text-xs"
-      }`}
+      className={`${meta.tone} inline-flex h-7 shrink-0 items-center gap-1 rounded-full border border-[var(--rating-border)] bg-[var(--rating-bg)] px-2.5 text-caption font-semibold whitespace-nowrap text-[var(--rating-fg)]`}
     >
-      <Icon name={meta.icon} size={size === "sm" ? 12 : 14} strokeWidth={2} />
-      <span>{meta.label[locale]}</span>
+      <Icon name={meta.icon} size={13} strokeWidth={2} />
+      <span>{boothCopy[locale].rating[value]}</span>
     </span>
   );
 }

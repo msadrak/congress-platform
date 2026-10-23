@@ -1,18 +1,12 @@
-import { codeFontClass, formatLocalizedNumber, type AttendeeLocale } from "../../lib/i18n";
-import type { QueuedLeadScan } from "../../lib/leadQueue";
+import { useId, useState } from "react";
+import { boothCopy } from "../../copy/booth";
+import { formatLocalizedNumber, type AttendeeLocale } from "../../lib/i18n";
+import { maskedCode, type QueuedLeadScan } from "../../lib/leadQueue";
 import { Button } from "../ui/Button";
 import { Icon } from "../ui/Icon";
-import { BoothSpinner } from "./BoothSpinner";
-import { boothText, queueFailureText } from "./boothText";
+import { queueFailureText } from "./boothText";
+import { leadClock } from "./leadTime";
 import type { LeadQueueState } from "./useLeadQueue";
-
-function clock(ms: number | string, locale: AttendeeLocale): string {
-  try {
-    return new Intl.DateTimeFormat(locale === "fa" ? "fa-IR" : "en-GB", { hour: "2-digit", minute: "2-digit" }).format(new Date(ms));
-  } catch {
-    return "";
-  }
-}
 
 interface PendingSyncPanelProps {
   queue: LeadQueueState;
@@ -20,96 +14,99 @@ interface PendingSyncPanelProps {
 }
 
 /**
- * Scans captured offline that have not reached the server: each one with its state (waiting, sending, next try,
- * or the server's refusal) and what the operator can do about it.
+ * Scans captured offline that have not reached the server, as one collapsed row («۲ اسکن در انتظار ارسال · ارسال»)
+ * that opens into one line per scan: time, the last four characters of the code, its state and its actions.
+ * The full badge code is never shown: it is the attendee's gate credential.
  */
 export function PendingSyncPanel({ queue, locale }: PendingSyncPanelProps) {
-  const text = boothText(locale);
+  const text = boothCopy[locale];
+  const listId = useId();
+  const [open, setOpen] = useState(false);
   const { scans, online, sendingId } = queue;
   if (scans.length === 0) return null;
   const anyPending = scans.some((scan) => scan.state === "pending");
+  const anyFailed = scans.some((scan) => scan.state === "failed");
 
   const stateOf = (scan: QueuedLeadScan) => {
     if (sendingId === scan.id) return { tone: "info" as const, label: text.syncing };
     if (scan.state === "failed" && scan.failure) return { tone: "danger" as const, label: queueFailureText(scan.failure, locale) };
     if (!online) return { tone: "muted" as const, label: text.waiting };
-    if (scan.attempts > 0) return { tone: "muted" as const, label: text.retryAt(clock(scan.next_attempt_at, locale)) };
+    if (scan.attempts > 0) return { tone: "muted" as const, label: text.retryAt(leadClock(scan.next_attempt_at, locale)) };
     return { tone: "muted" as const, label: text.syncing };
   };
 
   return (
     <section
-      aria-labelledby="pending-sync-heading"
       data-testid="pending-sync"
-      className="rounded-2xl border border-status-warning-border bg-status-warning-bg/60 p-4 sm:p-5"
+      className={`rounded-card border ${anyFailed ? "border-status-danger-border bg-status-danger-bg/50" : "border-status-warning-border bg-status-warning-bg/60"}`}
     >
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0 flex-1">
-          <h3 id="pending-sync-heading" className="flex items-center gap-2 text-[15px] font-bold text-text-primary">
-            <Icon name="hourglass" size={17} className="shrink-0 text-status-warning-text" />
-            <span>{text.pendingHeading}</span>
-          </h3>
-          <p className="mt-1 text-[13px] leading-relaxed text-text-secondary">
-            {text.pendingCount(formatLocalizedNumber(scans.length, locale))}. {text.pendingDesc}
-          </p>
-        </div>
+      <div className="flex items-center gap-2 pe-2">
+        <button
+          type="button"
+          aria-expanded={open}
+          aria-controls={listId}
+          onClick={() => setOpen((value) => !value)}
+          className="flex min-h-12 min-w-0 flex-1 items-center gap-2 ps-4 text-start text-body-sm font-semibold text-text-primary cursor-pointer focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-focus-ring rounded-card"
+        >
+          <Icon name={anyFailed ? "alert" : "hourglass"} size={17} className={anyFailed ? "text-status-danger-text" : "text-status-warning-text"} />
+          <span className="min-w-0 flex-1 truncate">{text.pendingCount(formatLocalizedNumber(scans.length, locale))}</span>
+          <Icon name="chevron-down" size={18} className={`text-text-muted transition-transform motion-reduce:transition-none ${open ? "rotate-180" : ""}`} />
+        </button>
         {online && anyPending && (
-          <Button type="button" variant="secondary" size="md" disabled={sendingId !== null} onClick={queue.syncNow} className="shrink-0">
-            {sendingId ? <BoothSpinner /> : <Icon name="sync" size={16} />}
-            <span>{sendingId ? text.syncing : text.syncNow}</span>
+          <Button type="button" variant="secondary" size="sm" icon="sync" loading={sendingId !== null} onClick={queue.syncNow} className="shrink-0">
+            {text.syncNow}
           </Button>
         )}
       </div>
-      <ul className="mt-3 space-y-2">
-        {scans.map((scan) => {
-          const state = stateOf(scan);
-          return (
-            <li
-              key={scan.id}
-              data-testid="pending-scan"
-              data-state={sendingId === scan.id ? "sending" : scan.state}
-              className="flex flex-col gap-2 rounded-xl border border-border-default bg-surface-panel p-3 sm:flex-row sm:items-center sm:justify-between"
-            >
-              <div className="min-w-0 flex-1">
-                <p className="flex flex-wrap items-baseline gap-x-2 text-[13px]">
-                  <span className="booth-meta-label">{text.badgeCode}</span>
-                  <bdi dir="ltr" className={`min-w-0 break-all ${codeFontClass(scan.qr_secret)} text-[13px] text-text-primary`}>{scan.qr_secret}</bdi>
-                  <span className="text-[12px] text-text-muted">
-                    {text.queuedAt} {clock(scan.queued_at, locale)}
+      {open && (
+        <ul id={listId} className="space-y-1.5 px-2 pb-2">
+          {scans.map((scan) => {
+            const state = stateOf(scan);
+            const code = maskedCode(scan.qr_secret);
+            return (
+              <li
+                key={scan.id}
+                data-testid="pending-scan"
+                data-state={sendingId === scan.id ? "sending" : scan.state}
+                className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-control bg-surface-panel py-1.5 ps-3 pe-1.5 text-body-sm"
+              >
+                <span className="min-w-0 flex-1">
+                  <span className="text-text-secondary">{leadClock(scan.queued_at, locale)}</span>
+                  <span aria-hidden="true" className="mx-1.5 text-text-muted">·</span>
+                  <span className="text-text-primary">
+                    {text.code}{" "}
+                    <bdi dir="ltr" className="font-mono">{code}</bdi>
                   </span>
-                </p>
-                <p
-                  className={`mt-1 flex items-start gap-1.5 text-[12.5px] leading-relaxed ${
-                    state.tone === "danger" ? "font-medium text-status-danger-text" : state.tone === "info" ? "text-status-info-text" : "text-text-muted"
-                  }`}
-                >
-                  <Icon name={state.tone === "danger" ? "alert" : sendingId === scan.id ? "sync" : "clock"} size={14} className="mt-0.5 shrink-0" />
-                  <span>{state.label}</span>
-                </p>
-              </div>
-              <div className="flex shrink-0 gap-2">
-                {scan.state === "failed" && (
-                  <Button type="button" variant="secondary" size="md" disabled={!online} onClick={() => queue.retry(scan.id)}>
-                    <Icon name="sync" size={14} />
-                    <span>{text.retryItem}</span>
+                  <span
+                    className={`mt-0.5 block ${
+                      state.tone === "danger" ? "font-medium text-status-danger-text" : state.tone === "info" ? "text-status-info-text" : "text-text-muted"
+                    }`}
+                  >
+                    {state.label}
+                  </span>
+                </span>
+                <span className="flex shrink-0 gap-1">
+                  {scan.state === "failed" && (
+                    <Button type="button" variant="ghost" size="sm" disabled={!online} onClick={() => queue.retry(scan.id)}>
+                      {text.retryItem}
+                    </Button>
+                  )}
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    disabled={sendingId === scan.id}
+                    onClick={() => queue.discard(scan.id)}
+                    aria-label={text.discardItemOf(code)}
+                  >
+                    {text.discardItem}
                   </Button>
-                )}
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="md"
-                  disabled={sendingId === scan.id}
-                  onClick={() => queue.discard(scan.id)}
-                  aria-label={text.discardItemOf(scan.qr_secret)}
-                >
-                  <Icon name="x" size={14} />
-                  <span>{text.discardItem}</span>
-                </Button>
-              </div>
-            </li>
-          );
-        })}
-      </ul>
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+      )}
     </section>
   );
 }

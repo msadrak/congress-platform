@@ -4,7 +4,7 @@ import { Icon } from "../ui/Icon";
 interface TagPickerProps {
   label: string;
   /** Localised preset follow-up actions. */
-  presets: string[];
+  presets: readonly string[];
   selected: string[];
   onToggle: (tag: string) => void;
   /** Extra controls under the chips (custom-tag field). */
@@ -27,9 +27,9 @@ export function TagPicker({ label, presets, selected, onToggle, children }: TagP
               type="button"
               aria-pressed={on}
               onClick={() => onToggle(tag)}
-              className={`press inline-flex min-h-[44px] max-w-full items-center gap-1.5 rounded-full border px-3 py-1.5 text-[13px] font-medium transition-colors cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring ${
+              className={`press inline-flex min-h-[44px] max-w-full items-center gap-1.5 rounded-full border px-3 py-1.5 text-body-sm font-medium transition-colors cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring ${
                 on
-                  ? "border-aiteb-indigo bg-aiteb-indigo text-white shadow-[0_6px_14px_-8px_rgb(32_0_205/0.8)]"
+                  ? "border-aiteb-indigo bg-aiteb-indigo text-white"
                   : "border-border-default bg-surface-panel text-text-secondary hover:border-border-strong hover:text-text-primary"
               }`}
             >
