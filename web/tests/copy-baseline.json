@@ -57,28 +57,10 @@
     "persian": 40,
     "devTerm": 1
   },
-  "src/components/organizer/ScheduleFilesManager.tsx": {
-    "persian": 47,
-    "ternary": 33
-  },
-  "src/components/organizer/SessionFormDialog.tsx": {
-    "ternary": 25,
-    "persian": 25
-  },
-  "src/components/organizer/studio/BrandPanel.tsx": {
-    "persian": 1
-  },
-  "src/components/organizer/studio/SectionEditor.tsx": {
-    "persian": 1
-  },
   "src/components/organizer/TierFormDialog.tsx": {
     "ternary": 21,
     "persian": 21,
     "asciiEllipsis": 1
-  },
-  "src/components/organizer/TimetableImport.tsx": {
-    "persian": 43,
-    "ternary": 36
   },
   "src/components/QrCameraInput.tsx": {
     "ternary": 7,
@@ -142,25 +124,5 @@
   "src/pages/organizer/EventTiers.tsx": {
     "ternary": 28,
     "persian": 28
-  },
-  "src/pages/OrganizerPagePreview.tsx": {
-    "ternary": 3,
-    "persian": 3
-  },
-  "src/pages/OrganizerPageStudio.tsx": {
-    "ternary": 2,
-    "persian": 1
-  },
-  "src/pages/OrganizerPanel.tsx": {
-    "ternary": 57,
-    "persian": 57
-  },
-  "src/pages/OrganizerProgram.tsx": {
-    "ternary": 25,
-    "persian": 33
-  },
-  "src/pages/OrganizerVenue.tsx": {
-    "ternary": 42,
-    "persian": 44
   }
 }

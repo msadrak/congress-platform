@@ -51,10 +51,8 @@ const ALLOWED: Readonly<Record<string, readonly string[]>> = {
   "web/src/components/organizer/BoothStaffDialog.tsx": ["پورتال"],
   "web/src/components/organizer/OperatorFormDialog.tsx": ["گیت"],
   "web/src/components/organizer/ScannerPairingDialog.tsx": ["کنسول", "لینک"],
-  "web/src/components/organizer/studio/studioCopy.ts": ["جست‌وجو", "فضای کاری"],
   "web/src/lib/attendeeSession.ts": ["نشست"],
   "web/src/pages/AttendeeSignIn.tsx": ["فضای کاری", "پرتال", "سرنخ"],
-  "web/src/pages/OrganizerPanel.tsx": ["بلیت"],
   "web/src/pages/organizer/EventOperators.tsx": ["نشست"],
 };
 

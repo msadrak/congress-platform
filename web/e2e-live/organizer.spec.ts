@@ -114,19 +114,21 @@ test('organizer: platform admin provisions the organizer, who sets up and publis
   await test.step('program: a session and a PDF schedule file', async () => {
     await workspace.getByRole('link', { name: 'برنامه', exact: true }).click();
     await page.getByRole('button', { name: 'افزودن جلسه' }).click();
-    const dialog = page.getByRole('dialog', { name: 'افزودن جلسه' });
+    const dialog = page.getByRole('dialog', { name: 'جلسهٔ جدید' });
     await dialog.getByLabel('عنوان').fill('سخنرانی افتتاحیه');
-    await dialog.getByLabel('زمان شروع').fill(`${eventDay}T09:30`);
-    await dialog.getByLabel('زمان پایان').fill(`${eventDay}T10:30`);
+    // A new session starts on the congress's first day; moving the start keeps the one-hour length (to 10:30).
+    await dialog.getByRole('group', { name: 'شروع' }).getByLabel('ساعت').fill('09:30');
     await dialog.getByLabel('سخنرانان').fill('دکتر سارا احمدی');
-    await dialog.getByRole('button', { name: 'افزودن جلسه' }).click();
+    await dialog.getByRole('button', { name: 'افزودن', exact: true }).click();
     await expect(dialog).toBeHidden();
     await expect(page.getByText('سخنرانی افتتاحیه').first()).toBeVisible();
 
+    await page.getByRole('tab', { name: 'فایل‌های برنامه' }).click();
     const files = page.getByRole('region', { name: 'فایل‌های برنامه' });
-    await files.locator('input[type=file]').setInputFiles({ name: 'program.pdf', mimeType: 'application/pdf', buffer: PDF });
-    await files.getByLabel('عنوان فایل').fill('برنامهٔ کامل');
-    await files.getByRole('button', { name: 'بارگذاری', exact: true }).click();
+    await files.getByLabel('بارگذاری فایل').setInputFiles({ name: 'program.pdf', mimeType: 'application/pdf', buffer: PDF });
+    const upload = page.getByRole('dialog', { name: 'فایل برنامه' });
+    await upload.getByLabel('عنوان فایل').fill('برنامهٔ کامل');
+    await upload.getByRole('button', { name: 'بارگذاری', exact: true }).click();
     await expect(files.getByTestId('schedule-file')).toHaveCount(1);
     await expect(files.getByTestId('schedule-file')).toContainText('برنامهٔ کامل');
   });
@@ -160,11 +162,11 @@ test('organizer: program session times are entered on the event clock, not the b
   await organizerSignIn(page, organizer.api_key);
   await page.goto(`/organizer/events/${event.id}/program`);
   await page.getByRole('button', { name: 'افزودن جلسه' }).click();
-  const dialog = page.getByRole('dialog', { name: 'افزودن جلسه' });
+  const dialog = page.getByRole('dialog', { name: 'جلسهٔ جدید' });
   await dialog.getByLabel('عنوان').fill('جلسهٔ صبح');
-  await dialog.getByLabel('زمان شروع').fill(`${eventDay}T09:30`);
-  await dialog.getByLabel('زمان پایان').fill(`${eventDay}T10:30`);
-  await dialog.getByRole('button', { name: 'افزودن جلسه' }).click();
+  // The congress's first day in Istanbul; the end follows the start by the default hour.
+  await dialog.getByRole('group', { name: 'شروع' }).getByLabel('ساعت').fill('09:30');
+  await dialog.getByRole('button', { name: 'افزودن', exact: true }).click();
   await expect(dialog).toBeHidden();
   const [session] = await api<Array<{ starts_at: string }>>('GET', `/api/events/${event.id}/sessions`, { token: organizer.api_key });
   expect(new Date(session.starts_at).toISOString()).toBe(new Date(`${eventDay}T06:30:00Z`).toISOString());
