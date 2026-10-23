@@ -1,6 +1,6 @@
 # 08 — Database Backup, Restoration Drill & Disaster Recovery
 
-**Last updated:** 2026-10-23 (operations hardening, branch `ws/a3-ops`)  
+**Last updated:** 2026-10-23 (operations hardening `ws/a3-ops`; upgrade rehearsal and table list for head `0029`)  
 **Scope:** PostgreSQL 16 database and the media directory of one deployment  
 **Operator reference:** [`docs/deployment/STAGING_OPERATIONS.md`](../deployment/STAGING_OPERATIONS.md) (*Backup and restore*, *Point-in-time recovery*, *Before congress day*)
 
@@ -17,7 +17,7 @@ Two independent layers protect the data:
 
 Both use one key, `BACKUP_ENCRYPTION_KEY`, which must also be kept off the server: without it no off-host copy can be restored.
 
-The database has **25 tables** in the `public` schema: the 23 application tables in `backend/app/models.py` (`organizers`, `events`, `event_pages`, `media_assets`, `ticket_tiers`, `users`, `desk_operators`, `tickets`, `entity_qrs`, `checkin_points`, `checkins`, `scanner_devices`, `booths`, `booth_staff`, `connections`, `booth_bookmarks`, `leads`, `venue_places`, `event_sessions`, `otp_challenges`, `sms_messages`, `sms_templates`, `platform_settings`), plus `alembic_version` and `schema_compatibility` (the revision chain the schema guard reads for rollback). `pg_dump` and pgBackRest capture all of them; there is no per-table selection.
+The database has **31 tables** in the `public` schema (head `0029`): the 29 application tables in `backend/app/models.py` (`organizers`, `events`, `event_pages`, `media_assets`, `ticket_tiers`, `users`, `desk_operators`, `tickets`, `desk_idempotency_keys`, `short_links`, `entity_qrs`, `checkin_points`, `checkins`, `scanner_devices`, `booths`, `booth_staff`, `connections`, `booth_bookmarks`, `leads`, `venue_places`, `event_sessions`, `program_files`, `otp_challenges`, `sms_messages`, `sms_templates`, `platform_settings`, `rate_limit_counters`, `audit_events`, `organizer_members`), plus `alembic_version` and `schema_compatibility` (the revision chain the schema guard reads for rollback). `pg_dump` and pgBackRest capture all of them; there is no per-table selection. `rate_limit_counters` holds only short-lived throttling counts; restoring an older copy of it is harmless. Program files (PDF/image) live in the media directory like Page Studio images, so they are in `media.tar.gz`, not in WAL.
 
 ---
 
@@ -78,6 +78,27 @@ It restores into a disposable `congress-pitr-*` project with archiving off, so i
 - Never delete the old data before the restored stack passes `check`. Neither real-recovery path is automated, and neither has been drilled end to end on a live stack.
 
 **A bad release is not a restore.** If the new code misbehaves but the data is fine, `stack.mjs rollback` returns to the previous images without touching the database, provided every newer migration is `backward_compatible = True` (`docs/CODING_STANDARDS.md` §2.D).
+
+**Upgrades and the rollback table.** Before every upgrade, take a backup, and rehearse the migrations on a copy of
+production data first (`STAGING_OPERATIONS.md` → *Upgrade dry run*: new images on a separate machine, then
+`restore-verify <latest> --from-offsite --keep`, or with a local copy of a `main`-era backup). Whether a bad upgrade
+can be undone by `rollback` or needs a restore depends on the migrations it ran:
+
+| Order | Rev | Purpose | Image rollback OK |
+|---|---|---|---|
+| 1 | 0019 | SMS short links (backfilled) | no |
+| 2 | 0020 | scanner device verdicts, clock skew | no |
+| 3 | 0023 | ticket registration snapshot (backfilled, NOT NULL), cancellation, consent, account deletion | no |
+| 4 | 0024 | event lifecycle, tier sales windows, program files | yes |
+| 5 | 0021 | integrity constraints, same-event foreign keys, `leads.event_id` (backfilled), desk idempotency keys; stops on rows that break a rule | no |
+| 6 | 0022 | shared rate-limit counters, outbox lease | no |
+| 7 | 0027 | lead soft delete | yes |
+| 8 | 0028 | audit log | yes |
+| 9 | 0029 | organizer members | yes |
+
+The first upgrade from `main` (`0018`) crosses five unmarked migrations, so the way back to `main` is the pre-upgrade
+backup or PITR, never `rollback`. The whole upgrade runs in one transaction: if `0021` (or any step) fails, the
+database stays at `0018`. Details: `STAGING_OPERATIONS.md` → *First upgrade from `main`*.
 
 ---
 

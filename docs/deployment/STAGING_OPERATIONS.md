@@ -190,6 +190,81 @@ node scripts/staging/stack.mjs rollback <sha>      # to a given kept release (un
 
 Drill results (ws/a3-ops): rollback was refused for an unmarked migration (previous images restarted) and worked after a marked one.
 
+### Migration rollback compatibility
+
+Migrations since `main` (`0018`), in the order they run. The chain order differs from the numbers because branches
+landed in a different order than they were numbered; each file's `down_revision` is the truth. "Rollback OK" means the
+module sets `backward_compatible = True` (checked in `backend/migrations/versions/*` on 2026-10-23, head `0029`):
+
+| Order | Rev | Purpose | Rollback OK |
+|---|---|---|---|
+| 1 | 0019 | SMS short links (backfills one per existing ticket), ADR 0015 | no |
+| 2 | 0020 | scanner device verdicts, clock-skew columns, index for manifest deltas | no |
+| 3 | 0023 | ticket registration snapshot (backfilled, then NOT NULL), cancellation, `tickets.status` CHECK, exhibitor consent, account deletion (ADR 0017) | no |
+| 4 | 0024 | event time zone, registration window, archive; tier sales windows; program files | yes |
+| 5 | 0021 | integrity rules: CHECKs, same-event composite foreign keys, delete rules, indexes, `leads.event_id` (backfilled, NOT NULL), desk idempotency keys (ADR 0018). **Stops with an error naming the table and up to five ids if existing rows break a rule** | no |
+| 6 | 0022 | shared rate-limit counters, SMS outbox lease (ADR 0019) | no |
+| 7 | 0027 | lead soft delete | yes |
+| 8 | 0028 | audit log | yes |
+| 9 | 0029 | organizer members | yes |
+
+How to read it: `rollback` to an older release works only when **every** migration after that release's schema is
+marked. From head `0029`, a release built for `0022` can be rolled back to (0027–0029 are marked); a release built for
+`0024` or earlier cannot (0021 and 0022 are not), and neither can `main`. Going further back is a restore of the
+backup taken before the upgrade, or a point-in-time restore to just before it. Later migrations (for example from the
+C1/C2 workstreams) extend this table; check their flags before deploying.
+
+### First upgrade from `main`
+
+`main` is at schema `0018` and predates the release tooling. The first upgrade to this line is special:
+
+- **One way.** `0018 → 0029` crosses five migrations that are not rollback-compatible, and `main`'s images require the
+  exact schema they were built for. After a successful upgrade the only way back to `main` is the pre-upgrade backup
+  (or PITR, if WAL archiving was already on).
+- **No `rollback` the first time.** `main`'s `stack.mjs` records no releases, so the first `up` on this line records the
+  first one and `rollback` has nothing to go back to. If the upgrade fails, check out the previous commit and run
+  `stack.mjs up` again (its images are rebuilt; the next point explains why the database still fits them).
+- **All or nothing.** `alembic upgrade head` runs every pending migration in **one transaction** (`migrations/env.py`).
+  If any step fails, notably `0021` finding rows that break an integrity rule, the whole upgrade is rolled back and the
+  database stays at `0018`; the new API does not start (the schema guard needs `0029`).
+- **0021 needs clean data.** It never repairs rows silently. When it stops, the migrate log names the table and up to
+  five offending ids; correct them on the live system (with the organizer: the right fix depends on what was meant),
+  then rehearse again.
+- **Backups change format on the way.** `main`'s off-host copies are plain files; this line encrypts every off-host copy
+  (`BACKUP_ENCRYPTION_KEY` is required once `BACKUP_S3_*` is set) and its `--from-offsite` reads only encrypted copies.
+  Rehearse with a local copy of `main`'s backup (below), and consider a new `BACKUP_S3_PREFIX` for the encrypted copies
+  so the old plain ones are left alone.
+- Also on the first upgrade: the user-visible behaviour changes listed in `docs/handover/UPGRADE_HANDOVER.md` §7
+  (scanner apps must be updated together with the backend, offline capacity gates fail closed, reserving needs a
+  published page and an open registration window, exhibitors see mobiles only with consent, `/docs` is off in
+  production).
+
+### Upgrade dry run (rehearse on production data first)
+
+Run the new release's migrations against a copy of production data before touching production. Use a separate machine
+or staging server with Docker and this checkout at the commit you will deploy. Never build new images on the
+production host ahead of time: they replace the image alias the running services use, and the next restart would
+migrate.
+
+1. On production, take a backup with the tooling it runs today: `stack.mjs scheduled-backup`.
+2. On the rehearsal machine: `stack.mjs init`, then `stack.mjs up` to build the new images (an empty stack is fine).
+   For an encrypted off-host backup, give it read access to the bucket and the same `BACKUP_ENCRYPTION_KEY`
+   (`/etc/congress/backup.env` or the environment).
+3. Restore the production backup into a disposable project and let the **new** `migrate` upgrade it:
+   - an encrypted off-host copy: `stack.mjs restore-verify <name> --from-offsite --keep`;
+   - a `main`-era backup (plain files): copy the backup folder into `.staging/backups/<name>/` and run
+     `stack.mjs restore-verify <name> --keep`.
+4. Read the result. `restore-verify` expects the backup's own revision, so on an upgrade the check "migrate service
+   accepted the restored schema" fails by design (the database is now at the new head) and the command exits non-zero.
+   Everything else must pass: every row count, every image checksum, every published page and image through the new
+   API. If `migrate` itself failed (for example `0021` on bad rows), the API does not come up; read the error with
+   `docker compose -p congress-restore-<id> -f deploy/staging/compose.yaml --env-file .staging/staging.env logs migrate`.
+5. Inspect the kept project if needed, then remove it (`docker compose -p congress-restore-<id> … down`) and delete
+   `.staging/restores/congress-restore-<id>`.
+6. Note how long the migration took on real data: the API is down for at least that long during `up`.
+7. Only then, outside any event: backup on production, update the checkout to the rehearsed commit, `stack.mjs up`,
+   `check`, and update every scanner device (`docs/release/07-CONGRESS-DAY-RUNBOOK.md` §3).
+
 ## Migrations
 
 1. Take a backup: `node scripts/staging/stack.mjs scheduled-backup` (or `backup`). This is **required before every migration**. Downgrades are lossy by design and are never run by the tooling.
