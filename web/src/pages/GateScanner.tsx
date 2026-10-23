@@ -13,7 +13,8 @@ import {
   type OfflineAuthVerdict,
 } from "../lib/scannerAuthPolicy";
 import { hidCharacter, normalizeScannedCode, qrHash } from "../lib/scannerInput";
-import { HEARTBEAT_MS, MANIFEST_POLL_MS, SCANNER_APP_VERSION, mergeManifest, upgradeLegacyManifest } from "../lib/scannerManifest";
+import { HEARTBEAT_MS, MANIFEST_POLL_MS, mergeManifest, upgradeLegacyManifest } from "../lib/scannerManifest";
+import { SCANNER_APP_VERSION } from "../lib/appBuild";
 import {
   clearPersistedToken,
   getPersistedScannerCredential,

@@ -114,6 +114,9 @@ test('the device list shows unsynced scans, the app version and a stale warning'
   const dialog = page.getByRole('dialog', { name: 'Pair a scanner device' });
   await expect(dialog.getByTestId('device-report')).toHaveText(/4 unsynced scan\(s\) · web-scanner\/2/);
   await expect(dialog.getByText(/Not in touch for over 10 minutes/)).toBeVisible();
+  // The fixture device reports an older build than this console: staff are told to reload it.
+  await expect(dialog.getByTestId('console-app-version')).toHaveText(/^web-scanner\/2\+.+/);
+  await expect(dialog.getByTestId('device-version-mismatch')).toContainText('different build');
 });
 
 test('a point with scans is archived, not deleted; an unused point is deleted after confirmation', async ({ page }) => {

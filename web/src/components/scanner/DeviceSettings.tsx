@@ -1,5 +1,6 @@
 import { AitebAttribution } from "../brand/Aiteb";
 import { Icon } from "../ui/Icon";
+import { SCANNER_APP_VERSION } from "../../lib/appBuild";
 import type { ScannerCopy } from "./copy";
 import { BiLabel, SystemReadout } from "./ScannerChrome";
 
@@ -38,6 +39,13 @@ export function DeviceSettings(props: DeviceSettingsProps) {
           </span>
         )}
       </div>
+      {/* Staff compare this with the organizer's device list: every gate should run the same build. */}
+      <p className="mt-1.5 text-[12px] text-ink-400" data-testid="scanner-app-version">
+        {copy.appVersionLabel}:{" "}
+        <span className="font-mono text-ink-300" dir="ltr">
+          {SCANNER_APP_VERSION}
+        </span>
+      </p>
       <p className="mt-2 text-[12.5px] leading-relaxed text-ink-400">{copy.settingsBody}</p>
 
       {props.unpairNotice && (

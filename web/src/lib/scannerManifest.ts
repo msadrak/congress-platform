@@ -8,8 +8,6 @@ import type { CheckInManifest } from "../api/client";
 export const MANIFEST_POLL_MS = 30_000;
 /** While the server answers, the scanner reports its state (unsynced scans, version) this often. */
 export const HEARTBEAT_MS = 60_000;
-/** Sent in the heartbeat; bump when the scanner's protocol changes (2: windows, entry/exit, heartbeat). */
-export const SCANNER_APP_VERSION = "web-scanner/2";
 
 /**
  * True when the point's rules changed in a way that changes which tickets the manifest must hold, or what every

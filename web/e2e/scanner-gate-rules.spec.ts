@@ -83,6 +83,8 @@ test('an occupancy point offers Entry/Exit; exit mode is unmistakable and its sc
     { admission_window: 'event', event_timezone: 'Asia/Tehran', occupancy: 2 },
   );
   await open(page, server.install, POINT, 'Hall A Door');
+  // Staff compare the build shown here with the organizer's device list.
+  await expect(page.getByTestId('scanner-app-version')).toHaveText(/App version: web-scanner\/2\+.+/);
   await expect(page.getByTestId('scanner-occupancy')).toContainText('2');
 
   const modes = page.getByRole('group', { name: 'Scan mode' });
@@ -150,7 +152,10 @@ test('the scanner sends a heartbeat with its unsynced scans and version, and sto
   server.state.heartbeatStatus = 401;
   await open(page, server.install, POINT, 'Heartbeat Gate');
   await expect.poll(() => server.state.heartbeats.length, { timeout: 15000 }).toBe(1);
-  expect(server.state.heartbeats[0]).toEqual({ unsynced_count: 0, app_version: 'web-scanner/2' });
+  expect(server.state.heartbeats[0]).toMatchObject({ unsynced_count: 0 });
+  // The version names the scanner protocol and this build, as the device settings show it.
+  const version = String(server.state.heartbeats[0].app_version);
+  expect(version).toMatch(/^web-scanner\/2\+.+/);
   // A refused credential blocks the device like any scanner call: no retry with the dead token.
   await expect(page.getByText('Device Deauthorized').first()).toBeVisible();
   await page.waitForTimeout(6000);

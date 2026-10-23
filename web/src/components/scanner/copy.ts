@@ -167,6 +167,7 @@ export const scannerCopy = {
     exitRecorded: "خروج ثبت شد",
     exitProvisional: "خروج موقت ثبت شد (آفلاین)",
     occupancyLabel: "داخل سالن",
+    appVersionLabel: "نسخهٔ برنامه",
     dailyWindow: "هر روز یک بار",
     // Storage failure (blocking)
     storageFailedTitle: { fa: "این اسکن ثبت نشد — ورود ندهید", en: "Scan NOT recorded — do not admit" },
@@ -334,6 +335,7 @@ export const scannerCopy = {
     exitRecorded: "Exit recorded",
     exitProvisional: "Exit recorded provisionally (offline)",
     occupancyLabel: "Inside",
+    appVersionLabel: "App version",
     dailyWindow: "Once per day",
     storageFailedTitle: { fa: "این اسکن ثبت نشد — ورود ندهید", en: "Scan NOT recorded — do not admit" },
     storageFailedBody:

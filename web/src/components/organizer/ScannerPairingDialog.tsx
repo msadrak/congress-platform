@@ -7,6 +7,7 @@ import {
   type ScannerDeviceOut,
   type ScannerTokenOut,
 } from "../../api/client";
+import { SCANNER_APP_VERSION } from "../../lib/appBuild";
 import { formatLocalizedNumber } from "../../lib/i18n";
 import { isLoopbackHost, scannerPairingUrl } from "../../lib/scannerPairing";
 import { Badge } from "../ui/Badge";
@@ -277,6 +278,12 @@ export function ScannerPairingDialog({ point, apiKey, locale, isRtl, onClose }: 
                 {isRtl ? `${formatLocalizedNumber(activeCount, locale)} فعال` : `${activeCount} active`}
               </Badge>
             </div>
+            <p className="text-[0.6875rem] text-text-muted">
+              {isRtl ? "نسخهٔ فعلی: " : "Current build: "}
+              <bdi dir="ltr" className="font-mono" data-testid="console-app-version">
+                {SCANNER_APP_VERSION}
+              </bdi>
+            </p>
             {devicesError && <FormAlert>{devicesError}</FormAlert>}
             {devicesLoading ? (
               <p className="text-xs text-text-muted">{isRtl ? "در حال بارگذاری…" : "Loading…"}</p>
@@ -306,6 +313,14 @@ export function ScannerPairingDialog({ point, apiKey, locale, isRtl, onClose }: 
                           {d.app_version ? <> · <bdi dir="ltr">{d.app_version}</bdi></> : null}
                         </p>
                       ) : null}
+                      {!d.is_revoked && d.app_version && d.app_version !== SCANNER_APP_VERSION && (
+                        <p className="flex items-center gap-1 text-[0.6875rem] font-semibold text-status-warning-text" role="status" data-testid="device-version-mismatch">
+                          <Icon name="alert" size={13} />
+                          {isRtl
+                            ? "نسخهٔ این دستگاه با نسخهٔ فعلی فرق دارد؛ صفحهٔ اسکنر را روی دستگاه تازه کنید تا به‌روز شود."
+                            : "This device runs a different build: reload the scanner on it to update."}
+                        </p>
+                      )}
                       {d.stale && (
                         <p className="flex items-center gap-1 text-[0.6875rem] font-semibold text-status-warning-text" role="status">
                           <Icon name="alert" size={13} />
