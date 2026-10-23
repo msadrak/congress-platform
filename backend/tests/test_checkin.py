@@ -1,3 +1,4 @@
+import hashlib
 import uuid
 from typing import Any
 from httpx import AsyncClient
@@ -120,11 +121,16 @@ async def test_compact_manifest_snapshot_returns_valid_tickets_and_status(
     assert manifest["checkin_point"]["id"] == point_id
     assert manifest["checkin_point"]["policy_type"] == "SINGLE_USE"
 
-    secrets = {item["qr_secret"]: item for item in manifest["tickets"]}
-    assert t1["qr_secret"] in secrets
-    assert t2["qr_secret"] in secrets
-    assert secrets[t1["qr_secret"]]["attendee_name"] == "Attendee One"
-    assert secrets[t1["qr_secret"]]["is_admitted"] is False
+    # The manifest carries sha256("<event_id>:<secret>"), never the raw QR secret.
+    def qr_hash(secret: str) -> str:
+        return hashlib.sha256(f"{event_id}:{secret}".encode()).hexdigest()
+
+    hashes = {item["qr_hash"]: item for item in manifest["tickets"]}
+    assert qr_hash(t1["qr_secret"]) in hashes
+    assert qr_hash(t2["qr_secret"]) in hashes
+    assert hashes[qr_hash(t1["qr_secret"])]["attendee_name"] == "Attendee One"
+    assert hashes[qr_hash(t1["qr_secret"])]["is_admitted"] is False
+    assert "qr_secret" not in manifest["tickets"][0]
     # Data minimization check: PII (mobile) is not leaked in offline manifest
     assert "attendee_mobile" not in manifest["tickets"][0]
 

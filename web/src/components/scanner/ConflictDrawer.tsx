@@ -92,7 +92,7 @@ export function ConflictDrawer({ conflicts, copy, t, onClose, onAcknowledge }: C
                   )}
                 </p>
                 <p className="mt-0.5 text-[13px] text-[#FFB3C4]">
-                  {rejectionLabel(t, c.rejection_reason)}{" "}
+                  {rejectionLabel(t, copy, c.rejection_reason)}{" "}
                   <span className="font-mono text-[11.5px] text-ink-400" dir="ltr">
                     {c.rejection_reason ?? "SERVER_REJECTED"}
                   </span>

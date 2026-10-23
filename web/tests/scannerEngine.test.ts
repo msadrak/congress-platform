@@ -9,7 +9,7 @@ import {
 test("evaluateLocalScan - MULTI_ENTRY admits ticket repeatedly", () => {
   const tickets: Record<string, LocalTicket> = {
     valid_secret_1: {
-      qr_secret: "valid_secret_1",
+      qr_hash: "valid_secret_1",
       ticket_id: "t1",
       attendee_name: "Dr. Reza",
       ticket_tier_id: "tier_1",
@@ -39,7 +39,7 @@ test("evaluateLocalScan - MULTI_ENTRY admits ticket repeatedly", () => {
 test("evaluateLocalScan - SINGLE_USE rejects second scan with ALREADY_ADMITTED", () => {
   const tickets: Record<string, LocalTicket> = {
     lunch_pass_secret: {
-      qr_secret: "lunch_pass_secret",
+      qr_hash: "lunch_pass_secret",
       ticket_id: "t2",
       attendee_name: "Sara Alavi",
       ticket_tier_id: "tier_1",
@@ -71,7 +71,7 @@ test("evaluateLocalScan - SINGLE_USE rejects second scan with ALREADY_ADMITTED",
 test("evaluateLocalScan - TIER_RESTRICTED enforces allowed tier list", () => {
   const tickets: Record<string, LocalTicket> = {
     vip_secret: {
-      qr_secret: "vip_secret",
+      qr_hash: "vip_secret",
       ticket_id: "t_vip",
       attendee_name: "VIP Speaker",
       ticket_tier_id: "tier_vip",
@@ -80,7 +80,7 @@ test("evaluateLocalScan - TIER_RESTRICTED enforces allowed tier list", () => {
       is_admitted: false,
     },
     gen_secret: {
-      qr_secret: "gen_secret",
+      qr_hash: "gen_secret",
       ticket_id: "t_gen",
       attendee_name: "Regular Attendee",
       ticket_tier_id: "tier_gen",
@@ -121,7 +121,7 @@ test("evaluateLocalScan - unknown QR secret returns INVALID_TICKET", () => {
 test("evaluateLocalScan - CAPACITY_CAPPED rejects when room capacity exceeded", () => {
   const tickets: Record<string, LocalTicket> = {
     sec_1: {
-      qr_secret: "sec_1",
+      qr_hash: "sec_1",
       ticket_id: "t1",
       attendee_name: "Person 1",
       ticket_tier_id: "tier_1",
@@ -130,7 +130,7 @@ test("evaluateLocalScan - CAPACITY_CAPPED rejects when room capacity exceeded", 
       is_admitted: false,
     },
     sec_2: {
-      qr_secret: "sec_2",
+      qr_hash: "sec_2",
       ticket_id: "t2",
       attendee_name: "Person 2",
       ticket_tier_id: "tier_1",
@@ -159,7 +159,7 @@ test("evaluateLocalScan - CAPACITY_CAPPED rejects when room capacity exceeded", 
 test("evaluateLocalScan - CAPACITY_CAPPED while offline marks admission as PROVISIONAL (Issue #15)", () => {
   const tickets: Record<string, LocalTicket> = {
     sec_offline: {
-      qr_secret: "sec_offline",
+      qr_hash: "sec_offline",
       ticket_id: "t_off",
       attendee_name: "Offline Attendee",
       ticket_tier_id: "tier_1",
@@ -189,7 +189,7 @@ test("evaluateLocalScan - CAPACITY_CAPPED while offline marks admission as PROVI
 test("evaluateLocalScan - CAPACITY_CAPPED while offline still rejects when max_capacity reached (Issue #15)", () => {
   const tickets: Record<string, LocalTicket> = {
     sec_over_cap: {
-      qr_secret: "sec_over_cap",
+      qr_hash: "sec_over_cap",
       ticket_id: "t_over",
       attendee_name: "Over Capacity Person",
       ticket_tier_id: "tier_1",
@@ -235,7 +235,6 @@ test("Phase 8 Audit: offline evaluation across ALL admission policies returns PR
     };
 
     const policy: LocalPolicyConfig = {
-      point_id: "pt-1",
       policy_type: policyType,
       allowed_tier_ids: ["tier-1"],
       max_capacity: 100,
@@ -255,7 +254,6 @@ test("Phase 8 Audit: unknown secret returns NOT_IN_LOCAL_MANIFEST when offline, 
   const tickets: Record<string, LocalTicket> = {};
 
   const offlinePolicy: LocalPolicyConfig = {
-    point_id: "pt-1",
     policy_type: "MULTI_ENTRY",
     allowed_tier_ids: [],
     max_capacity: null,
@@ -264,7 +262,6 @@ test("Phase 8 Audit: unknown secret returns NOT_IN_LOCAL_MANIFEST when offline, 
   };
 
   const onlinePolicy: LocalPolicyConfig = {
-    point_id: "pt-1",
     policy_type: "MULTI_ENTRY",
     allowed_tier_ids: [],
     max_capacity: null,
@@ -286,7 +283,7 @@ test("Phase 8 Audit: unknown secret returns NOT_IN_LOCAL_MANIFEST when offline, 
 test("Phase 9: CAPACITY_CAPPED with fail_closed_offline_capacity rejects automatic admission when offline", () => {
   const tickets: Record<string, LocalTicket> = {
     sec_cap_closed: {
-      qr_secret: "sec_cap_closed",
+      qr_hash: "sec_cap_closed",
       ticket_id: "t_cap_1",
       attendee_name: "Closed Gate Attendee",
       ticket_tier_id: "tier_1",

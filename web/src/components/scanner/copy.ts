@@ -146,6 +146,27 @@ export const scannerCopy = {
     repairLabel: "جفت‌سازی دوباره توسط سرپرست",
     repairPlaceholder: "توکن تازه صادرشده اسکنر را وارد کنید…",
     repairAction: "جفت‌سازی با توکن تازه",
+    // Rejection codes the shared dictionary has no wording for
+    reasonTicketInactive: "بلیط لغو شده یا کیوآرکد آن غیرفعال است",
+    reasonEventMismatch: "این بلیط برای رویداد دیگری است",
+    reasonLocalRejected: "رد شده در همین دستگاه",
+    // Storage failure (blocking)
+    storageFailedTitle: { fa: "این اسکن ثبت نشد — ورود ندهید", en: "Scan NOT recorded — do not admit" },
+    storageFailedBody:
+      "حافظه این دستگاه اسکن را ذخیره نکرد، پس پذیرش آن به سرور نمی‌رسد. صفحه را دوباره بارگذاری کنید؛ اگر تکرار شد، فضای مرورگر را آزاد کنید یا از دستگاه دیگری استفاده کنید.",
+    reload: "بارگذاری دوباره صفحه",
+    // One tab per point
+    otherTabTitle: { fa: "این گیت در زبانه دیگری باز است", en: "This gate is open in another tab" },
+    otherTabBody:
+      "هر نقطه کنترل فقط در یک زبانه اسکن می‌کند تا ظرفیت و ورود تکراری درست شمرده شود. زبانه دیگر را ببندید؛ این صفحه خودکار ادامه می‌دهد.",
+    // Unsynced scans left after a block or unpair
+    discardTitle: (n: number) => `${formatLocalizedNumber(n, "fa")} اسکن همگام‌نشده روی این دستگاه مانده است`,
+    discardBody:
+      "این اسکن‌ها هنوز به سرور نرسیده‌اند و تنها نسخه آن‌ها همین‌جاست. با جفت‌سازی دوباره ارسال می‌شوند. فقط اگر سرپرست تأیید کرد که لازم نیستند، آن‌ها را حذف کنید.",
+    discardAction: { fa: "حذف اسکن‌های همگام‌نشده", en: "Discard Unsynced Scans" },
+    discardConfirm: (n: number) => `${formatLocalizedNumber(n, "fa")} اسکن برای همیشه حذف شود؟ این کار برگشت‌پذیر نیست.`,
+    discardConfirmAction: { fa: "حذف برای همیشه", en: "Discard Permanently" },
+    discardDone: (n: number) => `${formatLocalizedNumber(n, "fa")} اسکن همگام‌نشده حذف شد.`,
   },
   en: {
     product: "Gate Scanner",
@@ -276,13 +297,38 @@ export const scannerCopy = {
     repairLabel: "Supervisor Re-pair",
     repairPlaceholder: "Paste a newly issued scanner token...",
     repairAction: "Pair Fresh Supervisor Token",
+    reasonTicketInactive: "Ticket cancelled or QR code deactivated",
+    reasonEventMismatch: "Ticket belongs to another event",
+    reasonLocalRejected: "Rejected on this device",
+    storageFailedTitle: { fa: "این اسکن ثبت نشد — ورود ندهید", en: "Scan NOT recorded — do not admit" },
+    storageFailedBody:
+      "This device could not save the scan, so its admission would never reach the server. Reload the page; if it happens again, free browser storage or switch devices.",
+    reload: "Reload Page",
+    otherTabTitle: { fa: "این گیت در زبانه دیگری باز است", en: "This gate is open in another tab" },
+    otherTabBody:
+      "A check-in point scans in one tab only, so capacity and duplicates are counted once. Close the other tab; this page continues on its own.",
+    discardTitle: (n: number) => `${n} unsynced scan(s) remain on this device`,
+    discardBody:
+      "These scans have not reached the server and this device holds the only copy. Re-pairing uploads them. Discard them only when a supervisor confirms they are not needed.",
+    discardAction: { fa: "حذف اسکن‌های همگام‌نشده", en: "Discard Unsynced Scans" },
+    discardConfirm: (n: number) => `Permanently discard ${n} scan(s)? This cannot be undone.`,
+    discardConfirmAction: { fa: "حذف برای همیشه", en: "Discard Permanently" },
+    discardDone: (n: number) => `${n} unsynced scan(s) discarded.`,
   },
 };
 
 export type ScannerCopy = (typeof scannerCopy)["en"];
 
-/** Human wording for rejection codes the scanner knows; null for codes it has no wording for. */
-export function rejectionLabel(t: TranslationDictionary, reason: string | null | undefined): string | null {
+/**
+ * Human wording for rejection codes the scanner knows; null for codes it has no wording for. A device
+ * rejection the server recorded as `LOCAL_REJECTED:<reason>` reads as "rejected on this device" plus
+ * the wording of its reason.
+ */
+export function rejectionLabel(t: TranslationDictionary, copy: ScannerCopy, reason: string | null | undefined): string | null {
+  if (reason?.startsWith("LOCAL_REJECTED:")) {
+    const inner = reason.slice("LOCAL_REJECTED:".length);
+    return `${copy.reasonLocalRejected}: ${rejectionLabel(t, copy, inner) ?? inner}`;
+  }
   switch (reason) {
     case "ALREADY_ADMITTED":
       return t.reasonAlreadyAdmitted;
@@ -298,6 +344,10 @@ export function rejectionLabel(t: TranslationDictionary, reason: string | null |
       return t.reasonCapacityOffline;
     case "INVALID_TICKET":
       return t.reasonInvalidTicket;
+    case "TICKET_INACTIVE":
+      return copy.reasonTicketInactive;
+    case "EVENT_MISMATCH":
+      return copy.reasonEventMismatch;
     default:
       return null;
   }

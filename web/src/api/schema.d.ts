@@ -432,8 +432,32 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Ingest Scans Batch */
+        /**
+         * Ingest Scans Batch
+         * @description Queued scans (at most 200 per request, in order), idempotent by scan_id.
+         */
         post: operations["ingest_scans_batch_api_checkin_points__point_id__scans_batch_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/checkin-points/{point_id}/scan": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Record Single Scan
+         * @description One scan decided by the server while the scanner is online. Same rules, locks and idempotency
+         *     as the batch, so a scanner that timed out can queue the same scan_id and get this verdict back.
+         */
+        post: operations["record_single_scan_api_checkin_points__point_id__scan_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2010,8 +2034,26 @@ export interface components {
              * Format: date-time
              */
             generated_at: string;
-            /** Tickets */
+            /**
+             * Tickets
+             * @description Full manifest: every admissible ticket. Delta: tickets added or whose admission state at this point changed since the cursor (upsert by qr_hash).
+             */
             tickets: components["schemas"]["ManifestTicket"][];
+            /**
+             * Cursor
+             * @description Pass back as ?since= to receive only what changed after this manifest
+             */
+            cursor: string;
+            /**
+             * Is Delta
+             * @default false
+             */
+            is_delta: boolean;
+            /**
+             * Removed Qr Hashes
+             * @description Delta only: tickets that are no longer admissible (cancelled ticket or deactivated QR)
+             */
+            removed_qr_hashes?: string[];
         };
         /** CheckInPointCreate */
         CheckInPointCreate: {
@@ -2908,8 +2950,11 @@ export interface components {
         };
         /** ManifestTicket */
         ManifestTicket: {
-            /** Qr Secret */
-            qr_secret: string;
+            /**
+             * Qr Hash
+             * @description sha256 hex of '<event_id>:<normalized QR secret>'; the raw secret is never sent
+             */
+            qr_hash: string;
             /**
              * Ticket Id
              * Format: uuid
@@ -3471,6 +3516,11 @@ export interface components {
             attendee_name?: string | null;
             /** Ticket Tier Name */
             ticket_tier_name?: string | null;
+            /**
+             * Clock Skew
+             * @default false
+             */
+            clock_skew: boolean;
         };
         /** ScanSubmission */
         ScanSubmission: {
@@ -3479,13 +3529,24 @@ export interface components {
              * Format: uuid
              */
             scan_id: string;
-            /** Qr Secret */
+            /**
+             * Qr Secret
+             * @description The raw scanned code
+             */
             qr_secret: string;
             /**
              * Scanned At
              * Format: date-time
+             * @description Device time of the scan, with a UTC offset. A time later than the server's clock plus 5 minutes is not trusted: the scan is recorded at the receive time with clock_skew set.
              */
             scanned_at: string;
+            /**
+             * Client Verdict
+             * @description What the scanner decided on its own (offline or after a server timeout). REJECTED is final: the server records a rejection and never admits. Omitted by server-decided scans and by older scanners, whose scans the server evaluates.
+             */
+            client_verdict?: ("ADMITTED" | "PROVISIONAL" | "REJECTED") | null;
+            /** Client Rejection Reason */
+            client_rejection_reason?: string | null;
         };
         /** ScannerDeviceCreate */
         ScannerDeviceCreate: {
@@ -4869,7 +4930,10 @@ export interface operations {
     };
     get_checkin_manifest_api_checkin_points__point_id__manifest_get: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Cursor of a previous manifest: return only what changed after it */
+                since?: string | null;
+            };
             header?: never;
             path: {
                 point_id: string;
@@ -4920,6 +4984,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["BatchScanResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    record_single_scan_api_checkin_points__point_id__scan_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                point_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ScanSubmission"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScanResult"];
                 };
             };
             /** @description Validation Error */

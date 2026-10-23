@@ -14,6 +14,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    false,
     func,
     text,
 )
@@ -261,6 +262,8 @@ class CheckIn(Base):
             unique=True,
             postgresql_where=text("status = 'ADMITTED' AND policy_type = 'SINGLE_USE' AND ticket_id IS NOT NULL"),
         ),
+        # Manifest deltas: tickets whose admission state at a point changed since a cursor (migration 0020).
+        Index("ix_checkins_point_synced_at", "checkin_point_id", "synced_at"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True)  # client-generated scan_id
@@ -278,6 +281,11 @@ class CheckIn(Base):
     synced_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
+    # What the scanner decided on its own (ADMITTED, PROVISIONAL, REJECTED); None for server-decided scans.
+    client_verdict: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    # The device clock claimed a time later than the server allows: scanned_at is the receive time instead.
+    clock_skew: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
+    client_scanned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 class ScannerDevice(Base):
     """A registered scanner client device authorized for a CheckInPoint."""
