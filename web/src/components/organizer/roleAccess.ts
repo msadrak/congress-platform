@@ -17,3 +17,15 @@ export function sessionAllows(session: { role: OrganizerRole } | null | undefine
   if (session == null || typeof session.role !== "string" || !Object.hasOwn(RANK, session.role)) return true;
   return RANK[session.role] >= RANK[needed];
 }
+
+/**
+ * Whether the event's setup may be changed in this session: a manager or owner, on an event that is not
+ * archived (the server refuses edits to an archived event with EVENT_ARCHIVED). False while the event is not
+ * loaded. Day actions (reception, scanners) are not setup: offer them with `sessionAllows(session, "staff")`.
+ */
+export function canEditEvent(
+  session: { role: OrganizerRole } | null | undefined,
+  event: { archived_at?: string | null } | null | undefined,
+): boolean {
+  return event != null && event.archived_at == null && sessionAllows(session, "manager");
+}
