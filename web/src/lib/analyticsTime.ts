@@ -6,6 +6,8 @@
  * `starts_at` instant carrying the event's UTC offset; `bucketSeries` fills the gaps for a chart.
  */
 
+import { formatDate } from "./format.ts";
+
 export type TimeLocale = "fa" | "en";
 
 /** One hour of scans as the API reports it (`HourlyScanCount`). */
@@ -26,8 +28,6 @@ export interface SeriesPoint extends HourBucket {
 const HOUR_MS = 3_600_000;
 /** Longer spans are left sparse rather than drawn as thousands of empty columns. */
 export const MAX_SERIES_HOURS = 24 * 14;
-
-const intlLocale = (locale: TimeLocale) => (locale === "fa" ? "fa-IR" : "en-US");
 
 const formatters = new Map<string, Intl.DateTimeFormat>();
 function formatter(locale: string, timeZone: string, options: Intl.DateTimeFormatOptions): Intl.DateTimeFormat {
@@ -91,34 +91,22 @@ export function todayIn(timeZone: string, now: Date | number = Date.now()): stri
 
 /** "08:00" (or "۰۸:۰۰") on the event's clock, from an ISO time with offset, an epoch or a Date. */
 export function formatHour(value: string | number | Date, timeZone: string, locale: TimeLocale): string {
-  const at = toInstant(value);
-  if (Number.isNaN(at)) return String(value);
-  return formatter(intlLocale(locale), timeZone, { hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(at);
+  return formatDate(value, "time", locale, timeZone);
 }
 
 /** "08:00:05" (or "۰۸:۰۰:۰۵") on the event's clock: when the dashboard last refreshed. */
 export function formatClock(value: string | number | Date, timeZone: string, locale: TimeLocale): string {
-  const at = toInstant(value);
-  if (Number.isNaN(at)) return String(value);
-  return formatter(intlLocale(locale), timeZone, {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hourCycle: "h23",
-  }).format(at);
+  return formatDate(value, "clock", locale, timeZone);
 }
 
 /**
  * A local date of the event ("2027-04-11", already on the event's clock, so no zone is applied): the Solar
- * Hijri calendar with Persian digits for `fa`, Gregorian for `en`.
+ * Hijri calendar with Persian digits for `fa` («یکشنبه ۲۲ فروردین»), Gregorian for `en` ("Sun, Apr 11").
  */
 export function formatDay(day: string, locale: TimeLocale): string {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(day);
   if (!match) return day;
-  const noon = Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]), 12);
-  return locale === "fa"
-    ? formatter("fa-IR-u-ca-persian", "UTC", { weekday: "long", day: "numeric", month: "long" }).format(noon)
-    : formatter("en-US", "UTC", { weekday: "short", day: "numeric", month: "short" }).format(noon);
+  return formatDate(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]), 12), "weekday", locale, "UTC");
 }
 
 function emptyBucket(at: number, timeZone: string): SeriesPoint {

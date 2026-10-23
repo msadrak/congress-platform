@@ -3,6 +3,7 @@
  * registration and tier sales windows) are shown and entered on the EVENT's clock (its IANA zone), never the
  * browser's: an organizer abroad still plans a Tehran congress in Tehran time.
  */
+import { formatDate, type DateStyle } from "../../lib/format.ts";
 import { zonedWallTimeToIso } from "../../lib/sessionCsv.ts";
 
 const pad = (n: number) => String(n).padStart(2, "0");
@@ -68,15 +69,10 @@ export function shiftDateTimeLocal(value: string, ms: number): string {
   return `${String(d.getUTCFullYear()).padStart(4, "0")}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}T${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`;
 }
 
-/** Locale tags for session dates: the Persian calendar for fa, as elsewhere in the organizer console. `timeZone`
- * (IANA) formats in that zone instead of the browser's. */
+/** Session dates on the event's clock (`timeZone`, IANA): «سه‌شنبه ۱۹ آبان ۱۴۰۵», «۱۹ آبان», «۰۸:۳۰» (`lib/format.ts`). */
 export function sessionDateFormats(locale: "fa" | "en", timeZone?: string) {
-  const tag = locale === "fa" ? "fa-IR-u-ca-persian" : "en-GB";
-  return {
-    day: new Intl.DateTimeFormat(tag, { weekday: "long", day: "numeric", month: "long", year: "numeric", timeZone }),
-    shortDay: new Intl.DateTimeFormat(tag, { day: "numeric", month: "short", timeZone }),
-    time: new Intl.DateTimeFormat(tag, { hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZone }),
-  };
+  const style = (name: DateStyle) => ({ format: (date: Date | number) => formatDate(date, name, locale, timeZone) });
+  return { day: style("day"), shortDay: style("short"), time: style("time") };
 }
 
 /** Default IANA zone of a new event (`backend/app/routes/events.py` DEFAULT_TIMEZONE). */

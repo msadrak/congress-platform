@@ -1,4 +1,5 @@
 import { formatLocalizedNumber, type TranslationDictionary } from "../../lib/i18n";
+import { formatClock } from "../../lib/format";
 import type { LocalScanResult } from "../../lib/scannerEngine";
 
 /**
@@ -398,9 +399,12 @@ export function rejectionLabel(t: TranslationDictionary, copy: ScannerCopy, reas
   }
 }
 
-/** 24h wall-clock time for logs and readouts, digits kept Latin and monospaced. */
-export function clockTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString("en-GB", { hour12: false });
+/**
+ * 24 h wall-clock time with seconds for logs and readouts («۰۹:۳۴:۲۶» / "09:34:26"), on the congress's clock
+ * when its zone is given. Without a locale the digits stay Latin, as before.
+ */
+export function clockTime(iso: string, locale: "fa" | "en" = "en", timeZone?: string | null): string {
+  return formatClock(iso, locale, timeZone);
 }
 
 export type TakeoverKind = "admitted" | "provisional" | "duplicate" | "rejected";
