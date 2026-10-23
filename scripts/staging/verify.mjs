@@ -284,6 +284,21 @@ try {
     }
     eq((await api('GET', `/api/public/events/${S.slug}`)).status, 200, 'staging still serves');
   });
+
+  await check('15 access logs keep pass-link codes and pairing tokens out (URL and Referer); request ids at the edge', async () => {
+    const code = `leakprobe${RUN}`;
+    const token = `leaktoken${RUN}`;
+    const pass = await fetch(`${HTTP_BASE}/t/${code}`, { headers: { Referer: `${HTTP_BASE}/t/${code}` } });
+    eq(pass.headers.get('referrer-policy'), 'no-referrer', '/t/<code> Referrer-Policy');
+    const scan = await fetch(`${HTTP_BASE}/scan/p1?token=${token}`, { headers: { Referer: `${HTTP_BASE}/scan/p1?token=${token}` } });
+    eq(scan.headers.get('referrer-policy'), 'no-referrer', '/scan/<point> Referrer-Policy');
+    const ready = await fetch(`${HTTP_BASE}/api/ready`, { headers: { Referer: `${HTTP_BASE}/t/${code}` } });
+    assert(/^[A-Za-z0-9._:-]{8,128}$/.test(ready.headers.get('x-request-id') ?? ''), 'no request id on an API answer');
+    const logs = compose(PROJECT, ['logs', '--since', '5m', '--no-color', 'web', 'api']).stdout;
+    assert(!logs.includes(code) && !logs.includes(token), 'a code or token reached a log');
+    assert(logs.includes(ready.headers.get('x-request-id')), 'the edge request id is not in the logs');
+    return 'Referer dropped, no-referrer on secret URLs, request id shared by edge and API';
+  });
 } catch (e) {
   results.push({ ok: false, name: 'run', error: e.message });
   console.log('ABORT', e.message);
