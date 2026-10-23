@@ -23,6 +23,7 @@ async function fixture(page: Page, authorized: 'ok' | 401) {
     if (request.headers().authorization && authorized === 401) return json(401, { detail: 'Token expired' });
     if (path === '/api/attendees/me/tickets') return json(200, [ticket]);
     if (path === '/api/attendees/me/network') return json(200, []);
+    if (path === '/api/attendees/me/network/search') return json(200, { items: [], total: 0, next_cursor: null });
     if (path === '/api/attendees/me/network/privacy') return json(200, { share_contact_with_peers: false });
     if (path === '/api/attendees/me/bookmarks/booths') return json(200, []);
     if (path === '/api/auth/me') return json(200, { id: 'user-1', mobile: '09121234567', full_name: 'Sara Fixture', organization: 'Heart Center', title: 'Cardiologist', share_contact_with_peers: false });
@@ -57,11 +58,11 @@ test('a 401 on My Congress removes the token and the cached pass, and shows the 
 
 test('My Network: a list that gets no response says so and stops loading', async ({ page }) => {
   await fixture(page, 'ok');
-  await page.route('**/api/attendees/me/network', route => route.abort('internetdisconnected'));
+  await page.route('**/api/attendees/me/network/search?*', route => route.abort('internetdisconnected'));
   await signedInWithCachedPass(page);
   await page.goto('/c/alpha/my-network');
   await expect(page.getByRole('alert')).toContainText('Could not reach the server.');
-  await expect(page.getByRole('status', { name: 'My Network' })).toHaveCount(0);
+  await expect(page.getByRole('status', { name: 'Contacts' })).toHaveCount(0);
   // A network failure is not a rejected session.
   expect((await stored(page))[0]).toBe(token);
 });

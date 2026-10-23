@@ -88,6 +88,10 @@ async function fixture(page: Page, options: Options = {}) {
     if (path === '/api/auth/me') return json(200, { ...user, share_contact_with_peers: share });
     if (path === '/api/attendees/me/tickets') return json(200, [ticket]);
     if (path === '/api/attendees/me/network') return json(200, []);
+    if (path === '/api/attendees/me/network/search') return json(200, { items: [], total: 0, next_cursor: null });
+    if (path === '/api/attendees/me/network/c' && method === 'PATCH') {
+      return json(200, { id: 'c', connected_user_id: 'p', full_name: 'Peer', mobile: null, organization: '', title: '', event_id: 'event-a', private_notes: JSON.parse(raw ?? '{}').private_notes, created_at: '2027-01-01T00:00:00Z' });
+    }
     if (path === '/api/me/access') return json(200, { user_id: 'user-1', events: [] });
     if (path === '/api/attendees/me/network/scan') {
       return options.scanStatus === 409
@@ -442,25 +446,23 @@ test.describe('booth directory in My Congress', () => {
 });
 
 test.describe('My Profile', () => {
-  test('identity is read-only while the contact-sharing switch persists through the API', async ({ page }) => {
+  test('the contact-sharing switch persists through the API', async ({ page }) => {
     const requests = await fixture(page);
     await signedIn(page);
     await page.goto('/c/alpha/my-profile');
-    await expect(page.getByText('Heart Center')).toBeVisible();
-    await expect(page.getByText('Read-only')).toBeVisible();
-    await expect(page.locator('main input')).toHaveCount(0);
+    await expect(page.getByLabel('Organization')).toHaveValue('Heart Center');
 
-    const toggle = page.getByRole('switch', { name: /Share mobile number/ });
+    const toggle = page.getByRole('switch', { name: /Share my mobile number with colleagues/ });
     await expect(toggle).toHaveAttribute('aria-checked', 'false');
     await toggle.click();
     await expect(toggle).toHaveAttribute('aria-checked', 'true');
-    await expect(page.getByRole('status').filter({ hasText: 'updated successfully' })).toBeVisible();
+    await expect(page.getByRole('status').filter({ hasText: 'Setting saved.' })).toBeVisible();
     const patch = requests.find(r => r.method === 'PATCH');
     expect(patch?.auth).toBe(bearer);
     expect(patch?.body).toEqual({ share_contact_with_peers: true });
 
     await page.reload();
-    await expect(page.getByRole('switch', { name: /Share mobile number/ })).toHaveAttribute('aria-checked', 'true');
+    await expect(page.getByRole('switch', { name: /Share my mobile number with colleagues/ })).toHaveAttribute('aria-checked', 'true');
     expect(requests.some(r => r.method === 'PATCH' && r.path !== '/api/attendees/me/network/privacy')).toBe(false);
   });
 
@@ -468,7 +470,7 @@ test.describe('My Profile', () => {
     await fixture(page, { privacyFails: true });
     await signedIn(page);
     await page.goto('/c/alpha/my-profile');
-    const toggle = page.getByRole('switch', { name: /Share mobile number/ });
+    const toggle = page.getByRole('switch', { name: /Share my mobile number with colleagues/ });
     await toggle.click();
     await expect(page.getByRole('alert')).toContainText('not saved');
     await expect(toggle).toHaveAttribute('aria-checked', 'false');
@@ -520,25 +522,24 @@ async function fakeCamera(page: Page, decoded: string | null) {
 test.describe('event-scoped badge scan', () => {
   async function scan(page: Page) {
     await page.goto('/c/alpha/my-network');
-    await page.getByRole('button', { name: 'Scan colleague QR code' }).first().click();
-    const dialog = page.getByRole('dialog');
-    await dialog.getByLabel(/Peer Badge Code/).fill('some-peer-secret');
-    await dialog.getByRole('button', { name: 'Save to My Network' }).click();
+    await page.getByRole('tab', { name: 'Scan' }).click();
+    await page.getByRole('button', { name: 'No camera? Enter the code' }).click();
+    await page.getByLabel("Colleague's pass code").fill('some-peer-secret');
+    await page.getByRole('button', { name: 'Add to My Network' }).click();
   }
 
   test('the congress id is sent and an other-congress badge shows an error', async ({ page }) => {
     const requests = await fixture(page, { scanStatus: 409 });
     await signedIn(page);
     await scan(page);
-    await expect(page.getByRole('dialog')).toContainText('belongs to another congress and was not saved');
+    await expect(page.getByRole('alert')).toContainText('belongs to another congress and was not saved');
     expect(requests.find(r => r.path === '/api/attendees/me/network/scan')?.body).toMatchObject({ event_id: 'event-a' });
   });
 
-  test('a typed code saves the connection, closes the dialog and names the new contact', async ({ page }) => {
+  test('a typed code saves the connection and names the new contact', async ({ page }) => {
     const requests = await fixture(page);
     await signedIn(page);
     await scan(page);
-    await expect(page.getByRole('dialog')).toHaveCount(0);
     await expect(page.getByRole('status').filter({ hasText: 'Peer was added to your network.' })).toBeVisible();
     expect(requests.find(r => r.path === '/api/attendees/me/network/scan')?.body).toEqual({ qr_secret: 'some-peer-secret', private_notes: '', event_id: 'event-a' });
   });
@@ -547,44 +548,45 @@ test.describe('event-scoped badge scan', () => {
     await fixture(page, { scanStatus: 200 });
     await signedIn(page);
     await scan(page);
-    await expect(page.getByRole('dialog')).toHaveCount(0);
-    await expect(page.getByRole('status').filter({ hasText: 'You are already connected with Peer.' })).toBeVisible();
+    await expect(page.getByRole('status').filter({ hasText: 'Peer is already in your network.' })).toBeVisible();
   });
 
-  test('?scan=1 opens the dialog once and a scanned pass QR connects with one tap', async ({ page }) => {
+  test('?scan=1 opens the scan sheet once; a scanned pass QR connects with one tap and the note follows', async ({ page }) => {
     const requests = await fixture(page);
     await fakeCamera(page, 'Peer-Secret');
     await signedIn(page);
     await page.goto('/c/alpha/my-network?scan=1');
-    const dialog = page.getByRole('dialog');
-    await expect(dialog).toBeVisible();
+    await expect(page.getByRole('tab', { name: 'Scan' })).toHaveAttribute('aria-selected', 'true');
     await expect(page).toHaveURL(/\/c\/alpha\/my-network$/);
     // The camera waits for the user's tap: no permission request on open.
     expect(await page.evaluate(() => window.__cameraRequests)).toBe(0);
 
-    await dialog.getByLabel('Private Notes on This Discussion').fill('Met at the poster session');
-    await dialog.getByRole('button', { name: 'Scan with camera' }).click();
-    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await page.getByRole('button', { name: 'Scan with camera' }).click();
     await expect(page.getByRole('status').filter({ hasText: 'Peer was added to your network.' })).toBeVisible();
-    expect(requests.find(r => r.path === '/api/attendees/me/network/scan')?.body).toEqual({ qr_secret: 'Peer-Secret', private_notes: 'Met at the poster session', event_id: 'event-a' });
+    expect(requests.find(r => r.path === '/api/attendees/me/network/scan')?.body).toEqual({ qr_secret: 'Peer-Secret', private_notes: '', event_id: 'event-a' });
     expect(await page.evaluate(() => (window.__cameraTracks ?? []).map(track => track.readyState))).toEqual(['ended']);
 
+    // The private note is written after the scan, then saved on the new connection.
+    await page.getByLabel('Private note about this meeting').fill('Met at the poster session');
+    await page.getByRole('button', { name: 'Save note' }).click();
+    await expect(page.getByRole('status').filter({ hasText: 'Note saved.' }).first()).toBeVisible();
+    expect(requests.find(r => r.method === 'PATCH' && r.path === '/api/attendees/me/network/c')?.body).toEqual({ private_notes: 'Met at the poster session' });
+
     await page.reload();
-    await expect(page.getByRole('heading', { name: 'No Connections Saved Yet' })).toBeVisible();
-    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await expect(page.getByRole('heading', { name: 'No contacts yet' })).toBeVisible();
+    await expect(page.getByRole('tab', { name: 'My code' })).toHaveAttribute('aria-selected', 'true');
   });
 
-  test('closing the dialog releases a live camera', async ({ page }) => {
+  test('leaving the scan sheet releases a live camera', async ({ page }) => {
     await fixture(page);
     await fakeCamera(page, null);
     await signedIn(page);
     await page.goto('/c/alpha/my-network');
-    await page.getByRole('button', { name: 'Scan colleague QR code' }).first().click();
-    const dialog = page.getByRole('dialog');
-    await dialog.getByRole('button', { name: 'Scan with camera' }).click();
-    await expect(dialog.getByRole('button', { name: 'Stop camera' })).toBeVisible();
-    await page.keyboard.press('Escape');
-    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await page.getByRole('tab', { name: 'Scan' }).click();
+    await page.getByRole('button', { name: 'Scan with camera' }).click();
+    await expect(page.getByRole('button', { name: 'Stop camera' })).toBeVisible();
+    await page.getByRole('tab', { name: 'My code' }).click();
+    await expect(page.getByRole('button', { name: 'Stop camera' })).toHaveCount(0);
     await expect.poll(() => page.evaluate(() => (window.__cameraTracks ?? []).map(track => track.readyState))).toEqual(['ended']);
   });
 });
