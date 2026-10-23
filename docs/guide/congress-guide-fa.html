@@ -1,0 +1,512 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>راهنمای سامانه همایش</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;700;800&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: one reading column (~68ch) with a sticky contents rail on wide screens; commands are LTR plates with a copy button. */
+:root{
+  --bg:#f6f7f9; --surface:#ffffff; --inset:#eef1f5; --fg:#1b2230; --muted:#5a6475; --line:#d9dee6;
+  --accent:#3b4cca; --accent-soft:#e7eafc; --warn:#9a5b00; --warn-soft:#fff3dc; --ok:#1f7a4d; --ok-soft:#e2f5ea;
+  --danger:#b42318; --danger-soft:#fde8e6; --code-bg:#151a24; --code-fg:#e8ecf3;
+  --font-body:"Vazirmatn",Tahoma,"Segoe UI",sans-serif; --font-mono:"JetBrains Mono",ui-monospace,Menlo,Consolas,monospace;
+  --r:12px;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0f131a; --surface:#171c25; --inset:#1e2430; --fg:#e7ebf2; --muted:#9aa4b5; --line:#2c3442;
+  --accent:#9aa6ff; --accent-soft:#232a4d; --warn:#f2b45c; --warn-soft:#33260f; --ok:#5fd39a; --ok-soft:#143024;
+  --danger:#ff8a80; --danger-soft:#3a1715; --code-bg:#0a0d12; --code-fg:#e8ecf3; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0f131a; --surface:#171c25; --inset:#1e2430; --fg:#e7ebf2; --muted:#9aa4b5; --line:#2c3442;
+  --accent:#9aa6ff; --accent-soft:#232a4d; --warn:#f2b45c; --warn-soft:#33260f; --ok:#5fd39a; --ok-soft:#143024;
+  --danger:#ff8a80; --danger-soft:#3a1715; --code-bg:#0a0d12; --code-fg:#e8ecf3; color-scheme:dark}
+
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+body{background:var(--bg);color:var(--fg);font-family:var(--font-body);font-size:16px;line-height:1.85;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:0 64px}
+.wrap{max-width:1120px;margin-inline:auto;display:grid;grid-template-columns:240px minmax(0,1fr);gap:40px;align-items:start}
+@media (max-width:900px){.wrap{grid-template-columns:minmax(0,1fr)}}
+header.top{max-width:1120px;margin-inline:auto;padding-block:40px 24px}
+header.top h1{font-size:clamp(28px,4.4vw,40px);font-weight:800;line-height:1.3;margin:0 0 8px;text-wrap:balance}
+header.top p{margin:0;color:var(--muted);max-width:62ch}
+.meta{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}
+.chip{display:inline-flex;align-items:center;gap:6px;font-size:13px;padding:4px 10px;border-radius:999px;background:var(--inset);color:var(--muted)}
+.chip b{color:var(--fg);font-weight:600}
+
+nav.toc{position:sticky;top:calc(env(safe-area-inset-top,0px) + 16px);font-size:14px;line-height:1.6;max-height:calc(100vh - 32px);overflow:auto;padding-block:4px}
+nav.toc h2{font-size:13px;color:var(--muted);font-weight:600;margin:0 0 8px;letter-spacing:.02em}
+nav.toc ol{list-style:none;margin:0;padding:0;display:grid;gap:2px}
+nav.toc a{display:block;padding:6px 10px;border-radius:8px;color:var(--fg);text-decoration:none}
+nav.toc a:hover{background:var(--inset)}
+nav.toc a:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+nav.toc .n{display:inline-block;min-width:1.6em;color:var(--muted);font-variant-numeric:tabular-nums}
+@media (max-width:900px){nav.toc{position:static;max-height:none;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:16px}
+  nav.toc ol{grid-template-columns:repeat(auto-fill,minmax(200px,1fr))}}
+
+main{min-width:0}
+section{padding-block:8px 28px;border-bottom:1px solid var(--line);scroll-margin-top:16px}
+section:last-of-type{border-bottom:0}
+h2.s{font-size:24px;font-weight:800;margin:24px 0 8px;line-height:1.45;text-wrap:balance;display:flex;gap:12px;align-items:baseline}
+h2.s .num{font-size:15px;color:var(--accent);font-weight:700;font-variant-numeric:tabular-nums}
+h3{font-size:18px;font-weight:700;margin:24px 0 6px}
+p,li{max-width:68ch}
+p{margin:8px 0}
+ul,ol{padding-inline-start:22px;margin:8px 0}
+li{margin:4px 0}
+a{color:var(--accent)}
+.lead{font-size:17px}
+strong{font-weight:700}
+
+/* numbered steps: a real sequence */
+ol.steps{list-style:none;padding:0;counter-reset:step;display:grid;gap:14px;margin-top:14px}
+ol.steps>li{counter-increment:step;position:relative;padding-inline-start:48px;max-width:none}
+ol.steps>li::before{content:counter(step,persian);position:absolute;inset-inline-start:0;top:0;width:32px;height:32px;border-radius:50%;
+  background:var(--accent-soft);color:var(--accent);font-weight:800;display:grid;place-items:center;font-size:15px}
+ol.steps>li>.t{font-weight:700}
+
+/* command plates: always LTR */
+.cmd{direction:ltr;text-align:left;background:var(--code-bg);color:var(--code-fg);border-radius:10px;margin:8px 0;
+  display:flex;align-items:flex-start;gap:8px;padding:10px 10px 10px 14px;max-width:100%}
+.cmd pre{margin:0;flex:1;min-width:0;overflow-x:auto;font-family:var(--font-mono);font-size:13.5px;line-height:1.7;white-space:pre}
+.cmd button{flex:none;font-family:var(--font-body);font-size:12px;border:1px solid #3a4456;background:transparent;color:var(--code-fg);
+  border-radius:7px;padding:3px 9px;cursor:pointer;line-height:1.6}
+.cmd button:hover{background:#252d3b}
+.cmd button:focus-visible{outline:2px solid #9aa6ff;outline-offset:2px}
+code{font-family:var(--font-mono);font-size:.88em;background:var(--inset);padding:1px 6px;border-radius:6px;direction:ltr;unicode-bidi:isolate}
+
+/* notes */
+.note{border-radius:var(--r);padding:12px 16px;margin:14px 0;border:1px solid var(--line);background:var(--surface)}
+.note .h{font-weight:700;display:block;margin-bottom:2px}
+.note.warn{background:var(--warn-soft);border-color:transparent}
+.note.warn .h{color:var(--warn)}
+.note.ok{background:var(--ok-soft);border-color:transparent}
+.note.ok .h{color:var(--ok)}
+.note.danger{background:var(--danger-soft);border-color:transparent}
+.note.danger .h{color:var(--danger)}
+.note p{margin:4px 0}
+
+/* tables */
+.tbl{overflow-x:auto;margin:12px 0;border:1px solid var(--line);border-radius:var(--r);background:var(--surface)}
+table{border-collapse:collapse;width:100%;font-size:15px}
+th,td{text-align:right;padding:10px 14px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-weight:700;background:var(--inset);font-size:14px;white-space:nowrap}
+tr:last-child td{border-bottom:0}
+td:first-child{font-weight:600}
+
+/* role cards */
+.roles{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px;margin-top:12px}
+.role{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:14px 16px;min-width:0}
+.role h4{margin:0 0 4px;font-size:16px}
+.role .where{font-size:13px;color:var(--muted);margin-bottom:6px}
+.role ul{margin:4px 0;padding-inline-start:18px;font-size:15px}
+
+.cond{display:grid;gap:10px;margin-top:10px}
+.cond .note{margin:0}
+.k{font-size:13px;color:var(--muted)}
+footer{max-width:1120px;margin-inline:auto;color:var(--muted);font-size:13px;padding-top:24px}
+
+@media print{
+  :root{--bg:#ffffff;--surface:#ffffff;--inset:#f1f3f6;--fg:#111827;--muted:#4b5563;--line:#d1d5db;color-scheme:light}
+  body{padding:0;font-size:12.5pt;line-height:1.75}
+  .cmd button{display:none}
+  .cmd{padding:8px 12px}
+  .cmd pre{white-space:pre-wrap;word-break:break-all;overflow:visible}
+  nav.toc{position:static;max-height:none;border:1px solid var(--line);border-radius:10px;padding:12px 16px;break-after:page}
+  nav.toc ol{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .wrap{display:block}
+  header.top{padding-block:0 12px}
+  section{break-inside:auto;border-bottom:0;padding-block:0 8px}
+  h2.s{break-after:avoid;margin-top:18px}
+  h3{break-after:avoid}
+  .note,.role,tr,.cmd{break-inside:avoid}
+  .tbl{overflow:visible}
+  a{color:inherit;text-decoration:none}
+  footer{display:none}
+}
+@page{size:A4;margin:16mm 14mm}
+</style>
+
+</head>
+<body>
+<div dir="rtl" lang="fa">
+<header class="top">
+  <h1>راهنمای سامانه همایش</h1>
+  <p class="lead">هر چیزی که برای استقرار، ارتقا، نگهداری و استفاده از سامانه لازم دارید، گام‌به‌گام و به زبان ساده.</p>
+  <div class="meta">
+    <span class="chip">شاخهٔ آماده: <b dir="ltr">integration/upgrade</b></span>
+    <span class="chip">نسخهٔ پایگاه داده: <b>۰۰۲۶</b></span>
+    <span class="chip">تاریخ: <b>۲ آبان ۱۴۰۵</b></span>
+  </div>
+</header>
+
+<div class="wrap">
+<nav class="toc" aria-label="فهرست مطالب">
+  <h2>فهرست</h2>
+  <ol>
+    <li><a href="#overview"><span class="n">۱</span>سامانه در یک نگاه</a></li>
+    <li><a href="#before"><span class="n">۲</span>پیش از استقرار</a></li>
+    <li><a href="#upgrade"><span class="n">۳</span>ارتقای سرور فعلی</a></li>
+    <li><a href="#fresh"><span class="n">۴</span>نصب روی سرور تازه</a></li>
+    <li><a href="#verify"><span class="n">۵</span>بررسی بعد از استقرار</a></li>
+    <li><a href="#secrets"><span class="n">۶</span>فایل تنظیمات و کلیدها</a></li>
+    <li><a href="#timers"><span class="n">۷</span>زمان‌بندها (Timers)</a></li>
+    <li><a href="#backup"><span class="n">۸</span>پشتیبان‌گیری و بازگشت</a></li>
+    <li><a href="#congress-day"><span class="n">۹</span>روز همایش</a></li>
+    <li><a href="#changes"><span class="n">۱۰</span>تغییراتی که کاربران می‌بینند</a></li>
+    <li><a href="#roles"><span class="n">۱۱</span>راهنمای سریع هر نقش</a></li>
+    <li><a href="#devices"><span class="n">۱۲</span>گوشی و دستگاه‌ها</a></li>
+    <li><a href="#ci"><span class="n">۱۳</span>بررسی خودکار گیت‌هاب</a></li>
+    <li><a href="#trouble"><span class="n">۱۴</span>رفع مشکلات رایج</a></li>
+    <li><a href="#todo"><span class="n">۱۵</span>کارهای باقی‌مانده</a></li>
+  </ol>
+</nav>
+
+<main>
+
+<section id="overview">
+  <h2 class="s"><span class="num">۱</span>سامانه در یک نگاه</h2>
+  <p>یک سامانهٔ کامل برای برگزاری همایش: ثبت‌نام، کارت ورود با کد QR، کنترل ورود، میز پذیرش، غرفه‌ها و مدیریت برگزارکننده؛ به فارسی و انگلیسی، روی گوشی، تبلت و رایانه.</p>
+  <div class="tbl"><table>
+    <thead><tr><th>نقش</th><th>کجا</th><th>چه کاری انجام می‌دهد</th></tr></thead>
+    <tbody>
+      <tr><td>بازدیدکننده</td><td><code>/</code> و <code>/e/…</code></td><td>دیدن فهرست همایش‌ها، صفحهٔ همایش، برنامه و ثبت‌نام با شمارهٔ موبایل</td></tr>
+      <tr><td>شرکت‌کننده</td><td><code>/me</code> و پیوند پیامک <code>/t/…</code></td><td>کارت ورود با کد QR (بدون اینترنت هم باز می‌شود)، برنامهٔ من، غرفه‌ها، شبکه‌سازی، پروفایل</td></tr>
+      <tr><td>برگزارکننده</td><td><code>/organizer</code></td><td>همایش، انواع کارت ورود، برنامه، صفحهٔ عمومی، شرکت‌کنندگان، نقاط ورود، غرفه‌ها، پیامک، آمار، اعضا</td></tr>
+      <tr><td>اسکنر نقطهٔ ورود</td><td><code>/scan/…</code></td><td>اسکن کارت با دوربین یا بارکدخوان، کار بدون اینترنت، شمارش ورود و خروج</td></tr>
+      <tr><td>میز پذیرش</td><td><code>/reception</code></td><td>جست‌وجو یا اسکن، چاپ کارت، پذیرش، ثبت‌نام حضوری</td></tr>
+      <tr><td>پنل غرفه</td><td><code>/booth/…</code></td><td>ثبت بازدیدکننده (لید) با یک لمس، امتیاز و یادداشت، خروجی اکسل</td></tr>
+      <tr><td>مدیریت سامانه (شما)</td><td><code>/platform</code></td><td>تنظیم پیامک (sms.ir)، سقف ارسال، قوانین ورود، ساخت برگزارکننده</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section id="before">
+  <h2 class="s"><span class="num">۲</span>پیش از استقرار</h2>
+  <ul>
+    <li><strong>زمان مناسب:</strong> هیچ همایشی در حال برگزاری نباشد و همهٔ اسکنرها اسکن‌های آفلاین خود را فرستاده باشند.</li>
+    <li><strong>روی سرور:</strong> Docker با Compose نسخهٔ ۲ و Node.js نسخهٔ ۲۲ یا بالاتر نصب باشد.</li>
+    <li><strong>فضای دیسک:</strong> حدود ۳ گیگابایت برای ایمیج‌ها، به‌علاوهٔ فضای داده و پشتیبان‌ها.</li>
+    <li><strong>دسترسی‌ها:</strong> دسترسی SSH به سرور و دسترسی git به مخزن.</li>
+  </ul>
+  <div class="note warn"><span class="h">ارتقای اول یک‌طرفه است</span>
+    <p>بعد از اولین ارتقا از نسخهٔ <code>main</code>، تنها راه برگشت به نسخهٔ قدیم، بازگرداندن پشتیبانی است که در گام ۲ می‌گیرید. پس آن پشتیبان را حتماً بیرون از سرور نگه دارید.</p>
+  </div>
+  <div class="note"><span class="h">پیشنهاد برای سرور اصلی (اختیاری ولی امن‌تر)</span>
+    <p>قبل از ارتقای سرور اصلی، یک بار روی یک دستگاه دیگر تمرین کنید: پشتیبان سرور اصلی را آنجا بازگردانید و نسخهٔ جدید را رویش اجرا کنید. روش کامل در بخش «Upgrade dry run» فایل <code>docs/deployment/STAGING_OPERATIONS.md</code> آمده است. ما این تمرین را با دادهٔ آزمایشی انجام دادیم و موفق بود.</p>
+  </div>
+</section>
+
+<section id="upgrade">
+  <h2 class="s"><span class="num">۳</span>ارتقای سرور فعلی</h2>
+  <p>همهٔ دستورها را در پوشهٔ پروژه روی سرور اجرا کنید.</p>
+
+  <h3>قبل از شروع، فقط اگر این موارد شامل شما می‌شود</h3>
+  <div class="cond">
+    <div class="note"><span class="h">اگر قبلاً فایل Caddyfile را دستی تغییر داده‌اید</span>
+      <p>تغییر را برگردانید (حذف بلوک localhost را تنظیم <code>CONGRESS_LOCAL_HTTP=off</code> انجام می‌دهد):</p>
+      <div class="cmd"><pre>git checkout -- deploy/staging/Caddyfile</pre><button type="button">کپی</button></div>
+    </div>
+    <div class="note"><span class="h">اگر پشتیبان بیرون از سرور (S3) دارید</span>
+      <p>از این نسخه همهٔ پشتیبان‌های بیرونی رمزگذاری می‌شوند. یک کلید بسازید، در فایل <code>/etc/congress/backup.env</code> با نام <code>BACKUP_ENCRYPTION_KEY</code> بگذارید و در مدیر رمز عبور خود هم ذخیره کنید. بهتر است یک <code>BACKUP_S3_PREFIX</code> تازه هم تعیین کنید.</p>
+      <div class="cmd"><pre>openssl rand -base64 48</pre><button type="button">کپی</button></div>
+    </div>
+  </div>
+
+  <h3>گام‌ها</h3>
+  <ol class="steps">
+    <li><span class="t">پشتیبان بگیرید</span> و آن را بیرون از سرور کپی کنید.
+      <div class="cmd"><pre>node scripts/staging/stack.mjs scheduled-backup</pre><button type="button">کپی</button></div>
+      <p class="k">اگر پشتیبان بیرونی ندارید، <code>backup</code> هم کافی است. فایل‌ها در پوشهٔ <code>.staging/backups</code> هستند.</p>
+    </li>
+    <li><span class="t">وضعیت فایل‌ها را ببینید</span> تا مطمئن شوید تغییر دستی ثبت‌نشده‌ای ندارید.
+      <div class="cmd"><pre>git status</pre><button type="button">کپی</button></div>
+    </li>
+    <li><span class="t">کد جدید را بگیرید.</span> دستور اول فقط بار اول لازم است.
+      <div class="cmd"><pre>git fetch origin
+git checkout integration/upgrade
+git pull</pre><button type="button">کپی</button></div>
+    </li>
+    <li><span class="t">سامانه را بالا بیاورید.</span> این دستور ایمیج‌ها را می‌سازد، پایگاه داده را ارتقا می‌دهد (حدود یک دقیقه) و صبر می‌کند تا همه‌چیز سالم شود. کلید تازه را هم خودش می‌سازد.
+      <div class="cmd"><pre>node scripts/staging/stack.mjs up</pre><button type="button">کپی</button></div>
+    </li>
+    <li><span class="t">سلامت را بررسی کنید.</span> نباید هیچ مورد «critical» گزارش شود.
+      <div class="cmd"><pre>node scripts/staging/stack.mjs check</pre><button type="button">کپی</button></div>
+    </li>
+    <li><span class="t">فایل تنظیمات را ذخیره کنید.</span> فایل <code>.staging/staging.env</code> حالا کلید تازه دارد؛ یک نسخه از آن را در مدیر رمز عبور یا جای امن بیرون از سرور نگه دارید (<a href="#secrets">بخش ۶</a>).</li>
+    <li><span class="t">فقط روی سرور لینوکس: زمان‌بندها را یک بار نصب کنید</span> (<a href="#timers">بخش ۷</a>). به‌جای <code>&lt;user&gt;</code> نام کاربری که سامانه را اجرا می‌کند بنویسید.
+      <div class="cmd"><pre>sudo node scripts/staging/stack.mjs install-timers --user &lt;user&gt;</pre><button type="button">کپی</button></div>
+    </li>
+    <li><span class="t">با گوشی امتحان کنید و خبر بدهید.</span> ورود، باز کردن کارت ورود و اسکن یک کارت را امتحان کنید (<a href="#verify">بخش ۵</a>). همهٔ دستگاه‌های اسکنر را یک بار بارگذاری دوباره کنید و به برگزارکننده‌ها بگویید ظاهر صفحه‌ها عوض شده است.</li>
+  </ol>
+
+  <div class="note ok"><span class="h">این روش آزمایش شده است</span>
+    <p>نسخهٔ فعلی با دادهٔ واقعی (برگزارکننده، همایش منتشرشده، کارت ورود، اسکن، غرفه، کلید sms.ir) نصب شد و با همین گام‌ها ارتقا یافت. همه‌چیز سالم ماند: کلید برگزارکننده، توکن اسکنر، کارت قدیمی و پیوند پیامکی آن، ورود شرکت‌کننده و کلید ذخیره‌شدهٔ sms.ir.</p>
+  </div>
+</section>
+
+<section id="fresh">
+  <h2 class="s"><span class="num">۴</span>نصب روی سرور تازه</h2>
+  <ol class="steps">
+    <li><span class="t">کد را بگیرید</span> و به شاخهٔ آماده بروید.
+      <div class="cmd"><pre>git clone git@github.com:drkalani/AITeb-Congress.git
+cd AITeb-Congress
+git checkout integration/upgrade</pre><button type="button">کپی</button></div>
+    </li>
+    <li><span class="t">پوشهٔ داده را آماده کنید</span> (فقط بار اول).
+      <div class="cmd"><pre>scripts/staging/fix-persistent-permissions.sh</pre><button type="button">کپی</button></div>
+    </li>
+    <li><span class="t">فایل تنظیمات را بسازید.</span> همهٔ رمزها خودکار ساخته می‌شوند و هرگز چاپ نمی‌شوند.
+      <div class="cmd"><pre>node scripts/staging/stack.mjs init</pre><button type="button">کپی</button></div>
+    </li>
+    <li><span class="t">سامانه را بالا بیاورید.</span>
+      <div class="cmd"><pre>node scripts/staging/stack.mjs up</pre><button type="button">کپی</button></div>
+    </li>
+    <li><span class="t">اولین برگزارکننده را بسازید.</span> به‌جای <code>My Organizer</code> نام برگزارکننده را بنویسید. کلید برگزارکننده فقط یک بار نمایش داده می‌شود؛ آن را ذخیره کنید.
+      <div class="cmd"><pre>node scripts/staging/stack.mjs organizer create "My Organizer"</pre><button type="button">کپی</button></div>
+      <p class="k">بعد از آن، در <code>/platform</code> → برگزارکننده‌ها، مالک (owner) را با شمارهٔ موبایل اضافه کنید تا با کد پیامکی وارد شود.</p>
+    </li>
+    <li><span class="t">پیامک را تنظیم کنید:</span> در <code>/platform</code> کلید sms.ir و شمارهٔ خط را وارد کنید و «بررسی اتصال» را بزنید.</li>
+    <li><span class="t">بررسی‌ها و زمان‌بندها</span> را مثل گام‌های ۵ تا ۷ بخش قبل انجام دهید.</li>
+  </ol>
+</section>
+
+<section id="verify">
+  <h2 class="s"><span class="num">۵</span>بررسی بعد از استقرار</h2>
+  <h3>بررسی سلامت</h3>
+  <div class="cmd"><pre>node scripts/staging/stack.mjs check</pre><button type="button">کپی</button></div>
+  <div class="tbl"><table>
+    <thead><tr><th>نتیجه</th><th>معنی</th></tr></thead>
+    <tbody>
+      <tr><td><code>0</code></td><td>همه‌چیز سالم است.</td></tr>
+      <tr><td><code>1</code></td><td>هشدار: کار می‌کند ولی چیزی نیاز به توجه دارد (متن پیام را بخوانید).</td></tr>
+      <tr><td><code>2</code></td><td>مشکل جدی: فوراً بررسی کنید (<a href="#trouble">بخش ۱۴</a>).</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>آزمون کامل همهٔ بخش‌ها (اختیاری)</h3>
+  <p>همهٔ صفحه‌ها و مسیرهای واقعی (شرکت‌کننده، برگزارکننده، اسکنر، میز پذیرش، غرفه) را روی سرور خودتان امتحان می‌کند. به مرورگر Chrome و پیامک در حالت <code>console</code> نیاز دارد، پس روی سرور آزمایشی اجرا کنید، نه سرور اصلی.</p>
+  <div class="cmd"><pre>node scripts/staging/stack.mjs ca
+CONGRESS_BROWSER_CHANNEL=chrome node scripts/staging/verify.mjs</pre><button type="button">کپی</button></div>
+
+  <h3>آزمون با گوشی (۵ دقیقه)</h3>
+  <ol>
+    <li>از گوشی صفحهٔ یک همایش را باز کنید و با شمارهٔ موبایل ثبت‌نام کنید.</li>
+    <li>پیامک را باز کنید؛ پیوند باید مستقیم کارت ورود را نشان دهد.</li>
+    <li>اینترنت گوشی را قطع کنید؛ کارت ورود باید همچنان باز شود.</li>
+    <li>با یک دستگاه اسکنر جفت‌شده، کارت را اسکن کنید؛ باید «مجاز» ببینید و اسکن دوم «تکراری».</li>
+    <li>در میز پذیرش نام را جست‌وجو کنید و کارت را چاپ کنید.</li>
+  </ol>
+</section>
+
+<section id="secrets">
+  <h2 class="s"><span class="num">۶</span>فایل تنظیمات و کلیدها</h2>
+  <p>همهٔ رمزهای سامانه در فایل <code>.staging/staging.env</code> روی سرور هستند. این فایل در git نیست.</p>
+  <div class="tbl"><table>
+    <thead><tr><th>کلید</th><th>کارش</th><th>اگر گم شود</th></tr></thead>
+    <tbody>
+      <tr><td><code>POSTGRES_PASSWORD</code></td><td>رمز پایگاه داده</td><td>پایگاه داده باز نمی‌شود</td></tr>
+      <tr><td><code>CONGRESS_JWT_SECRET</code></td><td>امضای ورود کاربران</td><td>همه باید دوباره وارد شوند</td></tr>
+      <tr><td><code>CONGRESS_PLATFORM_ADMIN_TOKEN</code></td><td>ورود شما به مدیریت سامانه</td><td>دسترسی به <code>/platform</code> از دست می‌رود</td></tr>
+      <tr><td><code>CONGRESS_SECRET_BOX_KEY</code> <span class="chip">تازه</span></td><td>قفل رمزهای ذخیره‌شده در پایگاه داده، مثل کلید sms.ir</td><td>کلید sms.ir ذخیره‌شده باز نمی‌شود و پیامک قطع می‌شود تا دوباره واردش کنید</td></tr>
+      <tr><td><code>BACKUP_ENCRYPTION_KEY</code></td><td>رمزگذاری پشتیبان‌های بیرونی (در <code>/etc/congress/backup.env</code>)</td><td>هیچ پشتیبان بیرونی قابل بازگرداندن نیست</td></tr>
+    </tbody>
+  </table></div>
+  <div class="note danger"><span class="h">دو قانون مهم</span>
+    <p>یک: از فایل <code>staging.env</code> و کلید پشتیبان یک نسخه در مدیر رمز عبور یا جای امن بیرون از سرور نگه دارید.</p>
+    <p>دو: این کلیدها را بعد از ساخته شدن هرگز عوض نکنید.</p>
+  </div>
+  <p>کلید تازه را لازم نیست خودتان بسازید؛ دستور <code>up</code> اگر نبود آن را اضافه می‌کند و هیچ مقدار موجودی را تغییر نمی‌دهد. اگر یکی از سه کلید اول نباشد، <code>up</code> قبل از هر کاری با پیام روشن متوقف می‌شود.</p>
+</section>
+
+<section id="timers">
+  <h2 class="s"><span class="num">۷</span>زمان‌بندها (Timers)</h2>
+  <p>کارهایی که سرور لینوکس خودکار و طبق برنامه انجام می‌دهد. روی مک و ویندوز وجود ندارند.</p>
+  <div class="tbl"><table>
+    <thead><tr><th>زمان‌بند</th><th>کار</th></tr></thead>
+    <tbody>
+      <tr><td><code>congress-backup</code></td><td>پشتیبان شبانه (در «حالت همایش» هر ساعت)</td></tr>
+      <tr><td><code>congress-check</code></td><td>بررسی سلامت هر چند دقیقه و ارسال هشدار در تلگرام</td></tr>
+      <tr><td><code>congress-basebackup</code> <span class="chip">تازه</span></td><td>پشتیبان کامل هفتگی؛ فقط اگر پشتیبان لحظه‌ای (<code>BACKUP_WAL=on</code>) روشن باشد</td></tr>
+    </tbody>
+  </table></div>
+  <h3>چرا بعد از ارتقا یک بار نصب کنید</h3>
+  <p>فایل‌های این زمان‌بندها در نسخهٔ جدید تغییر کرده‌اند. بدون نصب دوباره، ممکن است هشدار دریافت نکنید یا پشتیبان با تنظیمات قدیم اجرا شود. نام‌ها همان نام‌های قبلی هستند، پس نسخهٔ قدیم خودکار جایگزین می‌شود و لازم نیست چیزی را خاموش کنید.</p>
+  <div class="cmd"><pre># دیدن زمان‌بندهای فعال
+systemctl list-timers 'congress-*'
+
+# پیش‌نمایش بدون تغییر
+sudo node scripts/staging/stack.mjs install-timers --user &lt;user&gt; --dry-run
+
+# نصب یا جایگزینی
+sudo node scripts/staging/stack.mjs install-timers --user &lt;user&gt;
+
+# حذف همه
+sudo node scripts/staging/stack.mjs uninstall-timers</pre><button type="button">کپی</button></div>
+  <div class="note warn"><span class="h">اگر قبلاً با نام دیگری نصب کرده‌اید</span>
+    <p>اگر زمان‌بندهای قدیم را با نام دیگری (مثلاً <code>aiteb-backup.timer</code>) ساخته بودید، جایگزین نمی‌شوند و دو بار اجرا می‌شوند. آن‌ها را خاموش کنید:</p>
+    <div class="cmd"><pre>sudo systemctl disable --now aiteb-backup.timer</pre><button type="button">کپی</button></div>
+  </div>
+</section>
+
+<section id="backup">
+  <h2 class="s"><span class="num">۸</span>پشتیبان‌گیری و بازگشت</h2>
+  <div class="cmd"><pre># پشتیبان کامل با بررسی و نسخهٔ رمزگذاری‌شدهٔ بیرونی
+node scripts/staging/stack.mjs scheduled-backup
+
+# فهرست پشتیبان‌ها (محلی / بیرونی)
+node scripts/staging/stack.mjs backups
+node scripts/staging/stack.mjs backups --offsite
+
+# آزمون بازگردانی در یک محیط جدا (به سامانهٔ اصلی دست نمی‌زند)
+node scripts/staging/stack.mjs restore-verify &lt;نام-پشتیبان&gt;</pre><button type="button">کپی</button></div>
+
+  <h3>برگشت به نسخهٔ قبل</h3>
+  <div class="tbl"><table>
+    <thead><tr><th>وضعیت</th><th>چه کنید</th></tr></thead>
+    <tbody>
+      <tr><td>ارتقا وسط کار متوقف شد</td><td>پایگاه داده دست‌نخورده می‌ماند. نسخهٔ قبلی کد را بگیرید و دوباره <code>up</code> بزنید.</td></tr>
+      <tr><td>بین دو نسخهٔ جدید</td><td><code>node scripts/staging/stack.mjs rollback</code> (نسخهٔ قبلی را بدون تغییر پایگاه داده اجرا می‌کند)</td></tr>
+      <tr><td>برگشت به <code>main</code> بعد از ارتقای موفق</td><td>فقط با بازگرداندن پشتیبان گام ۱. مراحل در بخش «Restoring for real» فایل <code>STAGING_OPERATIONS.md</code>. اگر اشتباهاً <code>up</code> نسخهٔ قدیم را بزنید، سایت پایین می‌ماند (داده از بین نمی‌رود) تا دوباره <code>up</code> نسخهٔ جدید را اجرا کنید.</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section id="congress-day">
+  <h2 class="s"><span class="num">۹</span>روز همایش</h2>
+  <h3>روز قبل</h3>
+  <ol>
+    <li>حالت همایش را روشن کنید (پشتیبان هر ساعت) و یک پشتیبان دستی بگیرید:
+      <div class="cmd"><pre>node scripts/staging/stack.mjs event-mode on
+node scripts/staging/stack.mjs scheduled-backup</pre><button type="button">کپی</button></div></li>
+    <li><code>check</code> باید <code>0</code> بدهد و یک هشدار آزمایشی به تلگرام برسد.</li>
+    <li>همهٔ اسکنرها را جفت کنید، یک کارت آزمایشی اسکن کنید و چاپگر میز پذیرش را امتحان کنید.</li>
+    <li>در پنل برگزارکننده، بخش «نقاط ورود»: نوار سلامت دستگاه‌ها نباید دستگاه آفلاین نشان دهد.</li>
+  </ol>
+  <h3>در روز همایش</h3>
+  <ul>
+    <li><strong>هیچ استقرار یا ری‌استارتی</strong> انجام ندهید.</li>
+    <li>اگر اینترنت قطع شد، اسکنرها و غرفه‌ها ادامه می‌دهند و بعداً اسکن‌ها را می‌فرستند.</li>
+    <li>نقطه‌هایی که ظرفیت دارند، وقتی آفلاین‌اند ورود را رد می‌کنند تا ظرفیت اشتباه پر نشود.</li>
+  </ul>
+  <h3>بعد از همایش</h3>
+  <div class="cmd"><pre>node scripts/staging/stack.mjs event-mode off</pre><button type="button">کپی</button></div>
+</section>
+
+<section id="changes">
+  <h2 class="s"><span class="num">۱۰</span>تغییراتی که کاربران می‌بینند</h2>
+  <p>این فهرست را به برگزارکننده‌ها و اپراتورها بدهید.</p>
+  <ul>
+    <li><strong>ظاهر تازه در همهٔ بخش‌ها:</strong> متن کمتر، یک دکمهٔ اصلی در هر صفحه، تاریخ شمسی، اعداد فارسی، ساعت به وقت همایش.</li>
+    <li><strong>منوی برگزارکننده</strong> دو گروه دارد: «روز همایش» (شرکت‌کنندگان، نقاط ورود، میز پذیرش، آمار) و «راه‌اندازی» (برنامه، انواع کارت ورود، غرفه‌ها، صفحهٔ عمومی، پیامک). صفحهٔ «سالن‌ها» زیر «برنامه» و «پیش‌نمایش پنل» زیر «صفحهٔ عمومی» رفته است؛ پیوندهای قدیمی خودکار منتقل می‌شوند.</li>
+    <li><strong>اسکنرها:</strong> باید همراه سرور به‌روز شوند؛ اسکنر قدیمی با سرور جدید همهٔ کارت‌ها را رد می‌کند.</li>
+    <li><strong>ثبت‌نام</strong> فقط وقتی ممکن است که صفحهٔ همایش منتشر شده و زمان ثبت‌نام باز باشد.</li>
+    <li><strong>غرفه‌داران</strong> شمارهٔ موبایل بازدیدکننده را فقط با اجازهٔ او می‌بینند.</li>
+    <li><strong>کد ورود پیامکی</strong> حداقل ۶ رقم است.</li>
+    <li><strong>عوض کردن کلید برگزارکننده</strong> همهٔ اسکنرها، اپراتورهای پذیرش و اعضا را خارج می‌کند.</li>
+    <li><strong>متن پیامک‌های پیش‌فرض</strong> کوتاه‌تر شده است؛ متن‌هایی که خودتان تغییر داده‌اید دست‌نخورده می‌مانند.</li>
+    <li><strong>فایل PDF برنامه</strong> می‌تواند پیوند معمولی داشته باشد؛ پیوندهای خطرناک رد می‌شوند.</li>
+    <li><strong>صفحهٔ پیامک مدیریت سامانه</strong> حالا آدرس جدا دارد: <code>/platform/sms</code>.</li>
+  </ul>
+</section>
+
+<section id="roles">
+  <h2 class="s"><span class="num">۱۱</span>راهنمای سریع هر نقش</h2>
+  <div class="roles">
+    <div class="role"><h4>برگزارکننده</h4><div class="where"><code>/organizer</code> · ورود با کد پیامکی</div>
+      <ul><li>همایش بسازید، انواع کارت ورود و برنامه را اضافه کنید.</li><li>در «صفحهٔ عمومی» صفحه را بسازید و «انتشار» بزنید.</li><li>در «نقاط ورود» نقطه بسازید و دستگاه اسکنر جفت کنید.</li><li>در «اعضا» همکاران را با نقش اضافه کنید.</li></ul></div>
+    <div class="role"><h4>اسکنر نقطهٔ ورود</h4><div class="where">گوشی یا تبلت دم در</div>
+      <ul><li>برگزارکننده در «نقاط ورود ← دستگاه‌ها» کد اتصال می‌سازد.</li><li>روی دستگاه، دکمهٔ «اسکن کد QR اتصال» را بزنید.</li><li>آیفون: اول برنامه را روی صفحهٔ اصلی نصب کنید، بعد داخل همان جفت کنید.</li><li>تنظیمات کم‌کاربرد در منوی ⋮ است.</li></ul></div>
+    <div class="role"><h4>میز پذیرش</h4><div class="where"><code>/reception</code> · ورود با کد پیامکی</div>
+      <ul><li>نام را جست‌وجو کنید یا کارت را با بارکدخوان بزنید.</li><li>دکمهٔ اصلی «چاپ» یا «پذیرش» است.</li><li>برای مهمان بدون ثبت‌نام: «ثبت‌نام حضوری».</li><li>کارهای دیگر (ارسال دوباره، لغو، انتقال) در منوی ⋯.</li></ul></div>
+    <div class="role"><h4>پنل غرفه</h4><div class="where"><code>/booth/…</code> · ورود با کد پیامکی</div>
+      <ul><li>دکمهٔ ثبت را بزنید یا با بارکدخوان کارت را بخوانید.</li><li>با یک لمس امتیاز بدهید، «بعدی» برای نفر بعد.</li><li>خروجی اکسل در منوی بالا.</li></ul></div>
+    <div class="role"><h4>شرکت‌کننده</h4><div class="where">گوشی خودش</div>
+      <ul><li>پیوند پیامک کارت ورود را باز می‌کند.</li><li>اندروید: دکمهٔ «نصب». آیفون: Safari ← اشتراک‌گذاری ← Add to Home Screen.</li><li>آیکون صفحهٔ اصلی مستقیم کارت ورود را باز می‌کند، حتی بدون اینترنت.</li></ul></div>
+    <div class="role"><h4>مدیریت سامانه</h4><div class="where"><code>/platform</code> · کلید مدیر سامانه</div>
+      <ul><li>«وضعیت»: سلامت ارسال پیامک.</li><li>«پیامک»: کلید sms.ir، سقف‌ها و متن‌ها.</li><li>«برگزارکننده‌ها»: ساخت، اعضا، باطل کردن کلید.</li></ul></div>
+  </div>
+</section>
+
+<section id="devices">
+  <h2 class="s"><span class="num">۱۲</span>گوشی و دستگاه‌ها</h2>
+  <p>اپ جداگانه در فروشگاه‌ها نداریم. همه از <strong>برنامهٔ وب نصب‌شدنی</strong> استفاده می‌کنند که مثل یک اپ روی صفحهٔ اصلی گوشی قرار می‌گیرد و خودکار به‌روز می‌شود.</p>
+  <ul>
+    <li><strong>نصب پیشنهاد می‌شود:</strong> به شرکت‌کننده (زیر کارت ورود، فقط روی گوشی)، به اسکنر (بعد از جفت شدن) و به غرفه (بعد از اولین ثبت).</li>
+    <li><strong>نصب پیشنهاد نمی‌شود:</strong> در صفحه‌های عمومی، پنل برگزارکننده، مدیریت سامانه و میز پذیرش.</li>
+    <li><strong>بارکدخوان:</strong> در اسکنر، میز پذیرش و غرفه کار می‌کند، فرقی ندارد مکان‌نما کجا باشد.</li>
+    <li><strong>صفحه خاموش نمی‌شود</strong> وقتی اسکنر فعال است یا کارت ورود تمام‌صفحه باز است.</li>
+  </ul>
+  <div class="note"><span class="h">اپ بومی (Flutter) متوقف است</span>
+    <p>پوشهٔ <code>mobile/</code> فقط منطق آفلاین اسکنر را دارد و اپ کاملی نیست. با سرور جدید هم هماهنگ نیست. پیشنهاد ما: همین برنامهٔ وب را ادامه دهید؛ اپ بومی فقط اگر آزمون روی دستگاه واقعی نیاز آن را نشان داد.</p>
+  </div>
+</section>
+
+<section id="ci">
+  <h2 class="s"><span class="num">۱۳</span>بررسی خودکار گیت‌هاب (Actions)</h2>
+  <div class="note danger"><span class="h">الان اجرا نمی‌شود: مشکل پرداخت</span>
+    <p>هیچ‌کدام از بررسی‌ها شروع نشدند چون پرداخت حساب گیت‌هاب ناموفق بوده یا سقف هزینه پر شده است. کد مشکلی ندارد.</p>
+  </div>
+  <ol class="steps">
+    <li><span class="t">در گیت‌هاب:</span> Settings ← Billing and plans (اگر مخزن مال سازمان است، تنظیمات سازمان).</li>
+    <li><span class="t">روش پرداخت را درست کنید</span> یا سقف هزینهٔ Actions را بالا ببرید.</li>
+    <li><span class="t">در تب Actions</span> اجرای ناموفق را باز کنید و «Re-run all jobs» را بزنید.</li>
+  </ol>
+  <p>برای مصرف کمتر، بررسی‌ها حالا فقط روی <code>main</code>، <code>integration/**</code> و درخواست‌های ادغام (Pull Request) اجرا می‌شوند. هر وقت خواستید از Actions ← CI ← «Run workflow» دستی اجرا کنید. نسخهٔ اوبونتو هم روی ۲۴٫۰۴ ثابت شد.</p>
+</section>
+
+<section id="trouble">
+  <h2 class="s"><span class="num">۱۴</span>رفع مشکلات رایج</h2>
+  <div class="tbl"><table>
+    <thead><tr><th>مشکل</th><th>راه‌حل</th></tr></thead>
+    <tbody>
+      <tr><td><code>up</code> روی مرحلهٔ migrate متوقف شد</td><td>پایگاه داده تغییری نکرده است. پیام لاگ نام جدول و ردیف‌های مشکل‌دار را می‌گوید (<code>stack.mjs logs migrate</code>). نسخهٔ قبلی کد را بگیرید و <code>up</code> بزنید تا سایت بالا بیاید؛ بعد ردیف‌ها را درست کنید و دوباره امتحان کنید.</td></tr>
+      <tr><td><code>up</code> می‌گوید کلیدی نیست</td><td>یکی از کلیدهای اصلی در <code>staging.env</code> نیست. آن را از نسخهٔ پشتیبان فایل برگردانید؛ هرگز کلید تازه نسازید.</td></tr>
+      <tr><td><code>check</code> عدد <code>2</code> می‌دهد</td><td>پیام را بخوانید و لاگ‌ها را ببینید: <code>stack.mjs status</code> و <code>stack.mjs logs api</code>.</td></tr>
+      <tr><td>پیامک ارسال نمی‌شود</td><td>در <code>/platform</code> ← وضعیت، صف ارسال را ببینید. کلید sms.ir را در «پیامک» دوباره بررسی کنید.</td></tr>
+      <tr><td>اسکنر همهٔ کارت‌ها را رد می‌کند</td><td>اسکنر قدیمی است. صفحه را دوباره بارگذاری کنید یا از منوی ⋮ «به‌روزرسانی» را بزنید.</td></tr>
+      <tr><td>اسکنر می‌گوید «جفت نشده»</td><td>برگزارکننده کد اتصال تازه بسازد و روی دستگاه «اسکن کد QR اتصال» را بزنید.</td></tr>
+      <tr><td>شرکت‌کننده نمی‌تواند ثبت‌نام کند</td><td>صفحهٔ همایش منتشر شده باشد، زمان ثبت‌نام باز باشد و نوع کارت ورود ظرفیت داشته باشد.</td></tr>
+      <tr><td>پشتیبان‌گیری خطای کلید رمزگذاری می‌دهد</td><td><code>BACKUP_ENCRYPTION_KEY</code> را به <code>/etc/congress/backup.env</code> اضافه کنید (<a href="#upgrade">بخش ۳</a>).</td></tr>
+      <tr><td>هشدار گواهی در مرورگر (سرور آزمایشی)</td><td><code>stack.mjs ca</code> را بزنید و گواهی را در سیستم معتبر کنید، یا از <code>http://localhost:18080</code> استفاده کنید.</td></tr>
+      <tr><td>بررسی‌های گیت‌هاب اجرا نمی‌شوند</td><td>مشکل پرداخت است (<a href="#ci">بخش ۱۳</a>).</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section id="todo">
+  <h2 class="s"><span class="num">۱۵</span>کارهای باقی‌مانده</h2>
+  <ol>
+    <li><strong>استقرار روی سرور آزمایشی</strong> و تمرین کامل با گوشی‌های واقعی (آیفون و اندروید)، بارکدخوان و چاپگر.</li>
+    <li><strong>درست کردن پرداخت گیت‌هاب</strong> و اجرای دوبارهٔ بررسی‌ها.</li>
+    <li><strong>انتخاب سرویس پیامک پشتیبان</strong> برای وقتی که sms.ir کار نکند.</li>
+    <li><strong>ادغام <code>integration/upgrade</code> در <code>main</code></strong> بعد از رضایت از آزمون‌ها.</li>
+  </ol>
+  <p class="k">جزئیات فنی بیشتر: <code>docs/handover/UPGRADE_HANDOVER.md</code> و <code>docs/deployment/STAGING_OPERATIONS.md</code> (انگلیسی).</p>
+</section>
+
+</main>
+</div>
+<footer>راهنمای سامانه همایش · بر اساس شاخهٔ <span dir="ltr">integration/upgrade</span></footer>
+</div>
+
+<script>
+document.querySelectorAll('.cmd button').forEach(function (b) {
+  b.addEventListener('click', function () {
+    var pre = b.parentElement.querySelector('pre');
+    var text = pre.textContent.split('\n').filter(function (l) { return !/^\s*#/.test(l); }).join('\n').trim();
+    var done = function () { b.textContent = 'کپی شد'; setTimeout(function () { b.textContent = 'کپی'; }, 1500); };
+    var fallback = function () { var r = document.createRange(); r.selectNodeContents(pre); var s = getSelection(); s.removeAllRanges(); s.addRange(r); b.textContent = 'انتخاب شد'; setTimeout(function () { b.textContent = 'کپی'; }, 1500); };
+    try { navigator.clipboard.writeText(text).then(done, fallback); } catch (e) { fallback(); }
+  });
+});
+</script>
+
+</body>
+</html>
