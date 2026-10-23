@@ -26,7 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import SessionDep
 from app.models import Event, EventSession, VenuePlace
-from app.routes.events import OwnedEventDep
+from app.routes.events import OwnedEventDep, WritableEventDep, event_day_window
 
 router = APIRouter(prefix="/api/events/{event_id}", tags=["program"])
 
@@ -40,7 +40,12 @@ Speakers = Annotated[str, StringConstraints(strip_whitespace=True, max_length=30
 Description = Annotated[str, StringConstraints(strip_whitespace=True, max_length=4_000)]
 HallName = Annotated[str, StringConstraints(strip_whitespace=True, max_length=120)]
 
-ENDS_BEFORE_STARTS = "ends_at must not be before starts_at"
+ENDS_BEFORE_STARTS = "ends_at must be after starts_at"
+
+
+def hall_key(name: str) -> str:
+    """Hall names are unique per event ignoring case and spacing ("Main  hall" is "main hall")."""
+    return " ".join(name.split()).casefold()
 
 
 # ── Venue directory ──────────────────────────────────────────────────────────────────────────────
@@ -91,6 +96,16 @@ async def _next_position(session: AsyncSession, event_id: uuid.UUID, kind: str) 
     return 0 if highest is None else highest + 1
 
 
+async def _require_unique_hall(
+    session: AsyncSession, event: Event, name: str, except_id: uuid.UUID | None = None
+) -> None:
+    # Serializes hall writes per event, so two concurrent requests cannot both add the same name.
+    await session.execute(select(Event.id).where(Event.id == event.id).with_for_update())
+    halls = await session.scalars(_places(event.id).where(VenuePlace.kind == "hall"))
+    if any(hall.id != except_id and hall_key(hall.name) == hall_key(name) for hall in halls):
+        raise HTTPException(status.HTTP_409_CONFLICT, f"This event already has a hall named “{name}”")
+
+
 async def _own_place(session: AsyncSession, event: Event, place_id: uuid.UUID) -> VenuePlace:
     place = await session.scalar(
         select(VenuePlace).where(VenuePlace.id == place_id, VenuePlace.event_id == event.id)
@@ -107,7 +122,9 @@ async def list_venue_places(event: OwnedEventDep, session: SessionDep) -> list[V
 
 
 @router.post("/venue-places", status_code=status.HTTP_201_CREATED)
-async def create_venue_place(body: VenuePlaceCreate, event: OwnedEventDep, session: SessionDep) -> VenuePlaceOut:
+async def create_venue_place(body: VenuePlaceCreate, event: WritableEventDep, session: SessionDep) -> VenuePlaceOut:
+    if body.kind == "hall":
+        await _require_unique_hall(session, event, body.name)
     place = VenuePlace(
         event_id=event.id,
         kind=body.kind,
@@ -123,9 +140,11 @@ async def create_venue_place(body: VenuePlaceCreate, event: OwnedEventDep, sessi
 
 @router.patch("/venue-places/{place_id}")
 async def update_venue_place(
-    place_id: uuid.UUID, body: VenuePlaceUpdate, event: OwnedEventDep, session: SessionDep
+    place_id: uuid.UUID, body: VenuePlaceUpdate, event: WritableEventDep, session: SessionDep
 ) -> VenuePlaceOut:
     place = await _own_place(session, event, place_id)
+    if body.name is not None and place.kind == "hall":
+        await _require_unique_hall(session, event, body.name, except_id=place.id)
     if body.name is not None:
         place.name = body.name
     if body.location is not None:
@@ -138,9 +157,15 @@ async def update_venue_place(
 
 
 @router.delete("/venue-places/{place_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_venue_place(place_id: uuid.UUID, event: OwnedEventDep, session: SessionDep) -> Response:
-    """Sessions held in a deleted hall stay in the program without a hall (FK ON DELETE SET NULL)."""
+async def delete_venue_place(place_id: uuid.UUID, event: WritableEventDep, session: SessionDep) -> Response:
+    """A hall that sessions are held in cannot be deleted (409 with how many): move them first."""
     place = await _own_place(session, event, place_id)
+    used_by = await session.scalar(select(func.count(EventSession.id)).where(EventSession.hall_id == place.id)) or 0
+    if used_by:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            f"{used_by} session(s) are held in this hall; move them to another hall before deleting it",
+        )
     await session.delete(place)
     await session.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
@@ -160,7 +185,7 @@ class EventSessionCreate(BaseModel):
 
     @model_validator(mode="after")
     def _ends_after_it_starts(self) -> "EventSessionCreate":
-        if self.ends_at < self.starts_at:
+        if self.ends_at <= self.starts_at:
             raise ValueError(ENDS_BEFORE_STARTS)
         return self
 
@@ -189,7 +214,7 @@ class EventSessionImportRow(BaseModel):
 
     @model_validator(mode="after")
     def _ends_after_it_starts(self) -> "EventSessionImportRow":
-        if self.ends_at < self.starts_at:
+        if self.ends_at <= self.starts_at:
             raise ValueError(ENDS_BEFORE_STARTS)
         return self
 
@@ -285,6 +310,14 @@ async def _hall_name(session: AsyncSession, event: Event, hall_id: uuid.UUID | N
     return name
 
 
+def _outside_event_days(event: Event, starts_at: datetime, ends_at: datetime) -> str | None:
+    """Sessions fall within the event's first through last day, read in the event's time zone."""
+    start, end, first, last = event_day_window(event)
+    if starts_at < start or ends_at > end:
+        return f"The session must fall within the event days ({first.isoformat()} to {last.isoformat()}, {event.timezone})"
+    return None
+
+
 async def _own_session(session: AsyncSession, event: Event, session_id: uuid.UUID) -> EventSession:
     item = await session.scalar(
         select(EventSession).where(EventSession.id == session_id, EventSession.event_id == event.id)
@@ -301,7 +334,10 @@ async def list_sessions(event: OwnedEventDep, session: SessionDep) -> list[Event
 
 
 @router.post("/sessions", status_code=status.HTTP_201_CREATED)
-async def create_session(body: EventSessionCreate, event: OwnedEventDep, session: SessionDep) -> EventSessionOut:
+async def create_session(body: EventSessionCreate, event: WritableEventDep, session: SessionDep) -> EventSessionOut:
+    outside = _outside_event_days(event, body.starts_at, body.ends_at)
+    if outside:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, outside)
     hall_name = await _hall_name(session, event, body.hall_id)
     item = EventSession(event_id=event.id, **body.model_dump())
     session.add(item)
@@ -312,20 +348,28 @@ async def create_session(body: EventSessionCreate, event: OwnedEventDep, session
 
 # Declared before /sessions/{session_id} (static paths precede parameterized siblings).
 @router.post("/sessions/import")
-async def import_sessions(body: EventSessionImport, event: OwnedEventDep, session: SessionDep) -> EventSessionImportOut:
+async def import_sessions(body: EventSessionImport, event: WritableEventDep, session: SessionDep) -> EventSessionImportOut:
+    outside = [
+        f"Row {index}: {problem}"
+        for index, row in enumerate(body.sessions, start=1)
+        if (problem := _outside_event_days(event, row.starts_at, row.ends_at))
+    ]
+    if outside:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "; ".join(outside[:20]))
     # One import per event at a time, so two concurrent imports cannot both create the same new hall.
     await session.execute(select(Event.id).where(Event.id == event.id).with_for_update())
 
     halls: dict[str, uuid.UUID] = {}
     for place in await session.scalars(_places(event.id).where(VenuePlace.kind == "hall")):
-        halls.setdefault(place.name.strip().casefold(), place.id)
+        halls.setdefault(hall_key(place.name), place.id)
 
     position = await _next_position(session, event.id, "hall")
     halls_created = 0
     for row in body.sessions:
-        key = row.hall.casefold()
+        key = hall_key(row.hall)
         if key and key not in halls:
-            hall = VenuePlace(id=uuid.uuid4(), event_id=event.id, kind="hall", name=row.hall, position=position)
+            name = " ".join(row.hall.split())
+            hall = VenuePlace(id=uuid.uuid4(), event_id=event.id, kind="hall", name=name, position=position)
             session.add(hall)
             halls[key] = hall.id
             position += 1
@@ -349,7 +393,7 @@ async def import_sessions(body: EventSessionImport, event: OwnedEventDep, sessio
             track=row.track,
             speakers=row.speakers,
             description=row.description,
-            hall_id=halls[row.hall.casefold()] if row.hall else None,
+            hall_id=halls[hall_key(row.hall)] if row.hall else None,
             starts_at=row.starts_at,
             ends_at=row.ends_at,
         )
@@ -361,13 +405,17 @@ async def import_sessions(body: EventSessionImport, event: OwnedEventDep, sessio
 
 @router.patch("/sessions/{session_id}")
 async def update_session(
-    session_id: uuid.UUID, body: EventSessionUpdate, event: OwnedEventDep, session: SessionDep
+    session_id: uuid.UUID, body: EventSessionUpdate, event: WritableEventDep, session: SessionDep
 ) -> EventSessionOut:
     item = await _own_session(session, event, session_id)
     starts_at = body.starts_at or item.starts_at
     ends_at = body.ends_at or item.ends_at
-    if ends_at < starts_at:
+    if ends_at <= starts_at:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, ENDS_BEFORE_STARTS)
+    if body.starts_at is not None or body.ends_at is not None:
+        outside = _outside_event_days(event, starts_at, ends_at)
+        if outside:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, outside)
     hall_id = body.hall_id if "hall_id" in body.model_fields_set else item.hall_id
     hall_name = await _hall_name(session, event, hall_id)
 
@@ -388,7 +436,7 @@ async def update_session(
 
 
 @router.delete("/sessions/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_session(session_id: uuid.UUID, event: OwnedEventDep, session: SessionDep) -> Response:
+async def delete_session(session_id: uuid.UUID, event: WritableEventDep, session: SessionDep) -> Response:
     item = await _own_session(session, event, session_id)
     await session.delete(item)
     await session.commit()
