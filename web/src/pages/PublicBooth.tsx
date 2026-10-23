@@ -186,6 +186,7 @@ export default function PublicBooth() {
       if (data) {
         setIsBookmarked(true);
         setStandee({ status: "saved", already: response.status === 200 });
+        setBookmarkFeedback("fbSaved");
         // The secret has done its job: keep it out of the history and of a shared link.
         setSearchParams((current) => {
           const next = new URLSearchParams(current);
@@ -327,7 +328,7 @@ export default function PublicBooth() {
 
             {codedFeedback && (
               <Notice
-                tone="warning"
+                tone="danger"
                 action={
                   codedFeedback.register ? (
                     <Link to={`/e/${slug}`} className="inline-flex min-h-11 items-center gap-1 font-semibold underline underline-offset-4">

@@ -56,14 +56,15 @@ async function fixture(page: Page, options: { tickets?: unknown[]; signedIn?: bo
   return requests;
 }
 
-const dockLink = (page: Page) => page.getByRole('link', { name: 'View My Pass', exact: true });
+const dockLink = (page: Page) => page.locator('#passes').getByRole('link', { name: 'Show my pass', exact: true });
+const heroCta = (page: Page) => page.getByTestId('hero-cta');
 
 test('program and venue are shown publicly, one day at a time, with map links', async ({ page }) => {
   await fixture(page);
   await page.goto(`/e/${slug}`);
   const program = page.locator('#program');
-  await expect(program.getByRole('heading', { name: 'Programme', level: 2 })).toBeVisible();
-  const days = program.getByRole('group', { name: 'Programme days' });
+  await expect(program.getByRole('heading', { name: 'Program', level: 2 })).toBeVisible();
+  const days = program.getByRole('group', { name: 'Program days' });
   await expect(days.getByRole('button')).toHaveCount(2);
   await expect(program.getByText('Opening keynote on fixture science')).toBeVisible();
   await expect(program.getByText('Closing panel')).toHaveCount(0);
@@ -120,14 +121,15 @@ test('actions row adds to calendar, copies the link when Web Share is missing, a
   await expect(actions.getByRole('link', { name: /Neshan/ })).toHaveCount(0);
 });
 
-test('a held pass turns the dock into View My Pass to the congress pass, with the banner above it', async ({ page }) => {
+test('a held pass: the hero opens it, the passes block is only the dock, and "pass ready" is said once', async ({ page }) => {
   const requests = await fixture(page, { signedIn: true, tickets: [heldTicket] });
   await page.goto(`/e/${slug}`);
+  await expect(heroCta(page)).toHaveAttribute('href', `/c/${slug}/my-ticket`);
+  await expect(heroCta(page)).toHaveText('My pass');
   await expect(dockLink(page)).toHaveAttribute('href', `/c/${slug}/my-ticket`);
-  await expect(page.getByRole('button', { name: /Reserve Free Pass/ })).toHaveCount(0);
-  const banner = page.getByText('Active Pass Detected');
-  await expect(banner).toBeVisible();
-  expect((await banner.boundingBox())!.y).toBeLessThan((await dockLink(page).boundingBox())!.y);
+  await expect(page.locator('#passes fieldset')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /Reserve free pass/ })).toHaveCount(0);
+  await expect(page.getByText('Your pass is ready')).toHaveCount(1);
   // The header is session-aware too.
   await expect(page.getByRole('banner').getByRole('link', { name: 'My pass' })).toHaveAttribute('href', `/c/${slug}/my-ticket`);
   await dockLink(page).click();
@@ -135,28 +137,53 @@ test('a held pass turns the dock into View My Pass to the congress pass, with th
   expect(requests).toContain('GET /api/attendees/me/tickets');
 });
 
-test('a pass for another congress keeps the reservation; success shows the QR sheet and switches the dock', async ({ page }) => {
+test('one open pass type, signed in: one tap on the hero reserves; the success sheet has two buttons and ✕', async ({ page }) => {
   await fixture(page, { signedIn: true, tickets: [{ ...heldTicket, event_slug: 'other-congress' }] });
   await page.goto(`/e/${slug}`);
-  await page.getByRole('button', { name: /Reserve Free Pass/ }).click();
+  await heroCta(page).click();
   const sheet = page.getByRole('dialog');
-  await expect(sheet.getByRole('heading', { name: 'Pass Reserved Successfully' })).toBeVisible();
+  await expect(sheet.getByRole('heading', { name: 'Your pass is ready' })).toBeVisible();
   await expect(sheet.getByRole('img', { name: 'QR code of your pass' })).toBeVisible();
-  await expect(sheet).toContainText('We have sent you an SMS');
+  await expect(sheet).toContainText('We also texted you the link.');
+  // Exactly two actions besides the ✕.
+  await expect(sheet.getByRole('button')).toHaveCount(3);
+  await expect(sheet.getByRole('button', { name: 'Close' })).toBeVisible();
+  await expect(sheet.getByRole('button', { name: 'Show my pass' })).toBeVisible();
   await expect(sheet.getByRole('button', { name: 'Add to calendar' })).toBeVisible();
-  await sheet.getByRole('button', { name: 'Stay on Event Page' }).click();
+  await sheet.getByRole('button', { name: 'Close' }).click();
   await expect(dockLink(page)).toHaveAttribute('href', `/c/${slug}/my-ticket`);
+  await expect(heroCta(page)).toHaveAttribute('href', `/c/${slug}/my-ticket`);
+});
+
+test('one open pass type, signed out: one tap on the hero opens the reservation dialog, with no description', async ({ page }) => {
+  await fixture(page);
+  await page.goto(`/e/${slug}`);
+  await heroCta(page).click();
+  const dialog = page.getByRole('dialog', { name: 'Get your General pass' });
+  await expect(dialog).toBeVisible();
+  await expect(dialog).not.toHaveAttribute('aria-describedby');
+  await expect(dialog.getByTestId('otp-mobile-step')).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Send code' })).toBeVisible();
+});
+
+test('several open pass types: the hero scrolls to the passes', async ({ page }) => {
+  await fixture(page);
+  await page.route(`**/api/public/events/${slug}`, (route) =>
+    route.fulfill({ contentType: 'application/json', body: JSON.stringify({ ...event, ticket_tiers: [...event.ticket_tiers, { ...event.ticket_tiers[0], id: 'tier-2', name: 'Student' }] }) }));
+  await page.goto(`/e/${slug}`);
+  await expect(heroCta(page)).toHaveAttribute('href', '#passes');
 });
 
 test('a duplicate reservation (409) shows the held pass instead of an error', async ({ page }) => {
   await fixture(page, { signedIn: true, reserve: 409 });
   await page.goto(`/e/${slug}`);
-  await page.getByRole('button', { name: /Reserve Free Pass/ }).click();
+  await page.getByRole('button', { name: /Reserve free pass/ }).click();
   await expect(dockLink(page)).toHaveAttribute('href', `/c/${slug}/my-ticket`);
   await expect(page.getByRole('alert')).toHaveCount(0);
 });
 
-test('signed out, the header offers sign-in; no staff or platform links on the congress page', async ({ page }) => {
+test('signed out, the header offers sign-in and no menu; no staff or platform links on the congress page', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
   await fixture(page);
   await page.goto(`/e/${slug}`);
   await expect(page.getByRole('heading', { name: event.name, exact: true })).toBeVisible();
@@ -164,11 +191,12 @@ test('signed out, the header offers sign-in; no staff or platform links on the c
     await expect(page.locator(`a[href="${href}"]`)).toHaveCount(0);
   }
   await expect(page.locator('a[href^="/#"]')).toHaveCount(0);
-  await expect(page.getByRole('link', { name: 'Attendee Sign In' }).first()).toBeVisible();
-  // The mobile menu carries attendee entries only.
-  await page.getByRole('button', { name: 'Open navigation menu' }).click();
-  const menu = page.locator('#mobile-nav');
-  await expect(menu.getByRole('link')).toHaveText(['Attendee Sign In', 'My Network']);
+  await expect(page.getByRole('link', { name: 'Attendee sign in' }).first()).toBeVisible();
+  await expect(page.getByRole('button', { name: /navigation menu/ })).toHaveCount(0);
+  await expect(page.locator('#mobile-nav')).toHaveCount(0);
+  // The footer keeps the congress, one line and the pass link: no platform blurb.
+  await expect(page.locator('footer')).not.toContainText('Registration opens from each congress');
+  await expect(page.locator('footer')).not.toContainText('listed congresses also appear');
 });
 
 test('the booth index stacks on a 390 px phone without horizontal overflow', async ({ page }) => {
@@ -188,7 +216,7 @@ test('the booth index stacks on a 390 px phone without horizontal overflow', asy
 test('an unknown congress offers "find my pass" instead of the platform home', async ({ page }) => {
   await fixture(page);
   await page.goto('/e/no-such-congress');
-  await expect(page.getByRole('heading', { name: 'Event Not Found' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Congress not found' })).toBeVisible();
   await expect(page.getByRole('main').getByRole('link', { name: 'Find my pass' })).toHaveAttribute('href', '/sign-in');
   await expect(page.getByRole('link', { name: 'Return to Platform Home' })).toHaveCount(0);
 });
@@ -196,8 +224,18 @@ test('an unknown congress offers "find my pass" instead of the platform home', a
 test('the platform home has the attendee entry above the fold and no route patterns', async ({ page }) => {
   await fixture(page);
   await page.goto('/');
-  const entry = page.getByRole('link', { name: 'Find your pass' });
-  await expect(entry).toHaveAttribute('href', '/sign-in');
+  const entry = page.getByTestId('home-passes');
+  await expect(entry).toHaveText('Find your pass');
+  await expect(entry).toHaveAttribute('href', '/me');
   expect((await entry.boundingBox())!.y).toBeLessThan(915);
   await expect(page.locator('body')).not.toContainText(/\/(e|c)\/:|:slug|:pointId|:id\b/);
+});
+
+test('the platform home names the stored passes «کارت‌های ورود من» and has no feature essays', async ({ page }) => {
+  await fixture(page, { signedIn: true });
+  await page.addInitScript(() => localStorage.setItem('congress_attendee_locale', 'fa'));
+  await page.goto('/');
+  await expect(page.getByTestId('home-passes')).toHaveText('کارت‌های ورود من');
+  await expect(page.getByTestId('home-passes')).toHaveAttribute('href', '/me');
+  for (const id of ['capabilities', 'roles', 'architecture']) await expect(page.locator(`#${id}, a[href="#${id}"]`)).toHaveCount(0);
 });

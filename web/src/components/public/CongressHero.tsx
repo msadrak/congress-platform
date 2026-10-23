@@ -9,7 +9,7 @@ import { buttonClassName } from "../ui/buttonStyles";
 import { Icon } from "../ui/Icon";
 import { Bidi } from "./Bidi";
 import { num, proseDir, publicCopy, type PublicLocale } from "./copy";
-import { calendarDays, congressTiming, formatDateRange, formatMoment, venueZoneNote } from "./format";
+import { calendarDays, congressTiming, formatDateRange, formatMoment, venueZoneLabel } from "./format";
 import { registrationSummary, type RegistrationFields } from "../../lib/registrationWindow";
 import { PageImg } from "./page/PageImg";
 import { useNow } from "../attendee/useNow";
@@ -74,7 +74,7 @@ export function CongressHero({ event, locale, now: givenNow, hero, accent, image
   const summary = registrationSummary(event, event.ticket_tiers, now);
   const status = summary.kind;
   const days = calendarDays(event.starts_at, event.ends_at, tz);
-  const zone = venueZoneNote(tz, event.starts_at);
+  const zone = venueZoneLabel(tz, event.starts_at, locale);
   const { layout, image: cover, mobileImage, focus } = heroPresentation(hero, images);
 
   const title = localized(hero.title, locale) ?? event.name;

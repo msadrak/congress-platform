@@ -6,7 +6,7 @@ import { Icon } from "../ui/Icon";
 import { safeTimeZone } from "../../lib/congressPhase";
 import { formatDate, formatTime } from "../../lib/format";
 import { num, publicCopy, type PublicLocale } from "./copy";
-import { venueZoneNote } from "./format";
+import { venueZoneLabel } from "./format";
 
 /** "Now" for live badges and the now/next card, refreshed every minute. */
 function useNow(): number {
@@ -176,7 +176,7 @@ export function PublicProgram({ sessions, locale, hallIds, timeZone }: {
   if (!day) return null;
   const shown = track ? day.sessions.filter((s) => s.track?.trim() === track) : day.sessions;
   const status = liveAndNext(sessions, now, tz);
-  const zone = venueZoneNote(tz, day.sessions[0].starts_at);
+  const zone = venueZoneLabel(tz, day.sessions[0].starts_at, locale);
 
   return (
     <div className="space-y-6">

@@ -57,7 +57,7 @@ const fa = {
   statusFull: "ظرفیت تکمیل",
   statusClosed: "ثبت‌نام بسته است",
   statusOpens: (when: string) => `ثبت‌نام از ${when}`,
-  zoneNote: (zone: string) => `ساعت‌ها به وقت محل همایش (${zone})`,
+  zoneNote: (zone: string) => `ساعت‌ها به ${zone}`,
   timingLive: "در حال برگزاری",
   timingEnded: "برگزار شد",
   timingToday: "آغاز: امروز",

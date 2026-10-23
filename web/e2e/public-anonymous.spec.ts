@@ -5,6 +5,8 @@ import type { Page } from '@playwright/test';
 const event = { id: 'event-fixture', name: 'T04 Fixture Congress', slug: 't04-fixture', starts_at: '2027-04-10T08:00:00Z', ends_at: '2027-04-10T18:00:00Z', location: 'Fixture Hall', description: 'Synthetic public transport fixture', ticket_tiers: [{ id: 'tier-fixture', event_id: 'event-fixture', name: 'General', quota: 100, reserved_count: 0, is_open: true, created_at: '2027-01-01T00:00:00Z' }], venue: [], sessions: [] };
 const booth = { id: 'booth-fixture', name: 'T04 Fixture Booth', slug: 'fixture-booth', location: 'A1', description: 'Fixture company', website_url: '', brochure_url: '', event_name: event.name, event_slug: event.slug, is_bookmarked: true };
 const userToken = 'synthetic-t04-user';
+/** The booth page's one save toggle: «ذخیرهٔ غرفه» ↔ «ذخیره شد» (aria-pressed carries the state). */
+const SAVE = /^(Save booth|Saved)$/;
 const MOBILE = '09121234567';
 const CODE = '482913';
 const fixtureUser = { id: 'user-fixture', mobile: MOBILE, full_name: 'Fixture User', organization: '', title: '', share_contact_with_peers: false };
@@ -81,10 +83,10 @@ for (const saved of [false, true]) test(`public Booth ignores optional saved bit
   await page.goto('/');
   await storeCredentials(page);
   await page.goto('/e/t04-fixture/booths/booth-fixture');
-  const button = page.getByRole('button', { name: 'Bookmark Booth', pressed: saved });
+  const button = page.getByRole('button', { name: SAVE, pressed: saved });
   await expect(button).toBeEnabled();
   await button.click();
-  await expect(page.getByRole('button', { name: 'Bookmark Booth', pressed: !saved })).toBeEnabled();
+  await expect(page.getByRole('button', { name: SAVE, pressed: !saved })).toBeEnabled();
   expect(requests.filter(r => r.path.startsWith('/api/public/')).every(r => r.anonymous)).toBe(true);
   expect(requests.filter(r => r.path.includes('/bookmarks/')).every(r => r.userOnly)).toBe(true);
   expect(requests.some(r => r.method === (saved ? 'DELETE' : 'POST'))).toBe(true);
@@ -102,7 +104,7 @@ test('expired bookmark list does not fail anonymous public read or use another c
   expect(initialLists).toBeGreaterThanOrEqual(1);
   expect(initialLists).toBeLessThanOrEqual(2);
   // The expired session was cleared: bookmarking now leads to sign-in and returns to this booth.
-  await expect(page.getByRole('link', { name: 'Bookmark Booth' })).toHaveAttribute('href', `/c/t04-fixture/sign-in?next=${encodeURIComponent('/e/t04-fixture/booths/booth-fixture')}`);
+  await expect(page.getByRole('link', { name: 'Sign in and save' })).toHaveAttribute('href', `/c/t04-fixture/sign-in?next=${encodeURIComponent('/e/t04-fixture/booths/booth-fixture')}`);
   expect(requests.filter(r => r.path.includes('/bookmarks/')).length).toBe(initialLists);
   expect(requests.filter(r => r.path.includes('/bookmarks/')).every(r => r.userOnly)).toBe(true);
   await unchangedAlternatives(page);
@@ -112,7 +114,7 @@ test('unauthorized mutation clears only exact User session without retry or opti
   const requests = await fixture(page, { mutationStatus: 401 });
   await page.goto('/'); await storeCredentials(page);
   await page.goto('/e/t04-fixture/booths/booth-fixture');
-  await page.getByRole('button', { name: 'Bookmark Booth' }).click();
+  await page.getByRole('button', { name: SAVE }).click();
   await expect(page.getByRole('status')).toContainText('session has expired');
   await expect(page.getByRole('status')).not.toContainText('401');
   expect(requests.filter(r => r.method === 'POST').length).toBe(1);
@@ -125,10 +127,10 @@ test('public 404 remains visible and anonymous with every credential stored', as
   const requests = await fixture(page, { publicStatus: 404 });
   await page.goto('/'); await storeCredentials(page);
   await page.goto('/e/missing');
-  await expect(page.getByRole('heading', { name: 'Event Not Found' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Congress not found' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Try Again' })).toHaveCount(0);
   await page.goto('/e/missing/booths/missing');
-  await expect(page.getByRole('heading', { name: 'Booth Profile Not Found' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Booth not found' })).toBeVisible();
   expect(requests.filter(r => r.path.startsWith('/api/public/')).every(r => r.anonymous)).toBe(true);
 });
 
@@ -151,7 +153,7 @@ test('a failed public load is not called "not found" and can be retried', async 
 for (const loginStatus of [200, 401]) test(`User SMS sign-in ${loginStatus} is anonymous with all sessions stored; reservation/navigation preserved`, async ({ page }) => {
   const requests = await fixture(page, { loginStatus });
   await page.goto('/e/t04-fixture');
-  await page.getByRole('button', { name: /Reserve Free Pass/ }).click();
+  await page.getByRole('button', { name: /Reserve free pass/ }).click();
   await storeCredentials(page);
   await enterCode(page, page.getByRole('dialog'));
   if (loginStatus === 401) {
@@ -159,14 +161,14 @@ for (const loginStatus of [200, 401]) test(`User SMS sign-in ${loginStatus} is a
     expect(await page.evaluate(token => localStorage.getItem('congress_attendee_token') === token, userToken)).toBe(true);
     expect(requests.some(r => r.path.endsWith('/tickets/reserve'))).toBe(false);
   } else {
-    await expect(page.getByRole('heading', { name: 'Pass Reserved Successfully' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Your pass is ready' })).toBeVisible();
     expect(requests.filter(r => r.path.endsWith('/tickets/reserve')).every(r => r.userOnly)).toBe(true);
   }
   expect(requests.filter(r => r.path === '/api/auth/otp/verify').length).toBe(1);
   expect(requests.filter(r => r.path.startsWith('/api/auth/otp/')).every(r => r.anonymous)).toBe(true);
   await unchangedAlternatives(page);
   if (loginStatus === 200) {
-    await page.getByRole('button', { name: 'View my pass' }).click();
+    await page.getByRole('button', { name: 'Show my pass' }).click();
     await expect(page).toHaveURL(/\/c\/t04-fixture\/my-ticket$/);
   }
 });
@@ -174,18 +176,18 @@ for (const loginStatus of [200, 401]) test(`User SMS sign-in ${loginStatus} is a
 test('a new number signs up anonymously with non-User sessions stored and stores the returned User for reservation', async ({ page }) => {
   const requests = await fixture(page, { newNumber: true });
   await page.goto('/e/t04-fixture');
-  await page.getByRole('button', { name: /Reserve Free Pass/ }).click();
+  await page.getByRole('button', { name: /Reserve free pass/ }).click();
   await storeCredentials(page, false);
   const dialog = page.getByRole('dialog');
   await enterCode(page, dialog);
   await dialog.getByLabel('Full name').fill('Fixture User');
-  await dialog.getByRole('button', { name: 'Create my account' }).click();
-  await expect(page.getByRole('heading', { name: 'Pass Reserved Successfully' })).toBeVisible();
+  await dialog.getByRole('button', { name: 'Get my pass' }).click();
+  await expect(page.getByRole('heading', { name: 'Your pass is ready' })).toBeVisible();
   expect(requests.filter(r => r.path === '/api/auth/otp/complete').length).toBe(1);
   expect(requests.filter(r => r.path.startsWith('/api/auth/otp/')).every(r => r.anonymous)).toBe(true);
   expect(requests.filter(r => r.path.endsWith('/tickets/reserve')).every(r => r.userOnly)).toBe(true);
   await unchangedAlternatives(page);
-  await page.getByRole('button', { name: 'View my pass' }).click();
+  await page.getByRole('button', { name: 'Show my pass' }).click();
   await expect(page).toHaveURL(/\/c\/t04-fixture\/my-ticket$/);
 });
 
@@ -206,8 +208,8 @@ test('without User session, other stored credentials cannot authorize bookmark m
   const requests = await fixture(page);
   await page.goto('/'); await storeCredentials(page, false);
   await page.goto('/e/t04-fixture/booths/booth-fixture');
-  await expect(page.getByRole('link', { name: 'Bookmark Booth' })).toHaveAttribute('href', `/c/t04-fixture/sign-in?next=${encodeURIComponent('/e/t04-fixture/booths/booth-fixture')}`);
-  await expect(page.getByRole('button', { name: 'Bookmark Booth' })).toHaveCount(0);
+  await expect(page.getByRole('link', { name: 'Sign in and save' })).toHaveAttribute('href', `/c/t04-fixture/sign-in?next=${encodeURIComponent('/e/t04-fixture/booths/booth-fixture')}`);
+  await expect(page.getByRole('button', { name: SAVE })).toHaveCount(0);
   expect(requests.some(r => r.path.includes('/bookmarks/'))).toBe(false);
 });
 
@@ -238,7 +240,7 @@ test('late public and saved-state responses cannot replace the next slug/Booth',
   release.resolve();
   await lateResponse;
   await expect(page.getByRole('heading', { name: 'Stale Booth' })).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'Bookmark Booth', pressed: true })).toBeEnabled();
+  await expect(page.getByRole('button', { name: SAVE, pressed: true })).toBeEnabled();
 });
 
 test('late login after slug change does not reserve the old event or reopen stale dialogs', async ({ page }) => {
@@ -254,7 +256,7 @@ test('late login after slug change does not reserve the old event or reopen stal
     await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ ...event, slug: 'other', name: 'Next Congress' }) });
   });
   await page.goto('/e/t04-fixture');
-  await page.getByRole('button', { name: /Reserve Free Pass/ }).click();
+  await page.getByRole('button', { name: /Reserve free pass/ }).click();
   await enterCode(page, page.getByRole('dialog'));
   await started.promise;
   await page.evaluate(() => {
@@ -266,7 +268,7 @@ test('late login after slug change does not reserve the old event or reopen stal
   release.resolve();
   await lateResponse;
   await expect(page.getByRole('dialog')).toHaveCount(0);
-  await expect(page.getByRole('button', { name: /Reserve Free Pass/ })).toBeEnabled();
+  await expect(page.getByRole('button', { name: /Reserve free pass/ })).toBeEnabled();
   expect(requests.some(r => r.path.endsWith('/tickets/reserve'))).toBe(false);
   expect(await page.evaluate(() => localStorage.getItem('congress_attendee_token') === null)).toBe(true);
 });
@@ -321,7 +323,7 @@ test('R1 delayed saved-state response from token A never appears for token B', a
   held.release();
   // A's late response triggers a re-render that reloads the saved state for B.
   await expect.poll(() => held.lookups.some(l => l.auth === `Bearer ${userTokenB}`)).toBe(true);
-  await expect(page.getByRole('button', { name: 'Bookmark Booth' })).toBeEnabled();
+  await expect(page.getByRole('button', { name: SAVE })).toBeEnabled();
   expect(await sawSaved(page)).toBe(false);
   expect(await storedToken(page)).toBe(userTokenB);
 });
@@ -337,7 +339,7 @@ test('R2 delayed 401 for token A cannot delete token B or any other credential',
   await switchToken(page, userTokenB);
   held.release();
   await expect.poll(() => held.lookups.some(l => l.auth === `Bearer ${userTokenB}`)).toBe(true);
-  await expect(page.getByRole('button', { name: 'Bookmark Booth' })).toBeEnabled();
+  await expect(page.getByRole('button', { name: SAVE })).toBeEnabled();
   expect(held.lookups.some(l => l.status === 401)).toBe(true);
   expect(await storedToken(page)).toBe(userTokenB);
   await expect(page.getByRole('status')).toHaveCount(0);
@@ -358,7 +360,7 @@ test('R3 mutation completing after navigation cannot change the next booth', asy
   });
   await page.goto('/'); await storeCredentials(page);
   await page.goto('/e/t04-fixture/booths/booth-x');
-  const button = page.getByRole('button', { name: 'Bookmark Booth' });
+  const button = page.getByRole('button', { name: SAVE });
   await expect(button).toBeEnabled();
   await button.click();
   await started.promise;
@@ -366,11 +368,11 @@ test('R3 mutation completing after navigation cannot change the next booth', asy
     history.pushState({}, '', '/e/t04-fixture/booths/booth-y');
     dispatchEvent(new PopStateEvent('popstate'));
   });
-  await expect(page.getByRole('button', { name: 'Bookmark Booth' })).toBeEnabled();
+  await expect(page.getByRole('button', { name: SAVE })).toBeEnabled();
   const lateResponse = page.waitForResponse(response => response.url().endsWith('/bookmarks/booths/booth-x'));
   release.resolve();
   await lateResponse;
-  await expect(page.getByRole('button', { name: 'Bookmark Booth' })).toBeEnabled();
+  await expect(page.getByRole('button', { name: SAVE })).toBeEnabled();
   await expect(page.getByRole('status')).toHaveCount(0);
   expect(await sawSaved(page)).toBe(false);
   // The request already in flight cannot be recalled; nothing else is dispatched for either booth.
@@ -384,7 +386,7 @@ test('R4 click after a cross-tab token switch dispatches no mutation with the st
   await watchSavedState(page);
   await page.goto('/'); await storeCredentials(page);
   await page.goto('/e/t04-fixture/booths/booth-fixture');
-  const button = page.getByRole('button', { name: 'Bookmark Booth' });
+  const button = page.getByRole('button', { name: SAVE });
   await expect(button).toBeEnabled();
   await switchToken(page, userTokenB);
   await button.click();
@@ -392,6 +394,6 @@ test('R4 click after a cross-tab token switch dispatches no mutation with the st
   expect(requests.filter(r => r.method === 'POST' || r.method === 'DELETE')).toEqual([]);
   expect(await storedToken(page)).toBe(userTokenB);
   expect(await sawSaved(page)).toBe(false);
-  await expect(page.getByRole('button', { name: 'Bookmark Booth' })).toBeEnabled();
+  await expect(page.getByRole('button', { name: SAVE })).toBeEnabled();
   await unchangedAlternatives(page);
 });
