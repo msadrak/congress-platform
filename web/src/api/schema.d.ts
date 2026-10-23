@@ -1003,7 +1003,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Search Event Attendees */
+        /**
+         * Search Event Attendees
+         * @description Newest first. Names, organizations and titles match Persian-folded and literally (app.search: ي/ك typed on
+         *     an Arabic keyboard find ی/ک, `%` and `_` are not wildcards); a run of digits also matches the mobile.
+         */
         get: operations["search_event_attendees_api_events__event_id__attendees_get"];
         put?: never;
         post?: never;
@@ -3350,6 +3354,11 @@ export interface components {
             event_slug: string;
             /** Is Organizer Admin */
             is_organizer_admin: boolean;
+            /**
+             * Is Archived
+             * @default false
+             */
+            is_archived: boolean;
         };
         /** DeskOperatorCreate */
         DeskOperatorCreate: {
@@ -8639,6 +8648,15 @@ export interface operations {
                     "application/json": components["schemas"]["DeskRegistrationOut"];
                 };
             };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description ROLE_FORBIDDEN: needs the staff role */
             403: {
                 headers: {
@@ -8648,8 +8666,26 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description Conflict */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Gone */
+            410: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -8960,6 +8996,15 @@ export interface operations {
                     "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
         };
     };
     reissue_attendee_ticket_api_events__event_id__attendees__ticket_id__reissue_post: {
@@ -9023,6 +9068,15 @@ export interface operations {
                     "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
         };
     };
     transfer_attendee_ticket_api_events__event_id__attendees__ticket_id__transfer_post: {
@@ -9084,6 +9138,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
         };
@@ -9240,6 +9303,24 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description Validation Error */
             422: {
                 headers: {
@@ -9247,6 +9328,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
         };

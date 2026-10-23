@@ -34,7 +34,7 @@ from app.models import (
 from app.rate_limit import LONGEST_WINDOW_SECONDS, Budget, limiter
 from app.routes.auth import OtpCode, verify_code
 from app.routes.checkin import CheckInPointOut, ScanSubmission, _record_scans, normalize_qr_secret
-from app.routes.events import OwnedEventDep
+from app.routes.events import ARCHIVED_READ_ONLY, OwnedEventDep, WritableEventDep
 from app.routes.participants import (
     ParticipantCancel,
     ParticipantReissue,
@@ -51,7 +51,8 @@ from app.security import (
 )
 from app.sms import SmsGateway, sms_provider
 from app.sms.outbox import link_origin, queue_operator_invite, queue_ticket_confirmation, ticket_confirmation_text
-from app.sms.phone import IranMobile, OptionalIranMobile, ascii_digits, search_digits
+from app.search import fold, text_matches
+from app.sms.phone import IranMobile, OptionalIranMobile, search_digits
 from app.ticket_lifecycle import (
     TICKET_QR_TYPE,
     TicketStateError,
@@ -126,6 +127,8 @@ class DeskMeOut(BaseModel):
     event_name: str
     event_slug: str
     is_organizer_admin: bool
+    # An archived congress's desk can look attendees up but changes nothing (409 EVENT_ARCHIVED).
+    is_archived: bool = False
 
 
 class DeskRegistrationCreate(BaseModel):
@@ -351,6 +354,33 @@ async def authorized_desk_operator(
 AuthorizedDeskDep = Annotated[AuthorizedDeskContext, Depends(authorized_desk_operator)]
 
 
+async def writable_desk(desk_ctx: AuthorizedDeskDep) -> AuthorizedDeskContext:
+    """The desk of a congress that accepts changes: an archived congress's desk can only look things up (409)."""
+    if desk_ctx.event.archived_at is not None:
+        raise ApiError(status.HTTP_409_CONFLICT, "EVENT_ARCHIVED", ARCHIVED_READ_ONLY)
+    return desk_ctx
+
+
+WritableDeskDep = Annotated[AuthorizedDeskContext, Depends(writable_desk)]
+
+# SMS notices a desk change sends (cancel, reissue, transfer): spaced out per ticket and capped per desk actor
+# and per congress, so a desk cannot run the platform's SMS allowance down. Without an SMS the change is free.
+DESK_NOTICE_PER_TICKET = Budget(5, LONGEST_WINDOW_SECONDS)
+DESK_NOTICE_PER_ACTOR = Budget(100, LONGEST_WINDOW_SECONDS)
+DESK_NOTICE_PER_EVENT = Budget(300, LONGEST_WINDOW_SECONDS)
+
+
+async def _consume_notice_budget(request: Request, desk_ctx: AuthorizedDeskContext, ticket_id: uuid.UUID) -> None:
+    actor = f"operator:{desk_ctx.operator.id}" if desk_ctx.operator else "organizer"
+    await limiter(request).consume(
+        (f"sms:desk-notice:{ticket_id}", DESK_NOTICE_PER_TICKET),
+        (f"sms:desk-notice:actor:{desk_ctx.event.id}:{actor}", DESK_NOTICE_PER_ACTOR),
+        (f"sms:desk-notice:event:{desk_ctx.event.id}", DESK_NOTICE_PER_EVENT),
+        detail="Too many messages were sent for this ticket from the desk. Try again later, or without an SMS.",
+        code="DESK_SMS_RATE_LIMITED",
+    )
+
+
 # -----------------------------------------------------------------------------
 # Operator Authentication & Management Routes
 # -----------------------------------------------------------------------------
@@ -438,6 +468,7 @@ async def get_current_desk_operator(
         event_name=desk_ctx.event.name,
         event_slug=desk_ctx.event.slug,
         is_organizer_admin=desk_ctx.is_organizer_admin,
+        is_archived=desk_ctx.event.archived_at is not None,
     )
 
 
@@ -487,7 +518,7 @@ async def list_desk_operators(
     responses=error_responses(status.HTTP_409_CONFLICT),
 )
 async def add_desk_operator(
-    event: OwnedEventDep,
+    event: WritableEventDep,
     body: DeskOperatorCreate,
     request: Request,
     session: SessionDep,
@@ -579,7 +610,7 @@ def _operator_out(operator: DeskOperator, mobile: str | None) -> DeskOperatorOut
     responses=error_responses(status.HTTP_404_NOT_FOUND, status.HTTP_409_CONFLICT),
 )
 async def restore_desk_operator(
-    event: OwnedEventDep,
+    event: WritableEventDep,
     operator_id: uuid.UUID,
     request: Request,
     session: SessionDep,
@@ -708,14 +739,14 @@ async def _claim_walk_in_key(
     )
 
 
-async def _tier_unavailable(session: AsyncSession, event: Event, tier_id: uuid.UUID) -> HTTPException:
-    """Why a place in the tier could not be taken."""
+async def _tier_unavailable(session: AsyncSession, event: Event, tier_id: uuid.UUID) -> ApiError:
+    """Why a place in the tier could not be taken, with the codes (and statuses) of the attendee reservation."""
     tier = await session.get(TicketTier, tier_id)
     if tier is None or tier.event_id != event.id:
-        return HTTPException(status.HTTP_404_NOT_FOUND, "Ticket tier not found")
+        return ApiError(status.HTTP_404_NOT_FOUND, "TIER_NOT_FOUND", "Ticket tier not found")
     if not tier.is_open:
-        return HTTPException(status.HTTP_400_BAD_REQUEST, "Ticket tier is closed for registration")
-    return HTTPException(status.HTTP_410_GONE, "Ticket tier is sold out / quota exhausted")
+        return ApiError(status.HTTP_400_BAD_REQUEST, "TIER_CLOSED", "Ticket tier is closed for registration")
+    return ApiError(status.HTTP_410_GONE, "TIER_SOLD_OUT", "Ticket tier is sold out / quota exhausted")
 
 
 async def _reactivate_walk_in(
@@ -763,10 +794,12 @@ async def _reactivate_walk_in(
 @router.post(
     "/api/events/{event_id}/desk-registrations",
     status_code=status.HTTP_201_CREATED,
-    responses=error_responses(status.HTTP_409_CONFLICT),
+    responses=error_responses(
+        status.HTTP_400_BAD_REQUEST, status.HTTP_404_NOT_FOUND, status.HTTP_409_CONFLICT, status.HTTP_410_GONE
+    ),
 )
 async def create_desk_registration(
-    desk_ctx: AuthorizedDeskDep,
+    desk_ctx: WritableDeskDep,
     body: DeskRegistrationCreate,
     request: Request,
     response: Response,
@@ -944,20 +977,20 @@ async def _search_items(
 async def search_event_attendees(
     desk_ctx: AuthorizedDeskDep,
     session: SessionDep,
-    q: Annotated[str, Query()] = "",
+    q: Annotated[str, Query(max_length=200)] = "",
     limit: Annotated[int, Query(ge=1, le=100)] = 50,
 ) -> list[AttendeeSearchItem]:
+    """Newest first. Names, organizations and titles match Persian-folded and literally (app.search: ي/ك typed on
+    an Arabic keyboard find ی/ک, `%` and `_` are not wildcards); a run of digits also matches the mobile."""
     event = desk_ctx.event
-    term = q.strip()
+    term = fold(q)
     query = _attendee_query(event.id)
     if term:
-        like_term = f"%{ascii_digits(term)}%"
-        digits = search_digits(term)
+        digits = search_digits(q)
         query = query.where(
             or_(
-                Ticket.attendee_full_name.ilike(like_term),
-                Ticket.attendee_organization.ilike(like_term),
-                *([User.mobile.contains(digits)] if digits else []),
+                text_matches(term, Ticket.attendee_full_name, Ticket.attendee_organization, Ticket.attendee_title),
+                *([User.mobile.contains(digits, autoescape=True)] if digits else []),
             )
         )
     rows = (await session.execute(query.order_by(Ticket.created_at.desc()).limit(limit))).all()
@@ -1092,6 +1125,9 @@ def _sms_origin(request: Request) -> str:
 
 DESK_NOT_FOUND = error_responses(status.HTTP_404_NOT_FOUND)
 DESK_NOT_FOUND_OR_CONFLICT = error_responses(status.HTTP_404_NOT_FOUND, status.HTTP_409_CONFLICT)
+DESK_NOTICE_RESPONSES = error_responses(
+    status.HTTP_404_NOT_FOUND, status.HTTP_409_CONFLICT, status.HTTP_429_TOO_MANY_REQUESTS
+)
 
 
 @router.get("/api/events/{event_id}/attendees/{ticket_id}")
@@ -1105,7 +1141,7 @@ async def get_attendee_ticket_detail(
 
 @router.patch("/api/events/{event_id}/attendees/{ticket_id}", responses=DESK_NOT_FOUND)
 async def update_attendee_registration(
-    desk_ctx: AuthorizedDeskDep,
+    desk_ctx: WritableDeskDep,
     ticket_id: uuid.UUID,
     body: ParticipantUpdate,
     request: Request,
@@ -1124,9 +1160,9 @@ async def update_attendee_registration(
     return await _attendee_card(session, desk_ctx.event, ticket_id)
 
 
-@router.post("/api/events/{event_id}/attendees/{ticket_id}/cancel", responses=DESK_NOT_FOUND_OR_CONFLICT)
+@router.post("/api/events/{event_id}/attendees/{ticket_id}/cancel", responses=DESK_NOTICE_RESPONSES)
 async def cancel_attendee_ticket(
-    desk_ctx: AuthorizedDeskDep,
+    desk_ctx: WritableDeskDep,
     ticket_id: uuid.UUID,
     body: ParticipantCancel,
     request: Request,
@@ -1135,6 +1171,8 @@ async def cancel_attendee_ticket(
     """Cancel the ticket: its place returns to the tier and its pass stops working (app.ticket_lifecycle)."""
     event = desk_ctx.event
     ticket = await _desk_ticket(session, event, ticket_id)
+    if body.notify and ticket.status == "active":
+        await _consume_notice_budget(request, desk_ctx, ticket.id)
     try:
         await cancel_ticket(
             session, ticket, actor="organizer", reason=body.reason,
@@ -1150,9 +1188,9 @@ async def cancel_attendee_ticket(
     return await _attendee_card(session, event, ticket_id)
 
 
-@router.post("/api/events/{event_id}/attendees/{ticket_id}/reissue", responses=DESK_NOT_FOUND_OR_CONFLICT)
+@router.post("/api/events/{event_id}/attendees/{ticket_id}/reissue", responses=DESK_NOTICE_RESPONSES)
 async def reissue_attendee_ticket(
-    desk_ctx: AuthorizedDeskDep,
+    desk_ctx: WritableDeskDep,
     ticket_id: uuid.UUID,
     body: ParticipantReissue,
     request: Request,
@@ -1161,6 +1199,8 @@ async def reissue_attendee_ticket(
     """Issue a new pass (new QR code) for a lost or leaked one; the old one stops working at once."""
     event = desk_ctx.event
     ticket = await _desk_ticket(session, event, ticket_id)
+    if body.notify and ticket.status == "active":
+        await _consume_notice_budget(request, desk_ctx, ticket.id)
     try:
         await reissue_ticket(session, ticket, event, notify_origin=_sms_origin(request) if body.notify else None)
     except TicketStateError as exc:
@@ -1173,9 +1213,9 @@ async def reissue_attendee_ticket(
     return await _attendee_card(session, event, ticket_id)
 
 
-@router.post("/api/events/{event_id}/attendees/{ticket_id}/transfer", responses=DESK_NOT_FOUND_OR_CONFLICT)
+@router.post("/api/events/{event_id}/attendees/{ticket_id}/transfer", responses=DESK_NOTICE_RESPONSES)
 async def transfer_attendee_ticket(
-    desk_ctx: AuthorizedDeskDep,
+    desk_ctx: WritableDeskDep,
     ticket_id: uuid.UUID,
     body: ParticipantTransfer,
     request: Request,
@@ -1184,6 +1224,8 @@ async def transfer_attendee_ticket(
     """Give the ticket's place to another person (by mobile). Returns the new holder's card."""
     event = desk_ctx.event
     ticket = await _desk_ticket(session, event, ticket_id)
+    if ticket.status == "active":  # a transfer always texts both holders
+        await _consume_notice_budget(request, desk_ctx, ticket.id)
     target, snapshot = await transfer_target(session, body)
     try:
         new_ticket = await transfer_ticket(
@@ -1201,7 +1243,7 @@ async def transfer_attendee_ticket(
 
 @router.post("/api/events/{event_id}/attendees/{ticket_id}/admit", responses=DESK_NOT_FOUND_OR_CONFLICT)
 async def admit_attendee(
-    desk_ctx: AuthorizedDeskDep,
+    desk_ctx: WritableDeskDep,
     ticket_id: uuid.UUID,
     body: DeskAdmitRequest,
     request: Request,
@@ -1269,7 +1311,7 @@ async def admit_attendee(
     responses=DESK_NOT_FOUND_OR_CONFLICT,
 )
 async def record_badge_print(
-    desk_ctx: AuthorizedDeskDep,
+    desk_ctx: WritableDeskDep,
     ticket_id: uuid.UUID,
     request: Request,
     session: SessionDep,
@@ -1310,9 +1352,9 @@ async def record_badge_print(
     )
 
 
-@router.post("/api/events/{event_id}/attendees/{ticket_id}/resend-sms")
+@router.post("/api/events/{event_id}/attendees/{ticket_id}/resend-sms", responses=DESK_NOTICE_RESPONSES)
 async def resend_pass_sms(
-    desk_ctx: AuthorizedDeskDep,
+    desk_ctx: WritableDeskDep,
     ticket_id: uuid.UUID,
     request: Request,
     session: SessionDep,
@@ -1346,13 +1388,14 @@ async def resend_pass_sms(
         f"sms:pass:{ticket.id}",
         f"sms:pass:event:{event.id}",
     )
-    await throttle.check(
+    # One atomic take: concurrent clicks cannot all pass a check before any of them is counted.
+    await throttle.consume(
         (cooldown, PASS_SMS_COOLDOWN),
         (per_ticket, PASS_SMS_PER_TICKET),
         (per_event, PASS_SMS_PER_EVENT),
         detail="The pass link was sent recently. Try again later.",
+        code="PASS_SMS_RATE_LIMITED",
     )
-    await throttle.hit(cooldown, per_ticket, per_event)
 
     link = await active_ticket_link(session, ticket, event)
     text = await ticket_confirmation_text(

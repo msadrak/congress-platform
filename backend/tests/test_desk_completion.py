@@ -5,6 +5,7 @@ Every desk route accepts an operator session or an organizer credential (app.rou
 an operator unless they check the organizer path, so attribution and isolation are what an operator gets.
 """
 
+import asyncio
 import uuid
 from dataclasses import dataclass
 from typing import Any
@@ -13,7 +14,7 @@ from fastapi import FastAPI
 from httpx import AsyncClient
 from sqlalchemy import func, select
 
-from app.models import AuditEvent, CheckIn, SmsMessage, TicketTier
+from app.models import AuditEvent, CheckIn, DeskCheckIn, SmsMessage, TicketPrint, TicketTier
 from app.sms.gateway import SmsGateway
 from app.sms.provider import SmsResult
 from tests.helpers import bearer, desk_sign_in, provision_organizer
@@ -535,3 +536,112 @@ async def test_the_pass_resend_holds_no_database_connection_while_sms_ir_answers
     async with app.state.sessionmaker() as session:
         logged = await session.scalar(select(SmsMessage).where(SmsMessage.kind == "ticket_resend"))
     assert logged is not None and logged.status == "sent"
+
+
+# --- Hardening (integration audit) ------------------------------------------------------------------------------
+
+
+async def test_desk_search_folds_persian_letters_and_matches_wildcards_literally(client: AsyncClient) -> None:
+    desk = await open_desk(client)
+    persian = await walk_in(client, desk, "علی کریمی", organization="بیمارستان")
+    await walk_in(client, desk, "Other Person", organization="Clinic")
+    url = f"/api/events/{desk.event_id}/attendees"
+
+    # An Arabic keyboard types ي and ك where a Persian one types ی and ک.
+    arabic = await client.get(url, params={"q": "كريمي"}, headers=desk.headers)
+    assert [a["ticket_id"] for a in arabic.json()] == [persian["ticket_id"]]
+    # % and _ are literal characters, not wildcards.
+    assert (await client.get(url, params={"q": "%"}, headers=desk.headers)).json() == []
+    assert (await client.get(url, params={"q": "_"}, headers=desk.headers)).json() == []
+    assert (await client.get(url, params={"q": "x" * 201}, headers=desk.headers)).status_code == 422
+
+
+async def test_an_archived_congress_s_desk_reads_but_refuses_changes(client: AsyncClient) -> None:
+    desk = await open_desk(client)
+    issued = await walk_in(client, desk, mobile="09121004452")
+    hall = await point(client, desk)
+    archived = await client.post(
+        f"/api/events/{desk.event_id}/archive", json={"archived": True}, headers=bearer(desk.organizer)
+    )
+    assert archived.status_code == 200, archived.text
+    base = f"/api/events/{desk.event_id}/attendees/{issued['ticket_id']}"
+
+    me = await client.get(f"/api/events/{desk.event_id}/desk/me", headers=desk.headers)
+    assert me.status_code == 200 and me.json()["is_archived"] is True
+    assert (await client.get(base, headers=desk.headers)).status_code == 200
+    for method, path, body in (
+        ("POST", f"/api/events/{desk.event_id}/desk-registrations", {"full_name": "Late", "ticket_tier_id": desk.tier_id}),
+        ("PATCH", base, {"attendee_title": "X"}),
+        ("POST", f"{base}/cancel", {}),
+        ("POST", f"{base}/reissue", {}),
+        ("POST", f"{base}/transfer", {"mobile": "09121004497", "full_name": "Y"}),
+        ("POST", f"{base}/admit", {"checkin_point_id": hall}),
+        ("POST", f"{base}/prints", None),
+        ("POST", f"{base}/resend-sms", None),
+    ):
+        response = await client.request(method, path, json=body, headers=desk.headers)
+        assert response.status_code == 409, (path, response.text)
+        assert response.json()["code"] == "EVENT_ARCHIVED"
+
+
+async def test_desk_notices_have_a_per_ticket_sms_budget(client: AsyncClient, app: FastAPI) -> None:
+    desk = await open_desk(client)
+    issued = await walk_in(client, desk, mobile="09121004450")
+    url = f"/api/events/{desk.event_id}/attendees/{issued['ticket_id']}/reissue"
+
+    statuses = [(await client.post(url, json={"notify": True}, headers=desk.headers)).status_code for _ in range(6)]
+
+    assert statuses == [200] * 5 + [429]
+    refused = await client.post(url, json={"notify": True}, headers=desk.headers)
+    assert refused.json()["code"] == "DESK_SMS_RATE_LIMITED"
+    # Without an SMS the change still goes through.
+    assert (await client.post(url, json={"notify": False}, headers=desk.headers)).status_code == 200
+    async with app.state.sessionmaker() as session:
+        assert await session.scalar(
+            select(func.count()).select_from(SmsMessage).where(SmsMessage.kind == "ticket_reissued")
+        ) == 5
+
+
+async def test_the_resend_cooldown_holds_under_concurrent_clicks(client: AsyncClient) -> None:
+    desk = await open_desk(client)
+    issued = await walk_in(client, desk, mobile="09121004451")
+    url = f"/api/events/{desk.event_id}/attendees/{issued['ticket_id']}/resend-sms"
+
+    responses = await asyncio.gather(*(client.post(url, headers=desk.headers) for _ in range(4)))
+
+    assert sorted(r.status_code for r in responses) == [200, 429, 429, 429]
+    assert next(r for r in responses if r.status_code == 429).json()["code"] == "PASS_SMS_RATE_LIMITED"
+
+
+async def test_walk_in_tier_refusals_carry_the_reservation_codes(client: AsyncClient) -> None:
+    desk = await open_desk(client)
+    closed = (
+        await client.post(
+            f"/api/events/{desk.event_id}/ticket-tiers", json=tier(name="Closed", is_open=False), headers=bearer(desk.organizer)
+        )
+    ).json()["id"]
+    tiny = (
+        await client.post(f"/api/events/{desk.event_id}/ticket-tiers", json=tier(name="Tiny", quota=1), headers=bearer(desk.organizer))
+    ).json()["id"]
+    await walk_in(client, desk, "First", ticket_tier_id=tiny)
+    url = f"/api/events/{desk.event_id}/desk-registrations"
+
+    shut = await client.post(url, json={"full_name": "A", "ticket_tier_id": closed}, headers=desk.headers)
+    full = await client.post(url, json={"full_name": "B", "ticket_tier_id": tiny}, headers=desk.headers)
+    unknown = await client.post(url, json={"full_name": "C", "ticket_tier_id": str(uuid.uuid4())}, headers=desk.headers)
+
+    assert (shut.status_code, shut.json()["code"]) == (400, "TIER_CLOSED")
+    assert (full.status_code, full.json()["code"]) == (410, "TIER_SOLD_OUT")
+    assert (unknown.status_code, unknown.json()["code"]) == (404, "TIER_NOT_FOUND")
+
+
+def test_print_and_desk_check_in_rows_go_with_their_ticket_event_and_check_in() -> None:
+    def ondelete(table: Any, column: str) -> str | None:
+        (key,) = [fk for fk in table.foreign_keys if fk.parent.name == column]
+        result: str | None = key.ondelete
+        return result
+
+    assert ondelete(TicketPrint.__table__, "ticket_id") == "CASCADE"
+    assert ondelete(TicketPrint.__table__, "event_id") == "CASCADE"
+    assert ondelete(DeskCheckIn.__table__, "checkin_id") == "CASCADE"
+    assert ondelete(DeskCheckIn.__table__, "desk_operator_id") == "SET NULL"
