@@ -4,11 +4,9 @@ import { distinctValues, groupSessionsByDay, initialDayKey, liveAndNext } from "
 import { Badge } from "../ui/Badge";
 import { Icon } from "../ui/Icon";
 import { safeTimeZone } from "../../lib/congressPhase";
+import { formatDate, formatTime } from "../../lib/format";
 import { num, publicCopy, type PublicLocale } from "./copy";
 import { venueZoneNote } from "./format";
-
-const DATE_LOCALE: Record<PublicLocale, string> = { en: "en-GB", fa: "fa-IR-u-ca-persian" };
-const TIME_LOCALE: Record<PublicLocale, string> = { en: "en-GB", fa: "fa-IR" };
 
 /** "Now" for live badges and the now/next card, refreshed every minute. */
 function useNow(): number {
@@ -21,11 +19,11 @@ function useNow(): number {
 }
 
 /** Clock time at the venue (`timeZone`: the congress's zone, already validated). */
-const clock = (iso: string, locale: PublicLocale, timeZone: string | undefined) =>
-  new Intl.DateTimeFormat(TIME_LOCALE[locale], { hour: "2-digit", minute: "2-digit", timeZone }).format(new Date(iso));
+const clock = (iso: string, locale: PublicLocale, timeZone: string | undefined) => formatTime(iso, locale, timeZone);
 
+/** «سه‌شنبه ۱۹ آبان» / "Tuesday 10 November", or «۱۹ آبان» / "10 Nov" on the day buttons. */
 const dayLabel = (iso: string, locale: PublicLocale, timeZone: string | undefined, month: "long" | "short" = "long") =>
-  new Intl.DateTimeFormat(DATE_LOCALE[locale], { weekday: month === "long" ? "long" : "short", day: "numeric", month, timeZone }).format(new Date(iso));
+  formatDate(iso, month === "long" ? "heading" : "short", locale, timeZone);
 
 /** Hall name, linked to its card in the venue section when that card is on the page (a full 44px target). */
 function Hall({ session, hallIds }: { session: PublicSession; hallIds: ReadonlySet<string> }) {
@@ -121,11 +119,11 @@ function NowNext({ live, next, locale, timeZone }: { live: PublicSession[]; next
     </>
   );
   return (
-    <div className="grid gap-px overflow-hidden rounded-2xl bg-white/10 text-white shadow-lift sm:grid-cols-2 [border-start-end-radius:var(--radius-arc)]">
+    <div className="surface-ink grid gap-px overflow-hidden rounded-card bg-white/10 text-white sm:grid-cols-2">
       {live.length > 0 && (
         <div className="space-y-3 bg-surface-ink p-5">
-          <p className="flex items-center gap-2 text-xs font-semibold text-[#3EE0A1]">
-            <span aria-hidden="true" className="size-2 rounded-full bg-[#3EE0A1] motion-safe:animate-pulse" />
+          <p className="flex items-center gap-2 text-caption font-semibold text-white">
+            <span aria-hidden="true" className="size-2 rounded-full bg-status-success-solid motion-safe:animate-pulse" />
             {c.liveNow}
           </p>
           <ul className="space-y-3">
@@ -211,7 +209,7 @@ export function PublicProgram({ sessions, locale, hallIds, timeZone }: {
         </div>
       )}
 
-      <section aria-label={dayLabel(day.sessions[0].starts_at, locale, tz)} className="overflow-hidden rounded-2xl border border-border-default bg-surface-panel shadow-soft">
+      <section aria-label={dayLabel(day.sessions[0].starts_at, locale, tz)} className="overflow-hidden rounded-card border border-border-default bg-surface-panel shadow-soft">
         <h3 className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 border-b border-border-subtle bg-surface-panel-subtle px-4 py-3 sm:px-6">
           <span className="text-base font-semibold tracking-[-0.01em] text-text-primary">{dayLabel(day.sessions[0].starts_at, locale, tz)}</span>
           <span className="text-xs text-text-muted tabular">{c.sessionCount(num(shown.length, locale), shown.length)}</span>

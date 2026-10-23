@@ -8,11 +8,9 @@ import {
   type PageImages,
   type PageSection,
 } from "../../../lib/pageDocument";
-import { Badge } from "../../ui/Badge";
-import { Icon } from "../../ui/Icon";
 import { Bidi } from "../Bidi";
 import { BoothIndex } from "../BoothIndex";
-import { CongressHero, type HeroEvent } from "../CongressHero";
+import { CongressHero, type HeroAction, type HeroEvent } from "../CongressHero";
 import { proseDir, publicCopy, type PublicLocale } from "../copy";
 import { EditorialSection } from "../EditorialSection";
 import { EventActions } from "../EventActions";
@@ -54,6 +52,8 @@ interface CongressPageProps {
   programFiles?: readonly PublicProgramFile[];
   /** The page's ticking clock (ms): registration states change on their own when a window opens or closes. */
   now?: number;
+  /** The hero's one action (a held pass, a one-tap reservation, the passes section, or none). */
+  heroAction?: HeroAction;
 }
 
 function hasContent(section: PageSection, locale: PublicLocale): boolean {
@@ -80,14 +80,13 @@ function hasContent(section: PageSection, locale: PublicLocale): boolean {
  * sections in their saved order, each drawn by a curated AIteb component. The same component renders
  * `/e/:slug` and the Page Studio preview, so the preview is the page.
  */
-export function CongressPage({ event, doc, images, locale, passes, booths, mode = "public", programFiles = [], now }: CongressPageProps) {
+export function CongressPage({ event, doc, images, locale, passes, booths, mode = "public", programFiles = [], now, heroAction }: CongressPageProps) {
   const c = publicCopy[locale];
   const preview = mode === "preview";
   const logo = doc.branding.logo_asset_id ? images[doc.branding.logo_asset_id] ?? null : null;
   const passesVisible = isSectionVisible(doc, "passes");
   const exhibitionVisible = isSectionVisible(doc, "exhibitors");
   const exhibitorsTitle = doc.sections.find((section) => section.type === "exhibitors")?.title;
-  let index = 0;
   // Program, schedule files and venue (operational data) sit right before the passes, or at the end without them.
   const passesSectionId = doc.sections.find((section) => section.visible && section.type === "passes")?.id;
   const programAndVenue = (): ReactNode => {
@@ -96,17 +95,17 @@ export function CongressPage({ event, doc, images, locale, passes, booths, mode 
     return (
       <>
         {sessions.length > 0 && (
-          <EditorialSection id="program" headingId="program-heading" index={++index} eyebrow={c.sectionProgramEyebrow} title={c.sectionProgram} lead={c.programLead} locale={locale}>
+          <EditorialSection id="program" headingId="program-heading" title={c.sectionProgram}>
             <PublicProgram sessions={sessions} locale={locale} timeZone={event.timezone} hallIds={new Set(venue.map((p) => p.id))} />
           </EditorialSection>
         )}
         {programFiles.length > 0 && (
-          <section id="schedule-files" aria-label={c.sectionProgram} className="reveal scroll-mt-24">
+          <section id="schedule-files" aria-label={c.sectionProgram} className="scroll-mt-24">
             <ScheduleFiles files={programFiles} locale={locale} />
           </section>
         )}
         {venue.length > 0 && (
-          <EditorialSection id="venue" headingId="venue-heading" index={++index} eyebrow={c.sectionVenueEyebrow} title={c.sectionVenue} locale={locale}>
+          <EditorialSection id="venue" headingId="venue-heading" title={c.sectionVenue}>
             <PublicVenue address={event.location} venue={venue} sessions={sessions} locale={locale} />
           </EditorialSection>
         )}
@@ -118,6 +117,13 @@ export function CongressPage({ event, doc, images, locale, passes, booths, mode 
     const own = localized(value, locale);
     return own ? <Bidi text={own} /> : fallback;
   };
+  /** Organizer-written text only (eyebrows, leads): nothing when the organizer wrote none. */
+  const own = (value: PageSection["title"] | undefined): ReactNode => {
+    const written = value ? localized(value, locale) : undefined;
+    return written ? <Bidi text={written} /> : undefined;
+  };
+  // The closing call to action points at the passes only while a pass can be reserved there.
+  const reservable = heroAction ? heroAction.kind === "reserve" || heroAction.kind === "passes" : true;
 
   const render = (section: PageSection): ReactNode => {
     const anchor = sectionAnchor(section);
@@ -127,64 +133,44 @@ export function CongressPage({ event, doc, images, locale, passes, booths, mode 
     switch (section.type) {
       case "about": {
         const body = localized(section.body, locale);
+        if (!body && !event.description) return preview ? <EmptyBlock locale={locale} /> : null;
         return (
-          <EditorialSection id={anchor} headingId={headingId} index={++index} eyebrow={text(section.eyebrow, c.sectionAboutEyebrow)} title={text(section.title, c.sectionAbout)} locale={locale}>
+          <EditorialSection id={anchor} headingId={headingId} eyebrow={own(section.eyebrow)} title={text(section.title, c.sectionAbout)}>
             {body ? (
               <RichText text={body} size="lg" className="max-w-3xl [&_p]:text-text-primary" />
-            ) : event.description ? (
-              <p {...proseDir(event.description)} className="max-w-3xl whitespace-pre-line text-xl leading-[1.6] tracking-[-0.01em] text-text-primary sm:text-2xl sm:leading-[1.55] rtl:leading-[1.95]">
+            ) : (
+              <p {...proseDir(event.description)} className="max-w-3xl whitespace-pre-line text-title-sm leading-relaxed text-text-primary">
                 {event.description}
               </p>
-            ) : (
-              <p className="text-base text-text-muted">{c.noDescription}</p>
             )}
           </EditorialSection>
         );
       }
-      case "highlights":
+      case "highlights": {
         // Both layouts stack under the heading; `list` and `cards` differ only in the block itself.
+        const title = own(section.title);
+        if (!title) {
+          return (
+            <section id={anchor} aria-label={c.sectionInformation} className="scroll-mt-24">
+              <HighlightsBlock section={section} locale={locale} />
+            </section>
+          );
+        }
         return (
-          <EditorialSection
-            id={anchor}
-            headingId={headingId}
-            index={++index}
-            eyebrow={text(section.eyebrow, c.sectionIncludesEyebrow)}
-            title={text(section.title, c.sectionIncludes)}
-            locale={locale}
-          >
+          <EditorialSection id={anchor} headingId={headingId} eyebrow={own(section.eyebrow)} title={title}>
             <HighlightsBlock section={section} locale={locale} />
           </EditorialSection>
         );
+      }
       case "passes":
         return (
-          <EditorialSection
-            id={anchor}
-            headingId={headingId}
-            index={++index}
-            eyebrow={text(section.eyebrow, c.sectionPassesEyebrow)}
-            title={text(section.title, c.sectionPasses)}
-            lead={text(section.lead, c.passesLead)}
-            locale={locale}
-            aside={
-              <Badge variant="accent" size="md" icon={<Icon name="ticket" size={14} />} className="self-start lg:self-auto">
-                {c.freeAdmission}
-              </Badge>
-            }
-          >
+          <EditorialSection id={anchor} headingId={headingId} eyebrow={own(section.eyebrow)} title={text(section.title, c.sectionPasses)} lead={own(section.lead)}>
             {passes}
           </EditorialSection>
         );
       case "exhibitors":
         return (
-          <EditorialSection
-            id={anchor}
-            headingId={headingId}
-            index={++index}
-            eyebrow={text(section.eyebrow, c.sectionExhibitionEyebrow)}
-            title={text(section.title, c.sectionExhibition)}
-            lead={text(section.lead, c.exhibitionLead)}
-            locale={locale}
-          >
+          <EditorialSection id={anchor} headingId={headingId} eyebrow={own(section.eyebrow)} title={text(section.title, c.sectionExhibition)} lead={own(section.lead)}>
             <BoothIndex key={event.slug} slug={event.slug} locale={locale} booths={booths} />
           </EditorialSection>
         );
@@ -192,7 +178,7 @@ export function CongressPage({ event, doc, images, locale, passes, booths, mode 
         const title = localized(section.title, locale);
         if (!title) {
           return (
-            <section id={anchor} aria-label={c.sectionInformation} className="reveal scroll-mt-24">
+            <section id={anchor} aria-label={c.sectionInformation} className="scroll-mt-24">
               <RichTextBlock section={section} locale={locale} />
             </section>
           );
@@ -201,11 +187,9 @@ export function CongressPage({ event, doc, images, locale, passes, booths, mode 
           <EditorialSection
             id={anchor}
             headingId={headingId}
-            index={++index}
             align={section.layout === "centered" ? "center" : "start"}
-            eyebrow={text(section.eyebrow, "")}
+            eyebrow={own(section.eyebrow)}
             title={<Bidi text={title} />}
-            locale={locale}
           >
             <RichTextBlock section={section} locale={locale} />
           </EditorialSection>
@@ -215,56 +199,40 @@ export function CongressPage({ event, doc, images, locale, passes, booths, mode 
         const title = localized(section.title, locale);
         const eyebrow = localized(section.eyebrow, locale);
         const heading = title ? (
-          <div className="space-y-4">
-            {eyebrow && <p className="text-xs font-semibold text-text-muted"><Bidi text={eyebrow} /></p>}
-            <h2 id={headingId} className="text-3xl font-bold leading-[1.08] tracking-[-0.03em] text-text-primary sm:text-4xl rtl:leading-[1.4]">
+          <div className="space-y-2">
+            {eyebrow && <p className="text-meta font-semibold text-text-muted"><Bidi text={eyebrow} /></p>}
+            <h2 id={headingId} className="text-title font-bold text-text-primary sm:text-title-lg">
               <Bidi text={title} />
             </h2>
           </div>
         ) : null;
         return (
-          <section id={anchor} aria-labelledby={title ? headingId : undefined} aria-label={title ? undefined : c.sectionInformation} className="reveal scroll-mt-24">
+          <section id={anchor} aria-labelledby={title ? headingId : undefined} aria-label={title ? undefined : c.sectionInformation} className="scroll-mt-24">
             <ImageTextBlock section={section} locale={locale} images={images} heading={heading} />
           </section>
         );
       }
       case "faq":
         return (
-          <EditorialSection id={anchor} headingId={headingId} index={++index} eyebrow={text(section.eyebrow, c.sectionFaqEyebrow)} title={text(section.title, c.sectionFaq)} locale={locale}>
+          <EditorialSection id={anchor} headingId={headingId} eyebrow={own(section.eyebrow)} title={text(section.title, c.sectionFaq)}>
             <FaqBlock section={section} locale={locale} />
           </EditorialSection>
         );
       case "speakers":
         return (
-          <EditorialSection
-            id={anchor}
-            headingId={headingId}
-            index={++index}
-            eyebrow={text(section.eyebrow, c.sectionSpeakersEyebrow)}
-            title={text(section.title, c.sectionSpeakers)}
-            lead={localized(section.lead, locale) ? <Bidi text={localized(section.lead, locale)!} /> : undefined}
-            locale={locale}
-          >
+          <EditorialSection id={anchor} headingId={headingId} eyebrow={own(section.eyebrow)} title={text(section.title, c.sectionSpeakers)} lead={own(section.lead)}>
             <SpeakersBlock section={section} locale={locale} images={images} />
           </EditorialSection>
         );
       case "agenda":
         return (
-          <EditorialSection
-            id={anchor}
-            headingId={headingId}
-            index={++index}
-            eyebrow={text(section.eyebrow, c.sectionAgendaEyebrow)}
-            title={text(section.title, c.sectionAgenda)}
-            lead={localized(section.lead, locale) ? <Bidi text={localized(section.lead, locale)!} /> : undefined}
-            locale={locale}
-          >
+          <EditorialSection id={anchor} headingId={headingId} eyebrow={own(section.eyebrow)} title={text(section.title, c.sectionAgenda)} lead={own(section.lead)}>
             <AgendaBlock section={section} locale={locale} />
           </EditorialSection>
         );
       case "cta": {
-        const target = section.target === "passes" ? (passesVisible ? "passes" : null) : exhibitionVisible ? "exhibition" : null;
-        return <CtaBlock section={section} locale={locale} slug={event.slug} accent={doc.branding.accent} targetAnchor={target} />;
+        const target = section.target === "passes" ? (passesVisible && reservable ? "passes" : null) : exhibitionVisible ? "exhibition" : null;
+        return <CtaBlock section={section} locale={locale} targetAnchor={target} />;
       }
     }
   };
@@ -280,11 +248,12 @@ export function CongressPage({ event, doc, images, locale, passes, booths, mode 
         images={images}
         logo={logo}
         showPasses={passesVisible}
+        action={heroAction}
         exhibitionLabel={exhibitionVisible ? text(exhibitorsTitle, c.ctaExhibition) : null}
       />
       <div className="pub-sheet">
         <EventActions event={event} locale={locale} />
-        <div className="mx-auto max-w-7xl space-y-20 px-4 pt-14 pb-20 sm:space-y-28 sm:px-6 sm:pt-20 sm:pb-28 lg:px-10">
+        <div className="mx-auto max-w-7xl space-y-16 px-4 pt-10 pb-16 sm:space-y-20 sm:px-6 sm:pt-14 sm:pb-20 lg:px-10">
           {doc.sections
             .filter((section) => section.visible)
             .map((section) => (

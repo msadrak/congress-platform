@@ -1,6 +1,5 @@
 import { useNavigate } from "react-router-dom";
 import { Button, LinkButton } from "../components/ui/Button";
-import { Icon } from "../components/ui/Icon";
 import { StatusPanel } from "../components/ui/PortalState";
 import { AitebAttribution } from "../components/brand/Aiteb";
 import { useAttendeeLocale } from "../lib/i18n";
@@ -23,12 +22,11 @@ export default function NotFound() {
         <StatusPanel icon="search" title={t.notFoundTitle}>
           <p>{t.notFoundDesc}</p>
           <div className="flex flex-wrap justify-center gap-3">
-            <Button type="button" variant="secondary" onClick={goBack}>
-              <Icon name={dir === "rtl" ? "arrow-right" : "arrow-left"} size={18} />
+            {/* `arrow-left` is "back" in both directions: the icon mirrors itself in RTL. */}
+            <Button type="button" variant="secondary" icon="arrow-left" onClick={goBack} data-testid="not-found-back">
               {t.notFoundBack}
             </Button>
-            <LinkButton to="/sign-in">
-              <Icon name="ticket" size={18} />
+            <LinkButton to="/sign-in" icon="ticket">
               {t.notFoundSignIn}
             </LinkButton>
           </div>
