@@ -224,7 +224,7 @@ function ReadyCard({ card, headingRef, eventName, printable, onNext, onPrint, ac
           <IconButton icon="x" label={commonCopy[locale].close} onClick={onNext} className="md:hidden" />
         </div>
 
-        {active && printFirst && (
+        {canAct && printFirst && (
           <p data-testid="badge-print-state" className={`flex items-center gap-2 text-body-sm font-semibold ${printState === "stale" ? "text-status-warning-text" : "text-text-secondary"}`}>
             <Icon name={printState === "stale" ? "alert" : "print"} size={17} />
             <span>{printState === "never" ? c.notPrinted : c.needsReprint}</span>
