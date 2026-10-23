@@ -177,6 +177,23 @@ test('editing the registration after printing flags the badge for reprinting', a
   await expect(page.getByTestId('badge-print-state')).toContainText('Printed 2 times');
 });
 
+test('an archived congress keeps lookups but offers no issuing, printing or changes', async ({ page }) => {
+  await deskFixture(page);
+  await page.route(/\/desk\/me$/, route => route.fulfill({
+    status: 200, contentType: 'application/json',
+    body: JSON.stringify({ operator_id: 'op-1', operator_name: 'Sara', event_id: EVENT, event_name: 'Gamma Congress', event_slug: 'gamma', is_organizer_admin: false, is_archived: true }),
+  }));
+  await openDesk(page);
+  await expect(page.getByTestId('desk-archived')).toContainText('archived');
+  await search(page).fill(SECRET);
+  await search(page).press('Enter');
+  await expect(page.getByRole('heading', { name: 'Neda Amini', level: 2 })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Print Badge Pass' })).toBeDisabled();
+  await expect(page.getByTestId('desk-admit')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Edit details' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /Mint & Present Pass/ })).toBeDisabled();
+});
+
 test('the operators page shows the reception address with a QR code and restores a revoked operator', async ({ page }) => {
   const requests: Recorded[] = [];
   const operator = { id: 'op-1', event_id: 'event-a', user_id: 'u1', operator_name: 'Operator One', mobile: '09121110001', is_revoked: true, revoked_at: '2099-01-01T00:00:00Z', created_at: '2099-01-01T00:00:00Z' };

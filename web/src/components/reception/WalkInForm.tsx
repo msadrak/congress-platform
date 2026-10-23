@@ -20,6 +20,8 @@ interface WalkInFormProps {
   onChange: (patch: Partial<WalkInDraft>) => void;
   tiers: TicketTierOut[];
   submitting: boolean;
+  /** An archived congress: nothing can be issued. */
+  readOnly?: boolean;
   formError: string | null;
   duplicate: DuplicateState;
   onOpenExisting: (ticketId: string) => void;
@@ -30,7 +32,7 @@ interface WalkInFormProps {
 }
 
 /** 03 — issue a pass to someone who has not registered yet. */
-export function WalkInForm({ ids, nameInputRef, draft, onChange, tiers, submitting, formError, duplicate, onOpenExisting, onSubmit, locale, t, isRtl }: WalkInFormProps) {
+export function WalkInForm({ ids, nameInputRef, draft, onChange, tiers, submitting, readOnly = false, formError, duplicate, onOpenExisting, onSubmit, locale, t, isRtl }: WalkInFormProps) {
   return (
     <section aria-labelledby="walkin-heading" className="rx-area-walkin min-w-0 overflow-hidden rounded-2xl border border-border-default bg-surface-panel shadow-soft">
       <div className="space-y-1.5 border-b border-border-subtle px-5 py-4 sm:px-6">
@@ -101,7 +103,7 @@ export function WalkInForm({ ids, nameInputRef, draft, onChange, tiers, submitti
           </div>
         )}
 
-        <Button type="submit" variant="primary" size="lg" isFullWidth disabled={submitting || tiers.length === 0} aria-busy={submitting}>
+        <Button type="submit" variant="primary" size="lg" isFullWidth disabled={submitting || readOnly || tiers.length === 0} aria-busy={submitting}>
           <Icon name={submitting ? "sync" : "ticket"} size={18} className={submitting ? "motion-safe:animate-spin" : ""} />
           <span>{submitting ? t.mintingBadge : t.mintBadgeAction}</span>
         </Button>

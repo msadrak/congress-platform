@@ -24,7 +24,7 @@ interface AttendeeCardProps {
   onPrint: (card: AttendeeDetailCard) => Promise<string | null>;
   onNext: () => void;
   onResend: (ticketId: string) => Promise<ResendOutcome>;
-  /** Admission and registration changes; null hides them. */
+  /** Admission, registration changes and printing; null (an archived congress) hides or disables them. */
   actions: DeskCardActions | null;
   statusLabels: Record<string, string>;
   locale: AttendeeLocale;
@@ -235,7 +235,7 @@ function ReadyCard({ card, headingRef, eventName, printable, onPrint, onNext, on
         )}
         {printMessage?.ticketId === card.ticket_id && <p role="alert" className="text-xs text-status-danger-text">{printMessage.text}</p>}
         <div className="flex flex-col-reverse gap-2.5 @md:flex-row">
-          <Button type="button" variant="secondary" size="lg" className="whitespace-normal @md:flex-1" onClick={() => void print()} disabled={!active || printing} aria-busy={printing}>
+          <Button type="button" variant="secondary" size="lg" className="whitespace-normal @md:flex-1" onClick={() => void print()} disabled={!active || printing || !actions} aria-busy={printing}>
             <Icon name="print" size={19} />
             <span>{printState === "never" ? t.printPassAction : isRtl ? "چاپ دوبارهٔ کارت ورود" : "Reprint Badge"}</span>
           </Button>

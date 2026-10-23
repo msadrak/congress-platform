@@ -347,7 +347,7 @@ export const translations = {
     noOperatorsTitle: "هنوز اپراتوری برای میز پذیرش این همایش تعریف نشده است",
     searchAttendeePlaceholder: "جستجوی شرکت‌کننده با نام یا شماره موبایل...",
     searchAttendeeHeading: "جستجوی سریع شرکت‌کنندگان",
-    walkInRegistrationHeading: "ثبت‌نام و پذیرش حضوری (Walk-In)",
+    walkInRegistrationHeading: "ثبت‌نام حضوری و صدور کارت ورود",
     mintBadgeAction: "صدور و چاپ کارت ورود",
     mintingBadge: "در حال صدور...",
     nextAttendeeAction: "پذیرش نفر بعدی (پاکسازی فرم)",

@@ -3,7 +3,6 @@ import {
   apiErrorCode,
   createApiClient,
   createDeskApiClient,
-  formatApiError,
   localizedApiError,
   type AttendeeDetailCard,
   type AttendeeSearchItem,
@@ -160,7 +159,7 @@ export function ReceptionStation({ eventId, organizer, locale, t, isRtl }: Recep
         if (unauthorized) rejectAuthority(authority);
         if (!isMounted || unauthorized) return;
         if (meRes.error) {
-          setPageError(formatApiError(meRes.error));
+          setPageError(localizedApiError(meRes.error, locale));
         } else if (meRes.data) {
           setOperatorProfile(meRes.data);
         }
@@ -182,7 +181,7 @@ export function ReceptionStation({ eventId, organizer, locale, t, isRtl }: Recep
     return () => {
       isMounted = false;
     };
-  }, [eventId, authority, reloadNonce, rejectAuthority, isRtl]);
+  }, [eventId, authority, reloadNonce, rejectAuthority, isRtl, locale]);
 
   // Debounced event-scoped search; a response for an older query, session or event is dropped.
   useEffect(() => {
@@ -253,6 +252,7 @@ export function ReceptionStation({ eventId, organizer, locale, t, isRtl }: Recep
         event_name: data.event_name,
         event_slug: data.event_slug,
         is_organizer_admin: false,
+        is_archived: false,
       });
       return null;
     }
@@ -434,7 +434,7 @@ export function ReceptionStation({ eventId, organizer, locale, t, isRtl }: Recep
     if (response.status === 409) {
       return { kind: "error", message: isRtl ? "این کارت فعال نیست یا شماره موبایلی برای آن ثبت نشده است." : "This pass is not active, or it has no mobile number." };
     }
-    return { kind: "error", message: formatApiError(error) };
+    return { kind: "error", message: localizedApiError(error, locale) };
   };
 
   // One desk write or lookup with the current authority: 401 drops exactly that credential, a reply for another
@@ -621,6 +621,8 @@ export function ReceptionStation({ eventId, organizer, locale, t, isRtl }: Recep
   const accentStyle = eventAccentStyle(operatorProfile?.event_slug || eventId);
   // Only offered inside Organizer administration with an organizer key; the choice is explicit.
   const showModeSwitch = !standalone && Boolean(apiKey);
+  // An archived congress: the desk can look attendees up, but changes nothing (the API answers 409 EVENT_ARCHIVED).
+  const archived = Boolean(operatorProfile?.is_archived);
 
   if (loading && authority) {
     return (
@@ -749,6 +751,13 @@ export function ReceptionStation({ eventId, organizer, locale, t, isRtl }: Recep
         </div>
       </header>
 
+      {archived && (
+        <div role="status" data-testid="desk-archived" className="flex items-start gap-3 rounded-2xl border border-status-warning-border bg-status-warning-bg px-4 py-2.5 text-sm leading-relaxed text-status-warning-text">
+          <Icon name="lock" size={18} className="mt-0.5" />
+          <span>{isRtl ? "این همایش بایگانی شده است: می‌توانید شرکت‌کنندگان را جستجو کنید، اما ثبت، چاپ و تغییر ممکن نیست." : "This congress is archived: you can look attendees up, but nothing can be issued, printed or changed."}</span>
+        </div>
+      )}
+
       {draftRecovered && (
         <div role="status" className="flex items-start gap-3 rounded-2xl border border-status-info-border bg-status-info-bg py-2.5 ps-4 pe-2 text-sm leading-relaxed text-status-info-text">
           <Icon name="info" size={18} className="mt-1" />
@@ -799,7 +808,7 @@ export function ReceptionStation({ eventId, organizer, locale, t, isRtl }: Recep
             onPrint={(card) => printBadge(card.ticket_id)}
             onNext={handleNextAttendee}
             onResend={resendPassSms}
-            actions={cardActions}
+            actions={archived ? null : cardActions}
             statusLabels={ticketStatusLabels}
             locale={locale}
             t={t}
@@ -813,6 +822,7 @@ export function ReceptionStation({ eventId, organizer, locale, t, isRtl }: Recep
           draft={draft}
           onChange={updateDraft}
           tiers={tiers}
+          readOnly={archived}
           submitting={submitting}
           formError={formError}
           duplicate={duplicate}

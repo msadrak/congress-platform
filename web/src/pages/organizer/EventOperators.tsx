@@ -1,6 +1,6 @@
 import { useState } from "react";
 import QRCode from "react-qr-code";
-import { formatApiError, localizedApiError, type DeskOperatorOut } from "../../api/client";
+import { localizedApiError, type DeskOperatorOut } from "../../api/client";
 import { formatLocalizedDate } from "../../lib/i18n";
 import { formatMobile } from "../../lib/mobile";
 import { eventSectionNumber } from "../../lib/organizerWorkspace";
@@ -38,7 +38,7 @@ export default function EventOperators() {
     if (response.status === 401) onKeyRejected(apiKey);
     setRevokingOperatorId(null);
     if (err) {
-      setNotice({ tone: "error", text: isRtl ? "لغو دسترسی انجام نشد؛ دوباره تلاش کنید." : `Could not revoke access: ${formatApiError(err)}` });
+      setNotice({ tone: "error", text: isRtl ? "لغو دسترسی انجام نشد؛ دوباره تلاش کنید." : `Could not revoke access: ${localizedApiError(err, locale)}` });
     } else if (data) {
       operators.setItems((prev) => prev.map((o) => (o.id === data.id ? data : o)));
       setNotice({ tone: "ok", text: isRtl ? `دسترسی ${data.operator_name} لغو شد.` : `Access revoked for ${data.operator_name}.` });
