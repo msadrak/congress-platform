@@ -927,8 +927,58 @@ export interface paths {
         /** List Booth Staff */
         get: operations["list_booth_staff_api_events__event_id__booths__booth_id__staff_get"];
         put?: never;
-        /** Assign Booth Staff */
+        /**
+         * Assign Booth Staff
+         * @description Assigns a representative by mobile number and texts them a link to the booth portal (queued in the
+         *     same transaction). Assigning someone already at the booth changes nothing and sends nothing.
+         */
         post: operations["assign_booth_staff_api_events__event_id__booths__booth_id__staff_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/events/{event_id}/booths/{booth_id}/staff/{staff_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Remove Booth Staff
+         * @description Ends a representative's access to the booth portal, its leads and exports from their next request on.
+         *     Leads they captured stay with the booth, still attributed to them; the account itself is untouched.
+         */
+        delete: operations["remove_booth_staff_api_events__event_id__booths__booth_id__staff__staff_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/events/{event_id}/booths/{booth_id}/standee": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Booth Standee
+         * @description The URL to print in the booth's standee QR: `<public origin>/e/<slug>/booths/<booth_id>?b=<secret>`.
+         *
+         *     A plain web address, so any phone camera opens the public booth page (no app or sign-in needed), while the
+         *     `b` parameter carries the booth QR secret so a signed-in ticket holder can bookmark the booth in one tap
+         *     (`POST /api/attendees/me/bookmarks/booths/scan`). The secret grants nothing beyond that: it is printed on
+         *     the stand for everyone to see.
+         */
+        get: operations["get_booth_standee_api_events__event_id__booths__booth_id__standee_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -969,6 +1019,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/attendees/me/bookmarks/booths/scan": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Bookmark Booth By Qr
+         * @description Bookmarks the booth whose QR (secret or standee URL) the attendee scanned: 201 new, 200 already saved.
+         */
+        post: operations["bookmark_booth_by_qr_api_attendees_me_bookmarks_booths_scan_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/attendees/me/bookmarks/booths/{booth_id}": {
         parameters: {
             query?: never;
@@ -978,7 +1048,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Bookmark Booth */
+        /**
+         * Bookmark Booth
+         * @description Saves a booth for an attendee with an active ticket for its congress: 201 new, 200 already saved.
+         */
         post: operations["bookmark_booth_api_attendees_me_bookmarks_booths__booth_id__post"];
         /** Unbookmark Booth */
         delete: operations["unbookmark_booth_api_attendees_me_bookmarks_booths__booth_id__delete"];
@@ -1004,6 +1077,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/public/booths/resolve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Resolve Booth Qr
+         * @description Anyone: the booth behind a booth QR (its secret, or the standee URL), to open its public page.
+         *
+         *     Answers only for an event whose page is published, exactly like the public booth page; unknown codes are
+         *     throttled per client IP so secrets cannot be guessed.
+         */
+        post: operations["resolve_booth_qr_api_public_booths_resolve_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/booths/{booth_id}/leads/scan": {
         parameters: {
             query?: never;
@@ -1021,23 +1117,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/booths/{booth_id}/leads/{lead_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        /** Update Lead Qualification */
-        patch: operations["update_lead_qualification_api_booths__booth_id__leads__lead_id__patch"];
-        trace?: never;
-    };
     "/api/booths/{booth_id}/leads": {
         parameters: {
             query?: never;
@@ -1045,8 +1124,34 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List Booth Leads */
+        /**
+         * List Booth Leads
+         * @description Every lead of the booth that is not deleted, newest first. `/search` is the paginated form.
+         */
         get: operations["list_booth_leads_api_booths__booth_id__leads_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/booths/{booth_id}/leads/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Search Booth Leads
+         * @description One page of the booth's leads, newest first, with the total matching the filters.
+         *
+         *     `q` matches name, organization, title and notes (Persian letters folded, `%`/`_` literal), and the mobile
+         *     number of attendees who share it with exhibitors.
+         */
+        get: operations["search_booth_leads_api_booths__booth_id__leads_search_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1072,6 +1177,44 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/booths/{booth_id}/leads/{lead_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete Lead
+         * @description Moves the lead to the booth's trash: gone from the list and exports, restorable (`/restore`).
+         */
+        delete: operations["delete_lead_api_booths__booth_id__leads__lead_id__delete"];
+        options?: never;
+        head?: never;
+        /** Update Lead Qualification */
+        patch: operations["update_lead_qualification_api_booths__booth_id__leads__lead_id__patch"];
+        trace?: never;
+    };
+    "/api/booths/{booth_id}/leads/{lead_id}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Restore Lead */
+        post: operations["restore_lead_api_booths__booth_id__leads__lead_id__restore_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/attendees/me/network/scan": {
         parameters: {
             query?: never;
@@ -1081,7 +1224,11 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Scan Peer Badge */
+        /**
+         * Scan Peer Badge
+         * @description Adds the person whose pass QR was scanned to the caller's network in that congress (201; 200 when
+         *     already connected). Only someone with an active ticket for the congress may scan there.
+         */
         post: operations["scan_peer_badge_api_attendees_me_network_scan_post"];
         delete?: never;
         options?: never;
@@ -1096,8 +1243,34 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List My Connections */
+        /**
+         * List My Connections
+         * @description Every connection, newest first. `/search` is the paginated, searchable form.
+         */
         get: operations["list_my_connections_api_attendees_me_network_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/attendees/me/network/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Search My Connections
+         * @description One page of the caller's connections, newest first, with the total matching the filters.
+         *
+         *     `q` matches the peer's name, organization and title and the caller's private notes (Persian letters
+         *     folded, `%`/`_` literal), and the peer's mobile only where the peer shares it.
+         */
+        get: operations["search_my_connections_api_attendees_me_network_search_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1134,7 +1307,11 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
-        delete?: never;
+        /**
+         * Delete Connection
+         * @description Removes the contact from the caller's network (the peer's own network is untouched).
+         */
+        delete: operations["delete_connection_api_attendees_me_network__connection_id__delete"];
         options?: never;
         head?: never;
         /** Update Connection Notes */
@@ -2082,6 +2259,11 @@ export interface components {
              */
             bookmarked_at: string;
         };
+        /** BoothCodeIn */
+        BoothCodeIn: {
+            /** Code */
+            code: string;
+        };
         /** BoothCreate */
         BoothCreate: {
             /** Name */
@@ -2141,6 +2323,46 @@ export interface components {
              */
             created_at: string;
         };
+        /**
+         * BoothResolveOut
+         * @description What anyone holding the booth QR may learn: the public booth page's address parts.
+         */
+        BoothResolveOut: {
+            /**
+             * Booth Id
+             * Format: uuid
+             */
+            booth_id: string;
+            /** Name */
+            name: string;
+            /** Slug */
+            slug: string;
+            /** Event Slug */
+            event_slug: string;
+            /** Event Name */
+            event_name: string;
+        };
+        /** BoothScanBookmarkIn */
+        BoothScanBookmarkIn: {
+            /** Code */
+            code: string;
+            /** Event Id */
+            event_id?: string | null;
+        };
+        /** BoothScanBookmarkOut */
+        BoothScanBookmarkOut: {
+            /** Bookmarked */
+            bookmarked: boolean;
+            /**
+             * Booth Id
+             * Format: uuid
+             */
+            booth_id: string;
+            /** Name */
+            name: string;
+            /** Event Slug */
+            event_slug: string;
+        };
         /** BoothStaffAssign */
         BoothStaffAssign: {
             /** Mobile */
@@ -2172,6 +2394,20 @@ export interface components {
             mobile: string | null;
             /** Full Name */
             full_name: string;
+        };
+        /** BoothStandeeOut */
+        BoothStandeeOut: {
+            /** Url */
+            url: string;
+            /**
+             * Booth Id
+             * Format: uuid
+             */
+            booth_id: string;
+            /** Qr Secret */
+            qr_secret: string;
+            /** Page Published */
+            page_published: boolean;
         };
         /**
          * BoothUpdate
@@ -2349,6 +2585,15 @@ export interface components {
              */
             created_at: string;
         };
+        /** ConnectionPage */
+        ConnectionPage: {
+            /** Items */
+            items: components["schemas"]["ConnectionOut"][];
+            /** Total */
+            total: number;
+            /** Next Cursor */
+            next_cursor: string | null;
+        };
         /** ConnectionScanRequest */
         ConnectionScanRequest: {
             /** Qr Secret */
@@ -2359,7 +2604,7 @@ export interface components {
              */
             private_notes: string;
             /** Event Id */
-            event_id?: string | null;
+            event_id: string | null;
         };
         /** ConnectionUpdate */
         ConnectionUpdate: {
@@ -3132,6 +3377,17 @@ export interface components {
              * Format: date-time
              */
             updated_at: string;
+            /** Deleted At */
+            deleted_at?: string | null;
+        };
+        /** LeadPage */
+        LeadPage: {
+            /** Items */
+            items: components["schemas"]["LeadOut"][];
+            /** Total */
+            total: number;
+            /** Next Cursor */
+            next_cursor: string | null;
         };
         /** LeadScanRequest */
         LeadScanRequest: {
@@ -3800,7 +4056,7 @@ export interface components {
              * @default otp
              * @enum {string}
              */
-            kind: "otp" | "ticket_confirmation" | "ticket_cancelled" | "ticket_reissued";
+            kind: "otp" | "ticket_confirmation" | "ticket_cancelled" | "ticket_reissued" | "staff_invite";
             /** Body */
             body?: string | null;
         };
@@ -4323,7 +4579,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "otp" | "ticket_confirmation" | "ticket_cancelled" | "ticket_reissued";
+            kind: "otp" | "ticket_confirmation" | "ticket_cancelled" | "ticket_reissued" | "staff_invite";
             /** Body */
             body: string;
             /** Is Custom */
@@ -6785,6 +7041,87 @@ export interface operations {
             };
         };
     };
+    remove_booth_staff_api_events__event_id__booths__booth_id__staff__staff_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                booth_id: string;
+                staff_id: string;
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_booth_standee_api_events__event_id__booths__booth_id__standee_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                booth_id: string;
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BoothStandeeOut"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_my_assigned_booths_api_booths_me_get: {
         parameters: {
             query?: never;
@@ -6825,6 +7162,24 @@ export interface operations {
                     "application/json": components["schemas"]["BoothOut"];
                 };
             };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description Validation Error */
             422: {
                 headers: {
@@ -6836,9 +7191,81 @@ export interface operations {
             };
         };
     };
-    bookmark_booth_api_attendees_me_bookmarks_booths__booth_id__post: {
+    bookmark_booth_by_qr_api_attendees_me_bookmarks_booths_scan_post: {
         parameters: {
             query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BoothScanBookmarkIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BoothScanBookmarkOut"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    bookmark_booth_api_attendees_me_bookmarks_booths__booth_id__post: {
+        parameters: {
+            query?: {
+                /** @description The congress the caller is in, if any */
+                event_id?: string | null;
+            };
             header?: never;
             path: {
                 booth_id: string;
@@ -6854,6 +7281,33 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["BookmarkToggleOut"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
             /** @description Validation Error */
@@ -6918,6 +7372,57 @@ export interface operations {
             };
         };
     };
+    resolve_booth_qr_api_public_booths_resolve_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BoothCodeIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BoothResolveOut"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     scan_attendee_lead_api_booths__booth_id__leads_scan_post: {
         parameters: {
             query?: never;
@@ -6940,6 +7445,241 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LeadOut"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_booth_leads_api_booths__booth_id__leads_get: {
+        parameters: {
+            query?: {
+                q?: string;
+                rating?: ("HOT" | "WARM" | "COLD") | null;
+            };
+            header?: never;
+            path: {
+                booth_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadOut"][];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    search_booth_leads_api_booths__booth_id__leads_search_get: {
+        parameters: {
+            query?: {
+                q?: string;
+                rating?: ("HOT" | "WARM" | "COLD") | null;
+                /** @description active (default), deleted (the trash) or all */
+                state?: "active" | "deleted" | "all";
+                limit?: number;
+                cursor?: string | null;
+            };
+            header?: never;
+            path: {
+                booth_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadPage"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    export_booth_leads_csv_api_booths__booth_id__leads_export_csv_get: {
+        parameters: {
+            query?: {
+                /** @description Also export deleted leads, with a Deleted At column */
+                include_deleted?: boolean;
+            };
+            header?: never;
+            path: {
+                booth_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_lead_api_booths__booth_id__leads__lead_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                lead_id: string;
+                booth_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
             /** @description Validation Error */
@@ -6978,6 +7718,33 @@ export interface operations {
                     "application/json": components["schemas"]["LeadOut"];
                 };
             };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description Validation Error */
             422: {
                 headers: {
@@ -6989,45 +7756,12 @@ export interface operations {
             };
         };
     };
-    list_booth_leads_api_booths__booth_id__leads_get: {
-        parameters: {
-            query?: {
-                q?: string;
-                rating?: ("HOT" | "WARM" | "COLD") | null;
-            };
-            header?: never;
-            path: {
-                booth_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["LeadOut"][];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    export_booth_leads_csv_api_booths__booth_id__leads_export_csv_get: {
+    restore_lead_api_booths__booth_id__leads__lead_id__restore_post: {
         parameters: {
             query?: never;
             header?: never;
             path: {
+                lead_id: string;
                 booth_id: string;
             };
             cookie?: never;
@@ -7040,7 +7774,25 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["LeadOut"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
             /** @description Validation Error */
@@ -7076,6 +7828,42 @@ export interface operations {
                     "application/json": components["schemas"]["ConnectionOut"];
                 };
             };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description Validation Error */
             422: {
                 headers: {
@@ -7083,6 +7871,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
         };
@@ -7103,6 +7900,50 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ConnectionOut"][];
+                };
+            };
+        };
+    };
+    search_my_connections_api_attendees_me_network_search_get: {
+        parameters: {
+            query?: {
+                q?: string;
+                /** @description Only this congress's connections */
+                event_id?: string | null;
+                limit?: number;
+                cursor?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectionPage"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -7147,6 +7988,44 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PrivacyPreferenceOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_connection_api_attendees_me_network__connection_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                connection_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
             /** @description Validation Error */
@@ -8303,7 +9182,7 @@ export interface operations {
                 "x-admin-token"?: string | null;
             };
             path: {
-                kind: "otp" | "ticket_confirmation" | "ticket_cancelled" | "ticket_reissued";
+                kind: "otp" | "ticket_confirmation" | "ticket_cancelled" | "ticket_reissued" | "staff_invite";
             };
             cookie?: never;
         };
@@ -8340,7 +9219,7 @@ export interface operations {
                 "x-admin-token"?: string | null;
             };
             path: {
-                kind: "otp" | "ticket_confirmation" | "ticket_cancelled" | "ticket_reissued";
+                kind: "otp" | "ticket_confirmation" | "ticket_cancelled" | "ticket_reissued" | "staff_invite";
             };
             cookie?: never;
         };
