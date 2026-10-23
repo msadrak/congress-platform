@@ -90,7 +90,8 @@ test('organizer: platform admin provisions the organizer, who sets up and publis
     await page.getByRole('main').getByRole('button', { name: /نوع کارت ورود جدید/ }).first().click();
     const dialog = page.getByRole('dialog');
     await dialog.getByRole('textbox').first().fill(tierName);
-    await dialog.getByRole('spinbutton').fill('25');
+    // A text field with the numeric keypad (NumberInput): Persian digits shown, both digit sets accepted.
+    await dialog.getByRole('textbox', { name: /ظرفیت/ }).fill('۲۵');
     await dialog.locator('button[type=submit]').click();
     await expect(page.getByRole('status').filter({ hasText: tierName })).toBeVisible();
   });
