@@ -52,7 +52,7 @@ test('during: the pass QR comes first and opens the pass; now and next follow th
   expect((await headings(page))[0]).toBe('Your passes');
   const passes = page.getByRole('link', { name: /Show pass & QR code:/ });
   await expect(passes).toHaveCount(2);
-  await expect(passes.first().locator('svg')).toBeVisible();
+  await expect(passes.first().locator('svg').first()).toBeVisible();
   await expect(page.getByText('Show this QR code at the entrance').first()).toBeVisible();
 
   const program = page.getByRole('region', { name: 'Congress program' });
