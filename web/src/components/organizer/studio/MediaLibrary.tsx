@@ -61,7 +61,7 @@ export function MediaLibrary({ isOpen, copy, assets, images, inUse, onUpload, on
   };
 
   return (
-    <Dialog isOpen={isOpen} onClose={onClose} title={m.library} description={m.libraryBody} size="lg">
+    <Dialog isOpen={isOpen} onClose={onClose} title={m.library} size="lg">
       <div className="space-y-5">
         <label
           data-over={over || undefined}

@@ -8,18 +8,21 @@ import {
   type AuthResponse,
   type PublicEvent as PublicEventType,
   type TicketOut,
+  type TicketTierOut,
 } from "../api/client";
-import { MobileOtpForm } from "../components/auth/MobileOtpForm";
+import { MobileOtpForm, type OtpStep } from "../components/auth/MobileOtpForm";
 import { attendeeResponseState, isStoredAttendeeToken } from "../lib/attendeeSession";
 import { useAttendeeSession } from "../hooks/useAttendeeSession";
 import { errorMessages, isTierUnavailable, networkErrorMessage } from "../lib/errorMessages";
 import { PublicLayout } from "../layouts/PublicLayout";
-import { normalizeDocument, standardDocument, type PageImages } from "../lib/pageDocument";
+import { isSectionVisible, normalizeDocument, standardDocument, type PageImages } from "../lib/pageDocument";
 import { usePageMeta } from "../lib/pageMeta";
 import { Button, LinkButton } from "../components/ui/Button";
 import { Dialog } from "../components/ui/Dialog";
 import { Icon } from "../components/ui/Icon";
-import { CongressSignature } from "../components/brand/CongressSignature";
+import { Notice } from "../components/ui/Notice";
+import { StateBlock } from "../components/ui/StateBlock";
+import type { HeroAction } from "../components/public/CongressHero";
 import { contentLocale, isolateFor, publicCopy, usePublicLocale } from "../components/public/copy";
 import { Bidi } from "../components/public/Bidi";
 import { downloadCalendarFile } from "../components/public/calendarDownload";
@@ -51,6 +54,10 @@ export default function PublicEvent() {
 
   const [submitting, setSubmitting] = useState(false);
   const [modalError, setModalError] = useState<string | null>(null);
+  /** The sign-in step inside the reservation dialog: its title follows it. */
+  const [dialogStep, setDialogStep] = useState<OtpStep>("mobile");
+  /** The pass type being reserved (the hero's one-tap reservation picks it before the state updates). */
+  const reservingTier = useRef<TicketTierOut | null>(null);
   const pageContext = useRef<{ active: boolean } | null>(null);
   const { token: storedToken, signIn } = useAttendeeSession();
 
@@ -124,7 +131,7 @@ export default function PublicEvent() {
   // Registration windows open and close on their own: the page re-renders every 30 s to follow them.
   const now = useNow();
   // Never open the sign-in sheet for a reservation the API would refuse (window, sales, switch, quota).
-  const reservableNow = (at: number) => Boolean(event && selectedTier && tierAvailability(event, selectedTier, at).kind === "open");
+  const reservableNow = (tier: TicketTierOut | null, at: number) => Boolean(event && tier && tierAvailability(event, tier, at).kind === "open");
 
   const executeReservation = async (token: string, tierId: string) => {
     if (!event) return;
@@ -197,28 +204,32 @@ export default function PublicEvent() {
     }
   };
 
-  const handleStartReservation = async () => {
-    if (!selectedTier || !event || !reservableNow(Date.now())) return;
+  const startReservation = async (tier: TicketTierOut | null) => {
+    if (!tier || !event || !reservableNow(tier, Date.now())) return;
+    reservingTier.current = tier;
+    setSelectedTierId(tier.id);
     setModalError(null);
 
     if (storedToken) {
       // User is already logged in: reserve directly
       setSubmitting(true);
-      await executeReservation(storedToken, selectedTier.id);
+      await executeReservation(storedToken, tier.id);
     } else {
       // Needs authentication: open accessible dialog
+      setDialogStep("mobile");
       setIsAuthModalOpen(true);
     }
   };
 
   // Signed in (or signed up) by SMS code inside the dialog: keep the session, then reserve the chosen pass.
   const handleSignedInAndReserve = async (auth: AuthResponse) => {
-    if (!selectedTier || !event) return;
+    const tier = reservingTier.current ?? selectedTier;
+    if (!tier || !event) return;
     if (!pageContext.current?.active) return;
     signIn(auth.access_token);
     setModalError(null);
     setSubmitting(true);
-    await executeReservation(auth.access_token, selectedTier.id);
+    await executeReservation(auth.access_token, tier.id);
   };
 
   // Loading skeleton state
@@ -227,7 +238,6 @@ export default function PublicEvent() {
       <PublicLayout locale={locale} onLocaleChange={setLocale}>
         {/* Fills the viewport so the footer never sits in view and jumps when content arrives (CLS). */}
         <section role="status" aria-label={c.loading} className="relative min-h-[100svh] overflow-hidden bg-surface-ink">
-          <div aria-hidden="true" className="absolute inset-0 bg-meridian-ink opacity-70" />
           <div className="relative mx-auto max-w-7xl space-y-10 px-4 pt-12 pb-28 sm:px-6 sm:pt-20 lg:min-h-[640px] lg:px-10 motion-safe:animate-pulse">
             <div className="flex gap-2">
               <div className="h-7 w-36 rounded-full bg-white/10" />
@@ -257,36 +267,43 @@ export default function PublicEvent() {
     const notFound = loadError !== "failed";
     return (
       <PublicLayout locale={locale} onLocaleChange={setLocale} congressName="">
-        <section className="relative isolate overflow-hidden">
-          <CongressSignature seed={slug ?? "congress"} tone="light" className="absolute inset-0 -z-10 size-full opacity-70" />
-          <div aria-hidden="true" className="absolute inset-0 -z-10 bg-linear-to-b from-surface-page/30 via-surface-page/85 to-surface-page" />
-          <div className="mx-auto max-w-xl space-y-7 px-4 py-24 text-center sm:py-36">
-            <span className="mx-auto grid size-16 place-items-center bg-surface-panel text-aiteb-indigo shadow-lift shape-arc">
-              <Icon name={notFound ? "search" : "alert"} size={28} />
-            </span>
-            <div className="space-y-3">
-              <h1 className="text-3xl font-bold tracking-[-0.03em] text-text-primary sm:text-4xl">{notFound ? c.notFoundTitle : c.eventLoadFailedTitle}</h1>
-              <p className="text-base leading-relaxed text-text-secondary">{notFound ? c.notFoundBody : c.eventLoadFailed}</p>
-              {notFound && <p className="text-sm leading-relaxed text-text-muted">{c.notFoundHelp}</p>}
-            </div>
-            <div className="flex flex-wrap items-center justify-center gap-3">
-              {!notFound && (
-                <Button type="button" variant="secondary" size="lg" onClick={() => setReloadKey((k) => k + 1)}>
-                  <Icon name="sync" size={18} />
-                  {c.retry}
-                </Button>
-              )}
-              <LinkButton to="/sign-in" variant={notFound ? "primary" : "ghost"} size="lg">
-                <Icon name="ticket" size={18} />
-                {c.findMyPass}
-              </LinkButton>
-            </div>
-          </div>
-        </section>
+        <div className="mx-auto max-w-xl px-4 py-16 sm:py-24">
+          <StateBlock
+            kind={notFound ? "empty" : "error"}
+            icon={notFound ? "search" : undefined}
+            headingLevel={2}
+            title={notFound ? c.notFoundTitle : c.eventLoadFailedTitle}
+            body={notFound ? c.notFoundBody : c.eventLoadFailed}
+            action={
+              <div className="flex flex-wrap justify-center gap-3">
+                {!notFound && (
+                  <Button type="button" variant="secondary" icon="sync" onClick={() => setReloadKey((k) => k + 1)}>
+                    {c.retry}
+                  </Button>
+                )}
+                <LinkButton to="/sign-in" variant={notFound ? "primary" : "ghost"} icon="ticket">
+                  {c.findMyPass}
+                </LinkButton>
+              </div>
+            }
+          />
+        </div>
       </PublicLayout>
     );
   }
 
+  const held = alreadyHasTicket || heldPass;
+  const passPath = `/c/${encodeURIComponent(event.slug)}/my-ticket`;
+  const openTiers = event.ticket_tiers.filter((t) => tierAvailability(event, t, now).kind === "open");
+  // One primary action in the hero: the held pass, a one-tap reservation of the only open pass type, the
+  // passes section when several are open, and nothing while registration cannot be used.
+  const heroAction: HeroAction = held
+    ? { kind: "pass", to: passPath }
+    : !isSectionVisible(doc, "passes") || openTiers.length === 0
+      ? { kind: "none" }
+      : openTiers.length === 1
+        ? { kind: "reserve", onReserve: () => void startReservation(openTiers[0]) }
+        : { kind: "passes" };
   const logo = doc.branding.logo_asset_id ? images[doc.branding.logo_asset_id] ?? null : null;
 
   return (
@@ -298,6 +315,7 @@ export default function PublicEvent() {
         locale={locale}
         programFiles={programFilesOf(event)}
         now={now}
+        heroAction={heroAction}
         passes={
           <PassesPanel
             slug={event.slug}
@@ -306,22 +324,22 @@ export default function PublicEvent() {
             registration={event}
             timeZone={event.timezone}
             now={now}
-            accent={doc.branding.accent}
             selectedTierId={selectedTierId}
             onSelectTier={(id) => {
               setSelectedTierId(id);
               setModalError(null);
             }}
-            onReserve={handleStartReservation}
+            onReserve={() => void startReservation(selectedTier)}
             submitting={submitting}
-            alreadyHasTicket={alreadyHasTicket || heldPass}
+            alreadyHasTicket={held}
+            signedIn={Boolean(storedToken)}
             // Signed-in attendees reserve without the dialog, so its errors must show beside the dock.
             error={isAuthModalOpen ? null : modalError}
           />
         }
       />
 
-      {/* Accessible Registration / Authentication Dialog */}
+      {/* Reservation: sign in by SMS code, then the pass is reserved. */}
       <Dialog
         isOpen={isAuthModalOpen}
         onClose={() => {
@@ -330,87 +348,69 @@ export default function PublicEvent() {
             setModalError(null);
           }
         }}
-        title={c.dialogSignInTitle}
-        description={selectedTier ? c.dialogDescription(isolateFor(selectedTier.name, locale)) : undefined}
+        title={dialogStep === "profile" ? c.profileTitle : c.reserveTitle(selectedTier ? isolateFor(selectedTier.name, locale) : "")}
         size="md"
       >
         <div className="space-y-5">
           {submitting ? (
-            <p role="status" className="flex items-center gap-2.5 rounded-xl bg-surface-panel-subtle p-3.5 text-sm text-text-secondary">
+            <p role="status" className="flex items-center gap-2.5 rounded-control bg-surface-panel-subtle p-3.5 text-body-sm text-text-secondary">
               <Icon name="ticket" size={18} className="shrink-0 text-aiteb-indigo" />
-              {c.submitting}
+              {c.processing}
             </p>
           ) : (
-            <MobileOtpForm locale={locale} onSignedIn={(auth) => void handleSignedInAndReserve(auth)} verifyLabel={c.submitVerify} />
+            <MobileOtpForm
+              locale={locale}
+              onSignedIn={(auth) => void handleSignedInAndReserve(auth)}
+              onStepChange={setDialogStep}
+              verifyLabel={c.submitVerify}
+              showMobileHint={false}
+              profileLead={null}
+              profileSubmitLabel={c.profileSubmit}
+              stickySubmit="dialog"
+            />
           )}
-
-          {modalError && (
-            <div
-              role="alert"
-              aria-live="assertive"
-              className="flex items-start gap-3 rounded-xl border border-status-danger-border bg-status-danger-bg p-3.5 text-sm leading-relaxed text-status-danger-text"
-            >
-              <Icon name="alert" size={18} className="mt-0.5" />
-              <span>{modalError}</span>
-            </div>
-          )}
+          {modalError && <Notice tone="danger">{modalError}</Notice>}
         </div>
       </Dialog>
 
-      {/* Accessible Success Confirmation Dialog */}
-      <Dialog
-        isOpen={isSuccessModalOpen}
-        onClose={() => setIsSuccessModalOpen(false)}
-        title={c.successTitle}
-        description={c.successDescription}
-        size="sm"
-      >
-        <div className="space-y-5">
-          <div className="relative isolate flex items-center gap-4 overflow-hidden rounded-2xl bg-surface-ink p-5 text-white [border-start-end-radius:var(--radius-arc)]">
-            <CongressSignature seed={event.slug} accent={doc.branding.accent} tone="ink" className="absolute inset-0 -z-10 size-full opacity-80 rtl:-scale-x-100" />
-            <div aria-hidden="true" className="absolute inset-0 -z-10 bg-linear-to-t from-surface-ink via-surface-ink/80 to-surface-ink/20" />
-            <div className="min-w-0 flex-1">
-              <span className="grid size-10 place-items-center rounded-full bg-[#3EE0A1] text-surface-ink motion-safe:animate-pop">
-                <Icon name="check" size={20} strokeWidth={2.4} />
-              </span>
-              <h3 className="mt-4 text-base font-semibold leading-snug break-words"><Bidi text={event.name} /></h3>
-              <p className="mt-1 text-sm text-ink-200">
+      {/* The reserved pass: its QR code, then open it or add the congress to a calendar. */}
+      <Dialog isOpen={isSuccessModalOpen} onClose={() => setIsSuccessModalOpen(false)} title={c.successTitle} size="sm">
+        <div className="space-y-5" data-testid="reserve-success">
+          <div className="surface-ink flex items-center gap-4 rounded-card bg-surface-ink p-5 text-white">
+            <div className="min-w-0 flex-1 space-y-1">
+              <p className="text-body font-semibold leading-snug break-words">
+                <Bidi text={event.name} />
+              </p>
+              <p className="text-body-sm text-ink-200">
                 {c.successTier}: <span className="font-semibold text-white">{selectedTier && <Bidi text={reserved?.ticket_tier_name || selectedTier.name} />}</span>
               </p>
             </div>
             {reserved?.qr_secret && (
-              <div role="img" aria-label={c.successQrLabel} className="shrink-0 rounded-xl bg-white p-2 shadow-lift">
+              <div role="img" aria-label={c.successQrLabel} className="shrink-0 rounded-control bg-white p-2">
                 <QRCode value={reserved.qr_secret} size={96} level="M" viewBox="0 0 256 256" fgColor="#000000" bgColor="#FFFFFF" className="size-24" />
               </div>
             )}
           </div>
-          <div className="space-y-2 text-sm leading-relaxed text-text-secondary">
-            <p>{c.successBody}</p>
-            <p className="flex items-start gap-2 font-medium text-text-primary">
-              <Icon name="phone" size={16} className="mt-0.5 shrink-0 text-event-accent" />
-              {c.successSms}
-            </p>
-          </div>
+          <p className="flex items-start gap-2 text-body-sm text-text-secondary">
+            <Icon name="phone" size={16} className="mt-0.5 shrink-0 text-event-accent" />
+            {c.successSms}
+          </p>
           <div className="flex flex-col gap-2">
             <Button
               type="button"
               variant="primary"
               size="lg"
               isFullWidth
+              icon="qr"
               onClick={() => {
                 setIsSuccessModalOpen(false);
-                navigate(`/c/${encodeURIComponent(event.slug)}/my-ticket`);
+                navigate(passPath);
               }}
             >
-              <Icon name="qr" size={18} />
-              {c.successOpen}
+              {c.viewMyPass}
             </Button>
-            <Button type="button" variant="secondary" size="md" isFullWidth onClick={() => downloadCalendarFile(event)}>
-              <Icon name="calendar" size={18} />
+            <Button type="button" variant="ghost" isFullWidth icon="calendar" onClick={() => downloadCalendarFile(event)}>
               {c.addToCalendar}
-            </Button>
-            <Button type="button" variant="ghost" size="md" isFullWidth onClick={() => setIsSuccessModalOpen(false)}>
-              {c.successStay}
             </Button>
           </div>
         </div>

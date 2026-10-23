@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Locator } from '@playwright/test';
 import { ADMIN_TOKEN, api, createOrganizer, organizerSignIn, reserveTicket, uid, uniqueMobile, type LiveEvent, type Tier } from './support/live';
 
 const PDF = Buffer.from(
@@ -8,6 +8,16 @@ const PDF = Buffer.from(
 
 /** `YYYY-MM-DD` of `date` in `timeZone`. */
 const dayIn = (date: Date, timeZone: string): string => new Intl.DateTimeFormat('en-CA', { timeZone }).format(date);
+
+/** Fills a Persian DateTimeField (Jalali day, month, year and a time) with a Gregorian `YYYY-MM-DD` day and `HH:MM`. */
+async function fillJalali(group: Locator, day: string, time: string) {
+  const parts = new Intl.DateTimeFormat('en-US-u-ca-persian', { timeZone: 'UTC', year: 'numeric', month: 'numeric', day: 'numeric' }).formatToParts(new Date(`${day}T12:00:00Z`));
+  const part = (type: string) => parts.find((p) => p.type === type)?.value ?? '';
+  await group.getByLabel('روز').selectOption(String(Number(part('day'))));
+  await group.getByLabel('ماه').selectOption(String(Number(part('month'))));
+  await group.getByLabel('سال').fill(part('year').replace(/\D/g, ''));
+  await group.getByLabel('ساعت').fill(time);
+}
 
 test('organizer: platform admin provisions the organizer, who sets up and publishes a congress and sees a registration', async ({ page, browser }) => {
   const id = uid();
@@ -24,10 +34,10 @@ test('organizer: platform admin provisions the organizer, who sets up and publis
 
   await test.step('platform admin creates the organizer and receives its key once', async () => {
     await page.goto('/platform/organizers');
-    await page.getByLabel('توکن مدیر سامانه').fill(ADMIN_TOKEN);
-    await page.getByRole('button', { name: 'ورود به پنل' }).click();
-    await page.getByLabel('نام برگزارکننده جدید').fill(orgName);
-    await page.getByRole('button', { name: 'ساخت و صدور کلید' }).click();
+    await page.getByLabel('کلید مدیر سامانه').fill(ADMIN_TOKEN);
+    await page.getByRole('button', { name: 'ورود', exact: true }).click();
+    await page.getByLabel('نام برگزارکنندهٔ جدید').fill(orgName);
+    await page.getByRole('button', { name: 'افزودن برگزارکننده' }).click();
     await expect(page.getByTestId('issued-key')).toContainText(orgName);
   });
   const apiKey = (await page.getByTestId('issued-key').locator('p[dir=ltr]').innerText()).trim();
@@ -35,28 +45,36 @@ test('organizer: platform admin provisions the organizer, who sets up and publis
 
   await test.step('key gate: a wrong key is refused, the issued key opens the console', async () => {
     await page.goto('/organizer');
-    await page.getByRole('button', { name: 'کلید API' }).click();
+    await page.getByRole('button', { name: 'ورود با کلید سازمان' }).click();
     await page.getByLabel('کلید سازمان').fill(`wrong-${apiKey}`);
     await page.getByRole('button', { name: 'ورود', exact: true }).click();
     await expect(page.getByRole('alert')).toBeVisible();
     await page.getByLabel('کلید سازمان').fill(apiKey);
     await page.getByRole('button', { name: 'ورود', exact: true }).click();
-    await expect(page.getByRole('heading', { name: 'مدیریت همایش‌ها و کنگره‌ها' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'همایش‌ها', level: 1 })).toBeVisible();
   });
 
-  await test.step('create the event with its timezone and registration window', async () => {
-    await page.getByRole('button', { name: 'ایجاد همایش جدید' }).first().click();
-    const dialog = page.getByRole('dialog', { name: 'ثبت همایش جدید' });
-    await dialog.getByLabel('عنوان رسمی همایش').fill(eventName);
-    await dialog.getByLabel('نشانی صفحه').fill(slug);
-    await dialog.getByLabel('منطقهٔ زمانی همایش').selectOption(zone);
-    await dialog.getByLabel('زمان آغاز همایش').fill(`${eventDay}T09:00`);
-    await dialog.getByLabel('زمان پایان همایش').fill(`${eventDay}T17:00`);
-    await dialog.getByLabel(/محل برگزاری/).fill('مرکز همایش‌های آزمون');
-    await dialog.getByLabel('شروع ثبت‌نام (اختیاری)').fill(`${opensDay}T08:00`);
-    await dialog.getByLabel('پایان ثبت‌نام (اختیاری)').fill(`${closesDay}T20:00`);
-    await dialog.getByRole('button', { name: 'ثبت و ایجاد همایش' }).click();
+  await test.step('create the event with Jalali dates', async () => {
+    await page.getByRole('button', { name: 'همایش جدید' }).first().click();
+    const dialog = page.getByRole('dialog', { name: 'همایش جدید' });
+    await dialog.getByRole('textbox', { name: 'نام همایش' }).fill(eventName);
+    await dialog.getByRole('textbox', { name: 'نشانی صفحه' }).fill(slug);
+    await fillJalali(dialog.getByRole('group', { name: 'آغاز' }), eventDay, '09:00');
+    await fillJalali(dialog.getByRole('group', { name: 'پایان' }), eventDay, '17:00');
+    await dialog.getByRole('textbox', { name: 'محل برگزاری' }).fill('مرکز همایش‌های آزمون');
+    await dialog.getByRole('button', { name: 'افزودن', exact: true }).click();
     await expect(page.getByRole('status').filter({ hasText: eventName })).toBeVisible();
+  });
+
+  await test.step('settings: its time zone and registration window, on the congress clock', async () => {
+    await page.getByRole('link', { name: eventName }).first().click();
+    await page.getByTestId('event-settings').getByRole('button', { name: 'ویرایش' }).click();
+    const dialog = page.getByRole('dialog', { name: 'ویرایش همایش' });
+    await dialog.getByLabel('منطقهٔ زمانی').selectOption(zone);
+    await fillJalali(dialog.getByRole('group', { name: /آغاز ثبت‌نام/ }), opensDay, '08:00');
+    await fillJalali(dialog.getByRole('group', { name: /پایان ثبت‌نام/ }), closesDay, '20:00');
+    await dialog.getByRole('button', { name: 'ذخیره', exact: true }).click();
+    await expect(page.getByRole('status').filter({ hasText: 'تنظیمات همایش ذخیره شد.' })).toBeVisible();
   });
   const event = (await api<Array<LiveEvent & { starts_at: string; registration_opens_at: string; registration_closes_at: string }>>('GET', '/api/events', { token: apiKey }))[0];
   expect(event).toMatchObject({ slug, timezone: zone });
@@ -64,8 +82,7 @@ test('organizer: platform admin provisions the organizer, who sets up and publis
   expect(new Date(event.registration_opens_at).toISOString()).toBe(new Date(`${opensDay}T05:00:00Z`).toISOString());
   expect(new Date(event.registration_closes_at).toISOString()).toBe(new Date(`${closesDay}T17:00:00Z`).toISOString());
 
-  const workspace = page.getByRole('navigation', { name: 'فضای کاری همایش' });
-  await page.getByRole('link', { name: eventName }).first().click();
+  const workspace = page.getByRole('navigation', { name: 'بخش‌های همایش' });
 
   await test.step('add a pass type (ticket tier)', async () => {
     await expect(workspace).toBeVisible();
@@ -95,21 +112,23 @@ test('organizer: platform admin provisions the organizer, who sets up and publis
   });
 
   await test.step('program: a session and a PDF schedule file', async () => {
-    await workspace.getByRole('link', { name: 'برنامهٔ همایش' }).click();
+    await workspace.getByRole('link', { name: 'برنامه', exact: true }).click();
     await page.getByRole('button', { name: 'افزودن جلسه' }).click();
-    const dialog = page.getByRole('dialog', { name: 'افزودن جلسه' });
+    const dialog = page.getByRole('dialog', { name: 'جلسهٔ جدید' });
     await dialog.getByLabel('عنوان').fill('سخنرانی افتتاحیه');
-    await dialog.getByLabel('زمان شروع').fill(`${eventDay}T09:30`);
-    await dialog.getByLabel('زمان پایان').fill(`${eventDay}T10:30`);
+    // A new session starts on the congress's first day; moving the start keeps the one-hour length (to 10:30).
+    await dialog.getByRole('group', { name: 'شروع' }).getByLabel('ساعت').fill('09:30');
     await dialog.getByLabel('سخنرانان').fill('دکتر سارا احمدی');
-    await dialog.getByRole('button', { name: 'افزودن جلسه' }).click();
+    await dialog.getByRole('button', { name: 'افزودن', exact: true }).click();
     await expect(dialog).toBeHidden();
     await expect(page.getByText('سخنرانی افتتاحیه').first()).toBeVisible();
 
+    await page.getByRole('tab', { name: 'فایل‌های برنامه' }).click();
     const files = page.getByRole('region', { name: 'فایل‌های برنامه' });
-    await files.locator('input[type=file]').setInputFiles({ name: 'program.pdf', mimeType: 'application/pdf', buffer: PDF });
-    await files.getByLabel('عنوان فایل').fill('برنامهٔ کامل');
-    await files.getByRole('button', { name: 'بارگذاری', exact: true }).click();
+    await files.getByLabel('بارگذاری فایل').setInputFiles({ name: 'program.pdf', mimeType: 'application/pdf', buffer: PDF });
+    const upload = page.getByRole('dialog', { name: 'فایل برنامه' });
+    await upload.getByLabel('عنوان فایل').fill('برنامهٔ کامل');
+    await upload.getByRole('button', { name: 'بارگذاری', exact: true }).click();
     await expect(files.getByTestId('schedule-file')).toHaveCount(1);
     await expect(files.getByTestId('schedule-file')).toContainText('برنامهٔ کامل');
   });
@@ -143,11 +162,11 @@ test('organizer: program session times are entered on the event clock, not the b
   await organizerSignIn(page, organizer.api_key);
   await page.goto(`/organizer/events/${event.id}/program`);
   await page.getByRole('button', { name: 'افزودن جلسه' }).click();
-  const dialog = page.getByRole('dialog', { name: 'افزودن جلسه' });
+  const dialog = page.getByRole('dialog', { name: 'جلسهٔ جدید' });
   await dialog.getByLabel('عنوان').fill('جلسهٔ صبح');
-  await dialog.getByLabel('زمان شروع').fill(`${eventDay}T09:30`);
-  await dialog.getByLabel('زمان پایان').fill(`${eventDay}T10:30`);
-  await dialog.getByRole('button', { name: 'افزودن جلسه' }).click();
+  // The congress's first day in Istanbul; the end follows the start by the default hour.
+  await dialog.getByRole('group', { name: 'شروع' }).getByLabel('ساعت').fill('09:30');
+  await dialog.getByRole('button', { name: 'افزودن', exact: true }).click();
   await expect(dialog).toBeHidden();
   const [session] = await api<Array<{ starts_at: string }>>('GET', `/api/events/${event.id}/sessions`, { token: organizer.api_key });
   expect(new Date(session.starts_at).toISOString()).toBe(new Date(`${eventDay}T06:30:00Z`).toISOString());

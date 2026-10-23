@@ -51,7 +51,8 @@ async function fixture(page: Page, options: Options = {}) {
 
 // Other credential families are stored under their real keys; the Organizer key is optional.
 async function seed(page: Page, organizerKey?: string) {
-  await page.goto('/');
+  // A same-origin static file, not the app: the home page would load its public congress list (an API request) mid-seed.
+  await page.goto('/favicon.png');
   await page.evaluate(({ organizerKey, userToken, deskToken, scannerToken }) => {
     if (organizerKey) sessionStorage.setItem('congress_organizer_api_key', organizerKey);
     localStorage.setItem('congress_attendee_token', userToken);
@@ -88,14 +89,30 @@ async function otherCredentialsIntact(page: Page) {
 
 const storedKey = (page: Page) => page.evaluate(() => sessionStorage.getItem('congress_organizer_api_key'));
 
+type Group = ReturnType<Page['getByRole']>;
+/** Fills a DateTimeField (day, month, year, time) with a `datetime-local` value, in English. */
+async function fillDateTime(group: Group, value: string) {
+  const [date, time] = value.split('T');
+  const [year, month, day] = date.split('-');
+  await group.getByLabel('Day').selectOption(String(Number(day)));
+  await group.getByLabel('Month').selectOption(String(Number(month)));
+  await group.getByLabel('Year').fill(year);
+  await group.getByLabel('Time').fill(time);
+}
+
 async function createEvent(page: Page) {
-  await page.getByRole('button', { name: 'Create New Event' }).first().click();
+  await page.getByRole('button', { name: 'New congress' }).first().click();
   const dialog = page.getByRole('dialog');
-  await dialog.getByPlaceholder('e.g. 18th Annual Congress of Biotechnology').fill('Created Event');
-  await dialog.locator('input[type="datetime-local"]').nth(0).fill('2027-05-01T09:00');
-  await dialog.locator('input[type="datetime-local"]').nth(1).fill('2027-05-01T17:00');
-  await dialog.getByPlaceholder('e.g. International Convention Center, Hall A').fill('Fixture Hall');
-  await dialog.getByRole('button', { name: 'Create Event' }).click();
+  await dialog.getByRole('textbox', { name: 'Congress name' }).fill('Created Event');
+  await fillDateTime(dialog.getByRole('group', { name: 'Starts' }), '2027-05-01T09:00');
+  await fillDateTime(dialog.getByRole('group', { name: 'Ends' }), '2027-05-01T17:00');
+  await dialog.getByRole('textbox', { name: 'Venue' }).fill('Fixture Hall');
+  await dialog.getByRole('button', { name: 'Add', exact: true }).click();
+}
+
+async function signOut(page: Page) {
+  await page.getByRole('button', { name: /^(Account menu|Menu)$/ }).click();
+  await page.getByRole('menuitem', { name: 'Sign out' }).click();
 }
 
 test('without an organizer key the gate appears and no protected request is sent', async ({ page }) => {
@@ -106,7 +123,7 @@ test('without an organizer key the gate appears and no protected request is sent
     await page.goto(path);
     // Without any credential the gate opens on member sign-in (ADR 0016); the API key is one click away.
     await expect(page.getByRole('heading', { name: 'Sign in to the organizer console' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'API key' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Use organizer key' })).toBeVisible();
   }
   expect(requests).toEqual([]);
   await otherCredentialsIntact(page);
@@ -119,13 +136,14 @@ test('list, detail, analytics and CSV export transmit only the organizer key wit
   await page.goto('/organizer');
   await expect(page.getByText('Event A', { exact: true }).first()).toBeVisible();
   await page.goto('/organizer/events/event-a');
-  await expect(page.getByRole('heading', { name: 'Event A' }).first()).toBeVisible();
+  await expect(page.getByTestId('active-event')).toHaveText('Event A');
   await page.goto('/organizer/events/event-a/analytics');
   const download = page.waitForEvent('download');
-  await page.getByRole('button', { name: 'Export Attendance CSV' }).click();
+  await page.getByRole('button', { name: 'Export' }).click();
+  await page.getByRole('menuitem', { name: 'Entries' }).click();
   expect((await download).suggestedFilename()).toBe('event-a-attendance.csv');
   const paths = requests.map(r => `${r.method} ${r.path}`);
-  for (const expected of ['GET /api/events', 'GET /api/events/event-a', 'GET /api/events/event-a/ticket-tiers', 'GET /api/events/event-a/checkin-points', 'GET /api/events/event-a/booths', 'GET /api/events/event-a/desk/operators', 'GET /api/events/event-a/analytics/attendance', 'GET /api/events/event-a/analytics/export-csv']) {
+  for (const expected of ['GET /api/events', 'GET /api/events/event-a', 'GET /api/events/event-a/ticket-tiers', 'GET /api/events/event-a/checkin-points', 'GET /api/events/event-a/desk/operators', 'GET /api/events/event-a/analytics/attendance', 'GET /api/events/event-a/analytics/export-csv']) {
     expect(paths).toContain(expected);
   }
   expect(requests.every(r => r.auth === `Bearer ${keyA}`)).toBe(true);
@@ -155,8 +173,8 @@ for (const trigger of ['load', 'mutation'] as const) {
       await expect(page.getByText('Event A', { exact: true }).first()).toBeVisible();
       await createEvent(page);
     }
-    await expect(page.getByRole('heading', { name: 'Organizer Authentication' })).toBeVisible();
-    await expect(page.getByRole('alert')).toContainText('rejected');
+    await expect(page.getByRole('heading', { name: 'Use organizer key' })).toBeVisible();
+    await expect(page.getByRole('alert')).toContainText('The organizer key was not accepted.');
     expect(await storedKey(page)).toBeNull();
     // Development StrictMode may repeat the initial load; none of it may carry another credential.
     expect(requests.length).toBeGreaterThanOrEqual(1);
@@ -171,17 +189,17 @@ for (const tierStatus of [201, 401]) {
     await seed(page, keyA);
     requests.length = 0;
     await page.goto('/organizer/events/event-a');
-    await expect(page.getByRole('heading', { name: 'Event A' }).first()).toBeVisible();
-    await page.getByRole('navigation', { name: 'Event workspace' }).getByRole('link', { name: /Ticket Tiers/ }).click();
-    await page.getByRole('button', { name: 'Add Ticket Tier' }).first().click();
+    await expect(page.getByTestId('active-event')).toHaveText('Event A');
+    await page.getByRole('navigation', { name: 'Congress sections' }).getByRole('link', { name: /Pass types/ }).click();
+    await page.getByRole('button', { name: 'New pass type' }).first().click();
     const dialog = page.getByRole('dialog');
-    await dialog.getByPlaceholder('e.g. Faculty Full Delegate').fill('New Tier');
-    await dialog.getByRole('button', { name: 'Save Ticket Tier' }).click();
+    await dialog.getByPlaceholder('e.g. Faculty delegate').fill('New Tier');
+    await dialog.getByRole('button', { name: 'Add', exact: true }).click();
     if (tierStatus === 201) {
       await expect(page.getByText('New Tier').first()).toBeVisible();
       expect(await storedKey(page)).toBe(keyA);
     } else {
-      await expect(page.getByRole('heading', { name: 'Organizer Authentication' })).toBeVisible();
+      await expect(page.getByRole('heading', { name: 'Use organizer key' })).toBeVisible();
       expect(await storedKey(page)).toBeNull();
     }
     expect(requests.filter(r => r.method === 'POST').map(r => r.path)).toEqual(['/api/events/event-a/ticket-tiers']);
@@ -228,13 +246,13 @@ test('a late 401 for key A cannot clear key B and later actions use only key B',
   requests.length = 0;
   await page.goto('/organizer');
   await started.promise;
-  await page.getByRole('button', { name: 'Sign Out' }).click();
+  await signOut(page);
   // Only what is sent from here on counts (the console asked who key A was before signing out).
   requests.length = 0;
-  await page.getByRole('button', { name: 'API key' }).click();
-  await expect(page.getByRole('heading', { name: 'Organizer Authentication' })).toBeVisible();
+  await page.getByRole('button', { name: 'Use organizer key' }).click();
+  await expect(page.getByRole('heading', { name: 'Use organizer key' })).toBeVisible();
   await page.locator('#apiKeyInput').fill(keyB);
-  await page.getByRole('button', { name: /Access Organizer Dashboard/ }).click();
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(page.getByText('Event A', { exact: true }).first()).toBeVisible();
   const lateResponse = page.waitForResponse(response => response.url().endsWith('/api/events') && response.status() === 401);
   release.resolve();

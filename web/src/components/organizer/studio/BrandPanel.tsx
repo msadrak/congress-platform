@@ -68,7 +68,6 @@ export function BrandPanel({ doc, onChange, eventName }: { doc: PageDoc; onChang
             </label>
           ))}
         </div>
-        <p className="text-xs leading-relaxed text-text-muted">{b.accentHint}</p>
       </fieldset>
 
       <ImageField
@@ -157,16 +156,11 @@ export function BrandPanel({ doc, onChange, eventName }: { doc: PageDoc; onChang
           onChange={(e) => onChange({ ...doc, primary_locale: e.target.value as PageDoc["primary_locale"] })}
         >
           <option value="auto">{b.languageAuto}</option>
-          <option value="fa">فارسی</option>
-          <option value="en">English</option>
+          <option value="fa">{copy.languages.fa}</option>
+          <option value="en">{copy.languages.en}</option>
         </select>
         <span className="mt-1.5 block text-xs leading-relaxed text-text-muted">{b.languageHint}</span>
       </label>
-
-      <p className="flex items-start gap-2 rounded-xl bg-surface-panel-subtle px-3.5 py-3 text-xs leading-relaxed text-text-secondary">
-        <Icon name="shield" size={16} className="mt-px shrink-0 text-aiteb-indigo" />
-        {b.attribution}
-      </p>
     </div>
   );
 }

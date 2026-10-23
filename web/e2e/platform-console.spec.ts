@@ -87,9 +87,12 @@ async function openConsole(page: Page, locale = 'en') {
   await page.goto('/');
   await page.evaluate(l => localStorage.setItem('congress_attendee_locale', l), locale);
   await page.goto('/platform');
-  await page.getByLabel('Platform admin token').fill(TOKEN);
-  await page.getByRole('button', { name: 'Open the console' }).click();
+  await page.getByLabel(locale === 'fa' ? 'کلید مدیر سامانه' : 'Platform admin token').fill(TOKEN);
+  await page.getByRole('button', { name: locale === 'fa' ? 'ورود' : 'Sign in', exact: true }).click();
+  await expect(page.getByRole('heading', { name: locale === 'fa' ? 'وضعیت' : 'Status', level: 1 })).toBeVisible();
 }
+
+const tab = (page: Page, name: string) => page.getByRole('navigation').getByRole('link', { name, exact: true });
 
 test('the token gate explains a wrong token and a blocked network, and keeps the token for this tab only', async ({ page }) => {
   const requests = await fixture(page);
@@ -97,12 +100,12 @@ test('the token gate explains a wrong token and a blocked network, and keeps the
   await page.evaluate(() => localStorage.setItem('congress_attendee_locale', 'en'));
   await page.goto('/platform');
   await page.getByLabel('Platform admin token').fill('wrong');
-  await page.getByRole('button', { name: 'Open the console' }).click();
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(page.getByRole('alert')).toContainText('was not accepted');
 
   await page.getByLabel('Platform admin token').fill(TOKEN);
-  await page.getByRole('button', { name: 'Open the console' }).click();
-  await expect(page.getByRole('heading', { name: 'SMS', level: 1 })).toBeVisible();
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Status', level: 1 })).toBeVisible();
   expect(await page.evaluate(() => sessionStorage.getItem('congress_platform_admin_token'))).toBe(TOKEN);
   expect(await page.evaluate(() => localStorage.getItem('congress_platform_admin_token'))).toBeNull();
   expect(requests.filter(r => r.admin === TOKEN).every(r => r.auth === undefined)).toBe(true);
@@ -114,19 +117,34 @@ test('the token gate explains a wrong token and a blocked network, and keeps the
   await page.unrouteAll();
   await fixture(page, { statusCode: 404 });
   await page.getByLabel('Platform admin token').fill(TOKEN);
-  await page.getByRole('button', { name: 'Open the console' }).click();
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(page.getByRole('alert')).toContainText('CONGRESS_ADMIN_ALLOW');
+});
+
+test('the Status tab comes first and shows the outbox counts, the caps in use and the gateway', async ({ page }) => {
+  await fixture(page);
+  await openConsole(page);
+  const links = page.getByRole('navigation').getByRole('link');
+  await expect(links).toHaveText(['Status', 'SMS', 'Sign-in rules', 'Organizers']);
+  await expect(links.first()).toHaveAttribute('aria-current', 'page');
+  await expect(page.getByTestId('outbox-counts')).toContainText('Queued3');
+  await expect(page.getByTestId('outbox-counts')).toContainText('Failed2');
+  await expect(page.getByText('12 / 2,000')).toBeVisible();
+  await expect(page.getByText('44 / 20,000')).toBeVisible();
+  await expect(page.getByTestId('gateway-chip')).toContainText('Test mode');
+  await expect(page).toHaveTitle('Status · Platform admin');
 });
 
 test('the SMS gateway is checked and saved from the console; the key is never shown again', async ({ page }) => {
   const requests = await fixture(page);
   await openConsole(page);
+  await tab(page, 'SMS').click();
   await expect(page.getByTestId('gateway-state')).toContainText('Test mode');
 
   await page.getByLabel('Live delivery through sms.ir').check();
   await page.getByLabel('sms.ir API key').fill(KEY);
   await page.getByLabel('Service line number').fill('۳۰۰۰۱۲۳۴');
-  await page.getByRole('button', { name: 'Check connection & credit' }).click();
+  await page.getByRole('button', { name: 'Check connection' }).click();
   await expect(page.getByTestId('gateway-check')).toContainText('Account credit: 125,000');
   await expect(page.getByTestId('gateway-check')).toContainText('30001234, 50002222');
   expect(requests.find(r => r.path === '/api/platform/sms/check')?.body).toEqual({ api_key: KEY, line_number: 30001234 });
@@ -142,6 +160,7 @@ test('the SMS gateway is checked and saved from the console; the key is never sh
 test('the sign-in text must keep {code}; it is saved and tested from the console', async ({ page }) => {
   const requests = await fixture(page);
   await openConsole(page);
+  await tab(page, 'SMS').click();
   const otp = page.getByRole('region', { name: 'Sign-in code SMS (every congress)' });
   await expect(otp.getByTestId('sms-preview')).toContainText('کد ورود همایش: 111111');
   const editor = otp.getByLabel('Message text');
@@ -160,10 +179,10 @@ test('the sign-in text must keep {code}; it is saved and tested from the console
   expect(requests.find(r => r.method === 'PUT' && r.path === '/api/platform/sms-templates/otp')?.body).toEqual({ body: 'AITeb code {code}' });
 });
 
-test('sign-in rules are saved and can go back to the .env value', async ({ page }) => {
+test('sign-in rules are saved and can go back to the server config', async ({ page }) => {
   const requests = await fixture(page);
   await openConsole(page);
-  await page.getByRole('link', { name: 'Sign-in' }).click();
+  await tab(page, 'Sign-in rules').click();
   await page.getByLabel('Code digits').fill('9');
   await expect(page.getByRole('alert')).toContainText('outside the allowed range');
   await page.getByLabel('Code digits').fill('4');
@@ -171,16 +190,17 @@ test('sign-in rules are saved and can go back to the .env value', async ({ page 
   await expect(page.getByRole('status').filter({ hasText: 'Saved and applied.' })).toBeVisible();
   expect(requests.find(r => r.method === 'PUT' && r.path === '/api/platform/sign-in')?.body).toEqual({ otp_length: 4, reset: [] });
   // An inline text action, but a full 44 px tap target.
-  expect((await page.getByRole('button', { name: 'Use .env' }).boundingBox())?.height).toBeGreaterThanOrEqual(44);
-  await page.getByRole('button', { name: 'Use .env' }).click();
+  const useServer = page.getByRole('button', { name: 'Use server config' });
+  expect((await useServer.boundingBox())?.height).toBeGreaterThanOrEqual(44);
+  await useServer.click();
   await expect(page.getByLabel('Code digits')).toHaveValue('6');
-  await expect(page.getByRole('status').filter({ hasText: '“Code digits” now follows the .env value.' })).toBeVisible();
+  await expect(page.getByRole('status').filter({ hasText: '“Code digits” now follows the server config.' })).toBeVisible();
 });
 
 test('venue networks get their own budget from the sign-in rules', async ({ page }) => {
   const requests = await fixture(page);
   await openConsole(page);
-  await page.getByRole('link', { name: 'Sign-in' }).click();
+  await tab(page, 'Sign-in rules').click();
   await page.getByTestId('trusted-networks').fill('203.0.113.0/24\n192.0.2.7');
   await page.getByLabel('Codes per venue network address per hour').fill('3000');
   await page.getByRole('button', { name: 'Save rules' }).click();
@@ -190,45 +210,86 @@ test('venue networks get their own budget from the sign-in rules', async ({ page
   });
 });
 
-test('the SMS page shows outbox counts and saves the platform caps', async ({ page }) => {
+test('the SMS tab saves the platform caps with the gateway form', async ({ page }) => {
   const requests = await fixture(page);
   await openConsole(page);
-  await page.getByRole('link', { name: 'SMS' }).click();
-  const outbox = page.getByRole('region', { name: 'Outbox and SMS caps' });
-  await expect(outbox.getByTestId('outbox-counts')).toContainText('Failed2');
-  await expect(outbox).toContainText('12 / 2,000');
-  await outbox.getByLabel('SMS per hour (cap)').fill('500');
-  await outbox.getByRole('button', { name: 'Save caps' }).click();
-  await expect(outbox.getByRole('status').filter({ hasText: 'Caps saved and applied immediately.' })).toBeVisible();
-  expect(requests.find(r => r.method === 'PUT' && r.path === '/api/platform/sms')?.body).toEqual({ hourly_cap: 500, daily_cap: 20000, reset: [] });
-  await outbox.getByRole('button', { name: 'Use the .env values' }).click();
-  await expect(outbox.getByLabel('SMS per hour (cap)')).toHaveValue('2000');
+  await tab(page, 'SMS').click();
+  await page.getByLabel('SMS per hour (cap)').fill('500');
+  await page.getByRole('button', { name: 'Save settings' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'SMS settings saved.' })).toBeVisible();
+  expect(requests.find(r => r.method === 'PUT' && r.path === '/api/platform/sms')?.body).toEqual({ hourly_cap: 500, reset: [] });
+  await page.getByRole('button', { name: 'Use server config' }).click();
+  await expect(page.getByLabel('SMS per hour (cap)')).toHaveValue('2000');
+  await expect(page.getByRole('status').filter({ hasText: '“SMS per hour (cap)” now follows the server config.' })).toBeVisible();
+});
+
+test('no screen names the .env file, in Persian or English', async ({ page }) => {
+  await fixture(page);
+  for (const locale of ['en', 'fa']) {
+    await openConsole(page, locale);
+    for (const path of ['/platform', '/platform?tab=sms', '/platform/sign-in', '/platform/organizers']) {
+      await page.goto(path);
+      await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+      expect(await page.locator('body').innerText(), `${locale} ${path}`).not.toContain('.env');
+    }
+    await page.goto('/platform/sign-in');
+    await expect(page.getByText(locale === 'fa' ? 'از تنظیمات سرور' : 'From server config').first()).toBeVisible();
+    // No install prompt anywhere in platform admin (UX T6).
+    await expect(page.getByTestId('install-hint')).toHaveCount(0);
+    await page.getByRole('button', { name: locale === 'fa' ? 'خروج' : 'Sign out' }).click();
+  }
 });
 
 test('organizers are created, rotated and revoked from the console; keys are shown once', async ({ page }) => {
   await fixture(page);
   await openConsole(page);
-  await page.getByRole('link', { name: 'Organizers' }).click();
+  await tab(page, 'Organizers').click();
+  await expect(page.getByRole('heading', { name: 'Organizers', level: 1 })).toBeVisible();
   await expect(page.getByText('Alpha Society')).toBeVisible();
-  await expect(page).toHaveTitle('Organizers · Platform console');
+  await expect(page).toHaveTitle('Organizers · Platform admin');
   await page.getByLabel('New organizer name').fill('Beta Union');
-  await page.getByRole('button', { name: 'Create and issue key' }).click();
+  await page.getByRole('button', { name: 'Add organizer' }).click();
   await expect(page.getByTestId('issued-key')).toContainText('new-organizer-key-0001');
-  await page.getByRole('button', { name: 'Handed over, hide it' }).click();
+  await page.getByRole('button', { name: 'Hide key' }).click();
   await expect(page.getByText('new-organizer-key-0001')).toHaveCount(0);
 
-  await page.getByRole('button', { name: 'Rotate key' }).first().click();
+  const row = page.getByTestId('organizer-list').getByRole('listitem').filter({ hasText: 'Alpha Society' });
+  const more = row.getByRole('button', { name: /^More actions for “.?Alpha Society.?”$/ });
+  // Only Members is a row button; rotating and removing access live in the ⋯ menu.
+  await expect(row.getByRole('button', { name: 'Members' })).toBeVisible();
+  await expect(row.getByRole('button', { name: 'Remove access' })).toHaveCount(0);
+  await expect(row.getByRole('button', { name: 'Rotate key' })).toHaveCount(0);
+
+  await more.click();
+  await page.getByRole('menuitem', { name: 'Rotate key' }).click();
   await page.getByRole('dialog', { name: 'Issue a new key?' }).getByRole('button', { name: 'Issue new key' }).click();
   await expect(page.getByTestId('issued-key')).toContainText('rotated-organizer-key-0002');
 
-  await page.getByRole('button', { name: 'Revoke' }).first().click();
-  await page.getByRole('dialog', { name: 'Revoke this organizer?' }).getByRole('button', { name: 'Revoke' }).click();
-  await expect(page.getByText('Revoked')).toBeVisible();
-  await page.getByRole('button', { name: 'Reinstate with a new key' }).click();
+  await more.click();
+  await page.getByRole('menuitem', { name: 'Remove access' }).click();
+  const confirm = page.getByRole('dialog', { name: /^Remove access for “.?Alpha Society.?”\?$/ });
+  await expect(confirm).toContainText('their congresses are kept');
+  await confirm.getByRole('button', { name: 'Remove access' }).click();
+  await expect(row.getByText('Access removed')).toBeVisible();
+
+  await more.click();
+  await page.getByRole('menuitem', { name: 'Reinstate with a new key' }).click();
   const reinstate = page.getByRole('dialog', { name: 'Reinstate this organizer?' });
   await expect(reinstate).toContainText('can sign in again with a new key, shown once.');
   await expect(reinstate.getByRole('button', { name: 'Reinstate' })).toBeVisible();
   await reinstate.getByRole('button', { name: 'Cancel' }).click();
+});
+
+test('on a phone the new-organizer name field is at least 300 px wide', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await fixture(page);
+  for (const locale of ['fa', 'en']) {
+    await openConsole(page, locale);
+    await page.goto('/platform/organizers');
+    const box = await page.getByTestId('new-organizer-name').boundingBox();
+    expect(box?.width, locale).toBeGreaterThanOrEqual(300);
+    await page.getByRole('button', { name: locale === 'fa' ? 'خروج' : 'Sign out' }).click();
+  }
 });
 
 test('a request that gets no response says so and ends its spinner', async ({ page }) => {
@@ -240,35 +301,53 @@ test('a request that gets no response says so and ends its spinner', async ({ pa
   await page.route('**/api/platform/sms', route => route.abort('internetdisconnected'));
   await page.route('**/api/organizers', route => (route.request().method() === 'POST' ? route.abort('internetdisconnected') : route.fallback()));
 
-  await page.getByRole('link', { name: 'Sign-in' }).click();
+  await tab(page, 'Sign-in rules').click();
   await page.getByLabel('Code digits').fill('4');
   await page.getByRole('button', { name: 'Save rules' }).click();
   await expect(page.getByRole('alert')).toContainText(offline);
   await expect(page.getByRole('button', { name: 'Save rules' })).toBeEnabled();
 
-  await page.getByRole('link', { name: 'SMS' }).click();
+  await tab(page, 'SMS').click();
+  await page.getByLabel('SMS per hour (cap)').fill('500');
   await page.getByRole('button', { name: 'Save settings' }).click();
   await expect(page.getByRole('alert').filter({ hasText: offline })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Save settings' })).toBeEnabled();
 
-  await page.getByRole('link', { name: 'Organizers' }).click();
+  await tab(page, 'Organizers').click();
   await page.getByLabel('New organizer name').fill('Beta Union');
-  await page.getByRole('button', { name: 'Create and issue key' }).click();
+  await page.getByRole('button', { name: 'Add organizer' }).click();
   await expect(page.getByRole('alert').filter({ hasText: offline })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Create and issue key' })).toBeEnabled();
+  await expect(page.getByRole('button', { name: 'Add organizer' })).toBeEnabled();
+});
+
+test('offline, a list shows an error with a retry instead of an endless skeleton', async ({ page }) => {
+  await fixture(page);
+  await openConsole(page);
+  let offline = true;
+  await page.route('**/api/organizers', route => (offline ? route.abort('internetdisconnected') : route.fallback()));
+  await page.route('**/api/platform/sms/outbox', route => (offline ? route.abort('internetdisconnected') : route.fallback()));
+
+  await tab(page, 'Organizers').click();
+  await expect(page.getByRole('alert')).toContainText('Couldn\'t load the organizers');
+  offline = false;
+  await page.getByRole('button', { name: 'Try again' }).click();
+  await expect(page.getByText('Alpha Society')).toBeVisible();
+
+  offline = true;
+  await tab(page, 'Status').click();
+  await expect(page.getByRole('alert')).toContainText('Couldn\'t load the outbox');
+  offline = false;
+  await page.getByRole('button', { name: 'Try again' }).click();
+  await expect(page.getByTestId('outbox-counts')).toContainText('Failed2');
 });
 
 test('Persian RTL at 320px: the console is right-to-left and fits', async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 700 });
   await fixture(page);
-  await page.goto('/');
-  await page.evaluate(() => localStorage.setItem('congress_attendee_locale', 'fa'));
-  await page.goto('/platform');
-  await page.getByLabel('توکن مدیر سامانه').fill(TOKEN);
-  await page.getByRole('button', { name: 'ورود به پنل' }).click();
-  await expect(page.getByRole('heading', { name: 'پیامک', level: 1 })).toBeVisible();
-  for (const path of ['/platform', '/platform/sign-in', '/platform/organizers']) {
+  await openConsole(page, 'fa');
+  for (const path of ['/platform', '/platform?tab=sms', '/platform/sign-in', '/platform/organizers']) {
     await page.goto(path);
+    await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
     await expect(page.locator('[dir="rtl"]').first()).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth), path).toBe(0);
   }
@@ -277,17 +356,21 @@ test('Persian RTL at 320px: the console is right-to-left and fits', async ({ pag
 test('the platform admin lists an organizer\'s members and adds its first owner', async ({ page }) => {
   const requests = await fixture(page);
   await openConsole(page);
-  await page.getByRole('link', { name: 'Organizers' }).click();
-  await expect(page.getByRole('heading', { name: 'Organizers' })).toBeVisible();
+  await tab(page, 'Organizers').click();
+  await expect(page.getByRole('heading', { name: 'Organizers', level: 1 })).toBeVisible();
 
-  await page.getByRole('button', { name: 'Members of “Alpha Society”' }).click();
-  const dialog = page.getByRole('dialog', { name: 'Members of “Alpha Society”' });
+  await page.getByRole('button', { name: 'Members', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: /^Members of “.?Alpha Society.?”$/ });
   await expect(dialog.getByText('No members yet. Add the first owner.')).toBeVisible();
-  await expect(dialog.getByLabel('Role')).toHaveValue('owner');
+  // The shared RolePicker (radio cards), not a select.
+  const roles = dialog.getByRole('group', { name: 'Role' });
+  await expect(roles.getByRole('radio')).toHaveCount(4);
+  await expect(roles.getByRole('radio', { name: /^Owner/ })).toBeChecked();
+  await expect(dialog.locator('select')).toHaveCount(0);
   await dialog.getByLabel('Full name').fill('Neda Karimi');
   await dialog.getByLabel('Mobile number').fill('0912 345 6789');
   await dialog.getByRole('button', { name: 'Add and send SMS' }).click();
-  await expect(dialog.getByRole('status')).toContainText('Neda Karimi was added');
+  await expect(dialog.getByRole('status').filter({ hasText: /Neda Karimi.? was added/ })).toBeVisible();
   const list = dialog.getByTestId('platform-members');
   await expect(list).toContainText('Neda Karimi');
   await expect(list).toContainText('0912 345 6789');
@@ -295,6 +378,7 @@ test('the platform admin lists an organizer\'s members and adds its first owner'
   await expect(list).toContainText('Added by Platform admin');
   expect(requests.find(r => r.method === 'POST' && r.path === '/api/organizers/org-1/members')?.body).toEqual({ display_name: 'Neda Karimi', mobile: '09123456789', role: 'owner' });
 
+  await roles.getByRole('radio', { name: /^Viewer/ }).check();
   await dialog.getByLabel('Full name').fill('Someone Else');
   await dialog.getByLabel('Mobile number').fill('12');
   await dialog.getByRole('button', { name: 'Add and send SMS' }).click();
@@ -306,18 +390,16 @@ test('Persian console: localized environment, members and coded errors, no raw E
     environment: 'production',
     members: [{ id: 'm-1', display_name: 'مهدی کلانی', mobile: '09121112233', role: 'owner', invited_by: 'api-key', created_at: '2099-01-02T00:00:00Z', revoked_at: null }],
   });
-  await page.goto('/');
-  await page.evaluate(() => localStorage.setItem('congress_attendee_locale', 'fa'));
-  await page.goto('/platform');
-  await page.getByLabel('توکن مدیر سامانه').fill(TOKEN);
-  await page.getByRole('button', { name: 'ورود به پنل' }).click();
+  await openConsole(page, 'fa');
   await expect(page.getByTestId('platform-environment')).toHaveText('محیط اصلی');
+  // The portal is named once, in the header.
+  await expect(page.getByText('مدیریت سامانه', { exact: true })).toHaveCount(1);
 
-  await page.getByRole('link', { name: 'برگزارکنندگان' }).click();
-  await page.getByRole('button', { name: 'اعضای «Alpha Society»' }).click();
-  const dialog = page.getByRole('dialog', { name: 'اعضای «Alpha Society»' });
+  await tab(page, 'برگزارکنندگان').click();
+  await page.getByRole('button', { name: 'اعضا', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: /^اعضای «.?Alpha Society.?»$/ });
   const list = dialog.getByTestId('platform-members');
-  await expect(list).toContainText('افزوده‌شده به دست کلید API');
+  await expect(list).toContainText('افزوده‌شده به دست کلید سازمان');
   await expect(list).toContainText('۰۹۱۲ ۱۱۱ ۲۲۳۳');
   await expect(list).toContainText('مالک');
   await expect(list).not.toContainText('api-key');
@@ -325,7 +407,7 @@ test('Persian console: localized environment, members and coded errors, no raw E
   expect(await list.getByText('۰۹۱۲ ۱۱۱ ۲۲۳۳').evaluate(el => getComputedStyle(el).fontFamily)).not.toMatch(/Plex Mono/);
 
   await dialog.getByLabel('نام و نام خانوادگی').fill('نفر دوم');
-  await dialog.getByLabel('شماره موبایل').fill('09121112233');
+  await dialog.getByLabel('شمارهٔ موبایل').fill('09121112233');
   await dialog.getByRole('button', { name: 'افزودن و ارسال پیامک' }).click();
   await expect(dialog.getByRole('alert')).toHaveText('این شماره هم‌اکنون عضو این سازمان است.');
 });

@@ -1,55 +1,42 @@
-import { useEffect, useId, useState, type ChangeEvent, type FormEvent } from "react";
-import type { ProgramFileOut } from "../../api/client";
-import { formatLocalizedNumber } from "../../lib/i18n";
+import { useEffect, useState, type ChangeEvent, type FormEvent } from "react";
+import { apiErrorCode, isNetworkFailure, type ProgramFileOut } from "../../api/client";
 import {
   MAX_PROGRAM_FILE_LABEL,
   MAX_PROGRAM_FILES,
   PROGRAM_FILE_TYPES,
-  deleteProgramFile,
   formatFileSize,
   labelFromFileName,
-  listProgramFiles,
   precheckProgramFile,
-  programFileObjectUrl,
+  programFileErrorCode,
   reorderPatches,
-  updateProgramFile,
-  uploadProgramFile,
   type ProgramFileErrorCode,
 } from "../../lib/programFiles";
+import { formatNumber } from "../../lib/format";
 import { Badge } from "../ui/Badge";
-import { Button } from "../ui/Button";
-import { ConfirmDialog } from "../ui/ConfirmDialog";
+import { Button, IconButton } from "../ui/Button";
+import { Dialog } from "../ui/Dialog";
+import { Field } from "../ui/Field";
 import { Icon } from "../ui/Icon";
+import { TextInput } from "../ui/Input";
+import { RowActions } from "../ui/RowActions";
+import { ErrorState } from "../ui/StateBlock";
 import { FormAlert, Notice } from "./WorkspaceUi";
+import { useEventWorkspace } from "./eventWorkspaceContext";
+import { commonCopy } from "../../copy/common";
+import { organizerProgramCopy } from "../../copy/organizerProgram";
 
-interface ScheduleFilesManagerProps {
-  apiKey: string;
-  eventId: string;
-  locale: "fa" | "en";
-  isRtl: boolean;
-  /** Called with every response status, so the layout can drop a rejected organizer key (raw `fetch`). */
-  onStatus: (status: number) => void;
-  /** The signed-in role may only look: no upload, reorder, show/hide or delete. */
-  readOnly?: boolean;
+/** Narrow with `"code" in result` (the app's tsconfig is not strict, so `ok` alone does not narrow). */
+type Outcome<T> = { ok: true; value: T } | { ok: false; code: ProgramFileErrorCode };
+
+/**
+ * The screen's outcome of an organizer API call: the value, or the error code the copy maps to words. The calls
+ * go through the workspace's API client, so a 401 reaches the console's key gate like every other request.
+ */
+function outcome<T>(res: { data?: T; error?: unknown; response: Response }, upload?: { contentType: string }): Outcome<T> {
+  if (res.response.ok) return { ok: true, value: res.data as T };
+  if (isNetworkFailure(res.response)) return { ok: false, code: "network" };
+  return { ok: false, code: programFileErrorCode(res.response.status, apiErrorCode(res.error), upload) };
 }
-
-const ERROR_COPY: Record<ProgramFileErrorCode, { fa: string; en: string }> = {
-  unsupported_type: { fa: "فقط فایل PDF یا تصویر PNG، JPEG یا WebP پذیرفته می‌شود.", en: "Upload a PDF, or a PNG, JPEG or WebP image." },
-  too_large: { fa: "حجم فایل برنامه حداکثر ۸ مگابایت است.", en: "Schedule files are limited to 8 MB." },
-  empty: { fa: "فایل خالی است.", en: "The file is empty." },
-  rejected_pdf: {
-    fa: "این PDF پذیرفته نشد: یا PDF معتبر نیست، یا اسکریپت، کنش خودکار، پیوند ناامن، فرم یا فایل پیوست دارد، یا محتوایش قابل بررسی نیست. آن را دوباره «چاپ به PDF» کنید.",
-    en: "This PDF was refused: it is not a valid PDF, it has scripts, automatic actions, unsafe links, forms or attachments, or its content cannot be checked. Print it to PDF again.",
-  },
-  rejected_image: { fa: "این تصویر خوانده نشد یا ابعادش بیش از حد مجاز است.", en: "This image could not be read or is too large in pixels." },
-  label_required: { fa: "برای فایل یک عنوان بنویسید.", en: "Give the file a label." },
-  limit_reached: { fa: `هر همایش حداکثر ${formatLocalizedNumber(MAX_PROGRAM_FILES, "fa")} فایل برنامه دارد؛ ابتدا یکی را حذف کنید.`, en: `An event can have at most ${MAX_PROGRAM_FILES} schedule files; delete one first.` },
-  archived: { fa: "این همایش بایگانی شده و قابل ویرایش نیست.", en: "This event is archived and read-only." },
-  not_found: { fa: "این فایل دیگر وجود ندارد؛ صفحه را تازه کنید.", en: "This file no longer exists; refresh the page." },
-  unauthorized: { fa: "کلید برگزارکننده پذیرفته نشد.", en: "The organizer key was not accepted." },
-  network: { fa: "اتصال به سرور برقرار نشد.", en: "Could not reach the server." },
-  server: { fa: "خطای سرور؛ دوباره تلاش کنید.", en: "Server error; please try again." },
-};
 
 const byPosition = (a: ProgramFileOut, b: ProgramFileOut) =>
   a.position - b.position || a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id);
@@ -57,43 +44,40 @@ const byPosition = (a: ProgramFileOut, b: ProgramFileOut) =>
 /**
  * The congress schedule as files: upload a PDF or an image with a label, then reorder, show or hide and
  * delete. Visible files are live for attendees as soon as they are saved (no publish step, like the program).
+ * Viewers and archived congresses only see and open the files.
  */
-export function ScheduleFilesManager({ apiKey, eventId, locale, isRtl, onStatus, readOnly = false }: ScheduleFilesManagerProps) {
-  const labelId = useId();
-  const fileId = useId();
-  const lang = isRtl ? "fa" : "en";
+export function ScheduleFilesManager() {
+  const { eventId, client, canEdit, locale } = useEventWorkspace();
+  const c = organizerProgramCopy[locale].files;
+  const common = commonCopy[locale];
   const [files, setFiles] = useState<ProgramFileOut[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<ProgramFileErrorCode | null>(null);
-  const [label, setLabel] = useState("");
+  /** The file chosen for upload; the dialog is open while it is set. */
   const [file, setFile] = useState<File | null>(null);
-  /** The label last suggested from a file name: replaced by the next suggestion unless the organizer edited it. */
-  const [suggestedLabel, setSuggestedLabel] = useState("");
+  const [label, setLabel] = useState("");
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<ProgramFileErrorCode | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [notice, setNotice] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<ProgramFileOut | null>(null);
   const [inputKey, setInputKey] = useState(0);
-
-  const errorText = (code: ProgramFileErrorCode) => ERROR_COPY[code][lang];
-
   /** Bumped to load the list again (retry, or after a failed reorder left it uncertain). */
   const [loadCount, setLoadCount] = useState(0);
+
+  const path = { event_id: eventId };
   const reload = () => {
     setLoading(true);
     setLoadCount((n) => n + 1);
   };
 
   useEffect(() => {
+    if (!client) return;
     let active = true;
     (async () => {
-      const result = await listProgramFiles(apiKey, eventId);
+      const result = outcome(await client.GET("/api/events/{event_id}/program-files", { params: { path: { event_id: eventId } } }));
       if (!active) return;
-      if ("code" in result) {
-        onStatus(result.status);
-        setLoadError(result.code);
-      } else {
+      if ("code" in result) setLoadError(result.code);
+      else {
         setLoadError(null);
         setFiles([...result.value].sort(byPosition));
       }
@@ -102,22 +86,26 @@ export function ScheduleFilesManager({ apiKey, eventId, locale, isRtl, onStatus,
     return () => {
       active = false;
     };
-  }, [apiKey, eventId, onStatus, loadCount]);
+  }, [client, eventId, loadCount]);
 
   const chooseFile = (e: ChangeEvent<HTMLInputElement>) => {
     const chosen = e.currentTarget.files?.[0] ?? null;
+    setInputKey((k) => k + 1);
+    if (!chosen) return;
     setFile(chosen);
+    setLabel(labelFromFileName(chosen.name));
     setUploadError(null);
-    if (chosen && (!label.trim() || label === suggestedLabel)) {
-      const suggestion = labelFromFileName(chosen.name);
-      setLabel(suggestion);
-      setSuggestedLabel(suggestion);
-    }
+  };
+
+  const closeDialog = () => {
+    if (uploading) return;
+    setFile(null);
+    setUploadError(null);
   };
 
   const upload = async (e: FormEvent) => {
     e.preventDefault();
-    if (!file) return;
+    if (!file || !client) return;
     const problem = precheckProgramFile(file, label);
     if (problem) {
       setUploadError(problem);
@@ -125,32 +113,38 @@ export function ScheduleFilesManager({ apiKey, eventId, locale, isRtl, onStatus,
     }
     setUploading(true);
     setUploadError(null);
-    const result = await uploadProgramFile(apiKey, eventId, file, label);
+    const result = outcome(
+      await client.POST("/api/events/{event_id}/program-files", {
+        params: { path, query: { label: label.trim() }, header: { "content-type": file.type } },
+        // The body is the file itself, sent as is.
+        body: file as unknown as string,
+        bodySerializer: (body: unknown) => body as BodyInit,
+      }),
+      { contentType: file.type },
+    );
     setUploading(false);
     if ("code" in result) {
-      onStatus(result.status);
       setUploadError(result.code);
       return;
     }
     const saved = result.value;
     setFiles((prev) => [...prev, saved].sort(byPosition));
     setFile(null);
-    setLabel("");
-    setSuggestedLabel("");
-    setInputKey((k) => k + 1);
-    setNotice({ tone: "ok", text: isRtl ? `فایل «${saved.label}» بارگذاری شد.` : `“${saved.label}” uploaded.` });
+    setNotice({ tone: "ok", text: c.uploaded(saved.label) });
   };
 
-  const fail = (status: number, code: ProgramFileErrorCode, what: { fa: string; en: string }) => {
-    onStatus(status);
-    setNotice({ tone: "error", text: `${what[lang]} ${errorText(code)}` });
-  };
+  const fail = (code: ProgramFileErrorCode, what: string) => setNotice({ tone: "error", text: `${what} ${c.errors[code]}` });
+
+  const update = async (item: ProgramFileOut, body: { is_visible?: boolean; position?: number }): Promise<Outcome<ProgramFileOut>> =>
+    client
+      ? outcome(await client.PATCH("/api/events/{event_id}/program-files/{file_id}", { params: { path: { event_id: eventId, file_id: item.id } }, body }))
+      : { ok: false, code: "server" };
 
   const toggleVisible = async (item: ProgramFileOut) => {
     setBusyId(item.id);
-    const result = await updateProgramFile(apiKey, eventId, item.id, { is_visible: !item.is_visible });
+    const result = await update(item, { is_visible: !item.is_visible });
     setBusyId(null);
-    if ("code" in result) return fail(result.status, result.code, { fa: "تغییر نمایش انجام نشد.", en: "Visibility was not changed." });
+    if ("code" in result) return fail(result.code, c.visibilityFailed);
     const saved = result.value;
     setFiles((prev) => prev.map((f) => (f.id === saved.id ? saved : f)));
   };
@@ -164,10 +158,12 @@ export function ScheduleFilesManager({ apiKey, eventId, locale, isRtl, onStatus,
     setBusyId(item.id);
     let updated = files;
     for (const patch of reorderPatches(files, ids)) {
-      const result = await updateProgramFile(apiKey, eventId, patch.id, { position: patch.position });
+      const target = files.find((f) => f.id === patch.id);
+      if (!target) continue;
+      const result = await update(target, { position: patch.position });
       if ("code" in result) {
         setBusyId(null);
-        fail(result.status, result.code, { fa: "ترتیب ذخیره نشد.", en: "The order was not saved." });
+        fail(result.code, c.orderFailed);
         return reload();
       }
       updated = updated.map((f) => (f.id === result.value.id ? result.value : f));
@@ -177,82 +173,55 @@ export function ScheduleFilesManager({ apiKey, eventId, locale, isRtl, onStatus,
   };
 
   const remove = async (item: ProgramFileOut) => {
+    if (!client) return;
     setBusyId(item.id);
-    const result = await deleteProgramFile(apiKey, eventId, item.id);
+    const result = outcome(
+      await client.DELETE("/api/events/{event_id}/program-files/{file_id}", { params: { path: { event_id: eventId, file_id: item.id } } }),
+    );
     setBusyId(null);
-    if ("code" in result) return fail(result.status, result.code, { fa: "فایل حذف نشد.", en: "The file was not deleted." });
+    if ("code" in result) return fail(result.code, c.deleteFailed);
     setFiles((prev) => prev.filter((f) => f.id !== item.id));
-    setNotice({ tone: "ok", text: isRtl ? `فایل «${item.label}» حذف شد.` : `“${item.label}” deleted.` });
+    setNotice({ tone: "ok", text: c.deleted(item.label) });
   };
 
   const open = async (item: ProgramFileOut) => {
+    if (!client) return;
     // Opened before the await so the browser treats it as a direct result of the click (no popup block).
     const tab = window.open("", "_blank");
-    const url = await programFileObjectUrl(apiKey, item);
-    if (url && tab) tab.location.href = url;
+    const { data, response } = await client.GET("/api/events/{event_id}/program-files/{file_id}/content", {
+      params: { path: { event_id: eventId, file_id: item.id } },
+      parseAs: "blob",
+    });
+    if (response.ok && data instanceof Blob && tab) tab.location.href = URL.createObjectURL(data);
     else {
       tab?.close();
-      setNotice({ tone: "error", text: isRtl ? "فایل باز نشد." : "The file could not be opened." });
+      setNotice({ tone: "error", text: c.openFailed });
     }
   };
 
   const meta = (item: ProgramFileOut) => {
     const size = formatFileSize(item.byte_size, locale);
-    if (item.kind === "pdf") {
-      const pages = item.page_count ? (isRtl ? ` · ${formatLocalizedNumber(item.page_count, locale)} صفحه` : ` · ${item.page_count} page${item.page_count === 1 ? "" : "s"}`) : "";
-      return `PDF${pages} · ${size}`;
-    }
-    const dims = item.width && item.height ? ` · ${formatLocalizedNumber(item.width, locale)}×${formatLocalizedNumber(item.height, locale)}` : "";
-    return `${isRtl ? "تصویر" : "Image"}${dims} · ${size}`;
+    if (item.kind === "pdf") return ["PDF", item.page_count ? c.pages(formatNumber(item.page_count, locale)) : "", size].filter(Boolean).join(" · ");
+    const dims = item.width && item.height ? `${formatNumber(item.width, locale)}×${formatNumber(item.height, locale)}` : "";
+    return [c.image, dims, size].filter(Boolean).join(" · ");
   };
 
   const full = files.length >= MAX_PROGRAM_FILES;
 
   return (
-    <section aria-labelledby="schedule-files-title" data-testid="schedule-files" className="space-y-5 shape-arc border border-border-default bg-surface-panel p-5 shadow-soft sm:p-7">
-      <div className="space-y-1.5">
-        <h2 id="schedule-files-title" className="flex items-center gap-2 text-base font-bold text-text-primary">
-          <Icon name="file" size={18} className="text-aiteb-indigo/70" />
-          {isRtl ? "فایل‌های برنامه" : "Schedule files"}
-        </h2>
-        <p className="max-w-2xl text-sm leading-relaxed text-text-secondary">
-          {isRtl
-            ? "برنامهٔ همایش را به‌صورت PDF یا تصویر (PNG، JPEG یا WebP، حداکثر ۸ مگابایت) هم در اختیار شرکت‌کنندگان بگذارید. فایل‌های قابل مشاهده بلافاصله در صفحهٔ همایش و جزئیات همایش نمایش داده می‌شوند."
-            : "Share the congress program as a PDF or an image too (PNG, JPEG or WebP, up to 8 MB). Visible files appear on the congress page and the congress details right away."}
-        </p>
-      </div>
-
-      {notice && (
-        <Notice tone={notice.tone} onDismiss={() => setNotice(null)} dismissLabel={isRtl ? "بستن پیام" : "Dismiss message"}>
-          {notice.text}
-        </Notice>
-      )}
-
-      {!readOnly && (
-        <form onSubmit={(e) => void upload(e)} className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-end">
-          <div>
-            <label htmlFor={labelId} className="ui-label">
-              {isRtl ? "عنوان فایل" : "Label"}
-            </label>
-            <input
-              id={labelId}
-              className="ui-input"
-              value={label}
-              maxLength={MAX_PROGRAM_FILE_LABEL}
-              onChange={(e) => setLabel(e.target.value)}
-              placeholder={isRtl ? "مثلاً برنامهٔ روز اول" : "e.g. Day 1 programme"}
-              disabled={full}
-            />
-          </div>
+    <section aria-label={organizerProgramCopy[locale].tabs.files} data-testid="schedule-files" className="space-y-5">
+      {canEdit && (
+        <div className="flex flex-wrap items-center justify-end gap-3">
+          <span className="text-meta text-text-muted">{full ? c.errors.limit_reached : c.hint}</span>
           <label
-            htmlFor={fileId}
-            className="inline-flex min-h-[44px] max-w-full cursor-pointer items-center gap-2 rounded-[10px] border border-dashed border-border-strong bg-surface-panel-subtle px-4 text-sm font-semibold text-text-primary transition-colors hover:border-action-primary focus-within:outline-2 focus-within:outline-focus-ring"
+            className={`inline-flex min-h-(--control-md) items-center gap-2 rounded-control bg-action-primary px-4 text-body-sm font-semibold text-text-inverse shadow-soft focus-within:outline-2 focus-within:outline-focus-ring ${
+              full ? "cursor-not-allowed opacity-55" : "cursor-pointer hover:bg-action-hover"
+            }`}
           >
             <Icon name="upload" size={18} />
-            <span className="min-w-0 truncate">{file ? <bdi dir="ltr">{file.name}</bdi> : isRtl ? "انتخاب PDF یا تصویر" : "Choose a PDF or image"}</span>
+            {c.upload}
             <input
               key={inputKey}
-              id={fileId}
               type="file"
               accept={`.pdf,${PROGRAM_FILE_TYPES.join(",")}`}
               onChange={chooseFile}
@@ -260,127 +229,110 @@ export function ScheduleFilesManager({ apiKey, eventId, locale, isRtl, onStatus,
               disabled={full}
             />
           </label>
-          <Button type="submit" variant="primary" size="md" disabled={!file || uploading || full}>
-            <Icon name="upload" size={18} />
-            {uploading ? (isRtl ? "در حال بارگذاری…" : "Uploading…") : isRtl ? "بارگذاری" : "Upload"}
-          </Button>
-        </form>
+        </div>
       )}
-      {!readOnly && full && <p className="text-xs text-text-muted">{errorText("limit_reached")}</p>}
-      {uploadError && <FormAlert>{errorText(uploadError)}</FormAlert>}
+
+      {notice && (
+        <Notice tone={notice.tone} onDismiss={() => setNotice(null)} dismissLabel={common.dismissMessage}>
+          {notice.text}
+        </Notice>
+      )}
 
       {loading ? (
-        <div role="status" aria-label={isRtl ? "در حال بارگذاری فایل‌ها" : "Loading files"} className="skeleton h-20" />
+        <div role="status" aria-label={common.loading} className="skeleton h-20 rounded-card" />
       ) : loadError ? (
-        <div className="space-y-3">
-          <FormAlert>{`${isRtl ? "فهرست فایل‌ها بارگذاری نشد." : "The files could not be loaded."} ${errorText(loadError)}`}</FormAlert>
-          <Button
-            type="button"
-            variant="secondary"
-            size="sm"
-            onClick={reload}
-          >
-            <Icon name="sync" size={16} />
-            {isRtl ? "تلاش دوباره" : "Try again"}
-          </Button>
-        </div>
+        <ErrorState title={c.loadFailed} onRetry={reload} retryLabel={common.retry}>
+          <p>{c.errors[loadError]}</p>
+        </ErrorState>
       ) : files.length === 0 ? (
-        <p className="text-sm text-text-muted">{isRtl ? "هنوز فایلی بارگذاری نشده است." : "No schedule file yet."}</p>
+        <p className="text-body-sm text-text-muted">{c.empty}</p>
       ) : (
-        <ol className="divide-y divide-border-subtle overflow-hidden rounded-2xl border border-border-default">
+        <ol className="divide-y divide-border-subtle overflow-hidden rounded-card border border-border-default bg-surface-panel">
           {files.map((item, index) => (
             <li key={item.id} data-testid="schedule-file" className="flex flex-wrap items-center gap-3 px-4 py-3">
               <Icon name={item.kind === "pdf" ? "file" : "image"} size={20} className="shrink-0 text-text-muted" />
               <div className="min-w-0 flex-1 space-y-0.5">
-                <p className="flex flex-wrap items-center gap-2 text-sm font-semibold text-text-primary">
+                <p className="flex flex-wrap items-center gap-2 text-body-sm font-semibold text-text-primary">
                   <bdi className="break-words">{item.label}</bdi>
                   {!item.is_visible && (
                     <Badge variant="neutral" size="sm" icon={<Icon name="eye-off" size={11} />}>
-                      {isRtl ? "پنهان" : "Hidden"}
+                      {c.hidden}
                     </Badge>
                   )}
                 </p>
-                <p className="text-xs text-text-muted">
+                <p className="text-meta text-text-muted">
                   <bdi>{meta(item)}</bdi>
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-1">
-                <Button type="button" variant="ghost" size="sm" onClick={() => void open(item)} aria-label={isRtl ? `باز کردن ${item.label}` : `Open ${item.label}`}>
-                  <Icon name="arrow-up-right" size={16} />
-                  <span>{isRtl ? "مشاهده" : "Open"}</span>
-                </Button>
-                {!readOnly && (
+                {canEdit && (
                   <>
-                    <Button
-                      type="button"
-                      variant="ghost"
+                    <IconButton icon="arrow-up" size="sm" label={c.moveUp(item.label)} disabled={busyId !== null || index === 0} onClick={() => void move(item, -1)} />
+                    <IconButton
+                      icon="arrow-down"
                       size="sm"
-                      disabled={busyId !== null || index === 0}
-                      onClick={() => void move(item, -1)}
-                      aria-label={isRtl ? `انتقال ${item.label} به بالا` : `Move ${item.label} up`}
-                    >
-                      <Icon name="arrow-up" size={16} />
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
+                      label={c.moveDown(item.label)}
                       disabled={busyId !== null || index === files.length - 1}
                       onClick={() => void move(item, 1)}
-                      aria-label={isRtl ? `انتقال ${item.label} به پایین` : `Move ${item.label} down`}
-                    >
-                      <Icon name="arrow-down" size={16} />
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      disabled={busyId !== null}
-                      onClick={() => void toggleVisible(item)}
-                      aria-label={item.is_visible ? (isRtl ? `پنهان کردن ${item.label}` : `Hide ${item.label}`) : isRtl ? `نمایش ${item.label}` : `Show ${item.label}`}
-                    >
-                      <Icon name={item.is_visible ? "eye-off" : "eye"} size={16} />
-                      <span>{item.is_visible ? (isRtl ? "پنهان" : "Hide") : isRtl ? "نمایش" : "Show"}</span>
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      disabled={busyId !== null}
-                      onClick={() => setDeleteTarget(item)}
-                      aria-label={isRtl ? `حذف ${item.label}` : `Delete ${item.label}`}
-                    >
-                      <Icon name="trash" size={16} />
-                      <span>{isRtl ? "حذف" : "Delete"}</span>
-                    </Button>
+                    />
                   </>
                 )}
+                <RowActions
+                  visible={canEdit ? 2 : 1}
+                  menuLabel={c.more(item.label)}
+                  actions={[
+                    { label: c.open, icon: "arrow-up-right", onSelect: () => void open(item) },
+                    ...(canEdit
+                      ? [
+                          { label: item.is_visible ? c.hide : c.show, icon: item.is_visible ? ("eye-off" as const) : ("eye" as const), disabled: busyId !== null, onSelect: () => void toggleVisible(item) },
+                          {
+                            label: common.delete,
+                            icon: "trash" as const,
+                            disabled: busyId !== null,
+                            onSelect: () => void remove(item),
+                            destructive: { title: c.deleteTitle(item.label), description: c.deleteBody, confirmLabel: common.delete },
+                          },
+                        ]
+                      : []),
+                  ]}
+                />
               </div>
             </li>
           ))}
         </ol>
       )}
 
-      <ConfirmDialog
-        isOpen={deleteTarget !== null}
-        tone="danger"
-        title={isRtl ? "حذف این فایل؟" : "Delete this file?"}
-        description={
-          deleteTarget
-            ? isRtl
-              ? `«${deleteTarget.label}» از صفحهٔ همایش و جزئیات همایش حذف می‌شود.`
-              : `“${deleteTarget.label}” is removed from the congress page and the congress details.`
-            : ""
-        }
-        confirmLabel={isRtl ? "حذف فایل" : "Delete file"}
-        cancelLabel={isRtl ? "انصراف" : "Cancel"}
-        onCancel={() => setDeleteTarget(null)}
-        onConfirm={() => {
-          const target = deleteTarget;
-          setDeleteTarget(null);
-          if (target) void remove(target);
-        }}
-      />
+      {file && (
+        <Dialog
+          isOpen
+          onClose={closeDialog}
+          title={c.dialogTitle}
+          size="sm"
+          footer={
+            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              <Button type="button" variant="ghost" disabled={uploading} onClick={closeDialog}>
+                {common.cancel}
+              </Button>
+              <Button type="submit" form="schedule-file-form" variant="primary" icon="upload" loading={uploading}>
+                {uploading ? c.uploading : c.submit}
+              </Button>
+            </div>
+          }
+        >
+          <form id="schedule-file-form" onSubmit={(e) => void upload(e)} className="space-y-4" noValidate>
+            <p className="flex min-w-0 items-center gap-2 text-body-sm text-text-secondary">
+              <Icon name={file.type === "application/pdf" ? "file" : "image"} size={18} className="shrink-0" />
+              <bdi dir="ltr" className="truncate">
+                {file.name}
+              </bdi>
+            </p>
+            <Field label={c.label} required>
+              <TextInput value={label} maxLength={MAX_PROGRAM_FILE_LABEL} onChange={(e) => setLabel(e.target.value)} placeholder={c.labelPlaceholder} />
+            </Field>
+            {uploadError && <FormAlert>{c.errors[uploadError]}</FormAlert>}
+          </form>
+        </Dialog>
+      )}
     </section>
   );
 }

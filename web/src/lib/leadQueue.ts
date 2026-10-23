@@ -230,3 +230,12 @@ export async function syncLeadQueue(options: {
 export function retryNow(scan: QueuedLeadScan, nowMs: number): QueuedLeadScan {
   return { ...scan, state: "pending", failure: null, attempts: 0, next_attempt_at: nowMs };
 }
+
+/**
+ * A queued badge code as the screen may show it: its last four characters only. The full code is the attendee's
+ * gate credential, so it is never displayed or put in an accessible name.
+ */
+export function maskedCode(qrSecret: string): string {
+  const code = qrSecret.trim();
+  return `…${code.slice(-4)}`;
+}

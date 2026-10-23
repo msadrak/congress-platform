@@ -15,5 +15,3 @@ export type DuplicateState =
   | { status: "found"; mobile: string; candidates: AttendeeSearchItem[] }
   | { status: "missing"; mobile: string }
   | { status: "failed"; mobile: string };
-
-export const deskFocusRing = "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring";

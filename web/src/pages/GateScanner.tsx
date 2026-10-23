@@ -1,13 +1,15 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent } from "react";
-import { Link, useParams } from "react-router-dom";
-import { apiErrorCode, createScannerApiClient, formatApiError, localizedApiError, type CheckInManifest } from "../api/client";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type FormEvent, type ReactNode } from "react";
+import { useParams } from "react-router-dom";
+import { apiErrorCode, apiErrorDiagnostic, createScannerApiClient, localizedApiError, type CheckInManifest } from "../api/client";
 import { usePageTitle } from "../hooks/usePageTitle";
+import { useWakeLock } from "../hooks/useWakeLock";
+import { useAppUpdate } from "../hooks/useAppUpdate";
 import { playErrorBuzz, playSuccessChime, playProvisionalChime } from "../lib/audioFeedback";
-import { useAttendeeLocale } from "../lib/i18n";
+import { useLocale } from "../lib/i18n";
+import { canPromptInstall, isIosInstallBrowser, promptInstall, subscribeInstallPrompt } from "../lib/installPrompt";
 import jsQR from "jsqr";
 import {
   evaluateOfflineAuthorization,
-  formatRemainingWindow,
   getJwtExpiryIso,
   isServerReachable,
   type OfflineAuthVerdict,
@@ -52,18 +54,29 @@ import {
   type QueuedScan,
   type ServerScanResult,
 } from "../lib/scannerStorage";
-import { DiscardUnsynced } from "../components/scanner/DiscardUnsynced";
+import { commonCopy } from "../copy/common";
+import { operatorCopy, type OperatorGateKind } from "../copy/operator";
+import { scannerCopy, type ScannerCopy } from "../copy/scanner";
+import { OperatorBar } from "../components/operator/OperatorBar";
+import { OperatorGate } from "../components/operator/OperatorGate";
+import { OperatorMenu, type OperatorMenuItem } from "../components/operator/OperatorMenu";
+import { StatusPill, type StatusPillProps } from "../components/operator/StatusPill";
+import { InstallHint } from "../components/attendee/InstallHint";
+import { Button } from "../components/ui/Button";
+import { ConfirmDialog } from "../components/ui/ConfirmDialog";
+import { Dialog } from "../components/ui/Dialog";
 import { Icon } from "../components/ui/Icon";
-import { scannerCopy, clockTime, takeoverKind, type ScannerCopy } from "../components/scanner/copy";
-import { BiHeading, BiLabel, ScannerScreen, SetupFrame, SetupPanel, SystemReadout } from "../components/scanner/ScannerChrome";
-import { ScannerHeader } from "../components/scanner/ScannerHeader";
+import { LanguageToggle } from "../components/ui/LanguageToggle";
+import { Spinner } from "../components/ui/Spinner";
+import { DiscardUnsynced } from "../components/scanner/DiscardUnsynced";
+import { policyLabel, verdictView } from "../components/scanner/copy";
 import { Viewfinder } from "../components/scanner/Viewfinder";
-import { ResultTakeover } from "../components/scanner/ResultTakeover";
+import { ScanVerdict } from "../components/scanner/ScanVerdict";
 import { ManualEntry } from "../components/scanner/ManualEntry";
-import { BufferBar, ScanLog } from "../components/scanner/ScanLog";
-import { DeviceSettings } from "../components/scanner/DeviceSettings";
+import { ScanLog } from "../components/scanner/ScanLog";
 import { ConflictDrawer } from "../components/scanner/ConflictDrawer";
 import { DirectionToggle } from "../components/scanner/DirectionToggle";
+import { PairingPanel } from "../components/scanner/PairingPanel";
 import "../styles/scanner.css";
 
 interface BarcodeDetectorInstance {
@@ -86,6 +99,15 @@ const LOG_SIZE = 10;
 const MANIFEST_AFTER_SYNC_MIN_MS = 5000;
 /** While the server does not answer, the manifest request (the reachability probe) is retried this often. */
 const MANIFEST_RETRY_MS = 10_000;
+/** Scans listed beside the stage on tablets and kiosks. */
+const SIDE_LOG_SIZE = 5;
+/** The offline time left shows in the status pill once it falls under this. */
+const OFFLINE_LEFT_SHOWN_MS = 2 * 60 * 60_000;
+/** Whether the operator left the camera on at this point (localStorage, per point). */
+const CAMERA_KEY_PREFIX = "congress_scanner_camera_";
+
+/** How an unpair ended, rendered in the current language. */
+type UnpairOutcome = { kind: "confirmed" } | { kind: "notConfirmed"; detail?: string } | { kind: "unsynced"; count: number };
 
 type ManifestRefresh = { kind: "ok" } | { kind: "blocked" | "transient"; detail: string };
 
@@ -114,11 +136,13 @@ function isManifest(value: unknown): value is CheckInManifest {
 
 export default function GateScanner() {
   const { pointId } = useParams<{ pointId: string }>();
-  const { locale, setLocale, t } = useAttendeeLocale();
-  usePageTitle(scannerCopy[locale].product);
-  const toggleLocale = () => { setLocale(locale === "fa" ? "en" : "fa"); };
-  const [tokenInput, setTokenInput] = useState("");
+  const { locale, setLocale, dir } = useLocale();
+  const copy = scannerCopy[locale];
+  const op = operatorCopy[locale];
+  usePageTitle(copy.product);
   const [manualCode, setManualCode] = useState("");
+  const [manualOpen, setManualOpen] = useState(false);
+  const [recentOpen, setRecentOpen] = useState(false);
   // Persisted scanner credential (survives browser restart via IndexedDB)
   const [persistedCredential, setPersistedCredential] = useState<PersistedScannerCredential | null>(null);
   // Authorization lifecycle: definitive server rejects + offline-window verdict
@@ -138,9 +162,7 @@ export default function GateScanner() {
   const [unpairing, setUnpairing] = useState(false);
   const [deactivationPending, setDeactivationPending] = useState(false);
   const deactivationRef = useRef(false);
-  // Rendered with the current copy, so the notice follows a language switch.
-  const [unpairNotice, setUnpairNoticeState] = useState<((c: ScannerCopy) => string) | null>(null);
-  const setUnpairNotice = (notice: ((c: ScannerCopy) => string) | null) => setUnpairNoticeState(() => notice);
+  const [unpairOutcome, setUnpairOutcome] = useState<UnpairOutcome | null>(null);
   // A scan this device decided but could not store: its admission would never reach the server.
   const [storageFailed, setStorageFailed] = useState(false);
   const storageFailedRef = useRef(false);
@@ -217,7 +239,7 @@ export default function GateScanner() {
     setPersistedCredential(credential);
     deactivationRef.current = false;
     setDeactivationPending(false);
-    setUnpairNoticeState(null);
+    setUnpairOutcome(null);
   }, [pointId]);
 
 
@@ -299,6 +321,8 @@ export default function GateScanner() {
   const lastProcessedCodeRef = useRef<string | null>(null);
   const flashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const detectionActiveRef = useRef<boolean>(false);
+  const detectionLoopRef = useRef(0);
+  const startCameraRef = useRef<() => Promise<void>>(async () => undefined);
   const lastScannedCodeRef = useRef<{ code: string; time: number } | null>(null);
   const [trackingIdWarning, setTrackingIdWarning] = useState(false);
 
@@ -323,7 +347,6 @@ export default function GateScanner() {
   // request in flight, which later callers join instead of sending a second one.
   const manifestAttemptAtRef = useRef(0);
   const manifestInFlightRef = useRef<Promise<ManifestRefresh> | null>(null);
-  const [ticketMap, setTicketMap] = useState<Record<string, LocalTicket>>({});
   // The admission state every scan evaluates against. evaluateLocalScan mutates the ticket entries in
   // place, so the map and the admitted count are only ever read and advanced through this ref.
   const admissionRef = useRef<{ ticketMap: Record<string, LocalTicket>; admittedCount: number; occupancy: number }>({
@@ -335,7 +358,6 @@ export default function GateScanner() {
   const [occupancy, setOccupancy] = useState(0);
   const applyAdmissionState = (map: Record<string, LocalTicket>, admittedCount: number, inside = 0) => {
     admissionRef.current = { ticketMap: map, admittedCount, occupancy: inside };
-    setTicketMap(map);
     setOccupancy(inside);
   };
   // Entry or exit, at points that track occupancy; remembered per point for this tab.
@@ -448,7 +470,7 @@ export default function GateScanner() {
         }
         if (!res.data || !merged || !Array.isArray(merged.manifest.tickets)) {
           const status = res.response.status;
-          const detail = res.error ? formatApiError(res.error) : `HTTP ${status}`;
+          const detail = apiErrorDiagnostic(res.error) ?? `HTTP ${status}`;
           const kind = classifyAuthFailure(status, detail, apiErrorCode(res.error));
           if (kind !== "TRANSIENT") {
             enterAuthBlocked(kind, detail, res.error ? localizedApiError(res.error, locale) : detail);
@@ -505,7 +527,7 @@ export default function GateScanner() {
         beat.delay = HEARTBEAT_MS;
         return;
       }
-      const detail = error ? formatApiError(error) : `HTTP ${response.status}`;
+      const detail = apiErrorDiagnostic(error) ?? `HTTP ${response.status}`;
       const kind = classifyAuthFailure(response.status, detail, apiErrorCode(error));
       if (kind !== "TRANSIENT") {
         enterAuthBlocked(kind, detail, error ? localizedApiError(error, locale) : detail);
@@ -649,9 +671,10 @@ export default function GateScanner() {
           continue;
         }
         if (err) {
-          const kind = classifyAuthFailure(response.status, formatApiError(err), apiErrorCode(err));
+          const detail = apiErrorDiagnostic(err) ?? `HTTP ${response.status}`;
+          const kind = classifyAuthFailure(response.status, detail, apiErrorCode(err));
           if (kind !== "TRANSIENT") {
-            enterAuthBlocked(kind, formatApiError(err), localizedApiError(err, locale));
+            enterAuthBlocked(kind, detail, localizedApiError(err, locale));
             return;
           }
           if (response.status >= 500 || response.status === 429) noteServerContact(false);
@@ -794,7 +817,7 @@ export default function GateScanner() {
         return data;
       }
       if (error) {
-        const detail = formatApiError(error);
+        const detail = apiErrorDiagnostic(error) ?? `HTTP ${response.status}`;
         const kind = classifyAuthFailure(response.status, detail, apiErrorCode(error));
         if (kind !== "TRANSIENT") {
           enterAuthBlocked(kind, detail, localizedApiError(error, locale));
@@ -988,6 +1011,7 @@ export default function GateScanner() {
     syncOnceRef.current = syncOnce;
     processScanRef.current = processScannedCode;
     loadManifestRef.current = loadManifest;
+    startCameraRef.current = startCamera;
     tickRef.current = () => {
       setIsOnline(serverReachable());
       pollManifest();
@@ -1039,7 +1063,7 @@ export default function GateScanner() {
     setUnpairing(true);
     deactivationRef.current = true;
     setDeactivationPending(true);
-    setUnpairNotice(null);
+    setUnpairOutcome(null);
     try {
       const credential = await getPersistedScannerCredential(pointId);
       if (credential) {
@@ -1049,11 +1073,11 @@ export default function GateScanner() {
       }
       const token = credential?.token ?? getStoredScannerToken();
       if (!navigator.onLine) {
-        setUnpairNotice((c) => c.unpairNoticeOffline);
+        setUnpairOutcome({ kind: "notConfirmed", detail: "Offline: server revocation pending" });
         return;
       }
       if (!token) {
-        setUnpairNotice((c) => c.unpairNoticeNoCredential);
+        setUnpairOutcome({ kind: "notConfirmed", detail: "No device credential to revoke" });
         return;
       }
 
@@ -1062,8 +1086,7 @@ export default function GateScanner() {
         await flushQueue();
         remaining = await getUnsyncedScans(pointId);
         if (remaining.length > 0) {
-          const unsynced = remaining.length;
-          setUnpairNotice((c) => c.unpairNoticeUnsynced(unsynced));
+          setUnpairOutcome({ kind: "unsynced", count: remaining.length });
           return;
         }
       }
@@ -1075,8 +1098,7 @@ export default function GateScanner() {
         { params: { path: { point_id: pointId } } }
       );
       if (!response.ok || result?.is_revoked !== true) {
-        const status = response.status;
-        setUnpairNotice((c) => c.unpairNoticeNotConfirmed(status));
+        setUnpairOutcome({ kind: "notConfirmed", detail: `Server revocation not confirmed (HTTP ${response.status})` });
         return;
       }
 
@@ -1092,9 +1114,9 @@ export default function GateScanner() {
       setRecentScans([]);
       setConflicts([]);
       void updatePendingCount();
-      setUnpairNotice((c) => c.unpairNoticeConfirmed);
+      setUnpairOutcome({ kind: "confirmed" });
     } catch {
-      setUnpairNotice((c) => c.unpairNoticeFailed);
+      setUnpairOutcome({ kind: "notConfirmed", detail: "Server revocation could not be confirmed" });
     } finally {
       setUnpairing(false);
       setShowUnpairConfirm(false);
@@ -1110,6 +1132,29 @@ export default function GateScanner() {
 
 
   // 5. Mobile / Desktop Camera Detection Loop (Dual Native & jsQR fallback)
+  // The operator's camera choice is remembered per point, so a reload or the next shift starts the camera again.
+  const rememberCamera = (on: boolean) => {
+    if (!pointId) return;
+    try {
+      if (on) localStorage.setItem(`${CAMERA_KEY_PREFIX}${pointId}`, "on");
+      else localStorage.removeItem(`${CAMERA_KEY_PREFIX}${pointId}`);
+    } catch {
+      // storage blocked: the camera starts by hand next time
+    }
+  };
+
+  // Stops the stream and the frame loop, keeping the operator's choice (a restart follows).
+  const releaseCamera = () => {
+    detectionActiveRef.current = false;
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+    }
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+  };
+
   const startCamera = async () => {
     setCameraError(null);
     // Browsers expose the camera only on https (or localhost); a LAN http address has no mediaDevices.
@@ -1117,6 +1162,7 @@ export default function GateScanner() {
       setCameraError("cameraInsecure");
       return;
     }
+    releaseCamera();
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
@@ -1127,6 +1173,12 @@ export default function GateScanner() {
         audio: false,
       });
       streamRef.current = stream;
+      // A locked screen or another app can end the track; it comes back when the page is visible again.
+      stream.getVideoTracks().forEach((track) =>
+        track.addEventListener("ended", () => {
+          if (streamRef.current === stream && document.visibilityState === "visible") void startCameraRef.current();
+        })
+      );
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         try {
@@ -1136,8 +1188,10 @@ export default function GateScanner() {
         }
       }
       setCameraActive(true);
+      rememberCamera(true);
       startDetectionLoop();
     } catch (err: unknown) {
+      setCameraActive(false);
       const errorName = err instanceof Error ? err.name : "";
       if (errorName === "NotAllowedError" || errorName === "PermissionDeniedError") {
         setCameraError("cameraBlocked");
@@ -1150,19 +1204,16 @@ export default function GateScanner() {
   };
 
   const stopCamera = () => {
-    detectionActiveRef.current = false;
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((t) => t.stop());
-      streamRef.current = null;
-    }
-    if (videoRef.current) {
-      videoRef.current.srcObject = null;
-    }
+    releaseCamera();
     setCameraActive(false);
+    rememberCamera(false);
   };
 
   const startDetectionLoop = () => {
+    // One loop at a time: a restarted camera ends the loop of the stream before it.
+    const loop = ++detectionLoopRef.current;
     detectionActiveRef.current = true;
+    const running = () => detectionActiveRef.current && loop === detectionLoopRef.current;
     const win = window as WindowWithBarcodeDetector;
 
     let nativeDetector: BarcodeDetectorInstance | null = null;
@@ -1183,11 +1234,11 @@ export default function GateScanner() {
     }
 
     const checkFrame = async () => {
-      if (!detectionActiveRef.current) return;
+      if (!running()) return;
       const video = videoRef.current;
 
       if (!video || video.readyState < 2 || video.videoWidth === 0) {
-        if (detectionActiveRef.current) {
+        if (running()) {
           requestAnimationFrame(checkFrame);
         }
         return;
@@ -1237,7 +1288,7 @@ export default function GateScanner() {
         // ignore detection frame errors
       }
 
-      if (detectionActiveRef.current) {
+      if (running()) {
         setTimeout(() => requestAnimationFrame(checkFrame), 80);
       }
     };
@@ -1245,219 +1296,242 @@ export default function GateScanner() {
     requestAnimationFrame(checkFrame);
   };
 
-  const copy = scannerCopy[locale];
-  const frameProps = { locale, product: copy.product, languageLabel: t.languageToggle, onToggleLocale: toggleLocale };
-  // Persian shows the translated notice with the English sentence verbatim underneath, like the setup screens.
-  const unpairNoticeText = unpairNotice ? unpairNotice(copy) : null;
-  const unpairNoticeDetail = unpairNotice && locale === "fa" ? unpairNotice(scannerCopy.en) : null;
-
-  // Pair / re-pair a device token (shared by the pairing and deactivated screens).
-  const submitPairing = async (e: FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    if (!pointId || !tokenInput.trim()) return;
-    await storeCredential(tokenInput.trim());
-    setTokenInput("");
+  // Pair (or re-pair) with a pairing code: from the scanned pairing QR code or pasted.
+  const pairWith = async (token: string) => {
+    if (!pointId || !token.trim()) return;
+    await storeCredential(token.trim());
     setInitError(null);
     setAuthBlocked(null);
     await loadManifest(true);
   };
 
+  // The live screen: paired, the point's list loaded, nothing blocking it.
+  const live = !loading && tabLock !== "busy" && !deactivationPending && !initError && manifest !== null;
+  // The screen stays on while the scanner is live: a locked phone also kills the camera.
+  useWakeLock(live);
+  const update = useAppUpdate();
+  const promptable = useSyncExternalStore(subscribeInstallPrompt, canPromptInstall, () => false);
+
+  // The camera the operator left on starts by itself once the live screen is up.
+  const cameraRestoredRef = useRef(false);
+  useEffect(() => {
+    if (!live || !pointId || cameraRestoredRef.current) return;
+    cameraRestoredRef.current = true;
+    let remembered = false;
+    try {
+      remembered = localStorage.getItem(`${CAMERA_KEY_PREFIX}${pointId}`) === "on";
+    } catch {
+      remembered = false;
+    }
+    if (remembered) void startCameraRef.current();
+  }, [live, pointId]);
+
+  // Back from a locked screen or another app: a dead camera stream starts again, a paused preview plays again.
+  useEffect(() => {
+    const onVisible = () => {
+      const stream = streamRef.current;
+      if (document.visibilityState !== "visible" || !stream) return;
+      const tracks = stream.getVideoTracks();
+      if (tracks.length === 0 || tracks.some((track) => track.readyState === "ended")) void startCameraRef.current();
+      else if (videoRef.current?.paused) void videoRef.current.play().catch(() => undefined);
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, []);
+
+  const timeZone = manifest?.event_timezone ?? null;
+  // Supervisor data, folded under «جزئیات فنی» on the setup screens.
+  const details = (english?: string | null) => (
+    <>
+      <p>
+        {copy.pointLabel}: <bdi dir="ltr" className="font-mono">{pointId}</bdi>
+      </p>
+      <p>
+        {op.menu.version}: <bdi dir="ltr" className="font-mono">{SCANNER_APP_VERSION}</bdi>
+      </p>
+      {english && (
+        <p lang="en" dir="ltr">
+          {english}
+        </p>
+      )}
+    </>
+  );
+  const renderGate = (props: {
+    kind: OperatorGateKind;
+    title?: string;
+    body?: string;
+    icon?: "layers";
+    action?: ReactNode;
+    secondary?: ReactNode;
+    children?: ReactNode;
+    details?: ReactNode;
+  }) => (
+    <div dir={dir} lang={locale} className="surface-ink relative">
+      <LanguageToggle locale={locale} onChange={setLocale} tone="ink" className="absolute end-3 top-[max(env(safe-area-inset-top),0.75rem)] z-10" />
+      <OperatorGate locale={locale} tone="ink" {...props} />
+    </div>
+  );
+  const pairing = pointId ? <PairingPanel copy={copy} locale={locale} pointId={pointId} onPair={pairWith} /> : null;
+  const unsent = <DiscardUnsynced copy={copy} pendingCount={pendingCount} onDiscard={discardUnsynced} />;
+
   if (loading) {
     return (
-      <ScannerScreen locale={locale} className="flex flex-col">
-        <div className="flex flex-1 items-center justify-center bg-meridian-ink p-4">
-          <div role="status" className="flex flex-col items-center gap-4 text-center">
-            <span aria-hidden="true" className="scanner-spinner motion-safe:animate-spin" />
-            <p className="text-sm text-ink-300">{copy.loading}</p>
-          </div>
-        </div>
-      </ScannerScreen>
+      <div dir={dir} lang={locale} role="status" className="surface-ink flex h-dvh flex-col items-center justify-center gap-4 bg-surface-ink text-white">
+        <Spinner size={40} className="text-aiteb-orchid" />
+        <p className="text-body-sm text-ink-200">{copy.loading}</p>
+      </div>
     );
   }
 
   if (tabLock === "busy") {
-    return (
-      <SetupFrame {...frameProps}>
-        <SetupPanel tone="warning" icon="layers">
-          <h1 className="text-[1.65rem] font-semibold leading-tight tracking-[-0.02em] text-white">
-            <BiHeading locale={locale} label={copy.otherTabTitle} />
-          </h1>
-          <p role="status" className="text-[14px] leading-relaxed text-ink-200">{copy.otherTabBody}</p>
-        </SetupPanel>
-      </SetupFrame>
-    );
+    return renderGate({ kind: "unavailable", icon: "layers", title: copy.otherTabTitle, body: copy.otherTabBody });
   }
 
   if (deactivationPending) {
-    return (
-      <SetupFrame {...frameProps}>
-        <SetupPanel tone="danger" icon="lock">
-          <div className="space-y-1.5">
-            <p className="font-mono text-[11.5px] text-ink-400">
-              <span className="ltr-isolate">{pointId}</span>
+    // Unpaired for good: the device is ready to be paired again.
+    if (unpairOutcome?.kind === "confirmed") {
+      return renderGate({ kind: "unpaired", title: copy.unpairedTitle, action: pairing, children: unsent, details: details() });
+    }
+    const line =
+      unpairOutcome?.kind === "unsynced"
+        ? copy.unpairUnsynced(unpairOutcome.count)
+        : unpairOutcome
+          ? copy.unpairNotConfirmed
+          : copy.deactivatedDefault;
+    return renderGate({
+      kind: "suspended",
+      title: copy.deactivatedTitle,
+      body: line,
+      action: pairing,
+      secondary: persistedCredential?.token ? (
+        <Button type="button" variant="secondary" tone="ink" icon="sync" isFullWidth loading={unpairing} disabled={!isOnline} onClick={() => void handleUnpair()}>
+          {copy.retryUnpair}
+        </Button>
+      ) : undefined,
+      children: (
+        <>
+          {unpairOutcome?.kind !== "unsynced" && pendingCount > 0 && (
+            <p>
+              {copy.remaining(pendingCount)} {!isOnline && copy.reconnectFirst}
             </p>
-            <h1 className="text-[1.65rem] font-semibold leading-tight tracking-[-0.02em] text-white">
-              <BiHeading locale={locale} label={copy.deactivated} />
-            </h1>
-          </div>
-          <p role="alert" dir="auto" className="text-[14px] leading-relaxed text-[#FFD08A]">
-            {unpairNoticeText ?? copy.deactivatedDefault}
-          </p>
-          <SystemReadout label={copy.systemDetail} lines={[unpairNoticeDetail]} />
-          <p className="flex items-start gap-2 text-[13px] leading-relaxed text-ink-300">
-            <Icon name="layers" size={16} className="mt-0.5 text-ink-400" />
-            <span>
-              {copy.remaining(pendingCount)}
-              {!isOnline && ` ${copy.reconnectFirst}`}
-            </span>
-          </p>
-          {persistedCredential?.token && (
-            <button
-              type="button"
-              disabled={unpairing || !isOnline}
-              onClick={handleUnpair}
-              className="scanner-tool inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-status-danger-solid px-4 text-[14px] font-semibold text-white hover:brightness-110 disabled:opacity-50"
-            >
-              <Icon name="sync" size={17} />
-              {unpairing ? copy.revoking : copy.retryRevoke}
-            </button>
           )}
-          <DiscardUnsynced locale={locale} copy={copy} pendingCount={pendingCount} onDiscard={discardUnsynced} />
-          <form onSubmit={submitPairing} className="space-y-2.5 border-t border-white/10 pt-4">
-            <label htmlFor="scanner-repair-token" className="block text-[13px] font-semibold text-ink-200">
-              {copy.repairLabel}
-            </label>
-            <input
-              id="scanner-repair-token"
-              type="password"
-              value={tokenInput}
-              onChange={(e) => setTokenInput(e.target.value)}
-              placeholder={copy.repairPlaceholder}
-              autoComplete="off"
-              dir="ltr"
-              className="scanner-input w-full font-mono"
-            />
-            <button
-              type="submit"
-              disabled={!tokenInput.trim()}
-              className="scanner-tool inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-white px-4 text-[14px] font-semibold text-ink-950 hover:bg-aiteb-lavender disabled:bg-white/[0.08] disabled:text-ink-300"
-            >
-              <Icon name="key" size={17} />
-              {copy.repairAction}
-            </button>
-          </form>
-          <Link to="/organizer" className="inline-flex min-h-11 items-center gap-1.5 text-[13px] font-medium text-ink-300 hover:text-white">
-            <Icon name="arrow-left" size={16} />
-            {copy.backToOrganizer}
-          </Link>
-        </SetupPanel>
-      </SetupFrame>
-    );
+          {unsent}
+        </>
+      ),
+      details: details(unpairOutcome?.kind === "notConfirmed" ? unpairOutcome.detail : null),
+    });
   }
 
   if (initError || !manifest) {
-    const en = scannerCopy.en;
     const kind = authBlocked?.kind ?? (getStoredScannerToken() ? "UNAVAILABLE" : "UNPAIRED");
     const problem: InitProblem = initError ?? ((c) => c.initManifestMissing);
-    // The English diagnostic, and the same in the reader's language.
-    const message = authBlocked?.message ?? (typeof problem === "string" ? problem : problem(en));
-    const localMessage = authBlocked?.localized ?? (typeof problem === "string" ? problem : problem(copy));
-    const view = {
-      REVOKED: { icon: "alert", tone: "danger", title: [copy.revokedTitle, en.revokedTitle], hint: [copy.revokedBody(pendingCount), en.revokedBody(pendingCount)] },
-      FORBIDDEN: { icon: "gate", tone: "warning", title: [copy.forbiddenTitle, en.forbiddenTitle], hint: [copy.forbiddenBody, en.forbiddenBody] },
-      EXPIRED: { icon: "clock", tone: "warning", title: [copy.expiredTitle, en.expiredTitle], hint: [copy.expiredBody, en.expiredBody] },
-      UNAVAILABLE: { icon: "wifi-off", tone: "neutral", title: [copy.unavailableTitle, en.unavailableTitle], hint: [copy.unavailableBody, null] },
-      UNPAIRED: { icon: "shield", tone: "neutral", title: [copy.pairTitle, en.pairTitle], hint: [copy.pairBody, null] },
-    } as const;
-    const v = view[kind];
-    // English keeps the system's own sentences as the body; Persian translates them and shows the English
-    // diagnostic verbatim underneath (supervisors and the audit trail use it).
-    const body = locale === "en" ? (kind === "UNPAIRED" ? message : v.hint[1]) : v.hint[0];
-    const readout =
-      locale === "en"
-        ? kind === "UNPAIRED"
-          ? []
-          : [message]
-        : kind === "UNPAIRED"
-          ? [localMessage, message]
-          : [v.title[1], message, v.hint[1]];
-    return (
-      <SetupFrame {...frameProps}>
-        <SetupPanel tone={v.tone} icon={v.icon}>
-          <div className="space-y-1.5">
-            <p className="flex flex-wrap items-center gap-x-2 text-[12px] font-semibold text-ink-400">
-              <span>{copy.setupEyebrow}</span>
-              <span aria-hidden="true">·</span>
-              <span>{copy.point}</span>
-              <span className="font-mono text-[11.5px] font-normal text-ink-300" dir="ltr">
-                {pointId}
-              </span>
-            </p>
-            <h1 className="text-[1.65rem] font-semibold leading-tight tracking-[-0.02em] text-white">{v.title[0]}</h1>
-          </div>
-          {body && <p className="text-[14px] leading-relaxed text-ink-200">{body}</p>}
-          <SystemReadout label={copy.systemDetail} lines={readout} />
-          <form onSubmit={submitPairing} className="space-y-2.5 border-t border-white/10 pt-4">
-            <label htmlFor="scanner-pair-token" className="block text-[13px] font-semibold text-ink-200">
-              <BiHeading locale={locale} label={copy.pairLabel} />
-            </label>
-            <input
-              id="scanner-pair-token"
-              type="password"
-              value={tokenInput}
-              onChange={(e) => setTokenInput(e.target.value)}
-              placeholder={copy.tokenPlaceholder}
-              autoComplete="off"
-              dir="ltr"
-              className="scanner-input w-full font-mono"
-            />
-            <button
-              type="submit"
-              disabled={!tokenInput.trim()}
-              className="scanner-tool press inline-flex min-h-12 w-full items-center justify-center gap-2.5 rounded-xl bg-white px-4 text-[15px] font-semibold text-ink-950 shadow-[0_12px_30px_-14px_rgb(255_151_255/0.5)] hover:bg-aiteb-lavender disabled:bg-white/[0.08] disabled:text-ink-300 disabled:shadow-none"
-            >
-              <Icon name="key" size={18} />
-              <BiLabel locale={locale} label={copy.authorize} />
-            </button>
-            <p className="flex items-center gap-1.5 text-[12px] text-ink-400">
-              <Icon name="lock" size={13} />
-              {copy.tokenNote}
-            </p>
-          </form>
-          <DiscardUnsynced locale={locale} copy={copy} pendingCount={pendingCount} onDiscard={discardUnsynced} />
-          <div className="flex flex-col gap-2 border-t border-white/10 pt-4 sm:flex-row sm:items-center sm:justify-between">
-            <button
-              type="button"
-              onClick={() => loadManifest(true)}
-              className="scanner-tool inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-white/12 bg-white/[0.04] px-4 text-[13.5px] font-semibold text-ink-100 hover:bg-white/[0.09]"
-            >
-              <Icon name="sync" size={16} />
-              {copy.retry}
-            </button>
-            <Link to="/organizer" className="inline-flex min-h-11 items-center justify-center gap-1.5 text-[13px] font-medium text-ink-300 hover:text-white">
-              <Icon name="arrow-left" size={16} />
-              {copy.backToOrganizer}
-            </Link>
-          </div>
-        </SetupPanel>
-      </SetupFrame>
-    );
+    // The English diagnostic for supervisors (folded away), and a sentence in the reader's language.
+    const english = authBlocked?.message ?? (typeof problem === "string" ? problem : problem(scannerCopy.en));
+    const iosInstall =
+      typeof navigator !== "undefined" && isIosInstallBrowser(navigator.userAgent, navigator.maxTouchPoints) ? (
+        <InstallHint locale={locale} persona="scanner" />
+      ) : null;
+    switch (kind) {
+      case "REVOKED":
+      case "FORBIDDEN":
+      case "EXPIRED":
+        return renderGate({
+          kind: kind === "REVOKED" ? "revoked" : kind === "FORBIDDEN" ? "wrongGate" : "expired",
+          action: pairing,
+          children: unsent,
+          details: details(english),
+        });
+      case "UNAVAILABLE":
+        return renderGate({
+          kind: "unavailable",
+          title: copy.unavailableTitle,
+          body: typeof problem === "string" ? undefined : problem(copy),
+          action: (
+            <Button type="button" tone="ink" size="lg" icon="sync" isFullWidth onClick={() => void loadManifest(true)}>
+              {commonCopy[locale].retry}
+            </Button>
+          ),
+          children: unsent,
+          details: details(english),
+        });
+      default:
+        return renderGate({
+          kind: "unpaired",
+          action: pairing,
+          children: (
+            <>
+              {iosInstall}
+              {unsent}
+            </>
+          ),
+          details: details(),
+        });
+    }
   }
 
   const point = manifest.checkin_point;
   const scanningPaused = storageFailed || authBlocked !== null || (authVerdict !== null && !authVerdict.ok);
-  const manifestReadout =
-    !authBlocked && (!authVerdict || authVerdict.ok) && manifestCachedAt
-      ? {
-          synced: isOnline,
-          at: clockTime(manifestCachedAt),
-          windowLeft:
-            authVerdict && authVerdict.ok && authVerdict.reason === "WITHIN_WINDOW" && !isOnline
-              ? formatRemainingWindow(authVerdict.remainingMs)
-              : null,
-        }
-      : null;
-  const verdictKind = activeResult ? takeoverKind(activeResult) : null;
+  const view = activeResult ? verdictView(activeResult, copy) : null;
+  const policy = policyLabel(copy, point.policy_type, point.reset_window);
+  const remainingMs = authVerdict?.ok && authVerdict.reason === "WITHIN_WINDOW" ? authVerdict.remainingMs : null;
+  const offlineLeft =
+    !isOnline && remainingMs !== null && remainingMs < OFFLINE_LEFT_SHOWN_MS
+      ? copy.offlineLeft(Math.floor(remainingMs / 3_600_000), Math.floor((remainingMs % 3_600_000) / 60_000))
+      : undefined;
+  // A new version reloads the page: only with nothing waiting to send and no verdict on screen.
+  const canApplyUpdate = pendingCount === 0 && !activeResult;
+  const pill: Omit<StatusPillProps, "locale"> =
+    conflicts.length > 0
+      ? { status: "conflicts", count: conflicts.length, onClick: () => setShowConflictDrawer(true) }
+      : !isOnline
+        ? { status: "offline", count: pendingCount, detail: offlineLeft }
+        : isSyncing
+          ? { status: "syncing" }
+          : pendingCount > 0
+            ? { status: "queued", count: pendingCount }
+            : update.waiting
+              ? { status: "update", onClick: canApplyUpdate ? update.apply : undefined }
+              : { status: "online" };
+  const menuItems: OperatorMenuItem[] = [
+    {
+      id: "sound",
+      label: soundEnabled ? op.menu.soundOff : op.menu.soundOn,
+      icon: soundEnabled ? "bell-off" : "bell",
+      onSelect: () => setSoundEnabled((on) => !on),
+    },
+    { id: "language", label: op.menu.language, lang: op.menu.languageLang, icon: "globe", onSelect: () => setLocale(op.menu.languageLang) },
+    { id: "recent", label: copy.recentScans, icon: "list", onSelect: () => setRecentOpen(true) },
+    {
+      id: "refresh",
+      label: copy.refreshList,
+      icon: "sync",
+      disabled: refreshing,
+      onSelect: () => {
+        setRefreshing(true);
+        void refreshManifest(true).finally(() => setRefreshing(false));
+      },
+    },
+    {
+      id: "send",
+      label: copy.sendQueue,
+      icon: "upload",
+      disabled: pendingCount === 0 || isSyncing,
+      hint: syncFailCount > 0 ? copy.syncFailures(syncFailCount) : undefined,
+      onSelect: () => void flushQueue(),
+    },
+  ];
+  if (promptable) menuItems.push({ id: "install", label: op.menu.install, icon: "smartphone", onSelect: () => void promptInstall() });
+  if (update.waiting) {
+    menuItems.push({
+      id: "update",
+      label: op.menu.update,
+      icon: "download",
+      disabled: !canApplyUpdate,
+      hint: pendingCount > 0 ? op.menu.updateAfterQueue : undefined,
+      onSelect: update.apply,
+    });
+  }
+  menuItems.push({ id: "unpair", label: op.menu.unpair, icon: "lock", danger: true, divider: true, onSelect: () => setShowUnpairConfirm(true) });
 
   const handleManualSubmit = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -1476,177 +1550,119 @@ export default function GateScanner() {
   };
 
   return (
-    <ScannerScreen locale={locale} className="flex flex-col select-none">
-      {verdictKind && <div key={verdictKey} aria-hidden="true" className={`scanner-halo scanner-halo--${verdictKind}`} />}
+    <div dir={dir} lang={locale} className="scanner-root surface-ink flex h-dvh select-none flex-col overflow-hidden bg-surface-ink text-white">
+      {view && <div key={verdictKey} aria-hidden="true" className={`scanner-halo scanner-halo--${view.tone}`} />}
       {storageFailed && (
-        <div role="alertdialog" aria-modal="true" aria-labelledby="scanner-storage-failed" className="fixed inset-0 z-50 flex items-center justify-center bg-[#2A0614]/95 p-4">
-          <div className="w-full max-w-md space-y-4 rounded-2xl border border-status-danger-solid/60 bg-ink-950 p-5">
-            <h2 id="scanner-storage-failed" className="flex items-start gap-2 text-[1.25rem] font-semibold leading-snug text-[#FFC9D5]">
-              <Icon name="x-circle" size={24} className="mt-0.5 shrink-0 text-[#FF8BA8]" />
-              <BiHeading locale={locale} label={copy.storageFailedTitle} />
+        <div role="alertdialog" aria-modal="true" aria-labelledby="scanner-storage-failed" className="fixed inset-0 z-50 flex items-center justify-center bg-status-danger-solid p-4">
+          <div className="w-full max-w-md space-y-4 rounded-card bg-surface-ink p-5">
+            <h2 id="scanner-storage-failed" className="flex items-start gap-2 text-title-sm font-bold">
+              <Icon name="x-circle" size={24} className="mt-0.5 shrink-0" />
+              {copy.storageFailedTitle}
             </h2>
-            <p className="text-[14px] leading-relaxed text-ink-200">{copy.storageFailedBody}</p>
-            <button
-              type="button"
-              onClick={() => window.location.reload()}
-              className="scanner-tool inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-white px-4 text-[14px] font-semibold text-ink-950 hover:bg-aiteb-lavender"
-            >
-              <Icon name="sync" size={17} />
+            <p className="text-body-sm text-ink-200">{copy.storageFailedBody}</p>
+            <Button type="button" tone="ink" size="lg" icon="sync" isFullWidth onClick={() => window.location.reload()}>
               {copy.reload}
-            </button>
+            </Button>
           </div>
         </div>
       )}
 
-      <ScannerHeader
-        locale={locale}
-        copy={copy}
-        languageLabel={t.languageToggle}
-        onToggleLocale={toggleLocale}
-        pointName={point.name}
-        policyType={point.policy_type}
-        resetWindow={point.reset_window}
-        occupancy={point.tracks_occupancy ? occupancy : null}
-        location={point.location}
-        cachedTickets={Object.keys(ticketMap).length}
-        conflictCount={conflicts.length}
-        conflictsHeading={t.conflictsHeading}
-        onOpenConflicts={() => setShowConflictDrawer(true)}
-        soundEnabled={soundEnabled}
-        onToggleSound={() => setSoundEnabled((prev) => !prev)}
-        isOnline={isOnline}
-        isSyncing={isSyncing}
-        pendingCount={pendingCount}
-        syncFailCount={syncFailCount}
-        manifest={manifestReadout}
+      <OperatorBar
+        tone="ink"
+        icon="scan"
+        title={point.name}
+        chip={policy ? <span className="scanner-policy">{policy}</span> : undefined}
+        status={<StatusPill locale={locale} tone="ink" {...pill} />}
+        menu={<OperatorMenu locale={locale} tone="ink" items={menuItems} version={SCANNER_APP_VERSION} />}
       />
 
-      {/* Authorization state banner: definitive rejects + offline-window expiry.
-          Records are preserved in both cases; only NEW admissions stop. */}
-      {authBlocked && (
-        <div role="alert" className="border-b border-status-danger-solid/50 bg-[#2A0614]">
-          <div className="mx-auto flex w-full max-w-6xl items-start gap-3 px-4 py-3 sm:px-6">
-            <Icon name="x-circle" size={20} className="mt-0.5 text-[#FF8BA8]" />
-            <div className="min-w-0 space-y-1 text-[13px] leading-relaxed">
-              <p className="text-[14px] font-semibold text-[#FFC9D5]">
-                <BiHeading
-                  locale={locale}
-                  label={{
-                    fa: copy.pausedTitle.fa,
-                    en: `Scanning paused — ${
-                      authBlocked.kind === "REVOKED"
-                        ? "device deauthorized"
-                        : authBlocked.kind === "FORBIDDEN"
-                          ? "wrong check-in point"
-                          : "credential expired"
-                    }`,
-                  }}
-                />
-              </p>
-              <p dir="auto" className="text-[#FFB3C4]">{authBlocked.localized ?? authBlocked.message}</p>
-              <p className="text-[#FFB3C4]/80">
-                {locale === "en"
-                  ? `${pendingCount} unsynced scan(s) preserved. Ask a supervisor for a fresh token, then re-pair from the Unpair section below — your queued records are kept.`
-                  : copy.preserved(pendingCount)}
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Offline time is up or the pairing expired: records are kept, only NEW admissions stop. */}
       {!authBlocked && authVerdict && !authVerdict.ok && (
-        <div role="alert" className="border-b border-status-warning-solid/50 bg-[#2B1A02]">
-          <div className="mx-auto flex w-full max-w-6xl items-start gap-3 px-4 py-3 sm:px-6">
-            <Icon name="pause" size={20} className="mt-0.5 text-[#FFC266]" />
-            <div className="min-w-0 space-y-1 text-[13px] leading-relaxed">
-              <p className="text-[14px] font-semibold text-[#FFD08A]">
-                <BiHeading locale={locale} label={copy.windowExpired} />
-              </p>
-              <p className="text-[#FFE2B0]">
-                {authVerdict.reason === "TOKEN_EXPIRED" ? copy.windowTokenExpired : copy.windowStale} {copy.preserved(pendingCount)}
-              </p>
-            </div>
-          </div>
-        </div>
+        <p role="alert" className="flex items-start gap-2 bg-status-warning-solid px-4 py-2.5 text-body-sm font-semibold text-ink-950">
+          <Icon name="pause" size={18} className="mt-0.5 shrink-0" />
+          <span>
+            {copy.windowPaused} {authVerdict.reason === "TOKEN_EXPIRED" ? copy.windowTokenExpired : copy.windowStale}
+          </span>
+        </p>
       )}
 
-      <main className="mx-auto w-full max-w-6xl flex-1 px-4 pb-10 pt-0 sm:px-6 sm:pt-5 lg:pt-6">
-        <div className="grid gap-4 lg:grid-cols-[minmax(0,7fr)_minmax(0,5fr)] lg:gap-6">
-          <div className="flex min-w-0 flex-col gap-4">
-            {point.tracks_occupancy && (
-              <DirectionToggle copy={copy} direction={direction} onChange={setDirection} disabled={scanningPaused} />
-            )}
-            <Viewfinder
-              videoRef={videoRef}
-              cameraActive={cameraActive}
-              cameraError={cameraError ? copy[cameraError] : null}
-              onStartCamera={startCamera}
-              onStopCamera={stopCamera}
+      <main className="mx-auto flex min-h-0 w-full max-w-7xl flex-1 flex-col gap-3 px-4 pt-3 pb-[max(1rem,env(safe-area-inset-bottom))] lg:flex-row lg:gap-6 lg:px-6 lg:pt-5">
+        <div className="flex min-h-0 flex-1 flex-col gap-3 lg:flex-[3]">
+          {/* Android and desktop offer to install once paired; never over a verdict. */}
+          {promptable && !activeResult && <InstallHint locale={locale} persona="scanner" />}
+          {point.tracks_occupancy && (
+            <DirectionToggle
               copy={copy}
-            >
-              {activeResult && <ResultTakeover key={verdictKey} result={activeResult} t={t} copy={copy} />}
-            </Viewfinder>
-            <ManualEntry
-              copy={copy}
-              value={manualCode}
-              onChange={(value) => {
-                setManualCode(value);
-                if (trackingIdWarning) setTrackingIdWarning(false);
-              }}
-              onSubmit={handleManualSubmit}
-              placeholder={copy.manualPlaceholder}
-              submitLabel={t.manualCodeSubmit}
+              direction={direction}
+              onChange={setDirection}
               disabled={scanningPaused}
-              warning={trackingIdWarning ? copy.trackingIdWarning : null}
+              inside={copy.inside(occupancy)}
             />
-          </div>
-
-          <div className="flex min-w-0 flex-col gap-4">
-            <BufferBar
-              locale={locale}
-              copy={copy}
-              pendingCount={pendingCount}
-              isSyncing={isSyncing}
-              refreshing={refreshing}
-              onSync={flushQueue}
-              onRefresh={() => {
-                setRefreshing(true);
-                void refreshManifest(true).finally(() => setRefreshing(false));
-              }}
-            />
-            <ScanLog scans={recentScans} copy={copy} t={t} />
-            {/* Device Settings: unpair without destroying audit trail */}
-            <DeviceSettings
-              locale={locale}
-              copy={copy}
-              pointId={pointId}
-              unpairNotice={unpairNoticeText}
-              unpairDetail={unpairNoticeDetail}
-              showConfirm={showUnpairConfirm}
-              unpairing={unpairing}
-              pendingCount={pendingCount}
-              isOnline={navigator.onLine}
-              onAskUnpair={() => setShowUnpairConfirm(true)}
-              onConfirmUnpair={handleUnpair}
-              onCancelUnpair={() => setShowUnpairConfirm(false)}
-            />
-          </div>
+          )}
+          <Viewfinder
+            videoRef={videoRef}
+            cameraActive={cameraActive}
+            cameraError={cameraError ? copy[cameraError] : null}
+            onStartCamera={() => void startCamera()}
+            onStopCamera={stopCamera}
+            copy={copy}
+          >
+            {activeResult && <ScanVerdict key={verdictKey} result={activeResult} locale={locale} copy={copy} />}
+          </Viewfinder>
+          <ManualEntry
+            copy={copy}
+            open={manualOpen}
+            onOpenChange={setManualOpen}
+            value={manualCode}
+            onChange={(value) => {
+              setManualCode(value);
+              if (trackingIdWarning) setTrackingIdWarning(false);
+            }}
+            onSubmit={handleManualSubmit}
+            disabled={scanningPaused}
+            warning={trackingIdWarning ? copy.trackingIdWarning : null}
+          />
         </div>
 
-        {/* Conflict Review Drawer */}
-        {showConflictDrawer && (
-          <ConflictDrawer
-            conflicts={conflicts}
-            copy={copy}
-            t={t}
-            onClose={() => setShowConflictDrawer(false)}
-            onAcknowledge={async (scanId) => {
-              await acknowledgeConflict(scanId);
-              const updated = await getConflictsForPoint(pointId ?? "");
-              setConflicts(updated);
-            }}
-          />
-        )}
+        {/* Tablets and kiosks keep the last scans beside the stage; phones open them from the menu. */}
+        <section
+          aria-labelledby="scanner-recent-title"
+          className="hidden min-h-0 flex-col overflow-hidden rounded-card border border-white/10 md:flex md:max-h-[32vh] lg:max-h-none lg:flex-[2]"
+        >
+          <h2 id="scanner-recent-title" className="border-b border-white/10 px-4 py-3 text-body-sm font-semibold text-ink-200">
+            {copy.recentScans}
+          </h2>
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            <ScanLog scans={recentScans.slice(0, SIDE_LOG_SIZE)} copy={copy} locale={locale} timeZone={timeZone} />
+          </div>
+        </section>
       </main>
-    </ScannerScreen>
+
+      <ConflictDrawer
+        isOpen={showConflictDrawer}
+        conflicts={conflicts}
+        copy={copy}
+        locale={locale}
+        timeZone={timeZone}
+        onClose={() => setShowConflictDrawer(false)}
+        onAcknowledge={async (scanId) => {
+          await acknowledgeConflict(scanId);
+          setConflicts(await getConflictsForPoint(pointId ?? ""));
+        }}
+      />
+      <Dialog isOpen={recentOpen} onClose={() => setRecentOpen(false)} title={copy.recentScans} tone="ink">
+        <ScanLog scans={recentScans} copy={copy} locale={locale} timeZone={timeZone} />
+      </Dialog>
+      <ConfirmDialog
+        isOpen={showUnpairConfirm}
+        title={copy.unpairQuestion}
+        description={!navigator.onLine ? copy.unpairOffline : pendingCount > 0 ? copy.unpairUnsent(pendingCount) : copy.unpairBody}
+        confirmLabel={copy.unpairConfirm}
+        tone="danger"
+        busy={unpairing}
+        onConfirm={() => void handleUnpair()}
+        onCancel={() => setShowUnpairConfirm(false)}
+      />
+    </div>
   );
 }

@@ -4,7 +4,6 @@ import type { CopyShape } from "./useCopy";
  * The attendee panel: the shell (`layouts/AttendeeLayout.tsx`), Home, Program, `/me`, Network and Profile.
  * Wording: docs/ux-review/copy/SPEC.md §4.3; terms: GLOSSARY.md. «کارت ورود» is the pass, «کد QR» its code,
  * «جلسه» a program session. Read it as `attendeeCopy[locale]`, or `useCopy(attendeeCopy, locale)` in a component.
- * The booth words (`boothCopy`) stay in `components/attendee/attendeeCopy.ts` until the booth package moves them.
  */
 const fa = {
   /** The frame around every attendee page. */

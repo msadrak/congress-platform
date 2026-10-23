@@ -3,10 +3,11 @@ import type { Page } from '@playwright/test';
 
 // The shipping analytics page against synthetic, intercepted /api/ responses: not FastAPI/PostgreSQL E2E.
 // The browser runs in New York while the event is in Tehran (+03:30): every time shown must be Tehran's.
-test.use({ timezoneId: 'America/New_York' });
+// Desktop unless a test says otherwise (the project default is a 412 px phone).
+test.use({ timezoneId: 'America/New_York', viewport: { width: 1280, height: 800 } });
 
 const KEY = 'synthetic-c5-organizer';
-const event = { id: 'event-a', name: 'Alpha Congress', slug: 'event-a', starts_at: '2027-04-10T05:00:00Z', ends_at: '2027-04-11T15:00:00Z', location: 'Hall', description: '' };
+const event = { id: 'event-a', name: 'Alpha Congress', slug: 'event-a', starts_at: '2027-04-10T05:00:00Z', ends_at: '2027-04-11T15:00:00Z', location: 'Hall', description: '', timezone: 'Asia/Tehran', archived_at: null };
 const points = [
   { id: 'point-1', event_id: 'event-a', name: 'Main Gate', location: 'North', policy_type: 'MULTI_ENTRY', allowed_tier_ids: [], max_capacity: null, created_at: '2027-01-01T00:00:00Z' },
   { id: 'point-2', event_id: 'event-a', name: 'Lunch', location: 'Hall B', policy_type: 'SINGLE_USE', allowed_tier_ids: [], max_capacity: null, created_at: '2027-01-01T00:00:01Z' },
@@ -95,7 +96,7 @@ test('the day picker filters the dashboard and hours are on the event clock', as
   await page.goto('/organizer/events/event-a/analytics');
 
   await expect(page.getByTestId('kpi-scans')).toHaveText('30');
-  const dayPicker = page.getByRole('combobox', { name: 'Filter by day' });
+  const dayPicker = page.getByRole('combobox', { name: 'Day', exact: true });
   await expect(dayPicker.locator('option')).toHaveText(['All days', 'Sat, Apr 10', 'Sun, Apr 11']);
   // All days: one series across both event days, in Tehran time although the browser is in New York.
   await expect(page.getByTestId('hourly-range-event')).toHaveText('(Sat, Apr 10 08:00 – Sun, Apr 11 11:00)');
@@ -108,7 +109,7 @@ test('the day picker filters the dashboard and hours are on the event clock', as
   await expect(page.getByTestId('hourly-range-event')).toHaveText('(09:00 – 11:00)');
   expect(attendance().at(-1)?.searchParams.get('day')).toBe('2027-04-11');
 
-  await page.getByRole('button', { name: 'Clear Filters' }).click();
+  await page.getByRole('button', { name: 'Clear filters' }).click();
   await expect(page.getByTestId('kpi-scans')).toHaveText('30');
 });
 
@@ -118,9 +119,10 @@ test('polling runs every 30 s while visible and pauses while the tab is hidden',
   await seed(page);
   await page.goto('/organizer/events/event-a/analytics');
   await expect(page.getByTestId('kpi-scans')).toHaveText('30');
-  await expect(page.getByTestId('analytics-refreshed-at')).toHaveText('09:30:00');
+  // The fake clock keeps running, so a slow machine may read a second later.
+  await expect(page.getByTestId('analytics-refreshed-at')).toHaveText(/^09:30:0\d$/);
   // "today" is the event's date: 2027-04-11 in Tehran.
-  await expect(page.getByRole('combobox', { name: 'Filter by day' }).locator('option').nth(2)).toHaveText('Sun, Apr 11 (today)');
+  await expect(page.getByRole('combobox', { name: 'Day', exact: true }).locator('option').nth(2)).toHaveText('Sun, Apr 11 (today)');
   expect(attendance()).toHaveLength(1);
 
   await page.clock.runFor(30_000);
@@ -139,27 +141,30 @@ test('polling runs every 30 s while visible and pauses while the tab is hidden',
   await expect.poll(() => attendance().length).toBe(4);
 
   // Paused by hand: no more requests.
-  await page.getByRole('button', { name: 'Pause' }).click();
+  await page.getByRole('button', { name: 'Pause updates' }).click();
+  await expect(page.getByTestId('analytics-polling')).toHaveText('Updates paused');
   await page.clock.runFor(90_000);
   expect(attendance()).toHaveLength(4);
 });
 
-test('both CSV downloads carry the same filters as the dashboard', async ({ page }) => {
+test('both exports sit in one menu and carry the same filters as the dashboard', async ({ page }) => {
   const { requests } = await fixture(page);
   await seed(page);
   await page.goto('/organizer/events/event-a/analytics');
   await expect(page.getByTestId('kpi-scans')).toHaveText('30');
-  await page.getByRole('combobox', { name: 'Filter by day' }).selectOption('2027-04-11');
-  await page.getByRole('combobox', { name: 'Filter by check-in point' }).selectOption('point-1');
-  await page.getByRole('combobox', { name: 'Filter by ticket tier' }).selectOption('tier-2');
+  await page.getByRole('combobox', { name: 'Day', exact: true }).selectOption('2027-04-11');
+  await page.getByRole('combobox', { name: 'Check-in point' }).selectOption('point-1');
+  await page.getByRole('combobox', { name: 'Pass type' }).selectOption('tier-2');
   await expect(page.getByTestId('kpi-scans')).toHaveText('12');
 
-  for (const [button, path, filename] of [
-    ['Export Attendance CSV', '/analytics/export-csv', 'event-a-attendance-2027-04-11.csv'],
-    ['Export Registrations CSV', '/analytics/registrations-csv', 'event-a-registrations-2027-04-11.csv'],
+  for (const [item, path, filename] of [
+    ['Entries', '/analytics/export-csv', 'event-a-attendance-2027-04-11.csv'],
+    ['Registrations', '/analytics/registrations-csv', 'event-a-registrations-2027-04-11.csv'],
   ]) {
     const download = page.waitForEvent('download');
-    await page.getByRole('button', { name: button }).click();
+    // Both exports sit behind one menu button.
+    await page.getByRole('button', { name: 'Export' }).click();
+    await page.getByRole('menu', { name: 'Export' }).getByRole('menuitem', { name: item }).click();
     expect((await download).suggestedFilename()).toBe(filename);
     const sent = requests.filter(u => u.pathname.endsWith(path)).at(-1);
     expect(Object.fromEntries(sent?.searchParams ?? [])).toEqual({ day: '2027-04-11', point_id: 'point-1', ticket_tier_id: 'tier-2' });
@@ -173,7 +178,7 @@ test('a failed load shows the reason and a retry, never zeros', async ({ page })
   await seed(page);
   await page.goto('/organizer/events/event-a/analytics');
   const panel = page.getByTestId('analytics-error');
-  await expect(panel).toContainText('Analytics could not be loaded');
+  await expect(panel).toContainText('Statistics could not be loaded');
   await expect(panel).toContainText('The start of the time range must not be after its end.');
   await expect(page.getByTestId('kpi-scans')).toHaveCount(0);
 
@@ -188,7 +193,7 @@ test('Persian shows Solar Hijri days and Persian digits on the event clock', asy
   await seed(page, 'fa');
   await page.goto('/organizer/events/event-a/analytics');
   await expect(page.getByTestId('kpi-scans')).toHaveText('۳۰');
-  await expect(page.getByRole('combobox', { name: 'فیلتر بر اساس روز' }).locator('option')).toHaveText(['همهٔ روزها', 'شنبه ۲۱ فروردین', 'یکشنبه ۲۲ فروردین']);
+  await expect(page.getByRole('combobox', { name: 'روز', exact: true }).locator('option')).toHaveText(['همهٔ روزها', 'شنبه ۲۱ فروردین', 'یکشنبه ۲۲ فروردین']);
   await expect(page.getByTestId('hourly-range-event')).toHaveText('(شنبه ۲۱ فروردین ۰۸:۰۰ – یکشنبه ۲۲ فروردین ۱۱:۰۰)');
   await expect(page.getByTestId('analytics-timezone')).toHaveText('وقت تهران');
   await expect(page.locator('body')).not.toContainText('Asia/Tehran');
@@ -197,22 +202,57 @@ test('Persian shows Solar Hijri days and Persian digits on the event clock', asy
   expect(fonts).not.toMatch(/Plex Mono/);
 });
 
-test('the CSV exports are offered only to roles that may download them', async ({ page }) => {
+test('the export menu is offered only to roles that may download, and there is no disclaimer box', async ({ page }) => {
   for (const [role, offered] of [['viewer', false], ['staff', false], ['manager', true]] as const) {
     await page.unrouteAll({ behavior: 'ignoreErrors' });
     await fixture(page, { role });
     await seed(page);
     await page.goto('/organizer/events/event-a/analytics');
     await expect(page.getByTestId('kpi-scans'), role).toHaveText('30');
-    await expect(page.getByRole('button', { name: 'Export Attendance CSV' }), role).toHaveCount(offered ? 1 : 0);
-    await expect(page.getByRole('button', { name: 'Export Registrations CSV' }), role).toHaveCount(offered ? 1 : 0);
+    await expect(page.getByRole('button', { name: 'Export' }), role).toHaveCount(offered ? 1 : 0);
+    await expect(page.getByRole('menuitem'), role).toHaveCount(0);
+    const text = await page.locator('#organizer-main-content').innerText();
+    for (const disclaimer of ['Metrics reflect', 'Filters apply', 'reconcile', 'Offline scans']) expect(text, `${role}: ${disclaimer}`).not.toContain(disclaimer);
+    // One filled button at most: the live dashboard has none.
+    expect(await page.locator('#organizer-main-content button.bg-action-primary').count(), role).toBe(0);
   }
+});
+
+test('landscape 1180×820 shows the four KPIs and the hourly chart without scrolling', async ({ page }) => {
+  await page.setViewportSize({ width: 1180, height: 820 });
+  await fixture(page);
+  await seed(page);
+  await page.goto('/organizer/events/event-a/analytics');
+  await expect(page.getByTestId('kpi-scans')).toHaveText('30');
+  const kpis = await page.getByTestId('analytics-kpis').boundingBox();
+  const chart = await page.getByTestId('hourly-event').boundingBox();
+  expect(kpis && kpis.y >= 0).toBe(true);
+  expect(chart && chart.y + chart.height, 'hourly chart bottom').toBeLessThanOrEqual(820);
+  expect(await page.evaluate(() => window.scrollY)).toBe(0);
+});
+
+test('on a phone the KPIs come first and the filters open in a sheet', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const { attendance } = await fixture(page);
+  await seed(page);
+  await page.goto('/organizer/events/event-a/analytics');
+  await expect(page.getByTestId('kpi-scans')).toHaveText('30');
+  await expect(page.getByRole('combobox', { name: 'Day', exact: true })).toHaveCount(0);
+  const kpis = await page.getByTestId('analytics-kpis').boundingBox();
+  expect(kpis && kpis.y).toBeLessThan(844);
+  await page.getByTestId('analytics-filter-button').click();
+  const sheet = page.getByRole('dialog', { name: 'Filters' });
+  await sheet.getByRole('combobox', { name: 'Day', exact: true }).selectOption('2027-04-11');
+  await sheet.getByRole('button', { name: 'Show results' }).click();
+  await expect(page.getByTestId('kpi-scans')).toHaveText('12');
+  expect(attendance().at(-1)?.searchParams.get('day')).toBe('2027-04-11');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
 });
 
 test('a rejected key on the dashboard returns to the sign-in gate through the console handler', async ({ page }) => {
   await fixture(page, { failures: [{ status: 401, body: { detail: 'Invalid API key' } }] });
   await seed(page);
   await page.goto('/organizer/events/event-a/analytics');
-  await expect(page.getByRole('alert')).toHaveText('Your organizer API key was rejected. Please enter a valid key.');
+  await expect(page.getByRole('alert')).toHaveText('The organizer key was not accepted.');
   expect(await page.evaluate(() => sessionStorage.getItem('congress_organizer_api_key'))).toBeNull();
 });

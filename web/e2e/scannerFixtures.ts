@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import type { Page } from '@playwright/test';
+import { expect, type Page } from '@playwright/test';
 
 /**
  * Shared fixtures for the scanner specs: the manifest as the server sends it (tickets keyed by
@@ -90,3 +90,45 @@ export const injectScan = (page: Page, pointId: string, scan: Record<string, unk
     tx.onerror = () => { db.close(); reject(tx.error); };
   };
 }), { id: pointId, record: scan });
+
+/* ------------------------------------------------------------------ screen helpers (fa and en) */
+
+/** Waits until the live screen shows a point that has just reached the server (the status pill says online). */
+export async function expectScannerOnline(page: Page, pointName: string) {
+  await expect(page.getByRole('heading', { level: 1, name: pointName })).toBeVisible({ timeout: 10000 });
+  await expect(page.locator('header [data-status="online"]')).toBeVisible({ timeout: 10000 });
+}
+
+/** Types a code into manual entry (opening it first) and submits it. */
+export async function manualScan(page: Page, value: string) {
+  const field = page.locator('#scanner-manual-code');
+  if (!(await field.isVisible())) await page.getByRole('button', { name: /^(Enter code manually|ورود دستی کد)$/ }).click();
+  await field.fill(value);
+  await field.press('Enter');
+}
+
+/** Opens the ⋮ menu of the bar and picks an item by its label. */
+export async function pickMenuItem(page: Page, name: string | RegExp) {
+  await page.getByRole('button', { name: /^(Menu|منو)$/ }).click();
+  await page.getByRole('menuitem', { name }).click();
+}
+
+/** Unpairs from the menu, through the confirmation. */
+export async function unpairFromMenu(page: Page) {
+  await pickMenuItem(page, /^(Unpair this device|قطع اتصال دستگاه)$/);
+  await page.getByRole('dialog').getByRole('button', { name: /^(Unpair|قطع اتصال)$/ }).click();
+}
+
+/** The verdict on the stage: its one-word title, and its reason line. */
+export const verdictTitle = (page: Page) => page.locator('[data-testid="scanner-verdict"] .op-verdict-title');
+export const verdictReason = (page: Page) => page.locator('[data-testid="scanner-verdict"] .op-verdict-reason');
+
+/** A setup or blocked screen (`OperatorGate` kind: unpaired, revoked, wrongGate, expired, suspended, unavailable). */
+export const gateScreen = (page: Page, kind: string) => page.locator(`[data-gate="${kind}"]`);
+
+/** Pairs by pasting the pairing code on a setup screen. */
+export async function pasteToken(page: Page, token: string) {
+  await page.getByRole('button', { name: /^(Paste code|چسباندن کد)$/ }).click();
+  await page.getByPlaceholder(/^(Paste the pairing code|کد اتصال را اینجا بچسبانید)$/).fill(token);
+  await page.getByRole('button', { name: /^(Pair|اتصال)$/ }).click();
+}

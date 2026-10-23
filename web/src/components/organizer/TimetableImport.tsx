@@ -1,6 +1,6 @@
-import React, { useId, useMemo, useState } from "react";
+import React, { useId, useState } from "react";
 import type { EventSessionImport, EventSessionImportOut, VenuePlaceOut } from "../../api/client";
-import { codeFontClass, formatLocalizedNumber } from "../../lib/i18n";
+import { codeFontClass, formatDate, formatNumber } from "../../lib/format";
 import {
   MAX_SESSION_IMPORT_ROWS,
   parseSessionCsv,
@@ -11,9 +11,11 @@ import {
 } from "../../lib/sessionCsv";
 import { Badge } from "../ui/Badge";
 import { Button } from "../ui/Button";
+import { Dialog } from "../ui/Dialog";
 import { Icon } from "../ui/Icon";
 import { FormAlert } from "./WorkspaceUi";
-import { sessionDateFormats } from "./sessionTime";
+import { commonCopy } from "../../copy/common";
+import { organizerProgramCopy } from "../../copy/organizerProgram";
 
 interface TimetableImportProps {
   /** Sessions the event already has (removed when "replace" is chosen). */
@@ -26,23 +28,12 @@ interface TimetableImportProps {
   /** The event's IANA zone: the file's wall-clock times are read, and previewed, in it. */
   timeZone: string;
   locale: "fa" | "en";
-  isRtl: boolean;
   onImport: (body: EventSessionImport) => Promise<{ result?: EventSessionImportOut; error?: string }>;
   onDone: (result: EventSessionImportOut) => void;
-  onCancel: () => void;
+  onClose: () => void;
 }
 
 const MAX_FILE_BYTES = 2_000_000;
-
-const FIELD_LABEL: Record<SessionCsvField, { fa: string; en: string }> = {
-  title: { fa: "عنوان", en: "Title" },
-  track: { fa: "نوع", en: "Track" },
-  hall: { fa: "سالن", en: "Hall" },
-  speakers: { fa: "سخنرانان", en: "Speakers" },
-  description: { fa: "توضیحات", en: "Description" },
-  starts_at: { fa: "شروع", en: "Start" },
-  ends_at: { fa: "پایان", en: "End" },
-};
 
 /** Decodes the file as UTF-8, falling back to Windows-1256 (Excel's legacy "CSV" for Persian). */
 function decodeCsv(bytes: ArrayBuffer): string {
@@ -53,7 +44,9 @@ function decodeCsv(bytes: ArrayBuffer): string {
   }
 }
 
-export function TimetableImport({ existingCount, halls, templateDay, fileBase, timeZone, locale, isRtl, onImport, onDone, onCancel }: TimetableImportProps) {
+/** «ورود از اکسل»: a CSV timetable checked row by row, then imported all-or-nothing, in a dialog. */
+export function TimetableImport({ existingCount, halls, templateDay, fileBase, timeZone, locale, onImport, onDone, onClose }: TimetableImportProps) {
+  const c = organizerProgramCopy[locale].importer;
   const fileInputId = useId();
   const replaceId = useId();
   const [fileName, setFileName] = useState<string | null>(null);
@@ -63,10 +56,7 @@ export function TimetableImport({ existingCount, halls, templateDay, fileBase, t
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
-  const fmt = (n: number) => formatLocalizedNumber(n, locale);
-  const sessionsEn = (n: number) => `${n} ${n === 1 ? "session" : "sessions"}`;
-  const lang = isRtl ? "fa" : "en";
-  const formats = useMemo(() => sessionDateFormats(locale, timeZone), [locale, timeZone]);
+  const fmt = (n: number) => formatNumber(n, locale);
 
   const rows = parsed?.ok ? parsed.rows : [];
   const invalidRows = rows.filter((r) => r.problems.length > 0);
@@ -92,13 +82,13 @@ export function TimetableImport({ existingCount, halls, templateDay, fileBase, t
     setParsed(null);
     setFileName(file.name);
     if (file.size > MAX_FILE_BYTES) {
-      setReadError(isRtl ? "حجم فایل بیش از ۲ مگابایت است." : "The file is larger than 2 MB.");
+      setReadError(c.tooBig);
       return;
     }
     try {
       setParsed(parseSessionCsv(decodeCsv(await file.arrayBuffer()), { timeZone }));
     } catch {
-      setReadError(isRtl ? "فایل خوانده نشد." : "The file could not be read.");
+      setReadError(c.unreadable);
     }
   };
 
@@ -122,232 +112,196 @@ export function TimetableImport({ existingCount, halls, templateDay, fileBase, t
     const { result, error } = await onImport({ replace, sessions });
     setSubmitting(false);
     if (result) onDone(result);
-    else setSubmitError(error ?? (isRtl ? "برنامه وارد نشد." : "The timetable was not imported."));
+    else setSubmitError(error ?? c.failed);
   };
 
-  const fieldName = (field: SessionCsvField) => FIELD_LABEL[field][lang];
+  const fieldName = (field: SessionCsvField) => c.fields[field];
   const problemText = (p: SessionRowProblem): string => {
     switch (p.code) {
       case "required":
-        return isRtl ? `${fieldName(p.field)} خالی است` : `${fieldName(p.field)} is empty`;
+        return c.required(fieldName(p.field));
       case "too_long":
-        return isRtl ? `${fieldName(p.field)} بیش از ${fmt(p.max)} نویسه است` : `${fieldName(p.field)} is longer than ${p.max} characters`;
+        return c.tooLong(fieldName(p.field), fmt(p.max));
       case "invalid_date":
-        return isRtl
-          ? `${fieldName(p.field)} تاریخ معتبر نیست (نمونه: 1405/08/11 09:00 یا 2026-11-02 09:00)`
-          : `${fieldName(p.field)} is not a valid date (e.g. 2026-11-02 09:00 or 1405/08/11 09:00)`;
+        return c.invalidDate(fieldName(p.field));
       case "ends_before_start":
-        return isRtl ? "پایان باید بعد از شروع باشد" : "must end after it starts";
+        return c.endsBeforeStart;
     }
   };
 
   const fileErrorText = (result: Exclude<SessionCsvResult, { ok: true }>): string => {
     switch (result.error) {
       case "no_rows":
-        return isRtl ? "در این فایل هیچ جلسه‌ای پیدا نشد." : "No session was found in this file.";
+        return c.noRows;
       case "missing_columns":
-        return isRtl
-          ? `ستون‌های ضروری در سطر عنوان پیدا نشد: ${result.missing.map((f) => `${fieldName(f)} (${f})`).join("، ")}`
-          : `Required columns are missing from the header row: ${result.missing.map((f) => `${fieldName(f)} (${f})`).join(", ")}`;
+        return c.missingColumns(result.missing.map((f) => `${fieldName(f)} (${f})`).join(c.listSeparator));
       case "too_many_rows":
-        return isRtl
-          ? `این فایل ${fmt(result.count)} جلسه دارد؛ در هر بارگذاری حداکثر ${fmt(result.max)} جلسه پذیرفته می‌شود.`
-          : `This file has ${result.count} sessions; at most ${result.max} can be uploaded at once.`;
+        return c.tooManyRows(fmt(result.max));
       case "unterminated_quote":
-        return isRtl
-          ? `علامت نقل‌قولی که در خط ${fmt(result.line)} باز شده بسته نشده است.`
-          : `A quotation mark opened on line ${result.line} is never closed.`;
+        return c.unterminatedQuote(fmt(result.line));
     }
   };
 
   const timeText = (startIso: string, endIso: string) => {
-    const start = new Date(startIso);
-    const end = new Date(endIso);
-    const sameDay = formats.shortDay.format(start) === formats.shortDay.format(end);
-    return `${formats.shortDay.format(start)} ${formats.time.format(start)} – ${sameDay ? "" : `${formats.shortDay.format(end)} `}${formats.time.format(end)}`;
+    const day = (iso: string) => formatDate(iso, "short", locale, timeZone);
+    const time = (iso: string) => formatDate(iso, "time", locale, timeZone);
+    const sameDay = day(startIso) === day(endIso);
+    return c.timeRange(`${day(startIso)} ${time(startIso)}`, `${sameDay ? "" : `${day(endIso)} `}${time(endIso)}`);
+  };
+
+  const close = () => {
+    if (!submitting) onClose();
   };
 
   return (
-    <section
-      aria-labelledby="timetable-import-title"
-      data-testid="timetable-import"
-      className="space-y-5 shape-arc border border-border-default bg-surface-panel p-5 shadow-soft sm:p-7"
-    >
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0 space-y-1.5">
-          <h2 id="timetable-import-title" className="text-base font-bold text-text-primary">
-            {isRtl ? "بارگذاری جدول زمانی (CSV)" : "Upload a timetable (CSV)"}
-          </h2>
-          <p className="max-w-2xl text-sm leading-relaxed text-text-secondary">
-            {isRtl
-              ? `در اکسل یک سطر عنوان و برای هر جلسه یک سطر بنویسید و با «CSV UTF-8» ذخیره کنید. ستون‌ها: title (عنوان)، track (نوع)، hall (سالن)، speakers (سخنرانان)، description (توضیحات)، starts_at (شروع) و ends_at (پایان). تاریخ‌ها شمسی یا میلادی، مانند 1405/08/11 09:00 یا 2026-11-02 09:00 (قالب 11/2/2026 9:00 اکسل هم پذیرفته می‌شود)، به وقت همایش (${timeZone}). سالن‌هایی که هنوز تعریف نشده‌اند ساخته می‌شوند.`
-              : `Write one header row and one row per session in Excel, then save as “CSV UTF-8”. Columns: title, track, hall, speakers, description, starts_at and ends_at. Dates are Gregorian or Solar Hijri, like 2026-11-02 09:00 or 1405/08/11 09:00 (Excel's 11/2/2026 9:00 works too), in the congress time zone (${timeZone}). Halls that don't exist yet are created.`}
-          </p>
+    <Dialog
+      isOpen
+      onClose={close}
+      title={c.title}
+      size="full"
+      footer={
+        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+          <Button type="button" variant="ghost" disabled={submitting} onClick={close}>
+            {commonCopy[locale].cancel}
+          </Button>
+          <Button type="button" variant={replace && existingCount > 0 ? "danger" : "primary"} icon="upload" disabled={!canImport} loading={submitting} onClick={() => void submit()}>
+            {submitting ? c.importing : replace ? c.replaceWith(fmt(rows.length)) : c.importN(fmt(rows.length))}
+          </Button>
         </div>
-        <Button type="button" variant="secondary" size="sm" onClick={downloadTemplate}>
-          <Icon name="download" size={16} />
-          {isRtl ? "دریافت فایل نمونه" : "Download template"}
-        </Button>
-      </div>
+      }
+    >
+      <div data-testid="timetable-import" className="space-y-5">
+        <p className="flex flex-wrap items-center gap-x-2 text-body-sm text-text-secondary">
+          <span>{c.help}</span>
+          <button type="button" onClick={downloadTemplate} className="inline-flex min-h-11 cursor-pointer items-center gap-1 font-semibold text-action-primary hover:underline">
+            <Icon name="download" size={16} />
+            {c.sample}
+          </button>
+        </p>
 
-      <div className="flex flex-wrap items-center gap-3">
-        <label
-          htmlFor={fileInputId}
-          className="inline-flex min-h-[44px] cursor-pointer items-center gap-2 rounded-[10px] border border-dashed border-border-strong bg-surface-panel-subtle px-4 text-sm font-semibold text-text-primary transition-colors hover:border-action-primary focus-within:outline-2 focus-within:outline-focus-ring"
-        >
-          <Icon name="upload" size={18} />
-          {isRtl ? "انتخاب فایل CSV" : "Choose a CSV file"}
-          <input id={fileInputId} type="file" accept=".csv,text/csv" onChange={(e) => void handleFile(e)} className="sr-only" />
-        </label>
-        {fileName && (
-          <span className="min-w-0 truncate text-sm text-text-secondary">
-            <bdi dir="ltr">{fileName}</bdi>
-          </span>
-        )}
-      </div>
-
-      {readError && <FormAlert>{readError}</FormAlert>}
-      {parsed && parsed.ok === false && <FormAlert>{fileErrorText(parsed)}</FormAlert>}
-
-      {parsed?.ok && (
-        <div className="space-y-4">
-          <p role="status" className="flex flex-wrap items-center gap-2 text-sm text-text-secondary">
-            <Badge variant={invalidRows.length ? "danger" : "success"} size="md">
-              {invalidRows.length
-                ? isRtl
-                  ? `${fmt(invalidRows.length)} سطر از ${fmt(rows.length)} سطر ایراد دارد`
-                  : `${invalidRows.length} of ${rows.length} rows need fixing`
-                : isRtl
-                  ? `${fmt(rows.length)} جلسه آمادهٔ ورود`
-                  : `${sessionsEn(rows.length)} ready to import`}
-            </Badge>
-            {parsed.ignoredColumns.length > 0 && (
-              <span>
-                {isRtl ? "ستون‌های نادیده گرفته‌شده: " : "Ignored columns: "}
-                <bdi>{parsed.ignoredColumns.join(isRtl ? "، " : ", ")}</bdi>
-              </span>
-            )}
-          </p>
-
-          <div className="max-h-[26rem] overflow-auto rounded-xl border border-border-default">
-            <table className="w-full min-w-[40rem] border-collapse text-sm">
-              <caption className="sr-only">{isRtl ? "پیش‌نمایش جلسه‌های فایل" : "Preview of the file's sessions"}</caption>
-              <thead className="sticky top-0 bg-surface-panel-subtle text-xs text-text-muted">
-                <tr>
-                  <th scope="col" className="px-3 py-2 text-start font-semibold">#</th>
-                  <th scope="col" className="px-3 py-2 text-start font-semibold">{FIELD_LABEL.title[lang]}</th>
-                  <th scope="col" className="px-3 py-2 text-start font-semibold">{FIELD_LABEL.track[lang]}</th>
-                  <th scope="col" className="px-3 py-2 text-start font-semibold">{FIELD_LABEL.hall[lang]}</th>
-                  <th scope="col" className="px-3 py-2 text-start font-semibold">{isRtl ? "زمان" : "Time"}</th>
-                  <th scope="col" className="px-3 py-2 text-start font-semibold">{isRtl ? "وضعیت" : "Status"}</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border-subtle">
-                {rows.map((r) => (
-                  <tr key={r.row} className={r.problems.length ? "bg-status-danger-bg/60" : undefined}>
-                    <td className={`px-3 py-2 align-top ${codeFontClass(fmt(r.row))} text-xs text-text-muted tabular`}>
-                      <span title={isRtl ? `خط ${r.line} فایل` : `Line ${r.line} of the file`}>{fmt(r.row)}</span>
-                    </td>
-                    <td className="max-w-[16rem] px-3 py-2 align-top font-semibold text-text-primary">
-                      <bdi className="line-clamp-2 break-words">{r.values.title || "—"}</bdi>
-                    </td>
-                    <td className="px-3 py-2 align-top text-text-secondary">
-                      <bdi>{r.values.track || "—"}</bdi>
-                    </td>
-                    <td className="px-3 py-2 align-top text-text-secondary">
-                      <bdi>{r.values.hall || "—"}</bdi>
-                    </td>
-                    <td className="whitespace-nowrap px-3 py-2 align-top text-text-secondary">
-                      {r.session ? (
-                        <bdi className="tabular">{timeText(r.session.starts_at, r.session.ends_at)}</bdi>
-                      ) : (
-                        <bdi dir="ltr" className="font-mono text-xs">
-                          {r.values.starts_at || "?"} → {r.values.ends_at || "?"}
-                        </bdi>
-                      )}
-                    </td>
-                    <td className="px-3 py-2 align-top">
-                      {r.problems.length === 0 ? (
-                        <Badge variant="success" size="sm">{isRtl ? "درست" : "OK"}</Badge>
-                      ) : (
-                        <ul className="space-y-0.5 text-xs text-status-danger-text">
-                          {r.problems.map((p) => (
-                            <li key={`${p.code}-${"field" in p ? p.field : ""}`}>
-                              {isRtl ? `سطر ${fmt(r.row)} (خط ${fmt(r.line)}): ` : `Row ${r.row} (line ${r.line}): `}
-                              {problemText(p)}
-                            </li>
-                          ))}
-                        </ul>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          {newHalls.length > 0 && invalidRows.length === 0 && (
-            <p className="flex items-start gap-2 text-sm text-text-secondary">
-              <Icon name="info" size={16} className="mt-0.5 shrink-0 text-status-info-text" />
-              <span>
-                {isRtl ? "این سالن‌ها ساخته می‌شوند: " : "These halls will be created: "}
-                <bdi>{newHalls.join(isRtl ? "، " : ", ")}</bdi>
-              </span>
-            </p>
+        <div className="flex flex-wrap items-center gap-3">
+          <label
+            htmlFor={fileInputId}
+            className="inline-flex min-h-(--control-md) cursor-pointer items-center gap-2 rounded-control border border-dashed border-border-strong bg-surface-panel-subtle px-4 text-body-sm font-semibold text-text-primary transition-colors hover:border-action-primary focus-within:outline-2 focus-within:outline-focus-ring"
+          >
+            <Icon name="upload" size={18} />
+            {c.choose}
+            <input id={fileInputId} type="file" accept=".csv,text/csv" onChange={(e) => void handleFile(e)} className="sr-only" />
+          </label>
+          {fileName && (
+            <span className="min-w-0 truncate text-body-sm text-text-secondary">
+              <bdi dir="ltr">{fileName}</bdi>
+            </span>
           )}
         </div>
-      )}
 
-      <div className="space-y-1.5">
-        <label htmlFor={replaceId} className="flex min-h-[40px] cursor-pointer items-start gap-3 text-sm text-text-primary">
+        {readError && <FormAlert>{readError}</FormAlert>}
+        {parsed && parsed.ok === false && <FormAlert>{fileErrorText(parsed)}</FormAlert>}
+
+        {parsed?.ok && (
+          <div className="space-y-4">
+            <p role="status" className="flex flex-wrap items-center gap-2 text-body-sm text-text-secondary">
+              <Badge variant={invalidRows.length ? "danger" : "success"} size="md">
+                {invalidRows.length ? c.rowsInvalid(fmt(invalidRows.length), fmt(rows.length)) : c.rowsReady(fmt(rows.length))}
+              </Badge>
+              {parsed.ignoredColumns.length > 0 && (
+                <span>
+                  {c.ignoredColumns}
+                  <bdi>{parsed.ignoredColumns.join(c.listSeparator)}</bdi>
+                </span>
+              )}
+            </p>
+
+            <div className="max-h-[26rem] overflow-auto rounded-control border border-border-default">
+              <table className="w-full min-w-[40rem] border-collapse text-body-sm">
+                <caption className="sr-only">{c.caption}</caption>
+                <thead className="sticky top-0 bg-surface-panel-subtle text-meta text-text-muted">
+                  <tr>
+                    <th scope="col" className="px-3 py-2 text-start font-semibold">#</th>
+                    <th scope="col" className="px-3 py-2 text-start font-semibold">{c.fields.title}</th>
+                    <th scope="col" className="px-3 py-2 text-start font-semibold">{c.fields.track}</th>
+                    <th scope="col" className="px-3 py-2 text-start font-semibold">{c.fields.hall}</th>
+                    <th scope="col" className="px-3 py-2 text-start font-semibold">{c.colTime}</th>
+                    <th scope="col" className="px-3 py-2 text-start font-semibold">{c.colStatus}</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border-subtle">
+                  {rows.map((r) => (
+                    <tr key={r.row} className={r.problems.length ? "bg-status-danger-bg/60" : undefined}>
+                      <td className={`px-3 py-2 align-top ${codeFontClass(fmt(r.row))} text-meta text-text-muted tabular`}>
+                        <span title={c.lineOfFile(fmt(r.line))}>{fmt(r.row)}</span>
+                      </td>
+                      <td className="max-w-[16rem] px-3 py-2 align-top font-semibold text-text-primary">
+                        <bdi className="line-clamp-2 break-words">{r.values.title || "—"}</bdi>
+                      </td>
+                      <td className="px-3 py-2 align-top text-text-secondary">
+                        <bdi>{r.values.track || "—"}</bdi>
+                      </td>
+                      <td className="px-3 py-2 align-top text-text-secondary">
+                        <bdi>{r.values.hall || "—"}</bdi>
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-2 align-top text-text-secondary">
+                        {r.session ? (
+                          <bdi className="tabular">{timeText(r.session.starts_at, r.session.ends_at)}</bdi>
+                        ) : (
+                          <bdi dir="ltr" className="font-mono text-meta">
+                            {r.values.starts_at || "?"} → {r.values.ends_at || "?"}
+                          </bdi>
+                        )}
+                      </td>
+                      <td className="px-3 py-2 align-top">
+                        {r.problems.length === 0 ? (
+                          <Badge variant="success" size="sm">
+                            {c.rowOk}
+                          </Badge>
+                        ) : (
+                          <ul className="space-y-0.5 text-meta text-status-danger-text">
+                            {r.problems.map((p) => (
+                              <li key={`${p.code}-${"field" in p ? p.field : ""}`}>
+                                {c.rowProblem(fmt(r.row), fmt(r.line))}
+                                {problemText(p)}
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {newHalls.length > 0 && invalidRows.length === 0 && (
+              <p className="flex items-start gap-2 text-body-sm text-text-secondary">
+                <Icon name="info" size={16} className="mt-0.5 shrink-0 text-status-info-text" />
+                <span>
+                  {c.newHalls}
+                  <bdi>{newHalls.join(c.listSeparator)}</bdi>
+                </span>
+              </p>
+            )}
+          </div>
+        )}
+
+        <label htmlFor={replaceId} className="flex min-h-11 cursor-pointer items-start gap-3 text-body-sm text-text-primary">
           <input
             id={replaceId}
             type="checkbox"
             checked={replace}
             onChange={(e) => setReplace(e.target.checked)}
-            className="mt-0.5 size-4 shrink-0 accent-aiteb-indigo"
+            className="mt-1 size-4 shrink-0 accent-aiteb-indigo"
           />
           <span>
-            <span className="font-semibold">{isRtl ? "جایگزینی برنامهٔ فعلی" : "Replace the existing program"}</span>
-            <span className="block text-xs leading-relaxed text-text-muted">
-              {replace
-                ? isRtl
-                  ? `${fmt(existingCount)} جلسهٔ فعلی حذف و جلسه‌های این فایل جایگزین آن‌ها می‌شوند.`
-                  : `The ${existingCount} existing sessions are deleted and replaced by this file's sessions.`
-                : isRtl
-                  ? "بدون این گزینه، جلسه‌های فایل به برنامهٔ فعلی اضافه می‌شوند."
-                  : "Without this option, the file's sessions are added to the current program."}
-            </span>
+            <span className="font-semibold">{c.replace}</span>
+            <span className="block text-meta leading-relaxed text-text-muted">{replace ? c.replaceOn(fmt(existingCount)) : c.replaceOff}</span>
           </span>
         </label>
-      </div>
 
-      {submitError && <FormAlert>{submitError}</FormAlert>}
-
-      <div className="flex flex-col-reverse gap-2 border-t border-border-subtle pt-5 sm:flex-row sm:justify-end">
-        <Button type="button" variant="ghost" size="md" disabled={submitting} onClick={onCancel}>
-          {isRtl ? "انصراف" : "Cancel"}
-        </Button>
-        <Button type="button" variant={replace && existingCount > 0 ? "danger" : "primary"} size="md" disabled={!canImport} onClick={() => void submit()}>
-          <Icon name="upload" size={18} />
-          {submitting
-            ? isRtl
-              ? "در حال ورود…"
-              : "Importing…"
-            : replace
-              ? isRtl
-                ? `جایگزینی با ${fmt(rows.length)} جلسه`
-                : `Replace with ${sessionsEn(rows.length)}`
-              : isRtl
-                ? `افزودن ${fmt(rows.length)} جلسه`
-                : `Import ${sessionsEn(rows.length)}`}
-        </Button>
+        {submitError && <FormAlert>{submitError}</FormAlert>}
+        <p className="text-meta text-text-muted">
+          {c.allOrNothing} {c.tooManyRows(fmt(MAX_SESSION_IMPORT_ROWS))}
+        </p>
       </div>
-      <p className="text-xs text-text-muted">
-        {isRtl
-          ? `ورود همه یا هیچ است: اگر حتی یک سطر رد شود، هیچ جلسه‌ای ذخیره نمی‌شود. حداکثر ${fmt(MAX_SESSION_IMPORT_ROWS)} جلسه در هر بارگذاری.`
-          : `Importing is all-or-nothing: if any row is rejected, nothing is saved. Up to ${MAX_SESSION_IMPORT_ROWS} sessions per upload.`}
-      </p>
-    </section>
+    </Dialog>
   );
 }

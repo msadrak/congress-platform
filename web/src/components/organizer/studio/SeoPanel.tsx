@@ -43,7 +43,6 @@ export function SeoPanel({ doc, onChange, eventName, slug }: { doc: PageDoc; onC
           </div>
         </div>
       </div>
-      <p className="text-xs leading-relaxed text-text-muted">{s.limitation}</p>
     </div>
   );
 }

@@ -1,87 +1,71 @@
-import type { CSSProperties } from "react";
+import { useState } from "react";
+import QRCode from "react-qr-code";
 import type { DeskRegistrationOut } from "../../api/client";
-import { formatMobile } from "../../lib/mobile";
-import { codeFontClass, type AttendeeLocale, type TranslationDictionary } from "../../lib/i18n";
+import { deskCopy } from "../../copy/desk";
+import { formatMobile } from "../../lib/format";
+import type { AttendeeLocale } from "../../lib/i18n";
+import { Badge } from "../ui/Badge";
 import { Button } from "../ui/Button";
 import { Dialog } from "../ui/Dialog";
-import { Icon } from "../ui/Icon";
+import { Notice } from "../ui/Notice";
 import { PrintableBadge } from "./PrintableBadge";
-import { ReceptionPass } from "./ReceptionPass";
-import { ResendPassSms, type ResendOutcome } from "./ResendPassSms";
 
 interface MintedDialogProps {
   /** The backend-confirmed issuance; null keeps the dialog closed. */
   minted: DeskRegistrationOut | null;
-  accentStyle: CSSProperties;
   eventName: string | undefined;
   onPrint: () => void;
   onNext: () => void;
-  onResend: (ticketId: string) => Promise<ResendOutcome>;
   locale: AttendeeLocale;
-  t: TranslationDictionary;
-  isRtl: boolean;
 }
 
-/** Shown only after the API confirmed a walk-in issuance: the new pass, ready to print. */
-export function MintedDialog({ minted, accentStyle, eventName, onPrint, onNext, onResend, locale, t, isRtl }: MintedDialogProps) {
+/** Shown only after the API confirmed a desk registration: who, which pass type, and Print as the one primary action. */
+export function MintedDialog({ minted, eventName, onPrint, onNext, locale }: MintedDialogProps) {
+  const c = deskCopy[locale];
+  const [showQr, setShowQr] = useState(false);
+  const close = () => {
+    setShowQr(false);
+    onNext();
+  };
   return (
-    <Dialog isOpen={Boolean(minted)} onClose={onNext} title={t.ticketIssuedSuccess.replace(/^✓\s*/, "")} description={isRtl ? "کارت ورود با موفقیت صادر شد. می‌توانید کارت را چاپ کرده یا به شرکت‌کننده تحویل دهید." : "Pass minted successfully."} size="sm">
+    <Dialog
+      isOpen={Boolean(minted)}
+      onClose={close}
+      title={c.issuedTitle}
+      size="sm"
+      footer={
+        <>
+          <Button type="button" variant="secondary" size="lg" iconEnd="arrow-right" onClick={close}>
+            {c.next}
+          </Button>
+          <Button type="button" variant="primary" size="lg" icon="print" onClick={onPrint}>
+            {c.print}
+          </Button>
+        </>
+      }
+    >
       {minted && (
-        <div className="space-y-4" style={accentStyle}>
-          <p className="flex items-center gap-2.5 text-sm font-semibold text-status-success-text">
-            <span aria-hidden="true" className="grid size-7 place-items-center rounded-full bg-status-success-text text-white">
-              <Icon name="check" size={15} strokeWidth={2.5} />
-            </span>
-            <span>{isRtl ? "صادر شد و آماده چاپ است" : "Issued and ready to print"}</span>
-          </p>
-          <div className="rounded-2xl bg-surface-panel-subtle p-4">
-            <ReceptionPass
-              pass={{ qr: minted.qr_secret, name: minted.attendee_name, tier: minted.ticket_tier_name, org: minted.organization, ticketId: minted.ticket_id }}
-              isRtl={isRtl}
-              eventName={eventName}
-              printable={false}
-            />
-            <PrintableBadge
-              badge={{ qr: minted.qr_secret, name: minted.attendee_name, title: minted.title, organization: minted.organization, tier: minted.ticket_tier_name }}
-              eventName={eventName}
-              printable
-              isRtl={isRtl}
-            />
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <p className="text-title-sm font-bold break-words">{minted.attendee_name}</p>
+            <Badge variant="accent">{minted.ticket_tier_name}</Badge>
           </div>
-          {minted.reactivated && (
-            <p role="status" className="flex items-start gap-2 rounded-lg bg-status-info-bg px-3 py-2 text-xs leading-relaxed text-status-info-text print:hidden">
-              <Icon name="info" size={15} className="mt-px shrink-0" />
-              <span>{isRtl ? "این شماره پیش‌تر ثبت‌نامی داشت که لغو شده بود؛ همان ثبت‌نام با کارت ورود تازه دوباره فعال شد." : "This number had a cancelled registration; it was reactivated with a new pass."}</span>
-            </p>
+          {minted.reactivated && <Notice tone="info">{c.reactivated}</Notice>}
+          {minted.attendee_mobile && <p className="text-body-sm text-text-secondary print:hidden">{c.smsWillSend(formatMobile(minted.attendee_mobile, locale))}</p>}
+          <Button type="button" variant="ghost" size="sm" icon="qr" onClick={() => setShowQr((shown) => !shown)} aria-expanded={showQr}>
+            {showQr ? c.hideQr : c.showQr}
+          </Button>
+          {showQr && (
+            <div className="mx-auto w-fit rounded-card bg-white p-3 ring-1 ring-border-default">
+              <QRCode value={minted.qr_secret} size={176} level="M" viewBox="0 0 256 256" fgColor="#000000" bgColor="#FFFFFF" className="size-44" />
+            </div>
           )}
-          {minted.attendee_mobile && (
-            <p className="flex items-start gap-2 text-xs leading-relaxed text-text-secondary print:hidden">
-              <Icon name="mail" size={15} className="mt-px shrink-0" />
-              <span>
-                {isRtl ? "لینک کارت به این شماره پیامک می‌شود: " : "The pass link is being sent by SMS to "}
-                <bdi dir="ltr" className={codeFontClass(formatMobile(minted.attendee_mobile, locale))}>{formatMobile(minted.attendee_mobile, locale)}</bdi>
-              </span>
-            </p>
-          )}
-          <div className="grid gap-2.5 print:hidden">
-            <Button type="button" variant="secondary" size="lg" isFullWidth onClick={onPrint}>
-              <Icon name="print" size={18} />
-              <span>{t.printPassAction}</span>
-            </Button>
-            {minted.attendee_mobile && (
-              <ResendPassSms
-                key={minted.ticket_id}
-                mobile={minted.attendee_mobile}
-                locale={locale}
-                isRtl={isRtl}
-                onResend={() => onResend(minted.ticket_id)}
-              />
-            )}
-            <Button type="button" variant="primary" size="lg" isFullWidth onClick={onNext} className="whitespace-normal">
-              <span>{t.nextAttendeeAction}</span>
-              <Icon name="arrow-right" size={18} />
-            </Button>
-          </div>
+          <PrintableBadge
+            badge={{ qr: minted.qr_secret, name: minted.attendee_name, title: minted.title, organization: minted.organization, tier: minted.ticket_tier_name }}
+            eventName={eventName}
+            printable
+            locale={locale}
+          />
         </div>
       )}
     </Dialog>

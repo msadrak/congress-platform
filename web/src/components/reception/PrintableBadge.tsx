@@ -1,5 +1,8 @@
 import QRCode from "react-qr-code";
 import { badgeAffiliation } from "../../lib/deskBadge";
+import type { AttendeeLocale } from "../../lib/i18n";
+
+const DIRECTION = { fa: "rtl", en: "ltr" } as const;
 
 export interface BadgeData {
   qr: string;
@@ -15,7 +18,7 @@ interface PrintableBadgeProps {
   eventName?: string;
   /** Only one badge is printable at a time, so a print never stacks two badges. */
   printable: boolean;
-  isRtl: boolean;
+  locale: AttendeeLocale;
 }
 
 /**
@@ -23,13 +26,13 @@ interface PrintableBadgeProps {
  * code the gates scan. Not shown on screen; it is the only thing `window.print()` outputs, laid out for an A6
  * card or an 80 mm thermal roll (black on white, no backgrounds; styles/reception.css `.rx-badge`).
  */
-export function PrintableBadge({ badge, eventName, printable, isRtl }: PrintableBadgeProps) {
+export function PrintableBadge({ badge, eventName, printable, locale }: PrintableBadgeProps) {
   const affiliation = badgeAffiliation(badge.title, badge.organization);
   return (
     <article
       data-testid="badge-print"
       aria-hidden="true"
-      dir={isRtl ? "rtl" : "ltr"}
+      dir={DIRECTION[locale]}
       className={`rx-badge${printable ? " print-pass" : ""}`}
     >
       {eventName && <p className="rx-badge-event">{eventName}</p>}

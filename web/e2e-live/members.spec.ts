@@ -12,14 +12,14 @@ test('member roles: owner invites a viewer, who signs in by SMS code, cannot edi
   await test.step('owner (API key) invites a viewer', async () => {
     await organizerSignIn(page, organizer.api_key);
     await page.getByRole('link', { name: 'اعضا' }).click();
-    await page.getByRole('button', { name: 'افزودن عضو' }).first().click();
-    const dialog = page.getByRole('dialog', { name: 'افزودن عضو' });
-    await dialog.getByLabel('نام').fill(viewerName);
-    await dialog.getByLabel('شماره موبایل').fill(viewerMobile);
+    await page.getByRole('button', { name: 'عضو جدید' }).first().click();
+    const dialog = page.getByRole('dialog', { name: 'عضو جدید' });
+    await dialog.getByRole('textbox', { name: 'نام', exact: true }).fill(viewerName);
+    await dialog.getByRole('textbox', { name: 'شماره موبایل' }).fill(viewerMobile);
     await dialog.getByRole('radio', { name: /^ناظر/ }).check();
-    await dialog.getByRole('button', { name: 'افزودن و ارسال پیامک' }).click();
+    await dialog.getByRole('button', { name: 'افزودن', exact: true }).click();
     await expect(page.getByRole('status').filter({ hasText: viewerName })).toBeVisible();
-    await expect(page.getByRole('combobox', { name: `نقش ${viewerName}` })).toHaveValue('viewer');
+    await expect(page.getByTestId('members-table').getByRole('row').filter({ hasText: viewerName })).toContainText('ناظر');
   });
   const invite = await waitForSms(viewerMobile, 'member_invite');
   expect(invite.text).toContain('«ناظر»');
@@ -30,14 +30,14 @@ test('member roles: owner invites a viewer, who signs in by SMS code, cannot edi
   await test.step('viewer signs in to the console by SMS code', async () => {
     await viewer.goto('/organizer');
     await signInWithCode(viewer, viewerMobile);
-    await expect(viewer.getByRole('heading', { name: 'مدیریت همایش‌ها و کنگره‌ها' })).toBeVisible();
+    await expect(viewer.getByRole('heading', { name: 'همایش‌ها', level: 1 })).toBeVisible();
     await expect(viewer.getByText(`${viewerName}`)).toBeVisible();
     await expect(viewer.getByRole('article', { name: event.name })).toBeVisible();
   });
 
   await test.step('viewer is not offered event creation, and the server refuses it for their role', async () => {
     // The console hides what a viewer can never do (components/organizer/roleAccess.ts); the server still decides.
-    await expect(viewer.getByRole('button', { name: 'ایجاد همایش جدید' })).toHaveCount(0);
+    await expect(viewer.getByRole('button', { name: 'همایش جدید' })).toHaveCount(0);
     const token = await viewer.evaluate(() => sessionStorage.getItem('congress_organizer_api_key'));
     expect(token).toBeTruthy();
     const refused = await call<{ code?: string }>('POST', '/api/events', {

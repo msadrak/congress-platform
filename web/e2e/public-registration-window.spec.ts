@@ -49,6 +49,11 @@ async function fixture(page: Page, event: Record<string, unknown>, options: { si
 }
 
 const chip = (page: Page) => page.getByTestId('registration-status');
+/** The hero offers no way to the passes while nothing can be reserved there. */
+const noHeroAction = async (page: Page) => {
+  await expect(page.locator('section[aria-labelledby="congress-title"] a[href="#passes"]')).toHaveCount(0);
+  await expect(page.getByTestId('hero-cta')).toHaveCount(0);
+};
 const reserveButton = (page: Page) => page.locator('#passes').getByRole('button').last();
 
 test.describe('registration window', () => {
@@ -66,6 +71,7 @@ test.describe('registration window', () => {
     await expect(card.getByRole('radio')).toBeDisabled();
     await expect(reserveButton(page)).toBeDisabled();
     await expect(reserveButton(page)).toContainText('Opens');
+    await noHeroAction(page);
     await reserveButton(page).click({ force: true });
     await expect(page.getByRole('dialog')).toHaveCount(0);
     expect(requests.filter((r) => r.includes('/reserve') || r.includes('/auth/'))).toEqual([]);
@@ -79,15 +85,27 @@ test.describe('registration window', () => {
     await expect(chip(page)).toHaveAttribute('data-status', 'open');
     await expect(reserveButton(page)).toBeEnabled();
     await reserveButton(page).click();
-    await expect(page.getByRole('dialog', { name: 'Confirm your mobile number' })).toBeVisible();
+    await expect(page.getByRole('dialog', { name: 'Get your General pass' })).toBeVisible();
   });
 
   test('closed by the organizer, closed by its window, or ended: every pass is closed and the dock is disabled', async ({ page }) => {
     await fixture(page, { registration_enabled: false, registration_open: false });
     await page.goto(`/e/${slug}`);
     await expect(chip(page)).toHaveAttribute('data-status', 'closed');
-    await expect(chip(page)).toHaveText('Registration Closed');
+    await expect(chip(page)).toHaveText('Registration closed');
     await expect(page.locator('#passes')).toContainText('Registration for this congress is closed.');
+    await expect(reserveButton(page)).toBeDisabled();
+    await noHeroAction(page);
+  });
+
+  test('every pass type full: the chip says so, the stub carries only its label, and the hero has no button', async ({ page }) => {
+    await fixture(page, { ticket_tiers: [tier('tier-a', 'General', { reserved_count: 100 })] });
+    await page.goto(`/e/${slug}`);
+    await expect(chip(page)).toHaveAttribute('data-status', 'full');
+    const card = page.locator('[data-availability]').first();
+    await expect(card).toHaveAttribute('data-availability', 'full');
+    await expect(card.getByText('Full')).toHaveCount(1);
+    await noHeroAction(page);
     await expect(reserveButton(page)).toBeDisabled();
   });
 
@@ -112,7 +130,7 @@ test.describe('registration window', () => {
     await expect(chip(page)).toHaveAttribute('data-status', 'open');
     const cards = page.locator('[data-availability]');
     await expect(cards.nth(0)).toHaveAttribute('data-availability', 'closed');
-    await expect(cards.nth(0)).toContainText('Sales Ended');
+    await expect(cards.nth(0)).toContainText('Ended');
     await expect(cards.nth(1)).toHaveAttribute('data-availability', 'opens');
     await expect(cards.nth(1)).toContainText('Not open yet');
     await expect(cards.nth(2).getByRole('radio')).toBeChecked();
@@ -141,7 +159,6 @@ test.describe('congress time zone', () => {
     await page.goto(`/e/${slug}`);
     const hero = page.locator('section[aria-labelledby="congress-title"]');
     await expect(hero).toContainText(/11\s*–\s*12 May 2027/);
-    await expect(hero).toContainText('Starts Tue 11 May, 00:30');
     await expect(page.getByTestId('venue-zone-note')).toContainText('Times are congress time (GMT+3:30)');
     const program = page.locator('#program');
     await expect(program.getByText('00:30', { exact: true })).toBeVisible();
@@ -156,7 +173,7 @@ test.describe('congress time zone, visitor at the venue', () => {
   test('no zone note when the device is in the congress zone', async ({ page }) => {
     await fixture(page, {});
     await page.goto(`/e/${slug}`);
-    await expect(page.locator('section[aria-labelledby="congress-title"]')).toContainText('Starts Tue 11 May, 00:30');
+    await expect(page.locator('section[aria-labelledby="congress-title"]')).toContainText(/11\s*–\s*12 May 2027/);
     await expect(page.getByTestId('venue-zone-note')).toHaveCount(0);
     await expect(page.getByTestId('program-zone-note')).toHaveCount(0);
   });

@@ -1,14 +1,19 @@
-import type { TranslationDictionary } from "../../lib/i18n";
+import { organizerSetupCopy } from "../../copy/organizerSetup";
 import type { IconName } from "../ui/Icon";
 
 export type PolicyType = "MULTI_ENTRY" | "SINGLE_USE" | "TIER_RESTRICTED" | "CAPACITY_CAPPED";
 
-/** Label, explanation and icon of each check-in point admission policy. */
-export function checkInPolicyMeta(t: TranslationDictionary): Record<string, { label: string; desc: string; icon: IconName }> {
-  return {
-    SINGLE_USE: { label: t.policySingleUse, desc: t.policySingleUseDesc, icon: "ticket" },
-    MULTI_ENTRY: { label: t.policyMultiEntry, desc: t.policyMultiEntryDesc, icon: "sync" },
-    TIER_RESTRICTED: { label: t.policyTierRestricted, desc: t.policyTierRestrictedDesc, icon: "lock" },
-    CAPACITY_CAPPED: { label: t.policyCapacityCapped, desc: t.policyCapacityCappedDesc, icon: "users" },
-  };
+const ICONS: Record<PolicyType, IconName> = {
+  SINGLE_USE: "ticket",
+  MULTI_ENTRY: "sync",
+  TIER_RESTRICTED: "lock",
+  CAPACITY_CAPPED: "users",
+};
+
+/** Label, one-line hint and icon of each entry rule («قانون ورود»); an unknown rule keeps its name. */
+export function checkInPolicyMeta(policy: string, locale: "fa" | "en"): { label: string; desc: string; icon: IconName } {
+  const copy = organizerSetupCopy[locale].policy;
+  if (!Object.hasOwn(copy, policy)) return { label: policy, desc: "", icon: "gate" };
+  const key = policy as PolicyType;
+  return { ...copy[key], icon: ICONS[key] };
 }

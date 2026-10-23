@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { organizerCopy } from "../../copy/organizer";
 import { ConfirmDialog } from "../ui/ConfirmDialog";
 
 /**
@@ -6,6 +7,7 @@ import { ConfirmDialog } from "../ui/ConfirmDialog";
  * Render `discardDialog` after the form's own dialog so it stacks above it (and answers Escape first).
  */
 export function useGuardedClose(dirty: boolean, close: () => void, isRtl: boolean) {
+  const copy = (isRtl ? organizerCopy.fa : organizerCopy.en).form;
   const [asking, setAsking] = useState(false);
   const requestClose = () => {
     if (dirty) setAsking(true);
@@ -15,14 +17,10 @@ export function useGuardedClose(dirty: boolean, close: () => void, isRtl: boolea
     <ConfirmDialog
       isOpen={asking}
       tone="danger"
-      title={isRtl ? "تغییرات ذخیره نشده کنار گذاشته شود؟" : "Discard unsaved changes?"}
-      description={
-        isRtl
-          ? "تغییراتی که در این فرم داده‌اید هنوز ذخیره نشده‌اند و با بستن آن از بین می‌روند."
-          : "The changes you made in this form have not been saved and will be lost if you close it."
-      }
-      confirmLabel={isRtl ? "کنار گذاشتن تغییرات" : "Discard changes"}
-      cancelLabel={isRtl ? "ادامهٔ ویرایش" : "Keep editing"}
+      title={copy.discardTitle}
+      description={copy.discardBody}
+      confirmLabel={copy.discard}
+      cancelLabel={copy.keepEditing}
       onCancel={() => setAsking(false)}
       onConfirm={() => {
         setAsking(false);

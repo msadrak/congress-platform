@@ -167,7 +167,8 @@ async function fixture(page: Page, options: Options = {}) {
 }
 
 async function seed(page: Page, options: { desk?: boolean; locale?: string } = {}) {
-  await page.goto('/');
+  // A same-origin static file, not the app: the home page would load its public congress list (an API request) mid-seed.
+  await page.goto('/favicon.png');
   await page.evaluate(({ desk, locale }) => {
     sessionStorage.setItem('congress_organizer_api_key', 'synthetic-ms03-organizer');
     if (desk) sessionStorage.setItem('congress_desk_token_event-a', 'synthetic-ms03-desk-event-a');
@@ -175,16 +176,24 @@ async function seed(page: Page, options: { desk?: boolean; locale?: string } = {
   }, { desk: options.desk ?? false, locale: options.locale ?? 'en' });
 }
 
-const workspaceNav = (page: Page) => page.getByRole('navigation', { name: 'Event workspace' });
+const workspaceNav = (page: Page) => page.getByRole('navigation', { name: 'Congress sections' });
+const NAV = [/Overview/, /Participants/, /Check-in points/, /Reception desk/, /Statistics/, /Program/, /Pass types/, /Booths/, /Public page/, /SMS/];
+
+/** Reads or fills a DateTimeField (day, month, year, time) as a `datetime-local` value, in English. */
+async function dateTimeValue(group: ReturnType<Page['getByRole']>): Promise<string> {
+  const pad = (v: string) => v.padStart(2, '0');
+  const [day, month, year, time] = await Promise.all([group.getByLabel('Day').inputValue(), group.getByLabel('Month').inputValue(), group.getByLabel('Year').inputValue(), group.getByLabel('Time').inputValue()]);
+  return `${year}-${pad(month)}-${pad(day)}T${time}`;
+}
 const overflow = (page: Page) => page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
 
 test('events overview lists authorized events with a status derived from their own dates', async ({ page }) => {
   const requests = await fixture(page);
   await seed(page);
   await page.goto('/organizer');
-  await expect(page.getByRole('link', { name: 'Alpha Congress' })).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Beta Summit' })).toBeVisible();
-  await expect(page).toHaveTitle('Events List · Organizer Console');
+  await expect(page.getByRole('link', { name: 'Alpha Congress', exact: true })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Beta Summit', exact: true })).toBeVisible();
+  await expect(page).toHaveTitle('Congresses · Organizer console');
   await expect(page.getByRole('article').filter({ hasText: 'Alpha Congress' }).getByText('Upcoming')).toBeVisible();
   await expect(page.getByRole('article').filter({ hasText: 'Beta Summit' }).getByText('Ended')).toBeVisible();
   expect(requests.every(r => r.auth === bearer)).toBe(true);
@@ -195,16 +204,20 @@ test('one workspace navigation addresses every section of the selected event by 
   await seed(page);
   await page.goto('/organizer/events/event-a');
   await expect(page.getByTestId('active-event')).toHaveText('Alpha Congress');
-  await expect(workspaceNav(page).getByRole('link')).toHaveText([/Overview/, /Program/, /Venue/, /Ticket Tiers/, /Check-In Gates/, /Exhibition Booths/, /Desk Staff/, /Public page/, /Attendee panel/, /SMS/, /Participants/, /Analytics/, /Front Desk/]);
+  // Overview, then the congress-day group, then setup: no numbers anywhere in the navigation.
+  await expect(workspaceNav(page).getByRole('link')).toHaveText(NAV);
+  await expect(workspaceNav(page).getByRole('group', { name: 'Congress day' })).toBeVisible();
+  await expect(workspaceNav(page).getByRole('group', { name: 'Setup' })).toBeVisible();
+  const numbered = await workspaceNav(page).evaluate((nav) => Array.from(nav.querySelectorAll('*')).filter((el) => /^\d{2}$/.test((el.textContent ?? '').trim())).length);
+  expect(numbered).toBe(0);
   await expect(workspaceNav(page).getByRole('link', { name: /Overview/ })).toHaveAttribute('aria-current', 'page');
 
   const eventReads = () => requests.filter(r => r.method === 'GET' && r.path === '/api/events/event-a').length;
   const before = eventReads();
   const sections: [RegExp, RegExp, string][] = [
-    [/Ticket Tiers/, /\/tiers$/, 'Alpha Delegate'],
-    [/Check-In Gates/, /\/check-in$/, 'Check-in'],
-    [/Exhibition Booths/, /\/booths$/, 'booth'],
-    [/Desk Staff/, /\/operators$/, 'Operator One'],
+    [/Pass types/, /\/tiers$/, 'Alpha Delegate'],
+    [/Check-in points/, /\/check-in$/, 'Check-in'],
+    [/Booths/, /\/booths$/, 'booth'],
   ];
   for (const [label, url, text] of sections) {
     await workspaceNav(page).getByRole('link', { name: label }).click();
@@ -216,9 +229,13 @@ test('one workspace navigation addresses every section of the selected event by 
   expect(eventReads()).toBe(before);
 
   await page.goto('/organizer/events/event-a/booths');
-  await expect(workspaceNav(page).getByRole('link', { name: /Exhibition Booths/ })).toHaveAttribute('aria-current', 'page');
-  await expect(page).toHaveTitle('Exhibition Booths · Alpha Congress');
-  await workspaceNav(page).getByRole('link', { name: /Analytics/ }).click();
+  await expect(workspaceNav(page).getByRole('link', { name: /Booths/ })).toHaveAttribute('aria-current', 'page');
+  await expect(page).toHaveTitle('Booths · Alpha Congress');
+  // Desk operators have no item of their own: the reception desk item stands for them.
+  await page.goto('/organizer/events/event-a/operators');
+  await expect(page.getByText('Operator One')).toBeVisible();
+  await expect(workspaceNav(page).getByRole('link', { name: /Reception desk/ })).toHaveAttribute('aria-current', 'page');
+  await workspaceNav(page).getByRole('link', { name: /Statistics/ }).click();
   await expect(page).toHaveURL(/\/analytics$/);
   await expect(page.getByTestId('active-event')).toHaveText('Alpha Congress');
   expect(requests.every(r => r.auth === bearer)).toBe(true);
@@ -228,32 +245,33 @@ test('overview shows real capacity from the tiers and no invented figures', asyn
   await fixture(page);
   await seed(page);
   await page.goto('/organizer/events/event-a');
-  await expect(page.getByText('60 / 120', { exact: false }).first()).toBeVisible();
+  await expect(page.getByText('60 of 120 reserved')).toBeVisible();
   const row = page.getByRole('listitem').filter({ hasText: 'Alpha Student' });
   await expect(row.getByText('Closed')).toBeVisible();
   await expect(row.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '100');
   await expect(page.getByText(/revenue|\$/i)).toHaveCount(0);
 });
 
-test('an event without tiers says so and points to ticket tiers', async ({ page }) => {
+test('an event without pass types says so', async ({ page }) => {
   await fixture(page, { tiersA: [] });
   await seed(page);
   await page.goto('/organizer/events/event-a');
-  await expect(page.getByText(/No ticket tier is defined yet/)).toBeVisible();
+  await expect(page.getByText('No pass types yet; registration needs one.')).toBeVisible();
+  await expect(page.getByTestId('setup-checklist').getByRole('listitem').filter({ hasText: 'Pass types' }).getByRole('link', { name: 'Add' })).toBeVisible();
 });
 
 test('switching events through the list never shows the previous event data', async ({ page }) => {
   await fixture(page, { slowTiersOf: 'event-a' });
   await seed(page);
   await page.goto('/organizer/events/event-a/tiers');
-  await page.getByRole('link', { name: /Events List/ }).click();
-  await page.getByRole('link', { name: 'Beta Summit' }).first().click();
+  await page.getByRole('link', { name: 'Congresses' }).first().click();
+  await page.getByRole('link', { name: 'Beta Summit', exact: true }).click();
   await expect(page.getByTestId('active-event')).toHaveText('Beta Summit');
   await page.waitForTimeout(1800);
   await expect(page.getByTestId('active-event')).toHaveText('Beta Summit');
   await expect(page.getByText('Alpha Delegate')).toHaveCount(0);
   await expect(page.getByText('Alpha Congress')).toHaveCount(0);
-  await workspaceNav(page).getByRole('link', { name: /Ticket Tiers/ }).click();
+  await workspaceNav(page).getByRole('link', { name: /Pass types/ }).click();
   await expect(page.getByText('Beta Delegate').first()).toBeVisible();
 });
 
@@ -261,11 +279,13 @@ test('editing an event setting persists, announces success and updates the works
   const requests = await fixture(page);
   await seed(page);
   await page.goto('/organizer/events/event-a');
-  await page.getByRole('button', { name: /Edit Event/ }).click();
+  // The settings card holds the overview's one edit control.
+  await expect(page.getByRole('button', { name: /^Edit/ })).toHaveCount(1);
+  await page.getByTestId('event-settings').getByRole('button', { name: 'Edit' }).click();
   const dialog = page.getByRole('dialog');
   await dialog.getByRole('textbox').first().fill('Alpha Congress Renamed');
   await dialog.getByRole('button', { name: /Save/ }).click();
-  await expect(page.getByRole('status').filter({ hasText: 'Event settings saved' })).toBeVisible();
+  await expect(page.getByRole('status').filter({ hasText: 'Congress settings saved' })).toBeVisible();
   await expect(page.getByTestId('active-event')).toHaveText('Alpha Congress Renamed');
   const patch = requests.find(r => r.method === 'PATCH' && r.path === '/api/events/event-a');
   expect(patch?.auth).toBe(bearer);
@@ -279,22 +299,24 @@ test.describe('in a non-UTC time zone', () => {
     const requests = await fixture(page);
     await seed(page);
     await page.goto('/organizer/events/event-a');
-    await page.getByRole('button', { name: /Edit Event/ }).click();
+    await page.getByTestId('event-settings').getByRole('button', { name: 'Edit' }).click();
     const dialog = page.getByRole('dialog');
     // 07:00Z is 10:30 in Tehran (UTC+03:30).
-    await expect(dialog.getByLabel(/Start Date & Time/)).toHaveValue('2099-05-10T10:30');
-    await expect(dialog.getByLabel(/End Date & Time/)).toHaveValue('2099-05-12T18:30');
+    expect(await dateTimeValue(dialog.getByRole('group', { name: 'Starts' }))).toBe('2099-05-10T10:30');
+    expect(await dateTimeValue(dialog.getByRole('group', { name: 'Ends' }))).toBe('2099-05-12T18:30');
 
-    const name = dialog.getByRole('textbox').first();
+    const name = dialog.getByRole('textbox', { name: 'Congress name' });
     await name.fill('');
     await dialog.getByRole('button', { name: /Save/ }).click();
-    await expect(dialog.getByRole('alert')).toHaveText('Enter the event name.');
+    // The error sits under the field, is linked to it, and the field gets focus.
     await expect(name).toHaveAttribute('aria-invalid', 'true');
+    await expect(name).toBeFocused();
+    await expect(page.locator(`#${await name.getAttribute('aria-describedby')}`)).toHaveText('Enter the congress name.');
     expect(requests.some(r => r.method === 'PATCH')).toBe(false);
 
     await name.fill('Alpha Congress');
     await dialog.getByRole('button', { name: /Save/ }).click();
-    await expect(page.getByRole('status').filter({ hasText: 'Event settings saved' })).toBeVisible();
+    await expect(page.getByRole('status').filter({ hasText: 'Congress settings saved' })).toBeVisible();
     const patch = requests.find(r => r.method === 'PATCH' && r.path === '/api/events/event-a');
     expect(patch?.body).toMatchObject({ starts_at: '2099-05-10T07:00:00.000Z', ends_at: '2099-05-12T15:00:00.000Z' });
   });
@@ -304,18 +326,18 @@ test('closing a ticket tier needs confirmation; cancelling sends nothing', async
   const requests = await fixture(page);
   await seed(page);
   await page.goto('/organizer/events/event-a/tiers');
-  await page.getByRole('button', { name: /Edit Tier/ }).first().click();
-  const edit = page.getByRole('dialog').filter({ has: page.getByRole('combobox') });
-  await edit.getByRole('combobox').selectOption('closed');
-  await edit.getByRole('button', { name: 'Save Changes' }).click();
-  const confirm = page.getByRole('dialog', { name: 'Close this ticket tier?' });
+  await page.getByRole('button', { name: 'Edit', exact: true }).first().click();
+  const edit = page.getByRole('dialog', { name: 'Edit pass type' });
+  await edit.getByLabel('Registration').selectOption('closed');
+  await edit.getByRole('button', { name: 'Save', exact: true }).click();
+  const confirm = page.getByRole('dialog', { name: 'Close registration for this pass type?' });
   await expect(confirm).toBeVisible();
   await confirm.getByRole('button', { name: 'Cancel' }).click();
   await expect(confirm).toHaveCount(0);
   expect(requests.some(r => r.method === 'PATCH' && r.path.includes('/ticket-tiers/'))).toBe(false);
 
-  await edit.getByRole('button', { name: 'Save Changes' }).click();
-  await page.getByRole('dialog', { name: 'Close this ticket tier?' }).getByRole('button', { name: 'Close tier' }).click();
+  await edit.getByRole('button', { name: 'Save', exact: true }).click();
+  await page.getByRole('dialog', { name: 'Close registration for this pass type?' }).getByRole('button', { name: 'Close registration' }).click();
   await expect(page.getByRole('status').filter({ hasText: 'saved' })).toBeVisible();
   const patch = requests.find(r => r.method === 'PATCH' && r.path.includes('/ticket-tiers/'));
   expect(patch?.auth).toBe(bearer);
@@ -327,15 +349,19 @@ for (const failing of [false, true]) {
     const requests = await fixture(page, failing ? { revokeStatus: 500 } : {});
     await seed(page);
     await page.goto('/organizer/events/event-a/operators');
-    await page.getByRole('button', { name: 'Revoke Access' }).click();
-    const confirm = page.getByRole('dialog', { name: 'Revoke operator access?' });
+    const revoke = async () => {
+      await page.getByRole('button', { name: 'More actions for Operator One' }).click();
+      await page.getByRole('menuitem', { name: 'Remove access' }).click();
+    };
+    await revoke();
+    const confirm = page.getByRole('dialog', { name: 'Remove access for “Operator One”?' });
     await confirm.getByRole('button', { name: 'Cancel' }).click();
     expect(requests.some(r => r.path.endsWith('/revoke'))).toBe(false);
 
-    await page.getByRole('button', { name: 'Revoke Access' }).click();
-    await page.getByRole('dialog', { name: 'Revoke operator access?' }).getByRole('button', { name: 'Revoke Access' }).click();
-    if (failing) await expect(page.getByRole('alert').filter({ hasText: 'Could not revoke access' })).toBeVisible();
-    else await expect(page.getByRole('status').filter({ hasText: 'Access revoked for Operator One' })).toBeVisible();
+    await revoke();
+    await page.getByRole('dialog', { name: 'Remove access for “Operator One”?' }).getByRole('button', { name: 'Remove access' }).click();
+    if (failing) await expect(page.getByRole('alert').filter({ hasText: 'Server error' })).toBeVisible();
+    else await expect(page.getByRole('status').filter({ hasText: 'Operator One can no longer use the desk.' })).toBeVisible();
   });
 }
 
@@ -343,156 +369,49 @@ test('pairing a scanner device issues a point token, shows its pairing link once
   const requests = await fixture(page);
   await seed(page);
   await page.goto('/organizer/events/event-a/check-in');
-  await page.getByRole('article').filter({ hasText: 'Main Gate' }).getByRole('button', { name: 'Pair device' }).click();
-  const dialog = page.getByRole('dialog', { name: 'Pair a scanner device' });
+  await page.getByRole('article').filter({ hasText: 'Main Gate' }).getByRole('button', { name: 'Devices' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Devices at “Main Gate”' });
   await expect(dialog.getByText('Old tablet')).toBeVisible();
-  await expect(dialog.getByText('1 active')).toBeVisible();
+  await expect(dialog.getByTestId('device-row')).toHaveCount(1);
 
   // A nameless device is refused locally; nothing is issued.
   await dialog.getByRole('textbox', { name: /Device name/ }).fill('   ');
   await dialog.getByRole('button', { name: 'Create pairing link' }).click();
-  await expect(dialog.getByRole('alert')).toContainText('Give the device a name');
+  await expect(dialog.getByText('Give the device a name.')).toBeVisible();
   expect(requests.some(r => r.path.endsWith('/token'))).toBe(false);
 
   await dialog.getByRole('textbox', { name: /Device name/ }).fill('Gate phone 1');
   await dialog.getByRole('button', { name: 'Create pairing link' }).click();
-  await expect(dialog.getByText('Device ready to pair.')).toBeVisible();
+  await expect(dialog.getByText('The pairing link is ready.')).toBeVisible();
   const origin = new URL(page.url()).origin;
   await expect(dialog.getByTestId('pairing-link')).toHaveText(`${origin}/scan/point-a1?token=synthetic.scanner.token`);
-  await expect(dialog.getByRole('img', { name: 'Scanner pairing link QR code' })).toBeVisible();
-  await expect(dialog.getByText('2 active')).toBeVisible();
+  await expect(dialog.getByRole('img', { name: 'Pairing link QR code' })).toBeVisible();
+  await expect(dialog.getByTestId('device-row')).toHaveCount(2);
   const issue = requests.find(r => r.method === 'POST' && r.path === '/api/checkin-points/point-a1/token');
   expect(issue?.auth).toBe(bearer);
   expect(issue?.body).toEqual({ device_name: 'Gate phone 1' });
-  // Opened on 127.0.0.1: the console warns that the link cannot work on a phone.
-  await expect(dialog.getByRole('note')).toContainText('localhost');
 
-  // Revoking the device whose link is on screen asks first, then withdraws the link.
-  await dialog.getByRole('button', { name: 'Revoke Gate phone 1' }).click();
-  const confirm = page.getByRole('dialog', { name: 'Revoke this device?' });
+  // Removing the access of the device whose link is on screen asks first, then withdraws the link.
+  const removeAccess = async () => {
+    await dialog.getByRole('button', { name: 'More actions for Gate phone 1' }).click();
+    await page.getByRole('menuitem', { name: 'Remove access' }).click();
+  };
+  await removeAccess();
+  const confirm = page.getByRole('dialog', { name: 'Remove access for “Gate phone 1”?' });
   await page.keyboard.press('Escape');
   await expect(confirm).toBeHidden();
   await expect(dialog).toBeVisible();
   expect(requests.some(r => r.path.endsWith('/revoke'))).toBe(false);
 
-  await dialog.getByRole('button', { name: 'Revoke Gate phone 1' }).click();
-  await page.getByRole('dialog', { name: 'Revoke this device?' }).getByRole('button', { name: 'Revoke device' }).click();
-  await expect(dialog.getByText('1 active')).toBeVisible();
+  await removeAccess();
+  await page.getByRole('dialog', { name: 'Remove access for “Gate phone 1”?' }).getByRole('button', { name: 'Remove access' }).click();
+  await expect(dialog.getByTestId('device-row').filter({ hasText: 'Gate phone 1' })).toContainText('Access removed');
   await expect(dialog.getByTestId('pairing-link')).toHaveCount(0);
   const revoke = requests.find(r => r.path === '/api/checkin-points/point-a1/devices/device-new/revoke');
   expect(revoke?.auth).toBe(bearer);
 });
 
-test('SMS: the organizer edits the confirmation with placeholders, sees the preview and SMS count, saves, tests and resets', async ({ page }) => {
-  const requests = await fixture(page);
-  await seed(page);
-  await page.goto('/organizer/events/event-a/sms');
-  await expect(page.getByRole('heading', { name: 'SMS', level: 1 })).toBeVisible();
-  await expect(page.getByTestId('sms-delivery')).toContainText('Test mode');
-  await expect(page.getByText('Default text')).toBeVisible();
-  await expect(page.getByTestId('sms-preview')).toContainText('نام شرکت‌کننده عزیز، ثبت‌نام شما در «Alpha Congress» تأیید شد.');
-  await expect(page.getByTestId('sms-size')).toContainText('2 SMS (Persian/Unicode, 67 per SMS)');
-  await expect(page.getByRole('button', { name: 'Save text' })).toBeDisabled();
-  await expect(page.getByText('Queued')).toBeVisible();
-
-  const editor = page.getByLabel('Message text');
-  await editor.fill('Hello {nmae}');
-  await expect(page.getByRole('alert')).toContainText('Unknown placeholder: {nmae}');
-  await expect(page.getByRole('button', { name: 'Save text' })).toBeDisabled();
-  await editor.fill('Hello ');
-  await page.getByRole('button', { name: /Attendee name/ }).click();
-  await editor.press('End');
-  await editor.pressSequentially(' — ');
-  await page.getByRole('button', { name: /Pass link/ }).click();
-  await expect(editor).toHaveValue('Hello {name} — {link}');
-  await expect(page.getByTestId('sms-preview')).toHaveText('Hello نام شرکت‌کننده — http://test/c/event-a/my-ticket');
-
-  await page.getByLabel('Send a test to').fill('۰۹۳۵ ۱۲۳ ۴۵۶۷');
-  await page.getByRole('button', { name: 'Send test SMS' }).click();
-  await expect(page.getByRole('status').filter({ hasText: 'Test mode: the message was only recorded' })).toBeVisible();
-  const test = requests.find(r => r.path === '/api/events/event-a/sms/test');
-  expect(test?.body).toEqual({ mobile: '09351234567', kind: 'ticket_confirmation', body: 'Hello {name} — {link}' });
-  expect(test?.auth).toBe(bearer);
-  await expect(page.getByText('0935***4567')).toBeVisible();
-
-  await page.getByRole('button', { name: 'Save text' }).click();
-  await expect(page.getByRole('status').filter({ hasText: 'Saved.' })).toBeVisible();
-  await expect(page.getByText('Custom for this congress')).toBeVisible();
-  expect(requests.find(r => r.method === 'PUT' && r.path.endsWith('/sms/templates/ticket_confirmation'))?.body).toEqual({ body: 'Hello {name} — {link}' });
-
-  await page.getByRole('button', { name: 'Use the default text' }).click();
-  await page.getByRole('dialog', { name: 'Use the default text?' }).getByRole('button', { name: 'Use default' }).click();
-  await expect(page.getByText('Default text', { exact: true })).toBeVisible();
-  await expect(editor).toHaveValue(/عزیز/);
-  expect(requests.some(r => r.method === 'DELETE' && r.path.endsWith('/sms/templates/ticket_confirmation'))).toBe(true);
-  expect(requests.every(r => r.auth === bearer)).toBe(true);
-});
-
-test('SMS: a failed confirmation is sent again; an unknown one is resent only after a warning, or resolved', async ({ page }) => {
-  await fixture(page);
-  await seed(page);
-  const actions: { path: string; body: unknown }[] = [];
-  await page.route('**/api/events/event-a/sms/messages?*', route => route.fulfill({
-    status: 200,
-    contentType: 'application/json',
-    body: JSON.stringify([
-      { id: 'm-failed', kind: 'ticket_confirmation', mobile: '0912***0001', body: 'A عزیز…', status: 'failed', attempts: 6, last_error: 'HTTP_400', created_at: '2099-01-01T00:00:00Z', sent_at: null, can_retry: true, can_resolve: false },
-      { id: 'm-unknown', kind: 'ticket_confirmation', mobile: '0912***0002', body: 'B عزیز…', status: 'unknown', attempts: 1, last_error: 'TIMEOUT', created_at: '2099-01-01T00:00:00Z', sent_at: null, can_retry: true, can_resolve: true },
-    ]),
-  }));
-  await page.route('**/api/events/event-a/sms/messages/*/*', route => {
-    const path = new URL(route.request().url()).pathname;
-    const raw = route.request().postData();
-    actions.push({ path, body: raw ? JSON.parse(raw) : undefined });
-    const [, id, action] = path.match(/messages\/([^/]+)\/(retry|resolve)$/) ?? [];
-    const status = action === 'resolve' ? 'resolved' : 'pending';
-    return route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ id, kind: 'ticket_confirmation', mobile: id === 'm-failed' ? '0912***0001' : '0912***0002', body: '…', status, attempts: 0, last_error: null, created_at: '2099-01-01T00:00:00Z', sent_at: null, can_retry: false, can_resolve: false }),
-    });
-  });
-  await page.goto('/organizer/events/event-a/sms');
-  const failed = page.getByRole('listitem').filter({ hasText: '0912***0001' });
-  const unknown = page.getByRole('listitem').filter({ hasText: '0912***0002' });
-
-  await failed.getByRole('button', { name: 'Send again' }).click();
-  await expect(failed.getByText('Queued')).toBeVisible();
-  expect(actions.find(a => a.path.endsWith('/m-failed/retry'))?.body).toEqual({ confirm_duplicate: false });
-
-  await unknown.getByRole('button', { name: 'Send again' }).click();
-  const dialog = page.getByRole('dialog', { name: 'Send this message again?' });
-  await expect(dialog).toContainText('may deliver it twice');
-  await dialog.getByRole('button', { name: 'Cancel' }).click();
-  expect(actions.some(a => a.path.endsWith('/m-unknown/retry'))).toBe(false);
-
-  await unknown.getByRole('button', { name: 'Mark resolved' }).click();
-  await expect(unknown.getByText('Resolved')).toBeVisible();
-  await expect(unknown.getByRole('button', { name: 'Send again' })).toHaveCount(0);
-});
-
-test('SMS: older messages load page by page after the last one shown', async ({ page }) => {
-  await fixture(page);
-  await seed(page);
-  const message = (i: number) => ({ id: `m-${i}`, kind: 'test', mobile: `0912***${String(i).padStart(4, '0')}`, body: `message ${i}`, status: 'sent', attempts: 1, last_error: null, created_at: '2099-01-01T00:00:00Z', sent_at: '2099-01-01T00:00:00Z' });
-  const requested: (string | null)[] = [];
-  await page.route('**/api/events/event-a/sms/messages?*', route => {
-    const before = new URL(route.request().url()).searchParams.get('before');
-    requested.push(before);
-    const items = before === null ? Array.from({ length: 50 }, (_, i) => message(i)) : before === 'm-49' ? [message(50), message(51)] : [];
-    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(items) });
-  });
-  await page.goto('/organizer/events/event-a/sms');
-  const log = page.locator('section[aria-labelledby="sms-log-title"]');
-  await expect(log.getByRole('listitem')).toHaveCount(50);
-
-  await log.getByRole('button', { name: 'Older messages' }).click();
-
-  await expect(log.getByRole('listitem')).toHaveCount(52);
-  await expect(log.getByText('0912***0051')).toBeVisible();
-  await expect(log.getByRole('button', { name: 'Older messages' })).toHaveCount(0);
-  expect(requested).toEqual([null, 'm-49']);
-});
+// The SMS section's tests live in e2e/organizer-sms.spec.ts (UX-ORG-4).
 
 test('program: sessions are grouped by day, added in the event time zone, and a CSV timetable is checked before it is imported', async ({ page }) => {
   const requests = await fixture(page);
@@ -506,20 +425,20 @@ test('program: sessions are grouped by day, added in the event time zone, and a 
   await expect(page.getByTestId('program-session')).toContainText('Main hall');
 
   await page.getByRole('button', { name: 'Add session' }).click();
-  const dialog = page.getByRole('dialog', { name: 'Add session' });
+  const dialog = page.getByRole('dialog', { name: 'New session' });
   await dialog.getByLabel('Title').fill('Imaging workshop');
-  await dialog.getByLabel('Starts').fill('2099-05-10T11:00');
+  await dialog.getByRole('group', { name: 'Starts' }).getByLabel('Time').fill('11:00');
   // Moving the start keeps the default one-hour length.
-  await expect(dialog.getByLabel('Ends')).toHaveValue('2099-05-10T12:00');
+  await expect(dialog.getByRole('group', { name: 'Ends' }).getByLabel('Time')).toHaveValue('12:00');
   await dialog.getByLabel('Hall').selectOption({ label: 'Hall 2' });
-  await dialog.getByRole('button', { name: 'Add session' }).click();
+  await dialog.getByRole('button', { name: 'Add', exact: true }).click();
   await expect(dialog).toHaveCount(0);
   await expect(page.getByTestId('program-session')).toHaveCount(2);
   // Read on the event's clock (no zone in the fixture: the default Asia/Tehran, UTC+03:30), not the browser's.
   expect(requests.find(r => r.method === 'POST' && r.path === '/api/events/event-a/sessions')?.body).toMatchObject({ title: 'Imaging workshop', hall_id: 'place-hall2', starts_at: '2099-05-10T07:30:00.000Z' });
 
-  await page.getByRole('button', { name: 'Upload timetable' }).click();
-  const panel = page.getByTestId('timetable-import');
+  await page.getByRole('button', { name: 'Import from Excel' }).click();
+  const panel = page.getByRole('dialog', { name: 'Import from Excel' });
   const csv = '\uFEFFعنوان,شروع,پایان,سالن\r\n"Panel, part 1",2099-05-11 09:00,2099-05-11 10:00,Hall B\r\nBroken,2099-05-11 11:00,2099-05-11 10:00,\r\n';
   await panel.getByLabel('Choose a CSV file').setInputFiles({ name: 'program.csv', mimeType: 'text/csv', buffer: Buffer.from(csv) });
   await expect(panel.getByText('1 of 2 rows need fixing')).toBeVisible();
@@ -536,51 +455,71 @@ test('program: sessions are grouped by day, added in the event time zone, and a 
   expect(requests.every(r => r.auth === bearer)).toBe(true);
 });
 
-test('venue and booths: entrances are added, halls reordered, and a booth is edited, then deleted after an explicit warning', async ({ page }) => {
+test('the old venue and panel addresses lead to the program and the public page preview', async ({ page }) => {
+  await fixture(page);
+  await seed(page);
+  // The former venue page is the program's halls tab.
+  await page.goto('/organizer/events/event-a/venue');
+  await expect(page).toHaveURL(/\/organizer\/events\/event-a\/program\?tab=venue$/);
+  await expect(workspaceNav(page).getByRole('link', { name: /Program/ })).toHaveAttribute('aria-current', 'page');
+  await page.goto('/organizer/events/event-a/panel');
+  await expect(page).toHaveURL(/\/organizer\/events\/event-a\/page\?preview=panel$/);
+  await expect(workspaceNav(page).getByRole('link', { name: /Public page/ })).toHaveAttribute('aria-current', 'page');
+});
+
+test('venue: entrances are added and halls reordered in the program\'s halls tab; delete warns first', async ({ page }) => {
   const requests = await fixture(page);
   await seed(page);
-  await page.goto('/organizer/events/event-a/venue');
+  await page.goto('/organizer/events/event-a/program?tab=venue');
+  await expect(page.getByRole('tab', { name: 'Halls & entrances' })).toHaveAttribute('aria-selected', 'true');
   await expect(page.getByTestId('venue-hall')).toHaveText([/Main hall/, /Hall 2/]);
   await page.getByRole('button', { name: 'Add entrance' }).click();
-  const add = page.getByRole('dialog', { name: 'Add entrance' });
+  const add = page.getByRole('dialog', { name: 'New entrance' });
   await add.getByLabel('Name').fill('North gate');
-  await add.getByRole('button', { name: 'Save' }).click();
+  await add.getByRole('button', { name: 'Add', exact: true }).click();
   await expect(page.getByTestId('venue-entrance')).toHaveText([/North gate/]);
   await page.getByRole('button', { name: 'Move “Hall 2” up' }).click();
   await expect(page.getByTestId('venue-hall')).toHaveText([/Hall 2/, /Main hall/]);
   expect(requests.filter(r => r.method === 'PATCH' && r.path.includes('/venue-places/'))).toHaveLength(2);
-  await page.getByRole('button', { name: 'Delete Main hall' }).click();
-  await expect(page.getByRole('dialog', { name: 'Delete this hall?' })).toContainText('Its 1 session stays in the program without a hall.');
-  await page.getByRole('dialog', { name: 'Delete this hall?' }).getByRole('button', { name: 'Cancel' }).click();
+  await page.getByRole('button', { name: 'More actions for “Main hall”' }).click();
+  await page.getByRole('menuitem', { name: 'Delete' }).click();
+  await expect(page.getByRole('dialog', { name: 'Delete “Main hall”?' })).toContainText('Its 1 session stays in the program without a hall.');
+  await page.getByRole('dialog', { name: 'Delete “Main hall”?' }).getByRole('button', { name: 'Cancel' }).click();
+});
 
+test('booths: a booth is edited, then deleted after an explicit warning', async ({ page }) => {
+  const requests = await fixture(page);
+  await seed(page);
   await page.goto('/organizer/events/event-a/booths');
-  await page.getByRole('button', { name: 'Edit booth Acme Biotech' }).click();
+  await page.getByRole('button', { name: 'More actions for Acme Biotech' }).click();
+  await page.getByRole('menuitem', { name: 'Edit' }).click();
   const edit = page.getByRole('dialog', { name: 'Edit booth' });
-  await edit.getByLabel('Booth Slug').fill('taken');
-  await edit.getByRole('button', { name: 'Save Changes' }).click();
-  await expect(edit.getByRole('alert')).toContainText('Another booth already uses this slug');
-  await edit.getByLabel('Booth Slug').fill('acme-imaging');
-  await edit.getByLabel('Company / Booth Name').fill('Acme Imaging');
-  await edit.getByRole('button', { name: 'Save Changes' }).click();
+  await edit.getByLabel('Page address').fill('taken');
+  await edit.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(edit).toContainText('Another booth uses this address.');
+  await edit.getByLabel('Page address').fill('acme-imaging');
+  await edit.getByLabel('Company').fill('Acme Imaging');
+  await edit.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(edit).toHaveCount(0);
   await expect(page.getByRole('heading', { name: 'Acme Imaging' })).toBeVisible();
 
-  await page.getByRole('button', { name: 'Delete booth Acme Imaging' }).click();
-  const confirm = page.getByRole('dialog', { name: 'Delete this booth?' });
-  await expect(confirm).toContainText("staff assignments, attendees' saved bookmarks and all captured leads");
-  await confirm.getByRole('button', { name: 'Delete booth' }).click();
-  await expect(page.getByText('No exhibition booths registered yet')).toBeVisible();
+  await page.getByRole('button', { name: 'More actions for Acme Imaging' }).click();
+  await page.getByRole('menuitem', { name: 'Delete' }).click();
+  const confirm = page.getByRole('dialog', { name: 'Delete “Acme Imaging”?' });
+  await expect(confirm).toContainText('deleted permanently, and its QR code stops working');
+  await confirm.getByRole('button', { name: 'Delete' }).click();
+  await expect(page.getByText('No booths yet')).toBeVisible();
   expect(requests.some(r => r.method === 'DELETE' && r.path === '/api/events/event-a/booths/booth-a1')).toBe(true);
   expect(requests.every(r => r.auth === bearer)).toBe(true);
 });
 
-test('analytics keeps its export and says the filters apply to the CSV files too', async ({ page }) => {
+test('analytics keeps its export behind the one Export menu', async ({ page }) => {
   const requests = await fixture(page);
   await seed(page);
   await page.goto('/organizer/events/event-a/analytics');
-  await expect(page.getByText('Filters apply to this view and to both CSV downloads')).toBeVisible();
   const download = page.waitForEvent('download');
-  await page.getByRole('button', { name: 'Export Attendance CSV' }).click();
+  await page.getByRole('button', { name: 'Export' }).click();
+  await page.getByRole('menuitem', { name: 'Entries' }).click();
   expect((await download).suggestedFilename()).toBe('event-a-attendance.csv');
   expect(requests.find(r => r.path.endsWith('/export-csv'))?.auth).toBe(bearer);
 });
@@ -589,10 +528,12 @@ test('reception shows which authority is acting when both credentials exist', as
   await fixture(page);
   await seed(page, { desk: true });
   await page.goto('/organizer/events/event-a/desk');
-  await expect(page.getByTestId('desk-active-mode')).toHaveText('Acting as: reception operator');
-  await page.getByRole('button', { name: 'Organizer', exact: true }).click();
-  await expect(page.getByTestId('desk-active-mode')).toHaveText('Acting as: organizer');
-  await expect(workspaceNav(page).getByRole('link', { name: /Front Desk/ })).toHaveAttribute('aria-current', 'page');
+  const deskMenu = page.locator('#organizer-main-content').getByRole('button', { name: 'Menu' });
+  await deskMenu.click();
+  await page.getByRole('menuitem', { name: 'Organizer mode' }).click();
+  await deskMenu.click();
+  await expect(page.getByRole('menuitem', { name: 'Operator mode' })).toBeVisible();
+  await expect(workspaceNav(page).getByRole('link', { name: /Reception desk/ })).toHaveAttribute('aria-current', 'page');
 });
 
 test('mobile and tablet layouts have no horizontal overflow; the workspace nav scrolls inside itself', async ({ page }) => {
@@ -602,7 +543,7 @@ test('mobile and tablet layouts have no horizontal overflow; the workspace nav s
     await page.setViewportSize({ width, height });
     for (const path of ['/organizer', '/organizer/events/event-a', '/organizer/events/event-a/tiers', '/organizer/events/event-a/analytics']) {
       await page.goto(path);
-      await expect(page.getByTestId('active-event').or(page.getByRole('heading', { name: 'Events List' }).or(page.getByRole('heading').first())).first()).toBeVisible();
+      await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
       expect(await overflow(page), `${width}px ${path}`).toBe(0);
     }
   }
@@ -618,5 +559,65 @@ test('Persian RTL at 320px: workspace is right-to-left and fits', async ({ page 
     expect(await overflow(page), path).toBe(0);
   }
   await page.goto('/organizer/events/event-a');
-  await expect(page.getByRole('navigation', { name: 'فضای کاری همایش' }).getByRole('link', { name: 'نمای کلی' })).toBeVisible();
+  await expect(page.getByRole('navigation', { name: 'بخش‌های همایش' }).getByRole('link', { name: 'نمای کلی' })).toBeVisible();
+});
+
+test.describe('the shell fits every device', () => {
+  test('at 1280×800 every section link is visible without scrolling the rail', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await fixture(page);
+    await seed(page);
+    await page.goto('/organizer/events/event-a');
+    await expect(workspaceNav(page).getByRole('link')).toHaveText(NAV);
+    const rail = page.locator('aside.org-rail');
+    expect(await rail.evaluate((el) => el.scrollHeight <= el.clientHeight)).toBe(true);
+    for (const link of await workspaceNav(page).getByRole('link').all()) {
+      const box = await link.boundingBox();
+      expect(box && box.y >= 0 && box.y + box.height <= 800).toBe(true);
+    }
+    // Identity, language and sign-out share one 56 px row with a menu.
+    const account = page.getByTestId('console-identity');
+    expect(Math.round((await account.boundingBox())?.height ?? 0)).toBe(56);
+    await account.getByRole('button', { name: 'Account menu' }).click();
+    await expect(page.getByRole('menuitem', { name: 'Sign out' })).toBeVisible();
+    await expect(page.getByRole('menuitem', { name: 'فارسی' })).toBeVisible();
+  });
+
+  test('from 1024 to 1279 px the rail is icons, each link still named', async ({ page }) => {
+    await page.setViewportSize({ width: 1180, height: 820 });
+    await fixture(page);
+    await seed(page);
+    await page.goto('/organizer/events/event-a');
+    const link = workspaceNav(page).getByRole('link', { name: 'Statistics' });
+    await expect(link).toBeVisible();
+    expect((await link.boundingBox())?.width ?? 0).toBeLessThanOrEqual(64);
+    await expect(link).toHaveAttribute('title', 'Statistics');
+    await expect(page.getByTestId('organizer-topbar')).toContainText('Alpha Congress');
+  });
+
+  for (const [width, height] of [[390, 844], [820, 1180]]) {
+    test(`at ${width}×${height} the in-congress header is at most 104 px, congress-day tabs first`, async ({ page }) => {
+      await page.setViewportSize({ width, height });
+      await fixture(page);
+      await seed(page);
+      await page.goto('/organizer/events/event-a');
+      await expect(workspaceNav(page).getByRole('link')).toHaveText(NAV);
+      const bar = (await page.getByTestId('organizer-topbar').boundingBox())?.height ?? 0;
+      const strip = (await page.locator('aside.org-rail').boundingBox())?.height ?? 0;
+      expect(Math.round(bar)).toBe(56);
+      expect(bar + strip).toBeLessThanOrEqual(104);
+      await expect(page.getByTestId('organizer-topbar')).toContainText('Alpha Congress');
+    });
+  }
+
+  test('at 390×844 the sign-in shows Send code above the fold, the organizer key behind a link', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.addInitScript(() => localStorage.setItem('congress_attendee_locale', 'en'));
+    await page.goto('/organizer');
+    const send = page.getByRole('button', { name: 'Send code' });
+    await expect(send).toBeInViewport({ ratio: 1 });
+    await expect(page.getByRole('button', { name: 'Use organizer key' })).toBeVisible();
+    const words = (await page.locator('main').innerText()).split(/\s+/).filter(Boolean).length;
+    expect(words).toBeLessThanOrEqual(30);
+  });
 });

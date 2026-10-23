@@ -2,11 +2,16 @@ import React, { useState } from "react";
 import { Link } from "react-router-dom";
 import type { EventSessionCreate, EventSessionOut, VenuePlaceOut } from "../../api/client";
 import { Button } from "../ui/Button";
+import { DateTimeField } from "../ui/DateTimeField";
 import { Dialog } from "../ui/Dialog";
-import { DialogActions, Field, FormAlert } from "./WorkspaceUi";
+import { Field } from "../ui/Field";
+import { Select, TextInput, Textarea } from "../ui/Input";
+import { FormAlert } from "./WorkspaceUi";
 import { fromZonedDateTimeLocal, shiftDateTimeLocal, toZonedDateTimeLocal, wallClockSpan } from "./sessionTime";
 import { useGuardedClose } from "./useGuardedClose";
 import { SESSION_FIELD_LIMITS } from "../../lib/sessionCsv";
+import { commonCopy } from "../../copy/common";
+import { organizerProgramCopy } from "../../copy/organizerProgram";
 
 interface SessionFormDialogProps {
   /** The session being edited, or null to add one. Mount per target (`key`) so the form starts fresh. */
@@ -18,8 +23,9 @@ interface SessionFormDialogProps {
   defaultDay: string;
   /** The event's IANA zone: times are shown and entered on its clock, not the browser's. */
   timeZone: string;
+  /** Where halls are added (the program's halls tab). */
   venuePath: string;
-  isRtl: boolean;
+  locale: "fa" | "en";
   /** Saves the session; resolves to an error message, or null when saved (the caller closes the dialog). */
   onSave: (body: EventSessionCreate) => Promise<string | null>;
   onClose: () => void;
@@ -27,7 +33,9 @@ interface SessionFormDialogProps {
 
 const HOUR_MS = 3_600_000;
 
-export function SessionFormDialog({ session, halls, tracks, defaultDay, timeZone, venuePath, isRtl, onSave, onClose }: SessionFormDialogProps) {
+export function SessionFormDialog({ session, halls, tracks, defaultDay, timeZone, venuePath, locale, onSave, onClose }: SessionFormDialogProps) {
+  const c = organizerProgramCopy[locale].form;
+  const common = commonCopy[locale];
   const [title, setTitle] = useState(session?.title ?? "");
   const [track, setTrack] = useState(session?.track ?? "");
   const [hallId, setHallId] = useState(session?.hall_id ?? "");
@@ -40,8 +48,9 @@ export function SessionFormDialog({ session, halls, tracks, defaultDay, timeZone
   const dirty = JSON.stringify([title, track, hallId, speakers, description, startsAt, endsAt]) !== initial;
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [titleError, setTitleError] = useState<string | null>(null);
 
-  // `datetime-local` values carry no zone: they are wall times on the event's clock (`timeZone`).
+  // The field values carry no zone: they are wall times on the event's clock (`timeZone`).
   const changeStart = (value: string) => {
     const span = wallClockSpan(startsAt, endsAt);
     setStartsAt(value);
@@ -53,18 +62,19 @@ export function SessionFormDialog({ session, halls, tracks, defaultDay, timeZone
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    setTitleError(null);
     const startsIso = fromZonedDateTimeLocal(startsAt, timeZone);
     const endsIso = fromZonedDateTimeLocal(endsAt, timeZone);
     if (!title.trim()) {
-      setError(isRtl ? "عنوان جلسه را وارد کنید." : "Enter the session title.");
+      setTitleError(c.titleRequired);
       return;
     }
     if (!startsIso || !endsIso) {
-      setError(isRtl ? "زمان شروع و پایان را کامل وارد کنید." : "Enter both the start and the end time.");
+      setError(c.timesRequired);
       return;
     }
     if (Date.parse(endsIso) < Date.parse(startsIso)) {
-      setError(isRtl ? "زمان پایان نمی‌تواند پیش از زمان شروع باشد." : "The end time cannot be before the start time.");
+      setError(c.endBeforeStart);
       return;
     }
     setSubmitting(true);
@@ -81,7 +91,7 @@ export function SessionFormDialog({ session, halls, tracks, defaultDay, timeZone
     if (failure) setError(failure);
   };
 
-  const { requestClose, discardDialog } = useGuardedClose(dirty, onClose, isRtl);
+  const { requestClose, discardDialog } = useGuardedClose(dirty, onClose, locale === "fa");
   const close = () => {
     if (!submitting) requestClose();
   };
@@ -91,113 +101,84 @@ export function SessionFormDialog({ session, halls, tracks, defaultDay, timeZone
       <Dialog
         isOpen
         onClose={close}
-        title={session ? (isRtl ? "ویرایش جلسه" : "Edit session") : isRtl ? "افزودن جلسه" : "Add session"}
-        description={
-          isRtl
-            ? "تغییرات بلافاصله در برنامهٔ همایش برای شرکت‌کنندگان نمایش داده می‌شود."
-            : "Changes appear in the attendees' program as soon as you save."
-        }
+        title={session ? c.editTitle : c.newTitle}
         size="lg"
+        footer={
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <Button type="button" variant="ghost" disabled={submitting} onClick={close}>
+              {common.cancel}
+            </Button>
+            <Button type="submit" form="session-form" variant="primary" loading={submitting}>
+              {session ? c.save : c.add}
+            </Button>
+          </div>
+        }
       >
-        <form onSubmit={handleSubmit} className="space-y-4" noValidate>
-          <Field label={isRtl ? "عنوان" : "Title"} required>
-            <input
+        <form id="session-form" onSubmit={handleSubmit} className="space-y-4" noValidate>
+          <Field label={c.title} required error={titleError}>
+            <TextInput
               type="text"
               required
               maxLength={SESSION_FIELD_LIMITS.title}
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              placeholder={isRtl ? "مثال: سخنرانی افتتاحیه" : "e.g. Opening keynote"}
-              className="ui-input"
+              placeholder={c.titlePlaceholder}
             />
           </Field>
 
-          <p className="text-xs leading-relaxed text-text-muted" data-testid="session-time-zone">
-            {isRtl ? `زمان‌ها به وقت همایش (${timeZone}) است.` : `Times are on the congress clock (${timeZone}).`}
-          </p>
           <div className="grid gap-4 sm:grid-cols-2">
-            <Field label={isRtl ? "زمان شروع" : "Starts"} required>
-              <input type="datetime-local" required value={startsAt} onChange={(e) => changeStart(e.target.value)} className="ui-input font-mono" />
-            </Field>
-            <Field label={isRtl ? "زمان پایان" : "Ends"} required>
-              <input type="datetime-local" required value={endsAt} min={startsAt} onChange={(e) => setEndsAt(e.target.value)} className="ui-input font-mono" />
-            </Field>
+            <DateTimeField label={c.starts} required value={startsAt} onChange={changeStart} locale={locale} timeZone={timeZone} />
+            <DateTimeField label={c.ends} required value={endsAt} onChange={setEndsAt} locale={locale} timeZone={timeZone} />
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2">
-            <Field
-              label={isRtl ? "نوع (Track)" : "Track"}
-              hint={isRtl ? "برچسب دسته‌بندی؛ مثلاً سمینار، کارگاه یا نمایشگاه." : "A category label, e.g. Seminar, Workshop or Exhibition."}
-            >
-              <input
-                type="text"
-                list="session-track-options"
-                maxLength={SESSION_FIELD_LIMITS.track}
-                value={track}
-                onChange={(e) => setTrack(e.target.value)}
-                className="ui-input"
-              />
-              <datalist id="session-track-options">
-                {tracks.map((option) => (
-                  <option key={option} value={option} />
-                ))}
-              </datalist>
+            <Field label={c.track} hint={c.trackHint}>
+              <TextInput type="text" list="session-track-options" maxLength={SESSION_FIELD_LIMITS.track} value={track} onChange={(e) => setTrack(e.target.value)} />
             </Field>
+            <datalist id="session-track-options">
+              {tracks.map((option) => (
+                <option key={option} value={option} />
+              ))}
+            </datalist>
             <Field
-              label={isRtl ? "سالن" : "Hall"}
+              label={c.hall}
               hint={
                 halls.length === 0 ? (
                   <>
-                    {isRtl ? "هنوز سالنی تعریف نشده است. " : "No hall is defined yet. "}
+                    {c.noHalls}{" "}
                     <Link to={venuePath} className="font-semibold text-action-primary hover:underline">
-                      {isRtl ? "افزودن سالن" : "Add halls"}
+                      {c.addHalls}
                     </Link>
                   </>
                 ) : undefined
               }
             >
-              <select value={hallId} onChange={(e) => setHallId(e.target.value)} className="ui-select">
-                <option value="">{isRtl ? "بدون سالن" : "No hall"}</option>
+              <Select value={hallId} onChange={(e) => setHallId(e.target.value)}>
+                <option value="">{c.noHall}</option>
                 {halls.map((hall) => (
                   <option key={hall.id} value={hall.id}>
                     {hall.name}
                   </option>
                 ))}
-              </select>
+              </Select>
             </Field>
           </div>
 
-          <Field label={isRtl ? "سخنرانان" : "Speakers"} hint={isRtl ? "نام‌ها را با ویرگول جدا کنید." : "Separate names with commas."}>
-            <input
+          <Field label={c.speakers} hint={c.speakersHint}>
+            <TextInput
               type="text"
               maxLength={SESSION_FIELD_LIMITS.speakers}
               value={speakers}
               onChange={(e) => setSpeakers(e.target.value)}
-              placeholder={isRtl ? "مثال: دکتر سارا احمدی، دکتر علی رضایی" : "e.g. Dr. Sara Ahmadi, Dr. Ali Rezaei"}
-              className="ui-input"
+              placeholder={c.speakersPlaceholder}
             />
           </Field>
 
-          <Field label={isRtl ? "توضیحات" : "Description"}>
-            <textarea
-              rows={3}
-              maxLength={SESSION_FIELD_LIMITS.description}
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              className="ui-textarea"
-            />
+          <Field label={c.description}>
+            <Textarea rows={3} maxLength={SESSION_FIELD_LIMITS.description} value={description} onChange={(e) => setDescription(e.target.value)} />
           </Field>
 
           {error && <FormAlert>{error}</FormAlert>}
-
-          <DialogActions>
-            <Button type="button" variant="ghost" size="md" disabled={submitting} onClick={close}>
-              {isRtl ? "انصراف" : "Cancel"}
-            </Button>
-            <Button type="submit" variant="primary" size="md" disabled={submitting}>
-              {submitting ? (isRtl ? "در حال ذخیره…" : "Saving…") : session ? (isRtl ? "ذخیره تغییرات" : "Save changes") : isRtl ? "افزودن جلسه" : "Add session"}
-            </Button>
-          </DialogActions>
         </form>
       </Dialog>
       {discardDialog}

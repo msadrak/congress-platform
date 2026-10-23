@@ -1,88 +1,20 @@
 import { useEffect, useId, useRef, useState, type ClipboardEvent, type FormEvent } from "react";
 import { apiErrorCode, createApiClient, localizedApiError, type AuthResponse } from "../../api/client";
 import { errorMessages } from "../../lib/errorMessages";
-import { asciiDigits, extractOtpCode, formatMobile, normalizeIranMobile } from "../../lib/mobile";
+import { asciiDigits, extractOtpCode, normalizeIranMobile } from "../../lib/mobile";
+import { codeFontClass, formatMobile, formatNumber } from "../../lib/format";
 import { formatCountdown, retryDeadline, secondsLeft } from "../../lib/retryAfter";
+import { otpCopy } from "../../copy/public";
 import { Button } from "../ui/Button";
+import { Field } from "../ui/Field";
 import { Icon } from "../ui/Icon";
+import { CodeInput, TextInput } from "../ui/Input";
+import { Notice } from "../ui/Notice";
 
 type Locale = "fa" | "en";
 export type OtpStep = "mobile" | "code" | "profile";
 /** The two throttled actions: asking for a code, and checking one. Each has its own lock. */
 type LockScope = "request" | "verify";
-
-const COPY = {
-  en: {
-    mobile: "Mobile number",
-    mobileHint: "We will text you a one-time sign-in code.",
-    mobileRequired: "Enter your mobile number.",
-    mobileInvalid: "Enter a valid Iranian mobile number, e.g. 0912 345 6789.",
-    sendCode: "Send code",
-    sending: "Sending…",
-    code: "Code from the SMS",
-    codeSentTo: "We texted a code to",
-    changeNumber: "Change number",
-    codeRequired: "Enter the code from the SMS.",
-    codeInvalid: "The code is wrong or has expired.",
-    verify: "Continue",
-    verifying: "Checking…",
-    resend: "Send a new code",
-    resendIn: (s: string) => `New code available in ${s} s`,
-    profileTitle: "Welcome! Tell us who you are",
-    profileLead: "This is your first sign-in with this number. Your name will appear on your pass.",
-    fullName: "Full name",
-    organization: "Organization (optional)",
-    title: "Job title (optional)",
-    nameRequired: "Enter your full name.",
-    create: "Create my account",
-    creating: "Creating…",
-    lockedRequest: (t: string) => `Too many codes requested. You can ask for a new one in ${t}.`,
-    lockedVerify: (t: string) => `Too many attempts. You can try again in ${t}.`,
-    announceRequest: (s: string) => `Too many codes requested. You can ask for a new one in ${s} seconds.`,
-    announceVerify: (s: string) => `Too many attempts. You can try again in ${s} seconds.`,
-    unlocked: "You can try again now.",
-    smsFailed: "The SMS could not be sent. Please try again in a moment.",
-    mayStillArrive: "The SMS service has not confirmed the message yet. The code may still arrive in a minute; if it does not, ask for a new one.",
-    expired: "The verification expired. Request a new code.",
-    network: "Could not reach the server. Check your connection and try again.",
-    server: "Sign-in is temporarily unavailable. Please try again shortly.",
-  },
-  fa: {
-    mobile: "شماره موبایل",
-    mobileHint: "یک کد ورود یک‌بارمصرف برایتان پیامک می‌شود.",
-    mobileRequired: "شماره موبایل را وارد کنید.",
-    mobileInvalid: "یک شماره موبایل معتبر وارد کنید؛ مثلاً ۰۹۱۲ ۳۴۵ ۶۷۸۹.",
-    sendCode: "ارسال کد",
-    sending: "در حال ارسال…",
-    code: "کد پیامک‌شده",
-    codeSentTo: "کد به این شماره پیامک شد:",
-    changeNumber: "تغییر شماره",
-    codeRequired: "کد پیامک‌شده را وارد کنید.",
-    codeInvalid: "کد نادرست است یا اعتبارش تمام شده است.",
-    verify: "ادامه",
-    verifying: "در حال بررسی…",
-    resend: "ارسال دوباره کد",
-    resendIn: (s: string) => `ارسال دوباره تا ${s} ثانیه دیگر`,
-    profileTitle: "خوش آمدید! خودتان را معرفی کنید",
-    profileLead: "اولین بار است که با این شماره وارد می‌شوید. نام شما روی کارت ورود می‌آید.",
-    fullName: "نام و نام خانوادگی",
-    organization: "سازمان (اختیاری)",
-    title: "سمت (اختیاری)",
-    nameRequired: "نام و نام خانوادگی را وارد کنید.",
-    create: "ساخت حساب",
-    creating: "در حال ساخت حساب…",
-    lockedRequest: (t: string) => `درخواست کد بیش از حد مجاز بود. ${t} دیگر می‌توانید کد تازه بگیرید.`,
-    lockedVerify: (t: string) => `تعداد تلاش‌ها بیش از حد مجاز بود. ${t} دیگر می‌توانید دوباره تلاش کنید.`,
-    announceRequest: (s: string) => `درخواست کد بیش از حد مجاز بود. ${s} ثانیه دیگر می‌توانید کد تازه بگیرید.`,
-    announceVerify: (s: string) => `تعداد تلاش‌ها بیش از حد مجاز بود. ${s} ثانیه دیگر می‌توانید دوباره تلاش کنید.`,
-    unlocked: "اکنون می‌توانید دوباره تلاش کنید.",
-    smsFailed: "ارسال پیامک ممکن نشد. لطفاً کمی بعد دوباره تلاش کنید.",
-    mayStillArrive: "سامانهٔ پیامک هنوز ارسال را تأیید نکرده است. ممکن است کد تا یک دقیقهٔ دیگر برسد؛ اگر نرسید، کد تازه بگیرید.",
-    expired: "زمان تأیید تمام شد. کد تازه بگیرید.",
-    network: "اتصال به سرور برقرار نشد. اینترنت خود را بررسی کنید و دوباره تلاش کنید.",
-    server: "ورود فعلاً ممکن نیست. لطفاً کمی بعد دوباره تلاش کنید.",
-  },
-} as const;
 
 type MessageKey =
   | "mobileRequired" | "mobileInvalid" | "codeRequired" | "codeInvalid" | "nameRequired"
@@ -146,8 +78,19 @@ export interface MobileOtpFormProps {
    * leaves out its own profile title.
    */
   onStepChange?: (step: OtpStep) => void;
-  /** Keep the profile step's submit button in view, above the on-screen keyboard (full-page hosts only). */
-  stickySubmit?: boolean;
+  /**
+   * Keep the profile step's submit button in view while the fields scroll: `true` on a full page (it also rises
+   * above an on-screen keyboard), `"dialog"` inside a `Dialog` body.
+   */
+  stickySubmit?: boolean | "dialog";
+  /** Show the line under the mobile field (default true). A host whose button already says it leaves it out. */
+  showMobileHint?: boolean;
+  /** Heading of the profile step (default «خوش آمدید! …»); left out when the host passes `onStepChange`. */
+  profileTitle?: string;
+  /** The line under the profile heading; `null` leaves it out. */
+  profileLead?: string | null;
+  /** Label of the profile step's submit button (default «ساخت حساب»). */
+  profileSubmitLabel?: string;
 }
 
 /**
@@ -157,13 +100,11 @@ export interface MobileOtpFormProps {
  */
 export function MobileOtpForm({
   locale, purpose = "signin", onSignedIn, verifyCode, verifyLabel, onStepChange, stickySubmit = false,
+  showMobileHint = true, profileTitle, profileLead, profileSubmitLabel,
 }: MobileOtpFormProps) {
-  const copy = COPY[locale];
-  const number = (n: number) => new Intl.NumberFormat(locale === "fa" ? "fa-IR" : "en-US").format(n);
-  const ids = {
-    mobile: useId(), mobileHelp: useId(), code: useId(), codeHelp: useId(),
-    name: useId(), organization: useId(), title: useId(), error: useId(), lock: useId(),
-  };
+  const copy = otpCopy[locale];
+  const number = (n: number) => formatNumber(n, locale);
+  const lockId = useId();
 
   const [step, setStep] = useState<OtpStep>("mobile");
   const [mobileInput, setMobileInput] = useState("");
@@ -188,7 +129,7 @@ export function MobileOtpForm({
   const aliveRef = useRef(true);
   const codeRef = useRef<HTMLInputElement>(null);
   const nameRef = useRef<HTMLInputElement>(null);
-  const keyboardInset = useKeyboardInset(stickySubmit && step === "profile");
+  const keyboardInset = useKeyboardInset(stickySubmit === true && step === "profile");
 
   const lockedFor = (scope: LockScope) => {
     const until = locks[scope];
@@ -372,23 +313,19 @@ export function MobileOtpForm({
     problem.kind === "copy" ? copy[problem.key] : problem.kind === "api" ? localizedApiError(problem.body, locale) : problem.text;
 
   const resendSeconds = Math.max(0, Math.ceil((resendAt - now) / 1000));
-  const errorText = "mt-1.5 flex items-center gap-1.5 text-xs font-medium text-status-danger-text";
+  /** Field messages are announced as they appear. */
+  const fieldMessage = fieldError ? <span role="alert">{say(fieldError)}</span> : undefined;
   // aria-disabled rather than disabled: a disabled button drops keyboard and screen-reader focus to the page.
   // `run` and the submit handlers ignore activations while busy or locked.
   const lockedButton = "aria-disabled:cursor-not-allowed aria-disabled:opacity-55 aria-disabled:active:scale-100";
-  const alert = formError && (
-    <p role="alert" className="flex items-start gap-2.5 rounded-xl border border-status-danger-border bg-status-danger-bg p-3.5 text-sm text-status-danger-text">
-      <Icon name="alert" size={18} className="mt-px shrink-0" />
-      {say(formError)}
-    </p>
-  );
+  const alert = formError && <Notice tone="danger">{say(formError)}</Notice>;
   // The countdown is visible but not live (it would be read every second); the live region below speaks
   // only when a lock starts and when it ends.
   const lockScope: LockScope | null =
     step === "code" && verifyLocked ? "verify" : step !== "profile" && requestLocked ? "request" : null;
   // The countdown is isolated left-to-right (U+2066…U+2069) so "1:27" never reorders inside Persian text.
   const lockNotice = lockScope && (
-    <p id={ids.lock} data-testid="otp-rate-limit" className="flex items-start gap-2.5 rounded-xl border border-status-warning-border bg-status-warning-bg p-3.5 text-sm text-status-warning-text">
+    <p id={lockId} data-testid="otp-rate-limit" className="flex items-start gap-2.5 rounded-control border border-status-warning-border bg-status-warning-bg p-3.5 text-body-sm text-status-warning-text">
       <Icon name="clock" size={18} className="mt-px shrink-0" />
       <span>
         {(lockScope === "verify" ? copy.lockedVerify : copy.lockedRequest)(`\u2066${formatCountdown(lockedFor(lockScope), locale)}\u2069`)}
@@ -405,7 +342,7 @@ export function MobileOtpForm({
     </span>
   );
   const countdownBadge = (seconds: number) => (
-    <span aria-hidden="true" className="font-mono text-[13px] tabular-nums opacity-80">{formatCountdown(seconds, locale)}</span>
+    <span aria-hidden="true" className="tabular text-meta opacity-80">{formatCountdown(seconds, locale)}</span>
   );
 
   if (step === "mobile") {
@@ -414,10 +351,8 @@ export function MobileOtpForm({
         {alert}
         {lockNotice}
         {liveRegion}
-        <div>
-          <label htmlFor={ids.mobile} className="ui-label">{copy.mobile}</label>
-          <input
-            id={ids.mobile}
+        <Field label={copy.mobile} hint={showMobileHint ? copy.mobileHint : undefined} error={fieldMessage}>
+          <TextInput
             type="tel"
             name="mobile"
             dir="ltr"
@@ -429,27 +364,20 @@ export function MobileOtpForm({
               setMobileInput(e.target.value);
               setFieldError(null);
             }}
-            aria-invalid={Boolean(fieldError)}
-            aria-describedby={fieldError ? ids.error : ids.mobileHelp}
-            className="ui-input min-h-12 text-start font-mono tracking-wide"
+            className="text-start tabular tracking-wide"
           />
-          {fieldError ? (
-            <p id={ids.error} role="alert" className={errorText}>{say(fieldError)}</p>
-          ) : (
-            <p id={ids.mobileHelp} className="mt-1.5 text-xs text-text-muted">{copy.mobileHint}</p>
-          )}
-        </div>
+        </Field>
         <Button
           type="submit"
           variant="primary"
           size="lg"
           isFullWidth
+          icon="phone"
           aria-busy={busy}
           aria-disabled={busy || requestLocked || undefined}
-          aria-describedby={requestLocked ? ids.lock : undefined}
+          aria-describedby={requestLocked ? lockId : undefined}
           className={lockedButton}
         >
-          <Icon name="phone" size={18} />
           {busy ? copy.sending : copy.sendCode}
           {requestLocked && countdownBadge(lockedFor("request"))}
         </Button>
@@ -458,21 +386,22 @@ export function MobileOtpForm({
   }
 
   if (step === "code") {
+    const shownMobile = formatMobile(mobile, locale);
     return (
       <form onSubmit={handleCode} noValidate className="space-y-5" data-testid="otp-code-step">
         {alert}
         {lockNotice}
         {liveRegion}
         {deliveryUncertain && (
-          <p role="status" data-testid="otp-delivery-uncertain" className="flex items-start gap-2.5 rounded-xl border border-status-warning-border bg-status-warning-bg p-3.5 text-sm text-status-warning-text">
+          <p role="status" data-testid="otp-delivery-uncertain" className="flex items-start gap-2.5 rounded-control border border-status-warning-border bg-status-warning-bg p-3.5 text-body-sm text-status-warning-text">
             <Icon name="clock" size={18} className="mt-px shrink-0" />
             <span>{copy.mayStillArrive}</span>
           </p>
         )}
-        <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-surface-panel-subtle px-3.5 py-3 text-sm">
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-control bg-surface-panel-subtle px-3.5 py-3 text-body-sm">
           <span className="text-text-secondary">
             {copy.codeSentTo}{" "}
-            <bdi dir="ltr" className="font-mono font-semibold text-text-primary">{formatMobile(mobile, locale)}</bdi>
+            <bdi dir="ltr" className={`${codeFontClass(shownMobile)} font-semibold text-text-primary`}>{shownMobile}</bdi>
           </span>
           <button
             type="button"
@@ -481,39 +410,28 @@ export function MobileOtpForm({
               setFieldError(null);
               setFormError(null);
             }}
-            className="min-h-11 rounded-lg px-1 text-sm font-semibold text-action-primary underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-focus-ring cursor-pointer"
+            className="min-h-11 rounded-control px-1 text-body-sm font-semibold text-action-primary underline-offset-4 hover:underline cursor-pointer"
           >
             {copy.changeNumber}
           </button>
         </div>
         <div>
-          <label htmlFor={ids.code} className="ui-label">{copy.code}</label>
-          <input
-            ref={codeRef}
-            id={ids.code}
-            type="text"
-            name="code"
-            dir="ltr"
-            autoComplete="one-time-code"
-            inputMode="numeric"
-            value={code}
-            onPaste={handleCodePaste}
-            onChange={(e) => {
-              // Keep the digits as typed (Persian, Arabic-Indic or ASCII); drop everything else.
-              const shown = e.target.value.replace(/[^0-9۰-۹٠-٩]/g, "").slice(0, codeLength);
-              takeCode(shown, asciiDigits(shown));
-            }}
-            aria-invalid={Boolean(fieldError)}
-            aria-describedby={fieldError ? ids.error : ids.codeHelp}
-            className="ui-input min-h-12 text-center font-mono text-xl tracking-[0.5em]"
-          />
-          {fieldError ? (
-            <p id={ids.error} role="alert" className={errorText}>{say(fieldError)}</p>
-          ) : (
-            <p id={ids.codeHelp} className="mt-1.5 text-xs text-text-muted">
-              {resendSeconds > 0 ? copy.resendIn(number(resendSeconds)) : null}
-            </p>
-          )}
+          <Field label={copy.code} hint={resendSeconds > 0 ? copy.resendIn(number(resendSeconds)) : undefined} error={fieldMessage}>
+            <CodeInput
+              ref={codeRef}
+              name="code"
+              autoComplete="one-time-code"
+              inputMode="numeric"
+              value={code}
+              onPaste={handleCodePaste}
+              onChange={(e) => {
+                // Keep the digits as typed (Persian, Arabic-Indic or ASCII); drop everything else.
+                const shown = e.target.value.replace(/[^0-9۰-۹٠-٩]/g, "").slice(0, codeLength);
+                takeCode(shown, asciiDigits(shown));
+              }}
+              className="text-center text-title-sm tracking-[0.5em]"
+            />
+          </Field>
           <span className="sr-only" aria-live="polite">{resendSeconds === 0 && !requestLocked ? copy.resend : ""}</span>
         </div>
         <Button
@@ -523,7 +441,7 @@ export function MobileOtpForm({
           isFullWidth
           aria-busy={busy}
           aria-disabled={busy || verifyLocked || undefined}
-          aria-describedby={verifyLocked ? ids.lock : undefined}
+          aria-describedby={verifyLocked ? lockId : undefined}
           className={lockedButton}
         >
           {busy ? copy.verifying : verifyLabel ?? copy.verify}
@@ -535,13 +453,13 @@ export function MobileOtpForm({
             variant="ghost"
             size="md"
             isFullWidth
+            icon="sync"
             aria-disabled={busy || requestLocked || undefined}
             className={lockedButton}
             onClick={() => {
               if (!requestLocked && !busy) void sendCode(mobile);
             }}
           >
-            <Icon name="sync" size={16} />
             {copy.resend}
             {requestLocked && countdownBadge(lockedFor("request"))}
           </Button>
@@ -552,23 +470,23 @@ export function MobileOtpForm({
 
   const submit = (
     <Button type="submit" variant="primary" size="lg" isFullWidth aria-busy={busy} aria-disabled={busy || undefined} className={lockedButton}>
-      {busy ? copy.creating : copy.create}
+      {busy ? copy.creating : profileSubmitLabel ?? copy.create}
     </Button>
   );
+  const lead = profileLead === undefined ? copy.profileLead : profileLead;
 
   return (
     <form onSubmit={handleProfile} noValidate className="space-y-5" data-testid="otp-profile-step">
       {alert}
-      <div className="space-y-1">
-        {!onStepChange && <p className="text-base font-semibold text-text-primary">{copy.profileTitle}</p>}
-        <p className="text-sm text-text-secondary">{copy.profileLead}</p>
-      </div>
-      <div>
-        <label htmlFor={ids.name} className="ui-label">{copy.fullName}</label>
-        <input
+      {(!onStepChange || lead) && (
+        <div className="space-y-1">
+          {!onStepChange && <p className="text-body font-semibold text-text-primary">{profileTitle ?? copy.profileTitle}</p>}
+          {lead && <p className="text-body-sm text-text-secondary">{lead}</p>}
+        </div>
+      )}
+      <Field label={copy.fullName} error={fieldMessage}>
+        <TextInput
           ref={nameRef}
-          id={ids.name}
-          type="text"
           name="name"
           autoComplete="name"
           maxLength={200}
@@ -577,25 +495,22 @@ export function MobileOtpForm({
             setFullName(e.target.value);
             setFieldError(null);
           }}
-          aria-invalid={Boolean(fieldError)}
-          aria-describedby={fieldError ? ids.error : undefined}
-          className="ui-input min-h-12"
         />
-        {fieldError && <p id={ids.error} role="alert" className={errorText}>{say(fieldError)}</p>}
-      </div>
+      </Field>
       <div className="grid gap-4 sm:grid-cols-2">
-        <div>
-          <label htmlFor={ids.organization} className="ui-label">{copy.organization}</label>
-          <input id={ids.organization} type="text" name="organization" autoComplete="organization" maxLength={200}
-            value={organization} onChange={(e) => setOrganization(e.target.value)} className="ui-input min-h-12" />
-        </div>
-        <div>
-          <label htmlFor={ids.title} className="ui-label">{copy.title}</label>
-          <input id={ids.title} type="text" name="title" autoComplete="organization-title" maxLength={100}
-            value={title} onChange={(e) => setTitle(e.target.value)} className="ui-input min-h-12" />
-        </div>
+        <Field label={copy.organization}>
+          <TextInput name="organization" autoComplete="organization" maxLength={200} value={organization} onChange={(e) => setOrganization(e.target.value)} />
+        </Field>
+        <Field label={copy.title}>
+          <TextInput name="title" autoComplete="organization-title" maxLength={100} value={title} onChange={(e) => setTitle(e.target.value)} />
+        </Field>
       </div>
-      {stickySubmit ? (
+      {stickySubmit === "dialog" ? (
+        // Stays at the bottom of the dialog body while the fields scroll under it.
+        <div data-testid="otp-sticky-submit" className="sticky bottom-0 z-10 -mx-5 bg-surface-panel px-5 pt-3 pb-1 sm:-mx-7 sm:px-7">
+          {submit}
+        </div>
+      ) : stickySubmit ? (
         // Stays in view while the fields scroll, and rises above an on-screen keyboard that overlays the page.
         <div
           data-testid="otp-sticky-submit"

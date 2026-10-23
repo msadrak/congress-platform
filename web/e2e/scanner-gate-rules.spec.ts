@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import type { BrowserContext, Page } from '@playwright/test';
-import { hashCode, storedScans, wireManifest, type FixtureManifest, type FixtureTicket } from './scannerFixtures';
+import { expectScannerOnline, gateScreen, hashCode, manualScan, storedScans, verdictReason, verdictTitle, wireManifest, type FixtureManifest, type FixtureTicket } from './scannerFixtures';
 
 /**
  * Gate rules on the web scanner: the Entry/Exit switch of a point that tracks occupancy, daily single-use windows
@@ -60,14 +60,10 @@ async function open(page: Page, install: (page: Page) => Promise<void>, pointId:
   await page.addInitScript(() => localStorage.setItem('congress_attendee_locale', 'en'));
   await install(page);
   await page.goto(`/scan/${pointId}?token=${TOKEN}`);
-  await expect(page.getByText(name).first()).toBeVisible();
-  await expect(page.getByText(/Manifest synced/)).toBeVisible();
+  await expectScannerOnline(page, name);
 }
 
-const manual = async (page: Page, value: string) => {
-  await page.getByPlaceholder("Paste the badge's QR code").fill(value);
-  await page.getByRole('button', { name: 'Check Ticket' }).click();
-};
+const manual = manualScan;
 const goOffline = async (context: BrowserContext, page: Page) => {
   await context.setOffline(true);
   await expect.poll(() => page.evaluate(() => navigator.onLine)).toBe(false);
@@ -83,8 +79,10 @@ test('an occupancy point offers Entry/Exit; exit mode is unmistakable and its sc
     { admission_window: 'event', event_timezone: 'Asia/Tehran', occupancy: 2 },
   );
   await open(page, server.install, POINT, 'Hall A Door');
-  // Staff compare the build shown here with the organizer's device list.
-  await expect(page.getByTestId('scanner-app-version')).toHaveText(/App version: web-scanner\/2\+.+/);
+  // Staff compare the build shown in the menu with the organizer's device list.
+  await page.getByRole('button', { name: 'Menu' }).click();
+  await expect(page.getByRole('menu')).toContainText(/Version web-scanner\/2\+.+/);
+  await page.keyboard.press('Escape');
   await expect(page.getByTestId('scanner-occupancy')).toContainText('2');
 
   const modes = page.getByRole('group', { name: 'Scan mode' });
@@ -95,20 +93,20 @@ test('an occupancy point offers Entry/Exit; exit mode is unmistakable and its sc
   await expect(page.getByText('Exit mode: scans record people leaving')).toBeVisible();
 
   await manual(page, inside.qr_secret);
-  await expect(page.locator('.scanner-takeover-title')).toHaveText('Exit recorded');
+  await expect(verdictTitle(page)).toHaveText('Exit');
   expect(server.state.singles.at(-1)).toMatchObject({ qr_secret: inside.qr_secret, direction: 'OUT' });
   await expect(page.getByTestId('scanner-occupancy')).toContainText('1');
 
   // Offline: the exit is decided locally (provisionally), queued as an exit and uploaded as one.
   await goOffline(context, page);
   await manual(page, other.qr_secret);
-  await expect(page.locator('.scanner-takeover-title')).toHaveText('Exit recorded provisionally (offline)');
+  await expect(verdictTitle(page)).toHaveText('Exit (offline)');
   await expect.poll(async () => (await storedScans(page)).find((s) => s.qr_secret === other.qr_secret)).toMatchObject({ sync_state: 'PROVISIONAL' });
   const queued = (await storedScans(page)).find((s) => s.qr_secret === other.qr_secret) as unknown as { direction: string };
   expect(queued.direction).toBe('OUT');
   // Someone who is not inside cannot leave.
   await manual(page, inside.qr_secret);
-  await expect(page.locator('.scanner-takeover-reason')).toHaveText('Not inside: exit not recorded');
+  await expect(verdictReason(page)).toHaveText('Not inside');
 
   await context.setOffline(false);
   await expect.poll(() => server.state.batches.flat().find((s) => s.qr_secret === other.qr_secret)?.direction, { timeout: 15000 }).toBe('OUT');
@@ -133,11 +131,12 @@ test('daily catering: offline, yesterday\'s meal does not count today, and a sec
 
   await goOffline(context, page);
   await manual(page, ate.qr_secret);
-  await expect(page.locator('.scanner-takeover-title')).toHaveText('Admitted (offline)');
+  await expect(verdictTitle(page)).toHaveText('Admitted (offline)');
   // The same badge is read again only once its verdict has cleared.
-  await expect(page.locator('.scanner-takeover-title')).toHaveCount(0);
+  await expect(verdictTitle(page)).toHaveCount(0);
   await manual(page, ate.qr_secret);
-  await expect(page.locator('.scanner-takeover-title')).toHaveText('Duplicate — do not admit');
+  await expect(verdictTitle(page)).toHaveText('Duplicate');
+  await expect(verdictReason(page)).toHaveText('Already admitted');
   expect(hashCode(ate.qr_secret)).toHaveLength(64);
   expect(TODAY).not.toBe(YESTERDAY);
 });
@@ -157,7 +156,7 @@ test('the scanner sends a heartbeat with its unsynced scans and version, and sto
   const version = String(server.state.heartbeats[0].app_version);
   expect(version).toMatch(/^web-scanner\/2\+.+/);
   // A refused credential blocks the device like any scanner call: no retry with the dead token.
-  await expect(page.getByText('Device Deauthorized').first()).toBeVisible();
+  await expect(gateScreen(page, 'revoked')).toBeVisible();
   await page.waitForTimeout(6000);
   expect(server.state.heartbeats).toHaveLength(1);
 });

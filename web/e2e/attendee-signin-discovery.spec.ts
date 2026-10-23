@@ -121,7 +121,8 @@ async function fixture(page: Page, options: Options = {}) {
 }
 
 async function seed(page: Page, entries: Record<string, string>) {
-  await page.goto('/');
+  // A same-origin static file, not the app: the home page would load its public congress list (an API request) mid-seed.
+  await page.goto('/favicon.png');
   await page.evaluate(values => { for (const [k, v] of Object.entries(values)) localStorage.setItem(k, v); }, entries);
 }
 const signedIn = (page: Page) => seed(page, { congress_attendee_token: token, congress_attendee_locale: 'en' });

@@ -18,16 +18,17 @@ test('attendee: public page, SMS-code sign-up, reserve, pass with QR, short link
 
   await test.step('reserve: SMS code from the outbox, profile step for a new number', async () => {
     await page.getByRole('button', { name: 'رزرو رایگان کارت ورود' }).click();
-    const dialog = page.getByRole('dialog', { name: 'تأیید شماره موبایل' });
+    // The dialog's title follows the step («دریافت کارت ورود …», then «نام شما روی کارت ورود»).
+    const dialog = page.getByRole('dialog');
     await signInWithCode(dialog, mobile, fullName);
   });
 
   await test.step('success sheet shows the pass QR', async () => {
-    const sheet = page.getByRole('dialog', { name: 'کارت ورود با موفقیت رزرو شد' });
+    const sheet = page.getByRole('dialog', { name: 'کارت ورود شما آماده است' });
     await expect(sheet).toBeVisible();
     await expect(sheet.getByText(`نوع کارت ورود: ${tier.name}`)).toBeVisible();
     await expect(sheet.getByRole('img', { name: 'کد QR کارت ورود شما' })).toBeVisible();
-    await sheet.getByRole('button', { name: 'مشاهدهٔ کارت ورود' }).click();
+    await sheet.getByRole('button', { name: 'نمایش کارت ورود' }).click();
   });
 
   await test.step('pass page shows the QR, holder and tier', async () => {
@@ -45,6 +46,7 @@ test('attendee: public page, SMS-code sign-up, reserve, pass with QR, short link
     const stranger = await browser.newContext();
     const linkPage = await stranger.newPage();
     await linkPage.goto(link.pathname);
+    await expect(linkPage.getByRole('link', { name: 'برای شبکه‌سازی وارد شوید' })).toBeVisible();
     const pass = linkPage.getByRole('article', { name: event.name });
     await expect(pass.getByRole('button', { name: 'نمایش تمام‌صفحه کد QR' })).toBeVisible();
     await expect(pass).toContainText(fullName);
@@ -56,7 +58,7 @@ test('attendee: public page, SMS-code sign-up, reserve, pass with QR, short link
   await test.step('self-cancel frees the seat', async () => {
     await page.getByRole('button', { name: 'لغو ثبت‌نام' }).click();
     const confirm = page.getByRole('dialog', { name: 'ثبت‌نام لغو شود؟' });
-    await confirm.getByRole('button', { name: 'بله، لغو شود' }).click();
+    await confirm.getByRole('button', { name: 'لغو ثبت‌نام' }).click();
     await expect(page.getByText('این کارت ورود لغو شده است').first()).toBeVisible();
   });
   const participants = await api<ParticipantPage>('GET', `/api/events/${event.id}/participants`, { token: organizer.api_key });
