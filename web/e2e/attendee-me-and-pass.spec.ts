@@ -118,8 +118,7 @@ test('signed out, /me lists the pass opened from an SMS link and offers sign-in'
   await expect(card).toHaveText([/Alpha Congress/]);
   await expect(card).toContainText('From your SMS link');
   await expect(card).toHaveAttribute('href', '/c/alpha/my-ticket');
-  await expect(page.getByRole('heading', { name: 'Find your pass' })).toBeVisible();
-  await expect(page.getByRole('link', { name: /Sign in to see your pass/ })).toHaveAttribute('href', '/sign-in?next=%2Fme');
+  await expect(page.getByTestId('otp-mobile-step')).toBeVisible();
   expect(requests).toEqual([]);
   await card.click();
   await expect(page.getByRole('link', { name: /Sign in for networking/ })).toBeVisible();
@@ -266,6 +265,6 @@ test('attendee pages in Persian never render the misspelled word for ticket', as
   }
   await begin(page, { locale: 'fa', signedIn: false });
   await page.goto('/me');
-  await expect(page.getByRole('heading', { name: 'کارت ورود خود را پیدا کنید' })).toBeVisible();
+  await expect(page.getByTestId('otp-mobile-step')).toBeVisible();
   expect(await page.evaluate(() => document.body.innerText)).not.toContain(FORBIDDEN);
 });

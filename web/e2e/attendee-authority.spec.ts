@@ -231,7 +231,7 @@ test('R1 removing a bookmark after the session changed dispatches nothing', asyn
   await switchUser(page, tokenB);
   requests.length = 0;
   await page.getByRole('button', { name: 'Remove Bookmark' }).first().click();
-  await expect(page.getByText('session changed')).toBeVisible();
+  await expect(page.getByText('sign-in changed')).toBeVisible();
   expect(requests.filter(r => r.method === 'DELETE')).toEqual([]);
   expect(await storedUser(page)).toBe(tokenB);
 });
@@ -322,7 +322,7 @@ test('R6 a vCard response arriving after the session changed is not saved', asyn
 
 test('network 401 clears exactly the sent token; vCard 404 keeps the session and shows the failure', async ({ page }) => {
   const unauthorized = await openNetwork(page, { networkStatus: 401 });
-  await expect(page.getByRole('heading', { name: 'Sign In to Attendee Portal' })).toBeVisible();
+  await expect(page.getByTestId('otp-mobile-step')).toBeVisible();
   expect(await storedUser(page)).toBeNull();
   expect(panelOnlyUser(unauthorized, tokenA)).toBe(true);
   await otherCredentialsIntact(page);
@@ -435,7 +435,7 @@ test('R6 exporting leads after the session changed sends no request', async ({ p
   await switchUser(page, tokenB);
   requests.length = 0;
   await page.getByRole('button', { name: 'Export CSV' }).click();
-  await expect(page.getByText('session changed')).toBeVisible();
+  await expect(page.getByText('sign-in changed')).toBeVisible();
   // The blocked click re-renders the page, which reloads the booth for the current session (B).
   expect(requests.filter(r => r.path.endsWith('/export-csv'))).toEqual([]);
   expect(requests.every(r => r.auth === bearer(tokenB))).toBe(true);

@@ -88,6 +88,9 @@ test.describe('links attendees receive', () => {
 });
 
 test.describe('attendee header session control', () => {
+  // The log out button is in the header from the md breakpoint up; on a phone it is in the profile.
+  test.use({ viewport: { width: 1280, height: 800 } });
+
   test('signed out, the header offers log in to this congress and no log out', async ({ page }) => {
     await fixture(page);
     await anonymous(page);
@@ -130,7 +133,8 @@ test.describe('attendee header session control', () => {
   test('the footer keeps the attribution but no longer links to the platform home', async ({ page }) => {
     await fixture(page);
     await signedIn(page);
-    await page.goto('/c/alpha/my-congress');
+    // Inside a congress the dock replaces the footer; the footer is on the congress list.
+    await page.goto('/me');
     const footer = page.locator('footer');
     await expect(footer).toBeVisible();
     await expect(footer.locator('a[href="/"]')).toHaveCount(0);

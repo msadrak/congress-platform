@@ -155,9 +155,11 @@ test.describe('direct attendee sign-in', () => {
     const requests = await fixture(page);
     await anonymous(page);
     await page.goto('/c/alpha/my-profile');
-    await page.getByRole('link', { name: /Sign In/ }).first().click();
+    // The page has the phone form itself; the header's log in is the way to the full sign-in page.
+    await page.locator('header').getByRole('link', { name: 'Log In' }).click();
     await expect(page).toHaveURL(/\/c\/alpha\/sign-in\?next=%2Fc%2Falpha%2Fmy-profile$/);
     await expect(page.getByText('Alpha Congress').first()).toBeVisible();
+    await expect(page.getByRole('heading', { name: /Sign in/ })).toBeVisible();
 
     await signInWithCode(page, '۰۹۱۲ ۱۲۳ ۴۵۶۷');  // Persian digits and spaces, as typed on a phone
     await expect(page).toHaveURL(/\/c\/alpha\/my-profile$/);

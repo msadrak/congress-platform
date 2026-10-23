@@ -45,7 +45,6 @@ test('attendee: public page, SMS-code sign-up, reserve, pass with QR, short link
     const stranger = await browser.newContext();
     const linkPage = await stranger.newPage();
     await linkPage.goto(link.pathname);
-    await expect(linkPage.getByText('کارت ورود از پیوند پیامک')).toBeVisible();
     const pass = linkPage.getByRole('article', { name: event.name });
     await expect(pass.getByRole('button', { name: 'نمایش تمام‌صفحه کد QR' })).toBeVisible();
     await expect(pass).toContainText(fullName);

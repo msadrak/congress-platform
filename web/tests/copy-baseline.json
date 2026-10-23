@@ -2,25 +2,6 @@
   "src/components/AppUpdatePrompt.tsx": {
     "persian": 3
   },
-  "src/components/attendee/attendeeCopy.ts": {
-    "ternary": 1
-  },
-  "src/components/attendee/CongressDetailsView.tsx": {
-    "ternary": 7,
-    "persian": 7
-  },
-  "src/components/attendee/CongressHero.tsx": {
-    "persian": 2
-  },
-  "src/components/attendee/CongressHomeView.tsx": {
-    "persian": 1
-  },
-  "src/components/attendee/CongressSchedule.tsx": {
-    "persian": 5
-  },
-  "src/components/attendee/ProgramExplorer.tsx": {
-    "ternary": 2
-  },
   "src/components/auth/MobileOtpForm.tsx": {
     "persian": 33,
     "ternary": 1
@@ -201,16 +182,9 @@
     "ternary": 34,
     "devTerm": 2
   },
-  "src/layouts/AttendeeLayout.tsx": {
-    "persian": 17,
-    "ternary": 2
-  },
   "src/layouts/PublicLayout.tsx": {
     "ternary": 3,
     "persian": 1
-  },
-  "src/lib/attendeeSession.ts": {
-    "ternary": 1
   },
   "src/lib/errorMessages.ts": {
     "devTerm": 1
@@ -237,10 +211,6 @@
     "persian": 24,
     "ternary": 2
   },
-  "src/pages/CongressDetails.tsx": {
-    "ternary": 4,
-    "persian": 4
-  },
   "src/pages/ExhibitorPortal.tsx": {
     "ternary": 19,
     "persian": 18
@@ -250,16 +220,6 @@
   },
   "src/pages/Home.tsx": {
     "ternary": 1,
-    "persian": 1
-  },
-  "src/pages/Me.tsx": {
-    "persian": 29
-  },
-  "src/pages/MyCongress.tsx": {
-    "ternary": 4,
-    "persian": 4
-  },
-  "src/pages/MyProfile.tsx": {
     "persian": 1
   },
   "src/pages/organizer/EventBooths.tsx": {

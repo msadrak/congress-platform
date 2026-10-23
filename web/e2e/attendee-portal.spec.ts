@@ -78,7 +78,7 @@ test('four tabs in the bottom navigation and the profile in the header, each rea
   const checks: [string, RegExp, string][] = [
     ['Network', /my-network$/, 'Note at alpha'],
     ['Pass', /my-ticket$/, 'Pass alpha'],
-    ['Program', /details$/, 'About Alpha Congress'],
+    ['Program', /details$/, 'About the congress'],
     ['My congress', /my-congress$/, 'Beta Summit'],
   ];
   for (const [label, url, text] of checks) {
@@ -115,9 +115,9 @@ test('home leads with the pass, then the program; details shows venue and full p
   await expect(page.getByText('Opening Keynote')).toBeVisible();
   // Reading order is the same on every breakpoint: pass, program, network, booths.
   const order = (await page.locator('main h2').allTextContents()).map(text => text.trim());
-  // Before the congress: the pass and the countdown/checklist lead, then the program, network and booths.
-  expect(order.slice(0, 5)).toEqual(['Your pass', 'Until the congress opens', 'Congress program', 'My Network', 'Exhibition booths']);
-  await expect(page.getByRole('link', { name: /Show pass & QR code/ })).toHaveAttribute('href', '/c/alpha/my-ticket');
+  // Before the congress: the pass leads, then the program, network and booths.
+  expect(order.slice(0, 4)).toEqual(['Your pass', 'Congress program', 'My Network', 'Exhibition booths']);
+  await expect(page.getByRole('link', { name: 'Show my pass' })).toHaveAttribute('href', '/c/alpha/my-ticket');
   await expect(page.getByRole('link', { name: /Scan a colleague's QR code/ })).toHaveAttribute('href', '/c/alpha/my-network?scan=1');
   await expect(page.getByRole('heading', { name: 'More' })).toHaveCount(0);
   await expect(page.getByRole('heading', { name: 'Your other congresses' })).toBeVisible();
@@ -173,12 +173,11 @@ test('without a session, personal destinations show sign-in and send no protecte
   await page.evaluate(() => localStorage.setItem('congress_attendee_locale', 'en'));
   for (const d of ['my-congress', 'my-network', 'my-ticket', 'my-profile']) {
     await page.goto(`/c/alpha/${d}`);
-    // The pass tab has the phone form on the page itself; the others link to sign-in.
-    if (d === 'my-ticket') await expect(page.getByTestId('otp-mobile-step')).toBeVisible();
-    else await expect(page.getByRole('link', { name: /Sign In/ }).first()).toBeVisible();
+    // Every personal page has the phone form on the page itself.
+    await expect(page.getByTestId('otp-mobile-step')).toBeVisible();
   }
   await page.goto('/c/alpha/details');
-  await expect(page.getByText('About Alpha Congress')).toBeVisible();
+  await expect(page.getByRole('link', { name: 'About the congress' })).toBeVisible();
   expect(requests.filter(r => !r.path.startsWith('/api/public/'))).toEqual([]);
 });
 
@@ -190,7 +189,7 @@ test('unknown congress and server errors show honest states', async ({ page }) =
   await page.unrouteAll();
   await fixture(page, { publicStatus: 500 });
   await page.goto('/c/alpha/details');
-  await expect(page.getByRole('alert')).toContainText('Could not load this congress');
+  await expect(page.getByRole('alert')).toContainText('The congress could not be loaded');
 });
 
 test('Persian RTL at 320px fits all four tabs without horizontal overflow', async ({ page }) => {

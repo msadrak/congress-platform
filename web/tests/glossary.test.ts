@@ -47,7 +47,7 @@ const ROOTS = [join(WEB, "src"), join(WEB, "index.html"), join(REPO, "backend/ap
  * or term is ever added. Paths are relative to the repository root.
  */
 const ALLOWED: Readonly<Record<string, readonly string[]>> = {
-  "web/src/components/attendee/attendeeCopy.ts": ["بلیت", "نشست", "گردید"],
+  "web/src/components/attendee/attendeeCopy.ts": ["گردید"],
   "web/src/components/booth/LeadList.tsx": ["نمایید"],
   "web/src/components/booth/boothText.ts": ["تلاش مجدد", "پیشخوان"],
   "web/src/components/organizer/BoothStaffDialog.tsx": ["پورتال"],
@@ -68,7 +68,6 @@ const ALLOWED: Readonly<Record<string, readonly string[]>> = {
   "web/src/components/reception/WalkInForm.tsx": ["لینک"],
   "web/src/components/scanner/copy.ts": ["توکن", "ابطال", "کنسول"],
   "web/src/components/sms/SmsTemplateEditor.tsx": ["رده", "بلیت", "لینک"],
-  "web/src/lib/attendeeSession.ts": ["نشست"],
   "web/src/lib/organizerConsole.ts": ["جست‌وجو", "کنسول", "نشست", "بارگیری"],
   "web/src/lib/participants.ts": ["بلیت", "گیت"],
   "web/src/pages/AttendeeSignIn.tsx": ["فضای کاری", "پرتال", "سرنخ"],

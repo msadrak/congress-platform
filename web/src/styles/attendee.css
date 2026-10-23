@@ -13,18 +13,6 @@
   pointer-events: auto;
 }
 
-/* ── Hero scrim: keeps text legible over the generative artwork (mirrors in RTL) ── */
-.at-hero-scrim {
-  background:
-    linear-gradient(to right, rgb(14 12 43 / 0.96) 0%, rgb(14 12 43 / 0.82) 42%, rgb(14 12 43 / 0.15) 100%),
-    linear-gradient(to top, rgb(14 12 43 / 0.7), transparent 55%);
-}
-[dir="rtl"] .at-hero-scrim {
-  background:
-    linear-gradient(to left, rgb(14 12 43 / 0.96) 0%, rgb(14 12 43 / 0.82) 42%, rgb(14 12 43 / 0.15) 100%),
-    linear-gradient(to top, rgb(14 12 43 / 0.7), transparent 55%);
-}
-
 /* ── Monogram: initials disc inside a crossing-arcs gradient ring ───────────── */
 .at-monogram {
   display: inline-grid;
