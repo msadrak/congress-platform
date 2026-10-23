@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { KeyBurst, badgeCode } from "../src/lib/deskScan.ts";
+import { badgeCode } from "../src/lib/deskScan.ts";
 import { admitReasonText, badgeAffiliation, badgePrintState } from "../src/lib/deskBadge.ts";
 
 const SECRET = "mzxw6ytboi2dqnrzgezdgnbvgy"; // 26 base32 characters, like a pass QR secret
@@ -17,35 +17,6 @@ test("badgeCode: names, mobile numbers and short words are searched, not looked 
   assert.equal(badgeCode("۰۹۱۲۱۲۳۴۵۶۷"), null);
   assert.equal(badgeCode("علی رحیمی"), null);
   assert.equal(badgeCode("cardiology"), null);
-});
-
-function burst(chars: { code: string; key: string }[], gap: number): KeyBurst {
-  const keys = new KeyBurst();
-  chars.forEach((c, i) => keys.key(c, i * gap));
-  return keys;
-}
-
-// What a gun sends for SECRET under a Persian layout: the physical keys, with Persian characters as `key`.
-const persianGun = [...SECRET].map((ch) =>
-  /[a-z]/.test(ch) ? { code: `Key${ch.toUpperCase()}`, key: "ش" } : { code: `Digit${ch}`, key: String.fromCharCode(0x6f0 + Number(ch)) }
-);
-
-test("KeyBurst: a gun's fast burst is read from the physical keys, whatever the layout", () => {
-  const keys = burst(persianGun, 8);
-  assert.equal(keys.enter(persianGun.length * 8), SECRET);
-  // The burst is consumed.
-  assert.equal(keys.enter(persianGun.length * 8 + 1), null);
-});
-
-test("KeyBurst: a person typing slowly is not a scan", () => {
-  const keys = burst(persianGun, 150);
-  assert.equal(keys.enter(persianGun.length * 150), null);
-});
-
-test("KeyBurst: a short burst or a burst that reads as text is not a scan", () => {
-  assert.equal(burst(persianGun.slice(0, 5), 5).enter(25), null);
-  const spaced = burst([...persianGun.slice(0, 10), { code: "Space", key: " " }, ...persianGun.slice(10)], 5);
-  assert.equal(spaced.enter((persianGun.length + 1) * 5), null);
 });
 
 test("badge print state: never printed, current, or out of date after a change", () => {

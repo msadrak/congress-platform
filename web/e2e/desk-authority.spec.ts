@@ -122,6 +122,10 @@ test('organizer-only start opens organizer mode without borrowing any desk crede
   await page.goto('/organizer/events/event-a/desk');
   await expect(page.getByText('Organizer Admin')).toBeVisible();
   expect(only(requests, organizerKey)).toBe(true);
+  // A manager reaches the desk operators from the desk's menu.
+  await page.locator('#organizer-main-content').getByRole('button', { name: 'Menu' }).click();
+  await page.getByRole('menuitem', { name: 'Desk operators' }).click();
+  await expect(page).toHaveURL(/\/organizer\/events\/event-a\/operators$/);
 });
 
 test('a rejected organizer key in organizer mode leaves the desk token untouched and never falls back', async ({ page }) => {

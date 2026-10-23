@@ -238,8 +238,16 @@ test('editing the registration after printing flags the badge for reprinting; th
   await page.getByRole('menuitem', { name: 'Cancel pass' }).click();
   const confirm = page.getByRole('dialog', { name: 'Cancel this pass?' });
   await expect(confirm).toBeVisible();
+  await expect(confirm.getByLabel('Reason')).toBeVisible();
   await confirm.getByRole('button', { name: 'Cancel', exact: true }).click();
   expect(fx.requests.filter(r => r.path.endsWith('/cancel'))).toHaveLength(0);
+
+  // The optional reason goes to the audit trail with the cancellation.
+  await page.getByRole('button', { name: 'More actions for Neda Amini' }).click();
+  await page.getByRole('menuitem', { name: 'Cancel pass' }).click();
+  await confirm.getByLabel('Reason').fill('Duplicate registration');
+  await confirm.getByRole('button', { name: 'Cancel pass' }).click();
+  await expect.poll(() => fx.requests.find(r => r.path.endsWith('/cancel'))?.body).toEqual({ reason: 'Duplicate registration', notify: true });
 });
 
 test('Esc is «Next»: the card closes and the cursor is back in the search', async ({ page }) => {

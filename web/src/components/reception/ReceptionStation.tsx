@@ -48,6 +48,8 @@ import "../../styles/reception.css";
 export interface OrganizerAccess {
   apiKey: string | null;
   onKeyRejected: (sentKey: string) => void;
+  /** A manager or owner: the menu links to the desk operators page. */
+  canManageOperators?: boolean;
 }
 
 export type DeskMode = "operator" | "organizer";
@@ -781,6 +783,9 @@ export function ReceptionStation({ eventId, organizer, locale }: ReceptionStatio
     );
   }
   if (!standalone) menuItems.push({ id: "settings", label: c.congressSettings, icon: "sliders", onSelect: () => navigate(`/organizer/events/${eventId}`) });
+  if (organizer?.canManageOperators) {
+    menuItems.push({ id: "operators", label: c.deskOperators, icon: "users", onSelect: () => navigate(`/organizer/events/${eventId}/operators`) });
+  }
   menuItems.push({ id: "language", label: op.menu.language, lang: op.menu.languageLang, icon: "globe", onSelect: () => setLocale(OTHER_LOCALE[locale]) });
   if (mode === "operator" && deskToken) menuItems.push({ id: "signout", label: op.menu.signOut, icon: "logout", danger: true, divider: true, onSelect: () => setSignOutOpen(true) });
 

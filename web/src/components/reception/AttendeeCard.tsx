@@ -9,7 +9,9 @@ import type { AttendeeLocale } from "../../lib/i18n";
 import { VerdictBanner } from "../operator/VerdictBanner";
 import { Badge } from "../ui/Badge";
 import { Button, IconButton } from "../ui/Button";
+import { Field } from "../ui/Field";
 import { Icon } from "../ui/Icon";
+import { Textarea } from "../ui/Input";
 import { MetaList, type MetaListItem } from "../ui/MetaList";
 import { Notice } from "../ui/Notice";
 import { RowActions, type RowAction } from "../ui/RowActions";
@@ -113,6 +115,8 @@ function ReadyCard({ card, headingRef, eventName, printable, onNext, onPrint, ac
   const [verdict, setVerdict] = useState<Verdict | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [dialog, setDialog] = useState<"edit" | "transfer" | null>(null);
+  /** The optional reason typed into the cancel confirmation; it goes into the audit trail. */
+  const [cancelReason, setCancelReason] = useState("");
   // Details start open where there is room for them (kiosk and desktop), folded on phones and tablets.
   const [detailsOpen, setDetailsOpen] = useState(() => typeof window !== "undefined" && window.matchMedia?.("(min-width: 1024px)").matches === true);
 
@@ -193,8 +197,21 @@ function ReadyCard({ card, headingRef, eventName, printable, onNext, onPrint, ac
       label: c.cancelPass,
       icon: "x-circle",
       disabled: offline,
-      destructive: { title: c.cancelTitle, description: c.cancelBody, confirmLabel: c.cancelPass },
-      onSelect: () => void run(() => actions.cancel(card.ticket_id, ""), c.cancelled),
+      destructive: {
+        title: c.cancelTitle,
+        description: c.cancelBody,
+        confirmLabel: c.cancelPass,
+        body: (
+          <Field label={c.cancelReason} optional>
+            <Textarea rows={2} maxLength={300} value={cancelReason} onChange={(event) => setCancelReason(event.target.value)} />
+          </Field>
+        ),
+      },
+      onSelect: () => {
+        const reason = cancelReason.trim();
+        setCancelReason("");
+        void run(() => actions.cancel(card.ticket_id, reason), c.cancelled);
+      },
     });
   }
 

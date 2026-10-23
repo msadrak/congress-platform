@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
+import { useEffect, useId, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
 import { Button, IconButton } from "./Button";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { Icon, type IconName } from "./Icon";
@@ -14,7 +14,7 @@ export interface RowAction {
    * Marks a destructive action. It is only ever offered inside the ⋯ menu, in danger text, and runs only
    * after this confirmation (title = a question, confirmLabel = the verb).
    */
-  destructive?: { title: string; description?: string; confirmLabel: string };
+  destructive?: { title: string; description?: string; confirmLabel: string; body?: ReactNode };
 }
 
 export interface RowActionsProps {
@@ -37,10 +37,13 @@ export function RowActions({ actions, visible = 2, menuLabel, className = "" }: 
   const safe = actions.filter((a) => !a.destructive);
   const shown = safe.slice(0, visible);
   const menu = [...safe.slice(visible), ...actions.filter((a) => a.destructive)];
-  const [pending, setPending] = useState<RowAction | null>(null);
+  // The label of the action waiting for confirmation; the action itself is read from this render's props, so a
+  // confirmation body (e.g. an optional reason field) and `onSelect` always see the caller's current state.
+  const [pendingLabel, setPendingLabel] = useState<string | null>(null);
+  const pending = actions.find((a) => a.label === pendingLabel && a.destructive) ?? null;
 
   function run(action: RowAction) {
-    if (action.destructive) setPending(action);
+    if (action.destructive) setPendingLabel(action.label);
     else action.onSelect();
   }
 
@@ -67,13 +70,14 @@ export function RowActions({ actions, visible = 2, menuLabel, className = "" }: 
           title={pending.destructive.title}
           description={pending.destructive.description}
           confirmLabel={pending.destructive.confirmLabel}
-          onCancel={() => setPending(null)}
+          onCancel={() => setPendingLabel(null)}
           onConfirm={() => {
-            const action = pending;
-            setPending(null);
-            action.onSelect();
+            setPendingLabel(null);
+            pending.onSelect();
           }}
-        />
+        >
+          {pending.destructive.body}
+        </ConfirmDialog>
       )}
     </div>
   );

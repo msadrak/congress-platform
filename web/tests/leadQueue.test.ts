@@ -6,6 +6,7 @@ import {
   classifySend,
   dueScans,
   enqueueLeadScan,
+  maskedCode,
   nextRetryAt,
   retryDelayMs,
   retryNow,
@@ -307,4 +308,12 @@ test("sync: a scan sent before the congress was archived stays sent", async () =
   assert.equal(report.synced.length, 1);
   const left = await store.list("user-a", "booth-a");
   assert.deepEqual(left.map((s) => [s.id, s.state]), [["2", "failed"]]);
+});
+
+test("maskedCode shows only the last four characters of a queued badge code", () => {
+  const secret = "mzxw6ytboi2dqnrzgezdgnbvgy";
+  assert.equal(maskedCode(secret), "…bvgy");
+  assert.equal(maskedCode(`  ${secret}\n`), "…bvgy");
+  assert.ok(!maskedCode(secret).includes(secret.slice(0, 8)));
+  assert.equal(maskedCode("ab"), "…ab");
 });
