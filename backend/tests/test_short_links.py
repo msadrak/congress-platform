@@ -197,6 +197,7 @@ async def test_the_link_opens_the_pass_read_only_without_signing_in(app: FastAPI
             "ends_at": body["event"]["ends_at"], "location": EVENT["location"],
         },
         "attendee": {"full_name": "Dr. Neda Karimi", "organization": "Heart Center", "title": "Cardiologist"},
+        "event_timezone": "Asia/Tehran",
     }
     assert datetime.fromisoformat(body["expires_at"]) == link.expires_at
     assert datetime.fromisoformat(body["issued_at"]) == datetime.fromisoformat(ticket["created_at"])
@@ -205,6 +206,21 @@ async def test_the_link_opens_the_pass_read_only_without_signing_in(app: FastAPI
     assert MOBILE not in resolved.text
     # Case and surrounding spaces from a hand-typed code are forgiven.
     assert (await client.post(RESOLVE, json={"code": f" {code.upper()} "})).status_code == 200
+
+
+async def test_the_pass_names_the_congress_time_zone_it_was_organized_in(app: FastAPI, client: AsyncClient) -> None:
+    """The pass shows its dates in the congress's own zone (not the phone's), so the response says which zone."""
+    organizer, event_id, tier_id = await setup(client)
+    moved = await client.patch(f"/api/events/{event_id}", json={"timezone": "Europe/Berlin"}, headers=bearer(organizer))
+    assert moved.status_code == 200, moved.text
+    ticket = await reserve(client, event_id, tier_id)
+    match = LINK.search(await confirmation_body(app, ticket["id"]))
+    assert match, "the confirmation carries no short link"
+
+    resolved = await client.post(RESOLVE, json={"code": match.group(1)})
+
+    assert resolved.status_code == 200, resolved.text
+    assert resolved.json()["event_timezone"] == "Europe/Berlin"
 
 
 async def test_opens_are_counted(app: FastAPI, client: AsyncClient) -> None:

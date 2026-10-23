@@ -55,6 +55,8 @@ class AttendeeTicketDetail(BaseModel):
     event_location: str
     event_starts_at: datetime
     event_ends_at: datetime
+    # The congress's own IANA zone (`events.timezone`): the pass shows its dates in it, not in the phone's zone.
+    event_timezone: str
     ticket_tier_id: uuid.UUID
     ticket_tier_name: str
     attendee_name: str
@@ -281,6 +283,7 @@ async def get_my_tickets(
             event_location=event.location,
             event_starts_at=event.starts_at,
             event_ends_at=event.ends_at,
+            event_timezone=event.timezone,
             ticket_tier_id=tier.id,
             ticket_tier_name=tier.name,
             attendee_name=ticket.attendee_full_name,
