@@ -71,17 +71,17 @@ Branch `ws/ux-<id>` (team2: `ws/team2-ux-<id>`). A phase-1 package starts when t
 | UX-F7 backend: booth `event_archived`, SMS default texts | 0 | — | coordinator team | merged (`ws/ux-f7` 3940717) |
 | UX-F4 shared ui primitives | 0 | F1 | coordinator team | merged (`ws/ux-f4` 5af511a) |
 | UX-F8 organizer scaffold (`canEdit`, offline, RolePicker) | 0 | F4 | coordinator team | merged (`ws/ux-f8` 5227c74) |
-| UX-SCAN scanner | 1 | F1–F6 | coordinator team | taken (`ws/ux-scan`) |
-| UX-DESK reception desk | 1 | F1–F6 | coordinator team | taken (`ws/ux-desk`) |
-| UX-BOOTH booth panel | 1 | F1–F7 | coordinator team | taken (`ws/ux-booth`) |
-| UX-ATT-PASS pass + link pass (also `lib/ticketCache.ts`) | 1 | F1–F5 | team2 | ready to merge (`ws/team2-ux-att-pass` 389dfbc; report below) |
+| UX-SCAN scanner | 1 | F1–F6 | coordinator team | merged (`ws/ux-scan` 9074314) |
+| UX-DESK reception desk | 1 | F1–F6 | coordinator team | merged (`ws/ux-desk` 64de308) |
+| UX-BOOTH booth panel | 1 | F1–F7 | coordinator team | merged (`ws/ux-booth` 025aa2a) |
+| UX-ATT-PASS pass + link pass (also `lib/ticketCache.ts`) | 1 | F1–F5 | team2 | merged (`ws/team2-ux-att-pass` 389dfbc; report below) |
 | UX-ATT-SHELL attendee shell, Home/Program, /me, Network, Profile | 1 | F1–F5 | team2 | waiting |
-| UX-PUB platform home, public congress, reservation, booth page | 1 | F1–F4 | coordinator team | taken (`ws/ux-pub`) |
-| UX-ORG-1 organizer shell, congress list, overview, members, activity | 1 | F1–F4, F8 | coordinator team | waiting |
-| UX-ORG-2 program, venue, Page Studio | 1 | F1–F4, F8 | coordinator team | waiting |
-| UX-ORG-3 check-in, operators, ticket types, booths | 1 | F1–F4, F8 | coordinator team | waiting |
-| UX-ORG-4 participants, SMS, statistics | 1 | F1–F4, F8 | coordinator team | waiting |
-| UX-PLAT platform admin | 1 | F1–F4, F8 | coordinator team | waiting |
+| UX-PUB platform home, public congress, reservation, booth page | 1 | F1–F4 | coordinator team | merged (`ws/ux-pub` b4134f2) |
+| UX-ORG-1 organizer shell, congress list, overview, members, activity | 1 | F1–F4, F8 | coordinator team | merged (`ws/ux-org1` 0646153) |
+| UX-ORG-2 program, venue, Page Studio | 1 | F1–F4, F8 | coordinator team | merged (`ws/ux-org2` d63916f) |
+| UX-ORG-3 check-in, operators, ticket types, booths | 1 | F1–F4, F8 | coordinator team | merged (`ws/ux-org3` 7060349) |
+| UX-ORG-4 participants, SMS, statistics | 1 | F1–F4, F8 | coordinator team | merged (`ws/ux-org4` 11d54a6) |
+| UX-PLAT platform admin | 1 | F1–F4, F8 | coordinator team | merged (`ws/ux-plat` 346775f) |
 | UX-Z cleanup, design guard, copy baseline 0, screenshot re-run | 2 | all of phase 1 | coordinator team | waiting |
 
 ### UX-F5 report (team2, 2026-10-23) — `ws/team2-ux-f5` at `4989c8f`, from `0170ef6`
