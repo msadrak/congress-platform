@@ -212,9 +212,9 @@ export function ScannerPairingDialog({ point, onClose, onDevicesChange }: Scanne
           </h3>
           {loopback && <FormAlert>{copy.loopback}</FormAlert>}
           {issued ? (
-            <div className="space-y-4" data-testid="pairing-ready">
+            <section aria-labelledby="pairing-ready-title" className="space-y-4" data-testid="pairing-ready">
               <div className="space-y-1">
-                <p className="flex items-center gap-2 text-body-sm font-bold text-status-success-text">
+                <p id="pairing-ready-title" className="flex items-center gap-2 text-body-sm font-bold text-status-success-text">
                   <Icon name="check-circle" size={20} />
                   {copy.ready}
                 </p>
@@ -255,7 +255,7 @@ export function ScannerPairingDialog({ point, onClose, onDevicesChange }: Scanne
               <span role="status" className="sr-only">
                 {copied ? copy.copiedStatus : ""}
               </span>
-            </div>
+            </section>
           ) : (
             <form onSubmit={handleIssue} className="space-y-4" noValidate>
               <Field label={copy.nameLabel} required hint={copy.nameHint} error={formError}>

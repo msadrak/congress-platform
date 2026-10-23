@@ -361,7 +361,7 @@ const en: CopyShape<typeof fa> = {
     openDesk: "Open reception desk",
     addressTitle: "Reception desk address",
     addressBody: "Operators open this link and sign in with an SMS code.",
-    qrLabel: "Reception desk address QR code",
+    qrLabel: "Reception address QR code",
     copyAddress: "Copy link",
     copiedStatus: "Reception desk address copied.",
     copyFailed: "Couldn't copy; select the address by hand.",
