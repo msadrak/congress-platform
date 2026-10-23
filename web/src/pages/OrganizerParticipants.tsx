@@ -43,6 +43,8 @@ export default function OrganizerParticipants() {
   const { eventId, event, client, apiKey, locale, can } = useEventWorkspace();
   // Staff look participants up; changing a ticket and the export are a manager's (backend/app/roles.py).
   const canManage = can("manager");
+  // The list itself carries personal data: staff and up (a viewer is answered ROLE_FORBIDDEN).
+  const canLookUp = can("staff");
   const copy = PARTICIPANTS_COPY[locale];
 
   const api = useMemo(() => (apiKey && eventId ? createParticipantsApi(apiKey, eventId) : null), [apiKey, eventId]);
@@ -96,7 +98,7 @@ export default function OrganizerParticipants() {
 
   const requestSeq = useRef(0);
   useEffect(() => {
-    if (!api) return;
+    if (!api || !canLookUp) return;
     const seq = ++requestSeq.current;
     setLoading(true);
     setLoadError(null);
@@ -120,7 +122,7 @@ export default function OrganizerParticipants() {
       });
     // The copy language does not trigger a reload.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [api, filters, reloadToken]);
+  }, [api, canLookUp, filters, reloadToken]);
 
   const reload = useCallback(() => setReloadToken((n) => n + 1), []);
 
@@ -202,6 +204,19 @@ export default function OrganizerParticipants() {
   );
 
   const range = data ? pageRange(data.offset, data.items.length, data.total) : null;
+
+  if (!canLookUp) {
+    return (
+      <div className="space-y-6">
+        {header}
+        <EmptyState icon="lock" title={locale === "fa" ? "فهرست شرکت‌کنندگان برای نقش شما در دسترس نیست." : "The participant list is not available to your role."}>
+          {locale === "fa"
+            ? "اطلاعات شخصی شرکت‌کنندگان را کارکنان و مدیران سازمان می‌بینند. آمار کلی در بخش تحلیل در دسترس است."
+            : "Participants' personal data is for the organization's staff and managers. Aggregate figures are in Analytics."}
+        </EmptyState>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">

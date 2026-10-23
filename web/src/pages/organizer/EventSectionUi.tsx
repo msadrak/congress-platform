@@ -13,7 +13,7 @@ export type SectionNoticeState = { tone: "ok" | "error"; text: string } | null;
  * `!event || error || !listsLoaded`; it renders nothing once the event is there.
  */
 export function EventSectionGate({ listsLoaded }: { listsLoaded: boolean }) {
-  const { event, loading, error, isRtl, t } = useEventWorkspace();
+  const { event, loading, error, reload, isRtl, t } = useEventWorkspace();
   if ((loading && !event) || !listsLoaded) {
     return (
       <div className="space-y-6" aria-hidden="true">
@@ -38,8 +38,19 @@ export function EventSectionGate({ listsLoaded }: { listsLoaded: boolean }) {
           <Icon name="alert" size={26} />
         </span>
         <h1 className="pt-1 text-xl font-bold text-status-danger-text">{isRtl ? "خطا در بارگذاری همایش" : "Failed to Load Event"}</h1>
-        <p className="text-sm text-text-secondary">{error}</p>
-        <div className="pt-3">
+        <p className="text-sm text-text-secondary">
+          {isRtl ? "اطلاعات این همایش دریافت نشد. دوباره تلاش کنید." : "This congress could not be loaded. Try again."}
+        </p>
+        {error && (
+          <p dir="auto" className="text-xs text-text-muted" data-testid="event-load-error">
+            {error}
+          </p>
+        )}
+        <div className="flex flex-wrap justify-center gap-2 pt-3">
+          <Button type="button" variant="primary" size="md" disabled={loading} aria-busy={loading} onClick={reload}>
+            <Icon name="sync" size={18} />
+            {t.retryAction}
+          </Button>
           <LinkButton to="/organizer" variant="secondary" size="md">
             <Icon name="arrow-left" size={18} />
             {t.breadcrumbEvents}

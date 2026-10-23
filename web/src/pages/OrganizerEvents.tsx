@@ -1,11 +1,11 @@
 import React, { useEffect, useState } from "react";
 import { Link, useLocation, useOutletContext } from "react-router-dom";
-import { createApiClient, formatApiError, type EventCreate, type EventOut } from "../api/client";
+import { createApiClient, localizedApiError, type EventCreate, type EventOut } from "../api/client";
 import { parseSessionDateTime } from "../lib/sessionCsv";
 import { formatLocalizedDate, formatLocalizedNumber } from "../lib/i18n";
 import { eventFormProblem, eventTimeStatus, type EventFormField } from "../lib/organizerWorkspace";
 import { eventAccentStyle } from "../lib/eventAccent";
-import { sessionAllows } from "../lib/organizerConsole";
+import { sessionAllows } from "../components/organizer/roleAccess";
 import { Badge } from "../components/ui/Badge";
 import type { OrganizerOutletContext } from "./OrganizerLayout";
 import { Button, LinkButton } from "../components/ui/Button";
@@ -49,7 +49,9 @@ export default function OrganizerEvents() {
     return isRtl ? `همایش «${deleted}» حذف شد.` : `Congress “${deleted}” deleted.`;
   });
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  // The failure body, localized when shown (a language switch re-words it without a refetch).
+  const [failure, setFailure] = useState<{ body: unknown } | null>(null);
+  const error = failure ? localizedApiError(failure.body, locale) : null;
 
   // Event creation modal state
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -77,13 +79,13 @@ export default function OrganizerEvents() {
     let isMounted = true;
     const fetchEvents = async () => {
       setLoading(true);
-      setError(null);
+      setFailure(null);
       const client = createApiClient({ kind: "organizer", token: apiKey });
       // A 401 reaches the layout's key gate through the API client (registerUnauthorizedHandler).
       const { data, error: err } = await client.GET("/api/events");
       if (!isMounted) return;
       if (err) {
-        setError(formatApiError(err));
+        setFailure({ body: err });
       } else if (data) {
         setEvents(data);
       }
@@ -145,7 +147,7 @@ export default function OrganizerEvents() {
 
     setSubmitting(false);
     if (err) {
-      setFormError(formatApiError(err));
+      setFormError(localizedApiError(err, locale));
     } else if (data) {
       setEvents((prev) => [...prev, data]);
       setNotice(isRtl ? `همایش «${data.name}» ایجاد شد.` : `Event “${data.name}” created.`);

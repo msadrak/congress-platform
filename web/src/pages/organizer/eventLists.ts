@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, type Dispatch, type SetStateAction } from "react";
 import {
-  formatApiError,
+  localizedApiError,
   type BoothOut,
   type CheckInPointOut,
   type DeskOperatorOut,
@@ -43,11 +43,13 @@ export interface EventList<T> {
  * signed-in role may not read) loads nothing and reads as an empty, loaded list.
  */
 export function useEventList<T>(loader: EventListLoader<T>, enabled = true): EventList<T> {
-  const { eventId, apiKey, client } = useEventWorkspace();
+  const { eventId, apiKey, client, locale } = useEventWorkspace();
   const [items, setItems] = useState<T[]>([]);
   const [loading, setLoading] = useState(true);
   const [loaded, setLoaded] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  // The failure body is kept and localized when shown, so a language switch re-words it without a refetch.
+  const [failure, setFailure] = useState<{ body: unknown } | null>(null);
+  const error = failure ? localizedApiError(failure.body, locale) : null;
   const [reloadToken, setReloadToken] = useState(0);
 
   useEffect(() => {
@@ -61,7 +63,7 @@ export function useEventList<T>(loader: EventListLoader<T>, enabled = true): Eve
       const res = await loader(client, eventId);
       if (!isMounted) return;
       if (!res.error && res.data) setItems(res.data);
-      setError(res.error ? formatApiError(res.error) : null);
+      setFailure(res.error ? { body: res.error } : null);
       setLoaded(true);
       setLoading(false);
     };

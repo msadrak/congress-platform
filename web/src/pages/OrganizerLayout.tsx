@@ -19,7 +19,8 @@ import { usePageTitle } from "../hooks/usePageTitle";
 import { EventStatusBadge } from "../components/organizer/WorkspaceUi";
 import { eventAccentStyle } from "../lib/eventAccent";
 import { PARTICIPANTS_COPY } from "../lib/participants";
-import { CONSOLE_COPY, ROLE_COPY, roleAtLeast, sessionAllows } from "../lib/organizerConsole";
+import { CONSOLE_COPY, ROLE_COPY, roleAtLeast } from "../lib/organizerConsole";
+import { sessionAllows } from "../components/organizer/roleAccess";
 import "../styles/organizer.css";
 
 export type ActiveEvent = Pick<EventOut, "id" | "name" | "slug" | "starts_at" | "ends_at">;

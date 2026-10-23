@@ -36,7 +36,7 @@ import {
   type SectionType,
 } from "../lib/pageDocument";
 import { uploadPageImage, useOrganizerImages } from "../lib/pageMedia";
-import { sessionAllows } from "../lib/organizerConsole";
+import { sessionAllows } from "../components/organizer/roleAccess";
 import type { OrganizerOutletContext } from "./OrganizerLayout";
 
 type Tab = "sections" | "brand" | "seo";

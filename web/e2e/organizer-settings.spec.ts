@@ -12,6 +12,8 @@ interface Options {
   deleteStatus?: number;
   tierDeleteStatus?: number;
   pagePublished?: boolean;
+  /** The first GET of the event answers 500. */
+  eventFailsOnce?: boolean;
 }
 
 type Recorded = { method: string; path: string; body: unknown };
@@ -19,6 +21,7 @@ type Recorded = { method: string; path: string; body: unknown };
 async function fixture(page: Page, options: Options = {}) {
   const requests: Recorded[] = [];
   const role = options.role ?? 'owner';
+  let eventFails = options.eventFailsOnce ?? false;
   let event: Record<string, unknown> = {
     id: 'event-s', name: 'Settings Congress', slug: 'settings-congress', starts_at: '2099-05-10T05:30:00Z', ends_at: '2099-05-12T14:30:00Z',
     location: 'Tehran Hall', description: 'About', timezone: 'Asia/Tehran', registration_enabled: true, registration_opens_at: null,
@@ -49,7 +52,13 @@ async function fixture(page: Page, options: Options = {}) {
     }
     if (path === '/api/events') return json(200, [event]);
     const base = '/api/events/event-s';
-    if (path === base && method === 'GET') return json(200, event);
+    if (path === base && method === 'GET') {
+      if (eventFails) {
+        eventFails = false;
+        return json(500, { detail: 'Internal Server Error' });
+      }
+      return json(200, event);
+    }
     if (path === base && method === 'PATCH') {
       event = { ...event, ...body };
       return json(200, event);
@@ -312,4 +321,20 @@ test('staff see booth representatives but cannot change them', async ({ page }) 
   await expect(dialog.getByTestId('booth-staff-list').getByRole('listitem')).toHaveCount(2);
   await expect(dialog.getByRole('button', { name: /Remove/ })).toHaveCount(0);
   await expect(dialog.getByRole('button', { name: 'Authorize Representative' })).toHaveCount(0);
+});
+
+test('a viewer is told the participant list is not for their role, with no search or export', async ({ page }) => {
+  await fixture(page, { role: 'viewer' });
+  await page.goto('/organizer/events/event-s/participants');
+  await expect(page.getByText('The participant list is not available to your role.')).toBeVisible();
+  await expect(page.getByRole('search')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /CSV/ })).toHaveCount(0);
+});
+
+test('a congress that failed to load offers a retry', async ({ page }) => {
+  await fixture(page, { eventFailsOnce: true });
+  await page.goto('/organizer/events/event-s');
+  await expect(page.getByText('This congress could not be loaded. Try again.')).toBeVisible();
+  await page.getByRole('button', { name: 'Try again' }).click();
+  await expect(page.getByTestId('event-settings')).toBeVisible();
 });

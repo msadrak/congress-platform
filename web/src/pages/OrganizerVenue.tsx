@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useOutletContext, useParams } from "react-router-dom";
 import {
   createApiClient,
-  formatApiError,
   localizedApiError,
   type EventOut,
   type EventSessionOut,
@@ -17,7 +16,7 @@ import { ConfirmDialog } from "../components/ui/ConfirmDialog";
 import { Dialog } from "../components/ui/Dialog";
 import { Icon, type IconName } from "../components/ui/Icon";
 import { DialogActions, EmptyState, Field, FormAlert, Notice, SectionHeader } from "../components/organizer/WorkspaceUi";
-import { sessionAllows } from "../lib/organizerConsole";
+import { sessionAllows } from "../components/organizer/roleAccess";
 
 /** The API's order within a kind: position, then creation. */
 const byPosition = (a: VenuePlaceOut, b: VenuePlaceOut) => a.position - b.position || a.created_at.localeCompare(b.created_at);
@@ -71,7 +70,7 @@ function OrganizerVenueContent() {
       if (list.data) setPlaces(list.data);
       if (program.data) setSessions(program.data);
       const failure = ev.error ?? list.error;
-      if (failure) setLoadError(formatApiError(failure));
+      if (failure) setLoadError(localizedApiError(failure, locale));
       setLoading(false);
     })().catch(() => {
       if (active) {

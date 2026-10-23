@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useOutletContext, useParams } from "react-router-dom";
 import {
   createApiClient,
-  formatApiError,
   localizedApiError,
   type EventOut,
   type SmsMessageOut,
@@ -17,7 +16,7 @@ import { EmptyState, FormAlert, SectionHeader } from "../components/organizer/Wo
 import { SmsTemplateEditor } from "../components/sms/SmsTemplateEditor";
 import { networkErrorMessage } from "../lib/errorMessages";
 import { eventSectionNumber } from "../lib/organizerWorkspace";
-import { sessionAllows } from "../lib/organizerConsole";
+import { sessionAllows } from "../components/organizer/roleAccess";
 
 const STATUS_BADGE: Record<string, "success" | "warning" | "danger" | "neutral"> = {
   sent: "success",
@@ -78,7 +77,7 @@ function OrganizerSmsContent() {
       if (!active) return;
       if (ev.data) setEvent(ev.data);
       if (sms.data) setPanel(sms.data);
-      else setLoadError(sms.error ? formatApiError(sms.error) : null);
+      else setLoadError(sms.error ? localizedApiError(sms.error, locale) : null);
       if (log.data) setMessages(log.data);
       setLoading(false);
     })().catch(() => {

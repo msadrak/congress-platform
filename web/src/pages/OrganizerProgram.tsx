@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useOutletContext, useParams } from "react-router-dom";
 import {
   createApiClient,
-  formatApiError,
   localizedApiError,
   type EventOut,
   type EventSessionCreate,
@@ -22,7 +21,7 @@ import { SessionFormDialog } from "../components/organizer/SessionFormDialog";
 import { ScheduleFilesManager } from "../components/organizer/ScheduleFilesManager";
 import { TimetableImport } from "../components/organizer/TimetableImport";
 import { eventTimeZone, sessionDateFormats, toZonedDateTimeLocal } from "../components/organizer/sessionTime";
-import { sessionAllows } from "../lib/organizerConsole";
+import { sessionAllows } from "../components/organizer/roleAccess";
 
 /** The API's program order: start, then title, then id. */
 const bySchedule = (a: EventSessionOut, b: EventSessionOut) =>
@@ -77,7 +76,7 @@ function OrganizerProgramContent() {
       if (list.data) setSessions(list.data);
       if (places.data) setHalls(places.data.filter((p) => p.kind === "hall"));
       const failure = ev.error ?? list.error ?? places.error;
-      if (failure) setLoadError(formatApiError(failure));
+      if (failure) setLoadError(localizedApiError(failure, locale));
       setLoading(false);
     })().catch(() => {
       if (active) {

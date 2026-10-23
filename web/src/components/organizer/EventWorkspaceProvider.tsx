@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { createApiClient, formatApiError, type EventOut, type OrganizerRole } from "../../api/client";
-import { sessionAllows } from "../../lib/organizerConsole";
+import { createApiClient, localizedApiError, type EventOut, type OrganizerRole } from "../../api/client";
+import { sessionAllows } from "./roleAccess";
 import type { OrganizerOutletContext } from "../../pages/OrganizerLayout";
 import { EventWorkspaceContext } from "./eventWorkspaceContext";
 
@@ -20,7 +20,9 @@ export function EventWorkspaceProvider({ eventId, organizer, children }: EventWo
   const [active, setActive] = useState(false);
   const [event, setEvent] = useState<EventOut | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  // The failure body is kept and localized when shown, so a language switch re-words it without a refetch.
+  const [failure, setFailure] = useState<{ body: unknown } | null>(null);
+  const error = failure ? localizedApiError(failure.body, locale) : null;
   const [reloadToken, setReloadToken] = useState(0);
 
   useEffect(() => {
@@ -30,14 +32,14 @@ export function EventWorkspaceProvider({ eventId, organizer, children }: EventWo
 
     const loadEvent = async () => {
       setLoading(true);
-      setError(null);
+      setFailure(null);
       // A 401 reaches the layout's key gate through the API client (registerUnauthorizedHandler).
       const { data, error: err } = await client.GET("/api/events/{event_id}", {
         params: { path: { event_id: eventId } },
       });
       if (!isMounted) return;
       if (err) {
-        setError(formatApiError(err));
+        setFailure({ body: err });
       } else if (data) {
         setEvent(data);
       }
