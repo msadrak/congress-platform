@@ -774,6 +774,7 @@ async def search_event_attendees(
             .where(
                 CheckIn.ticket_id.in_([row[0].id for row in rows]),
                 CheckIn.status == "ADMITTED",
+                CheckIn.direction == "IN",
                 CheckInPoint.event_id == event.id,
             )
             .group_by(CheckIn.ticket_id)

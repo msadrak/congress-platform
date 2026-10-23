@@ -157,7 +157,7 @@ class ParticipantTransfer(BaseModel):
 def _checkin_count() -> Any:
     return (
         select(func.count(CheckIn.id))
-        .where(CheckIn.ticket_id == Ticket.id, CheckIn.status == "ADMITTED")
+        .where(CheckIn.ticket_id == Ticket.id, CheckIn.status == "ADMITTED", CheckIn.direction == "IN")
         .correlate(Ticket)
         .scalar_subquery()
     )
