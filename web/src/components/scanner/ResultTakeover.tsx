@@ -16,8 +16,16 @@ const ICON: Record<TakeoverKind, IconName> = {
  */
 export function ResultTakeover({ result, t, copy }: { result: LocalScanResult; t: TranslationDictionary; copy: ScannerCopy }) {
   const kind = takeoverKind(result);
-  const statusText =
-    kind === "admitted" ? t.statusConfirmedAdmitted : kind === "provisional" ? t.statusProvisionalAdmitted : t.statusRejected;
+  const exit = result.direction === "OUT" && result.status === "ADMITTED";
+  const statusText = exit
+    ? kind === "provisional"
+      ? copy.exitProvisional
+      : copy.exitRecorded
+    : kind === "admitted"
+      ? t.statusConfirmedAdmitted
+      : kind === "provisional"
+        ? t.statusProvisionalAdmitted
+        : t.statusRejected;
 
   return (
     <div role="alert" aria-live="assertive" className={`scanner-takeover scanner-takeover--${kind}`}>

@@ -150,6 +150,19 @@ export const scannerCopy = {
     reasonTicketInactive: "بلیط لغو شده یا کیوآرکد آن غیرفعال است",
     reasonEventMismatch: "این بلیط برای رویداد دیگری است",
     reasonLocalRejected: "رد شده در همین دستگاه",
+    reasonNotInside: "این شخص داخل نیست؛ خروج ثبت نشد",
+    reasonExitNotTracked: "این گیت خروج ثبت نمی‌کند",
+    reasonRequiredPoint: "ابتدا باید از گیت پیش‌نیاز وارد شود",
+    reasonPointArchived: "این گیت بایگانی شده است",
+    // Entry / exit (points that track occupancy)
+    directionLabel: "حالت اسکن",
+    entryMode: "ورود",
+    exitMode: "خروج",
+    exitModeBanner: "حالت خروج — اسکن‌ها خروج ثبت می‌کنند",
+    exitRecorded: "خروج ثبت شد",
+    exitProvisional: "خروج موقت ثبت شد (آفلاین)",
+    occupancyLabel: "داخل سالن",
+    dailyWindow: "هر روز یک بار",
     // Storage failure (blocking)
     storageFailedTitle: { fa: "این اسکن ثبت نشد — ورود ندهید", en: "Scan NOT recorded — do not admit" },
     storageFailedBody:
@@ -300,6 +313,18 @@ export const scannerCopy = {
     reasonTicketInactive: "Ticket cancelled or QR code deactivated",
     reasonEventMismatch: "Ticket belongs to another event",
     reasonLocalRejected: "Rejected on this device",
+    reasonNotInside: "Not inside: exit not recorded",
+    reasonExitNotTracked: "This gate does not record exits",
+    reasonRequiredPoint: "Must enter through the required gate first",
+    reasonPointArchived: "This check-in point is archived",
+    directionLabel: "Scan mode",
+    entryMode: "Entry",
+    exitMode: "Exit",
+    exitModeBanner: "Exit mode: scans record people leaving",
+    exitRecorded: "Exit recorded",
+    exitProvisional: "Exit recorded provisionally (offline)",
+    occupancyLabel: "Inside",
+    dailyWindow: "Once per day",
     storageFailedTitle: { fa: "این اسکن ثبت نشد — ورود ندهید", en: "Scan NOT recorded — do not admit" },
     storageFailedBody:
       "This device could not save the scan, so its admission would never reach the server. Reload the page; if it happens again, free browser storage or switch devices.",
@@ -348,6 +373,14 @@ export function rejectionLabel(t: TranslationDictionary, copy: ScannerCopy, reas
       return copy.reasonTicketInactive;
     case "EVENT_MISMATCH":
       return copy.reasonEventMismatch;
+    case "NOT_INSIDE":
+      return copy.reasonNotInside;
+    case "EXIT_NOT_TRACKED":
+      return copy.reasonExitNotTracked;
+    case "REQUIRED_POINT_NOT_VISITED":
+      return copy.reasonRequiredPoint;
+    case "POINT_ARCHIVED":
+      return copy.reasonPointArchived;
     default:
       return null;
   }

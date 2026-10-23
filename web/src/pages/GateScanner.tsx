@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent } from "react";
 import { Link, useParams } from "react-router-dom";
-import { createScannerApiClient, formatApiError, type CheckInManifest } from "../api/client";
+import { apiErrorCode, createScannerApiClient, formatApiError, type CheckInManifest } from "../api/client";
 import { playErrorBuzz, playSuccessChime, playProvisionalChime } from "../lib/audioFeedback";
 import { useAttendeeLocale } from "../lib/i18n";
 import jsQR from "jsqr";
@@ -12,7 +12,7 @@ import {
   type OfflineAuthVerdict,
 } from "../lib/scannerAuthPolicy";
 import { hidCharacter, normalizeScannedCode, qrHash } from "../lib/scannerInput";
-import { MANIFEST_POLL_MS, mergeManifest, upgradeLegacyManifest } from "../lib/scannerManifest";
+import { HEARTBEAT_MS, MANIFEST_POLL_MS, SCANNER_APP_VERSION, mergeManifest, upgradeLegacyManifest } from "../lib/scannerManifest";
 import {
   clearPersistedToken,
   getPersistedScannerCredential,
@@ -21,12 +21,15 @@ import {
   type PersistedScannerCredential,
 } from "../lib/scannerTokenStore";
 import {
+  admissionWindowKey,
   applyServerScan,
   evaluateLocalScan,
   reconstructLocalState,
+  type AdmissionContext,
   type LocalPolicyConfig,
   type LocalScanResult,
   type LocalTicket,
+  type ScanDirection,
 } from "../lib/scannerEngine";
 import {
   acknowledgeConflict,
@@ -58,6 +61,7 @@ import { ManualEntry } from "../components/scanner/ManualEntry";
 import { BufferBar, ScanLog } from "../components/scanner/ScanLog";
 import { DeviceSettings } from "../components/scanner/DeviceSettings";
 import { ConflictDrawer } from "../components/scanner/ConflictDrawer";
+import { DirectionToggle } from "../components/scanner/DirectionToggle";
 import "../styles/scanner.css";
 
 interface BarcodeDetectorInstance {
@@ -68,6 +72,8 @@ interface WindowWithBarcodeDetector extends Window {
   BarcodeDetector?: new (options?: { formats: string[] }) => BarcodeDetectorInstance;
 }
 
+/** Longest pause between heartbeats after failures. */
+const HEARTBEAT_MAX_BACKOFF_MS = 15 * 60_000;
 /** How long an online scan waits for the server's verdict before deciding locally (provisionally). */
 const SERVER_SCAN_TIMEOUT_MS = 2000;
 /** Largest batch the server accepts; longer queues upload in chunks. */
@@ -80,6 +86,18 @@ const MANIFEST_AFTER_SYNC_MIN_MS = 5000;
 const MANIFEST_RETRY_MS = 10_000;
 
 type ManifestRefresh = { kind: "ok" } | { kind: "blocked" | "transient"; detail: string };
+
+/** The admission window the device is in now, and the one the manifest's state refers to. */
+function admissionContext(manifest: CheckInManifest, at: Date = new Date()): AdmissionContext {
+  const point = manifest.checkin_point;
+  return {
+    window: admissionWindowKey(point.reset_window, manifest.event_timezone, at),
+    // A manifest of an older server carries no window: its state is taken as current.
+    manifestWindow: manifest.admission_window ?? undefined,
+    resetWindow: point.reset_window ?? "EVENT",
+    timeZone: manifest.event_timezone ?? undefined,
+  };
+}
 
 /** A cached manifest record as stored by this or an older scanner. */
 function isManifest(value: unknown): value is CheckInManifest {
@@ -214,14 +232,27 @@ export default function GateScanner() {
     }
   }, [pointId, storeCredential]);
 
-  // Authorization failure classification (Phase 3):
+  // Authorization failure classification (Phase 3), by the server's error code first:
   // - 401 missing/invalid/expired/revoked  -> definitive credential failure.
-  // - 403 wrong point/event/scope         -> definitive scope failure.
+  // - 403 wrong point/event/scope, archived point, deleted point -> definitive scope failure.
   // - Network throw / no status            -> transient. Keep scanning, retry later.
+  // Servers without codes are classified by status and their English text, as before.
   const classifyAuthFailure = (
     status: number | undefined,
-    detail: string
+    detail: string,
+    code?: string
   ): "REVOKED" | "FORBIDDEN" | "EXPIRED" | "TRANSIENT" => {
+    switch (code) {
+      case "SCANNER_REVOKED":
+      case "SCANNER_TOKEN_INVALID":
+      case "SCANNER_CREDENTIALS_MISSING":
+        return "REVOKED";
+      case "SCANNER_SCOPE_MISMATCH":
+      case "SCANNER_CREDENTIALS_REQUIRED":
+      case "CHECKIN_POINT_ARCHIVED":
+      case "POINT_NOT_FOUND":
+        return "FORBIDDEN";
+    }
     const lowered = detail.toLowerCase();
     if (status === 403 || lowered.includes("not authorized") || lowered.includes("insufficient permissions")) {
       return "FORBIDDEN";
@@ -291,13 +322,27 @@ export default function GateScanner() {
   const [ticketMap, setTicketMap] = useState<Record<string, LocalTicket>>({});
   // The admission state every scan evaluates against. evaluateLocalScan mutates the ticket entries in
   // place, so the map and the admitted count are only ever read and advanced through this ref.
-  const admissionRef = useRef<{ ticketMap: Record<string, LocalTicket>; admittedCount: number }>({
+  const admissionRef = useRef<{ ticketMap: Record<string, LocalTicket>; admittedCount: number; occupancy: number }>({
     ticketMap: {},
     admittedCount: 0,
+    occupancy: 0,
   });
-  const applyAdmissionState = (map: Record<string, LocalTicket>, admittedCount: number) => {
-    admissionRef.current = { ticketMap: map, admittedCount };
+  // People inside (points that track occupancy), as this device knows it; shown in the header.
+  const [occupancy, setOccupancy] = useState(0);
+  const applyAdmissionState = (map: Record<string, LocalTicket>, admittedCount: number, inside = 0) => {
+    admissionRef.current = { ticketMap: map, admittedCount, occupancy: inside };
     setTicketMap(map);
+    setOccupancy(inside);
+  };
+  // Entry or exit, at points that track occupancy; remembered per point for this tab.
+  const [direction, setDirectionState] = useState<ScanDirection>(() =>
+    typeof window !== "undefined" && pointId && sessionStorage.getItem(`congress_scanner_direction_${pointId}`) === "OUT" ? "OUT" : "IN"
+  );
+  const directionRef = useRef<ScanDirection>(direction);
+  const setDirection = (value: ScanDirection) => {
+    directionRef.current = value;
+    setDirectionState(value);
+    if (pointId) sessionStorage.setItem(`congress_scanner_direction_${pointId}`, value);
   };
   // Scans evaluated here but not yet written to IndexedDB, and a counter bumped whenever a scan is
   // evaluated or written. A rebuild (manifest load/refresh, sync conflicts) may only replace the live
@@ -315,11 +360,12 @@ export default function GateScanner() {
       );
       if (epoch !== scanEpochRef.current) continue;
       const saved = new Set(history.map((s) => s.scan_id));
-      const { ticketMap: map, currentAdmittedCount } = reconstructLocalState(source.tickets, [
-        ...history,
-        ...unsavedScansRef.current.filter((s) => !saved.has(s.scan_id)),
-      ]);
-      applyAdmissionState(map, currentAdmittedCount);
+      const { ticketMap: map, currentAdmittedCount, occupancy: inside } = reconstructLocalState(
+        source.tickets,
+        [...history, ...unsavedScansRef.current.filter((s) => !saved.has(s.scan_id))],
+        admissionContext(source)
+      );
+      applyAdmissionState(map, currentAdmittedCount, inside);
       return;
     }
   };
@@ -396,7 +442,7 @@ export default function GateScanner() {
         if (!res.data || !merged || !Array.isArray(merged.manifest.tickets)) {
           const status = res.response.status;
           const detail = res.error ? formatApiError(res.error) : `HTTP ${status}`;
-          const kind = classifyAuthFailure(status, detail);
+          const kind = classifyAuthFailure(status, detail, apiErrorCode(res.error));
           if (kind !== "TRANSIENT") {
             enterAuthBlocked(kind, detail);
             return { kind: "blocked", detail };
@@ -426,6 +472,42 @@ export default function GateScanner() {
     })();
     manifestInFlightRef.current = run;
     return run;
+  };
+
+  // While the server answers, the device reports its unsynced scans and version for the organizer's device list.
+  // A refused credential blocks the device like any other scanner call (no retries with a dead token); other
+  // failures back off, doubling up to 15 minutes, so a struggling server is not hammered.
+  const heartbeatRef = useRef({ at: 0, delay: HEARTBEAT_MS });
+  const sendHeartbeat = async () => {
+    const beat = heartbeatRef.current;
+    if (!pointId || !ownsPoint() || authBlockedRef.current || deactivationRef.current || !manifestRef.current) return;
+    if (!serverReachable() || Date.now() - beat.at < beat.delay) return;
+    const client = scannerClient(getStoredScannerToken());
+    if (!client) return;
+    beat.at = Date.now();
+    const backOff = () => {
+      beat.delay = Math.min(beat.delay * 2, HEARTBEAT_MAX_BACKOFF_MS);
+    };
+    try {
+      const unsynced = (await getUnsyncedScans(pointId)).length;
+      const { error, response } = await client.POST("/api/checkin-points/{point_id}/devices/self/heartbeat", {
+        params: { path: { point_id: pointId } },
+        body: { unsynced_count: unsynced, app_version: SCANNER_APP_VERSION },
+      });
+      if (response.ok) {
+        beat.delay = HEARTBEAT_MS;
+        return;
+      }
+      const detail = error ? formatApiError(error) : `HTTP ${response.status}`;
+      const kind = classifyAuthFailure(response.status, detail, apiErrorCode(error));
+      if (kind !== "TRANSIENT") {
+        enterAuthBlocked(kind, detail);
+        return;
+      }
+      backOff();
+    } catch {
+      backOff();
+    }
   };
 
   // Every 5 s tick: a delta every 30 s while the server answers; while it does not, a retry every 10 s
@@ -545,6 +627,7 @@ export default function GateScanner() {
                 scan_id: s.scan_id,
                 qr_secret: s.qr_secret,
                 scanned_at: s.scanned_at,
+                direction: s.direction ?? "IN",
                 ...clientVerdictFor(s),
               })),
             },
@@ -559,7 +642,7 @@ export default function GateScanner() {
           continue;
         }
         if (err) {
-          const kind = classifyAuthFailure(response.status, formatApiError(err));
+          const kind = classifyAuthFailure(response.status, formatApiError(err), apiErrorCode(err));
           if (kind !== "TRANSIENT") {
             enterAuthBlocked(kind, formatApiError(err));
             return;
@@ -683,7 +766,12 @@ export default function GateScanner() {
   }, [pointId]);
 
   /** The online path: the server decides. Null when it cannot (timeout, network, server error). */
-  const askServer = async (scanId: string, code: string, scannedAt: string): Promise<ServerScanResult | "blocked" | null> => {
+  const askServer = async (
+    scanId: string,
+    code: string,
+    scannedAt: string,
+    scanDirection: ScanDirection
+  ): Promise<ServerScanResult | "blocked" | null> => {
     const client = scannerClient(getStoredScannerToken());
     if (!pointId || !client) return null;
     const controller = new AbortController();
@@ -691,7 +779,7 @@ export default function GateScanner() {
     try {
       const { data, error, response } = await client.POST("/api/checkin-points/{point_id}/scan", {
         params: { path: { point_id: pointId } },
-        body: { scan_id: scanId, qr_secret: code, scanned_at: scannedAt },
+        body: { scan_id: scanId, qr_secret: code, scanned_at: scannedAt, direction: scanDirection },
         signal: controller.signal,
       });
       if (data && typeof data.status === "string") {
@@ -700,7 +788,7 @@ export default function GateScanner() {
       }
       if (error) {
         const detail = formatApiError(error);
-        const kind = classifyAuthFailure(response.status, detail);
+        const kind = classifyAuthFailure(response.status, detail, apiErrorCode(error));
         if (kind !== "TRANSIENT") {
           enterAuthBlocked(kind, detail);
           return "blocked";
@@ -761,8 +849,13 @@ export default function GateScanner() {
 
     const scanId = crypto.randomUUID();
     const scannedAt = new Date().toISOString();
+    const point = current.checkin_point;
+    const tracksOccupancy = Boolean(point.tracks_occupancy);
+    // Exits exist only where the point tracks occupancy; anywhere else every scan is an entry.
+    const scanDirection: ScanDirection = tracksOccupancy ? directionRef.current : "IN";
+    const scanWindow = admissionWindowKey(point.reset_window, current.event_timezone, scannedAt);
     const hash = await qrHash(current.event_id, code);
-    const server = serverReachable() ? await askServer(scanId, code, scannedAt) : null;
+    const server = serverReachable() ? await askServer(scanId, code, scannedAt, scanDirection) : null;
     if (server === "blocked") {
       isScanningRef.current = false;
       lastProcessedCodeRef.current = null;
@@ -776,7 +869,11 @@ export default function GateScanner() {
     let result: LocalScanResult;
     let scanRecord: QueuedScan;
     if (server) {
-      result = applyServerScan(admission, hash, server);
+      result = applyServerScan(admission, hash, server, {
+        window: scanWindow,
+        scannedAt,
+        tracksOccupancy,
+      });
       scanRecord = {
         scan_id: scanId,
         point_id: pointId,
@@ -790,16 +887,23 @@ export default function GateScanner() {
         attendee_name: server.attendee_name ?? result.ticket?.attendee_name,
         ticket_tier_name: server.ticket_tier_name ?? result.ticket?.ticket_tier_name,
         reconciled_at: new Date().toISOString(),
+        direction: scanDirection,
       };
     } else {
       const policy: LocalPolicyConfig = {
-        policy_type: current.checkin_point.policy_type as LocalPolicyConfig["policy_type"],
-        allowed_tier_ids: current.checkin_point.allowed_tier_ids ?? [],
-        max_capacity: current.checkin_point.max_capacity,
+        policy_type: point.policy_type as LocalPolicyConfig["policy_type"],
+        allowed_tier_ids: point.allowed_tier_ids ?? [],
+        max_capacity: point.max_capacity,
         current_admitted_count: admission.admittedCount,
         // A device that cannot reach the server cannot know the room's count across gates.
         is_offline: true,
         fail_closed_offline_capacity: true,
+        tracks_occupancy: tracksOccupancy,
+        current_occupancy: admission.occupancy,
+        requires_point: Boolean(point.requires_point_id),
+        direction: scanDirection,
+        admission_window: scanWindow,
+        scanned_at: scannedAt,
       };
       result = evaluateLocalScan(admission.ticketMap, policy, hash);
       scanRecord = {
@@ -814,9 +918,12 @@ export default function GateScanner() {
         sync_state: result.status === "ADMITTED" ? "PROVISIONAL" : "LOCAL_REJECTED",
         attendee_name: result.ticket?.attendee_name,
         ticket_tier_name: result.ticket?.ticket_tier_name,
+        direction: scanDirection,
       };
     }
-    admissionRef.current = { ticketMap: admission.ticketMap, admittedCount: result.current_admitted_count };
+    const inside = result.current_occupancy ?? admission.occupancy;
+    admissionRef.current = { ticketMap: admission.ticketMap, admittedCount: result.current_admitted_count, occupancy: inside };
+    setOccupancy(inside);
     scanEpochRef.current += 1;
     setActiveResult(result);
     setVerdictKey((k) => k + 1);
@@ -877,6 +984,7 @@ export default function GateScanner() {
     tickRef.current = () => {
       setIsOnline(serverReachable());
       pollManifest();
+      void sendHeartbeat();
     };
   });
 
@@ -1387,6 +1495,8 @@ export default function GateScanner() {
         onToggleLocale={toggleLocale}
         pointName={point.name}
         policyType={point.policy_type}
+        resetWindow={point.reset_window}
+        occupancy={point.tracks_occupancy ? occupancy : null}
         location={point.location}
         cachedTickets={Object.keys(ticketMap).length}
         conflictCount={conflicts.length}
@@ -1452,6 +1562,9 @@ export default function GateScanner() {
       <main className="mx-auto w-full max-w-6xl flex-1 px-4 pb-10 pt-0 sm:px-6 sm:pt-5 lg:pt-6">
         <div className="grid gap-4 lg:grid-cols-[minmax(0,7fr)_minmax(0,5fr)] lg:gap-6">
           <div className="flex min-w-0 flex-col gap-4">
+            {point.tracks_occupancy && (
+              <DirectionToggle copy={copy} direction={direction} onChange={setDirection} disabled={scanningPaused} />
+            )}
             <Viewfinder
               videoRef={videoRef}
               cameraActive={cameraActive}

@@ -86,8 +86,9 @@ export function ScanLog({ scans, copy, t }: { scans: QueuedScan[]; copy: Scanner
                   <p className="mt-0.5 flex items-center gap-1 text-[12.5px] font-semibold leading-snug">
                     <span className={`inline-flex items-center gap-1 ${admitted ? "text-[#5BE3AE]" : "text-[#FF8BA8]"}`}>
                       <Icon name={admitted ? "check" : "x"} size={13} strokeWidth={2.4} />
-                      {admitted ? copy.admitted : copy.rejected}
+                      {admitted ? (s.direction === "OUT" ? copy.exitRecorded : copy.admitted) : copy.rejected}
                     </span>
+                    {s.direction === "OUT" && !admitted && <span className="text-ink-400">· {copy.exitMode}</span>}
                   </p>
                   {s.rejection_reason && (
                     <p className="mt-0.5 text-[12px] leading-snug text-ink-300">
