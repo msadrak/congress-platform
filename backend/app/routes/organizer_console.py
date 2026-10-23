@@ -12,6 +12,7 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, HTTPException, Query, Request, Response, status
 from pydantic import BaseModel, ConfigDict, StringConstraints
 from sqlalchemy import and_, func, or_, select
+from sqlalchemy.exc import IntegrityError
 
 from app.audit import masked, record
 from app.auth import OrganizerPrincipal, OrganizerPrincipalDep
@@ -273,7 +274,12 @@ async def add_member(
         member.invited_by = invited_by
         member.revoked_at = None
         member.session_version += 1
-    await session.flush()
+    try:
+        await session.flush()
+    except IntegrityError:
+        # The same number invited twice at once: the other request won.
+        await session.rollback()
+        raise ApiError(status.HTTP_409_CONFLICT, "MEMBER_EXISTS", "This number is already a member") from None
     settings = request.app.state.settings
     session.add(
         SmsMessage(
