@@ -182,7 +182,7 @@ test('a viewer reads pass types and booths without any change control', async ({
   await expect(page.getByRole('menuitem')).toHaveText(['View booth page']);
 });
 
-test('staff see booth representatives but cannot change them, and open the desk without the operator list', async ({ page }) => {
+test('staff see booth representatives but cannot change them, and see the desk address without the operator list', async ({ page }) => {
   await fixture(page, { role: 'staff' });
   await page.goto('/organizer/events/event-s/booths');
   await page.getByRole('button', { name: 'Representatives' }).click();
@@ -193,16 +193,19 @@ test('staff see booth representatives but cannot change them, and open the desk 
   await dialog.getByRole('button', { name: 'Close' }).last().click();
 
   await page.goto('/organizer/events/event-s/operators');
-  await expect(page.getByRole('link', { name: 'Open reception desk' })).toHaveAttribute('href', '/organizer/events/event-s/desk');
+  await expect(page.getByRole('main').getByRole('link', { name: 'Reception desk' })).toHaveAttribute('href', '/organizer/events/event-s/desk');
   await expect(page.getByTestId('reception-link')).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Desk operators' })).toHaveCount(0);
+  await expect(page.getByRole('table')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'New operator' })).toHaveCount(0);
   await expect(page.getByRole('alert')).toHaveCount(0);
 });
 
 test('a manager removes an operator\'s access after a confirmation', async ({ page }) => {
   const requests = await fixture(page);
   await page.goto('/organizer/events/event-s/operators');
-  await expect(page.getByRole('heading', { name: 'Reception desk', level: 1 })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Desk operators', level: 1 })).toBeVisible();
+  // The desk is the navigation item here; the header leads back to it.
+  await expect(page.getByRole('main').getByRole('link', { name: 'Reception desk' })).toHaveAttribute('href', '/organizer/events/event-s/desk');
   await page.getByRole('button', { name: 'More actions for Operator One' }).click();
   await page.getByRole('menuitem', { name: 'Remove access' }).click();
   await page.getByRole('dialog', { name: 'Remove access for “Operator One”?' }).getByRole('button', { name: 'Remove access' }).click();
@@ -218,7 +221,6 @@ test('an archived congress is read-only on pass types, booths and the desk', asy
     await expect(page.getByTestId('section-archived')).toBeVisible();
     await expect(page.getByRole('button', { name: /^New |^Edit$|Restore access/ })).toHaveCount(0);
   }
-  await expect(page.getByRole('link', { name: 'Open reception desk' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: /More actions for Operator One/ })).toHaveCount(0);
   await page.goto('/organizer/events/event-s/tiers');
   await expect(page.getByRole('button', { name: /More actions/ })).toHaveCount(0);

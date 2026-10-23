@@ -94,7 +94,7 @@ export default function EventTiers() {
 
     return (
       <div className="space-y-6">
-        <SectionHeader title={copy.title} action={addTier} />
+        <SectionHeader title={copy.title} action={tiers.items.length > 0 ? addTier : undefined} />
 
         <SectionNotice notice={notice} onDismiss={() => setNotice(null)} />
         <SectionLoadError error={lists.error} loading={lists.loading} onRetry={lists.reload} />

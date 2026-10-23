@@ -5,10 +5,11 @@ import { commonCopy } from "../../copy/common";
 import { organizerSetupCopy } from "../../copy/organizerSetup";
 import { formatDate, formatMobile } from "../../lib/format";
 import { eventWorkspacePath } from "../../lib/organizerWorkspace";
-import { Button, LinkButton } from "../../components/ui/Button";
+import { Button } from "../../components/ui/Button";
 import { RowActions } from "../../components/ui/RowActions";
 import { StatusChip } from "../../components/ui/StatusChip";
-import { EmptyState, SectionHeader } from "../../components/organizer/WorkspaceUi";
+import { PageHeader } from "../../components/ui/PageHeader";
+import { EmptyState } from "../../components/organizer/WorkspaceUi";
 import { OperatorFormDialog } from "../../components/organizer/OperatorFormDialog";
 import { useEventWorkspace } from "../../components/organizer/eventWorkspaceContext";
 import { eventTimeZone } from "../../components/organizer/sessionTime";
@@ -16,8 +17,9 @@ import { EventSectionGate, SectionLoadError, SectionNotice, type SectionNoticeSt
 import { loadDeskOperators, sectionLoad, useEventList } from "./eventLists";
 
 /**
- * `/organizer/events/:eventId/operators`: the reception desk of the congress. Staff open the desk and hand out
- * its address; managers add desk operators and remove or restore their access. An archived congress is read-only.
+ * `/organizer/events/:eventId/operators`: who runs the reception desk, reached from the desk (the navigation
+ * highlights the desk here and the header links back to it). Staff hand out the desk address; managers add desk
+ * operators and remove or restore their access. An archived congress is read-only.
  */
 export default function EventOperators() {
   const { eventId, client, locale, can, canEdit } = useEventWorkspace();
@@ -64,21 +66,15 @@ export default function EventOperators() {
   const body = (ev: EventOut) => {
     const live = ev.archived_at == null;
     const zone = eventTimeZone(ev);
-    const openDesk =
-      live && can("staff") ? (
-        <LinkButton to={eventWorkspacePath(eventId, "/desk")} variant="primary" icon="users">
-          {copy.openDesk}
-        </LinkButton>
-      ) : undefined;
     const addOperator = canEdit ? (
-      <Button type="button" variant="secondary" icon="plus" onClick={() => setIsAddOpen(true)}>
+      <Button type="button" variant="primary" icon="plus" onClick={() => setIsAddOpen(true)}>
         {copy.add}
       </Button>
     ) : undefined;
 
     return (
       <div className="space-y-6">
-        <SectionHeader title={copy.title} action={openDesk} />
+        <PageHeader title={copy.title} back={{ to: eventWorkspacePath(eventId, "/desk"), label: copy.back }} actions={operators.items.length > 0 ? addOperator : undefined} />
 
         <SectionNotice notice={notice} onDismiss={() => setNotice(null)} />
 
@@ -112,15 +108,14 @@ export default function EventOperators() {
         )}
 
         {can("manager") && (
-          <section aria-labelledby="operators-heading" className="space-y-4">
-            <SectionHeader as="h2" titleId="operators-heading" title={copy.listTitle} action={operators.items.length > 0 ? addOperator : undefined} />
+          <section aria-label={copy.title} className="space-y-4">
             <SectionLoadError error={lists.error} loading={lists.loading} onRetry={lists.reload} />
             {operators.error ? null : operators.items.length === 0 ? (
               <EmptyState icon="users" title={copy.empty} action={addOperator} />
             ) : (
               <div className="overflow-clip rounded-card border border-border-default bg-surface-panel">
                 <table className="org-table org-table--stack">
-                  <caption className="sr-only">{copy.listTitle}</caption>
+                  <caption className="sr-only">{copy.title}</caption>
                   <thead>
                     <tr>
                       <th scope="col">{copy.colName}</th>

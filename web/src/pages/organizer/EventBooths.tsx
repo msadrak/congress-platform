@@ -68,7 +68,7 @@ export default function EventBooths() {
 
     return (
       <div className="space-y-6">
-        <SectionHeader title={copy.title} action={addBooth} />
+        <SectionHeader title={copy.title} action={booths.items.length > 0 ? addBooth : undefined} />
 
         <SectionNotice notice={notice} onDismiss={() => setNotice(null)} />
         <SectionLoadError error={lists.error} loading={lists.loading} onRetry={lists.reload} />

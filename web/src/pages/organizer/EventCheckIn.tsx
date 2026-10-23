@@ -285,7 +285,7 @@ export default function EventCheckIn() {
 
     return (
       <div className="space-y-6">
-        <SectionHeader title={copy.title} action={addPoint} />
+        <SectionHeader title={copy.title} action={active.length > 0 ? addPoint : undefined} />
 
         <SectionNotice notice={notice} onDismiss={() => setNotice(null)} />
         <SectionLoadError error={lists.error} loading={lists.loading} onRetry={lists.reload} />
