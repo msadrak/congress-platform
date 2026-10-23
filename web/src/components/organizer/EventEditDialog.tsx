@@ -160,7 +160,7 @@ export function EventEditDialog({ event, apiKey, locale, onClose, onSaved }: Eve
                 ))}
               </Select>
             </Field>
-            <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-4">
               <DateTimeField
                 label={copy.startsLabel}
                 required
@@ -196,7 +196,7 @@ export function EventEditDialog({ event, apiKey, locale, onClose, onSaved }: Eve
                 onChange={(checked) => set("registrationEnabled", checked)}
               />
               {draft.registrationEnabled && (
-                <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-4">
                   <DateTimeField
                     label={`${copy.opensLabel} ${commonCopy[locale].optional}`}
                     value={draft.registrationOpensAt}

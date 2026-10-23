@@ -98,9 +98,9 @@ export default function OrganizerActivity() {
       <PageHeader
         title={copy.title}
         actions={
-          <label className="flex items-center gap-2 text-body-sm text-text-secondary">
-            <span>{copy.eventFilter}</span>
-            <Select value={eventId} onChange={(e) => chooseEvent(e.target.value)} className="w-auto min-w-40">
+          <label className="flex w-full min-w-0 items-center gap-2 text-body-sm text-text-secondary sm:w-auto">
+            <span className="shrink-0">{copy.eventFilter}</span>
+            <Select value={eventId} onChange={(e) => chooseEvent(e.target.value)} wrapperClassName="min-w-0 flex-1 sm:w-72 sm:flex-none" className="w-full">
               <option value="">{copy.allEvents}</option>
               {events.map((event) => (
                 <option key={event.id} value={event.id}>
