@@ -8,9 +8,12 @@ existence is revealed. SMS codes cost money and reach a real phone, so every sen
 Counts live in `rate_limit_counters` (one row per key and time bucket), so budgets survive restarts and deploys
 and are not multiplied by the number of API workers. A bucket is 1/60 of the window (at least 5 s); a check
 counts every bucket that overlaps the window, so a budget is never looser than stated, at most one bucket
-stricter. `consume` adds one to every key and reads the totals in one transaction per call, so concurrent
-requests cannot overshoot a budget, and a refused attempt is rolled back (it does not count). Expired rows are
-deleted about once a minute per process.
+stricter. `consume` first takes a per-key transaction lock (in key order, so two callers never deadlock), then adds
+one to every key and reads the totals, all in one transaction, so concurrent requests cannot overshoot a budget,
+and a refused attempt is rolled back (it does not count). The lock matters: the row upsert alone serialises takes
+within one bucket, but a burst straddling a bucket boundary bumps two rows, and without the lock each side would
+read the other bucket before its attempts commit (up to twice the budget). Expired rows are deleted about once a
+minute per process.
 
 Two in-process shortcuts, neither of which can loosen a limit: a key found over budget is refused locally until
 its Retry-After passes (no database round trip while someone hammers it), and when the database cannot be reached
@@ -107,6 +110,9 @@ _BUMP = text(
         (SELECT MIN(window_start) FROM rate_limit_counters WHERE key = :key AND window_start > :since) AS oldest
     """
 )
+# Held until the transaction ends. Taken in its own statement, so the bump that follows (READ COMMITTED: a fresh
+# snapshot per statement) sees every take of this key that committed while we waited.
+_LOCK_KEY = text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))")
 _COUNT = text(
     "SELECT COALESCE(SUM(count), 0) AS total, MIN(window_start) AS oldest "
     "FROM rate_limit_counters WHERE key = :key AND window_start > :since"
@@ -257,6 +263,8 @@ class FailureLimiter:
             return self._take_in_memory(limits)
         try:
             async with self.sessionmaker() as session:
+                for key in sorted({key for key, _ in limits}):
+                    await session.execute(_LOCK_KEY, {"key": key})
                 totals = []
                 for key, budget in limits:
                     start = _bucket_start(now, budget.bucket)

@@ -1,6 +1,9 @@
 """The shared limiter: counts live in PostgreSQL, so every API process and every restart sees the same budgets."""
 
 import asyncio
+import itertools
+import math
+import time
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -8,6 +11,7 @@ from fastapi import FastAPI
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+import app.rate_limit as rate_limit_module
 from app.models import RateLimitCounter
 from app.rate_limit import Budget, FailureLimiter, LimitExceeded, in_networks, ip_group
 from app.config import parse_networks
@@ -52,6 +56,37 @@ async def test_concurrent_takes_never_overshoot(app: FastAPI) -> None:
 
     results = await asyncio.gather(*(attempt(limiters[i % 5]) for i in range(20)))
     assert sum(results) == 7
+
+
+async def test_concurrent_takes_across_a_bucket_boundary_never_overshoot(
+    app: FastAPI, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A burst that straddles a bucket boundary bumps two rows; each take must still see the other bucket's
+    in-flight attempts (a per-key lock orders the takes), or both buckets fill up to the budget."""
+    budget = Budget(7, 60)
+    boundary = math.floor(time.time() / budget.bucket) * budget.bucket
+    clock = itertools.cycle((boundary - 0.001, boundary + 0.001))
+
+    class Clock:
+        monotonic = staticmethod(time.monotonic)
+
+        @staticmethod
+        def time() -> float:
+            return next(clock)
+
+    monkeypatch.setattr(rate_limit_module, "time", Clock)
+    limiters = [fresh(app) for _ in range(5)]
+
+    async def attempt(limiter: FailureLimiter) -> bool:
+        try:
+            await limiter.take(("edge", budget))
+            return True
+        except LimitExceeded:
+            return False
+
+    results = await asyncio.gather(*(attempt(limiters[i % 5]) for i in range(40)))
+    assert sum(results) == 7
+    assert await fresh(app).peek(("edge", budget)) == [7]
 
 
 async def test_success_clears_failures_everywhere(app: FastAPI) -> None:
