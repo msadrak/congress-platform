@@ -117,7 +117,9 @@ export interface paths {
         post?: never;
         /**
          * Delete My Account
-         * @description Delete the account: it is anonymised (see app/account.py) and this session stops working.
+         * @description Delete the account: it is anonymised (see app/account.py) and every session of it ends.
+         *
+         *     Refused with 409 ACCOUNT_LAST_OWNER while the person is the last owner of an organizer.
          */
         delete: operations["delete_my_account_api_auth_me_delete"];
         options?: never;
@@ -144,6 +146,29 @@ export interface paths {
         get: operations["export_my_data_api_auth_me_export_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/logout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Logout
+         * @description Sign out everywhere: every session of the account ends, on this device and all others.
+         *
+         *     Sessions are versioned per account, not per device, so there is no "this device only" variant; the
+         *     person signs in again with an SMS code wherever they still need the account.
+         */
+        post: operations["logout_api_auth_logout_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2366,6 +2391,14 @@ export interface components {
             exhibitor_leads: components["schemas"]["ExportLead"][];
             /** Sms Messages */
             sms_messages: components["schemas"]["ExportSms"][];
+            /** Booth Staff */
+            booth_staff: components["schemas"]["ExportBoothStaff"][];
+            /** Desk Operators */
+            desk_operators: components["schemas"]["ExportDeskOperator"][];
+            /** Organizer Memberships */
+            organizer_memberships: components["schemas"]["ExportOrganizerMembership"][];
+            /** Audit Events */
+            audit_events: components["schemas"]["ExportAuditEvent"][];
         };
         /** ActivityPage */
         ActivityPage: {
@@ -3476,8 +3509,50 @@ export interface components {
             type: "exhibitors";
             lead?: components["schemas"]["LocalizedLine"];
         };
+        /**
+         * ExportAuditEvent
+         * @description An audit log entry the person made (`actor`) or that concerns their membership, desk access, ticket or
+         *     account (`subject`). Request details (IP, summary) are left out: they may describe other people.
+         */
+        ExportAuditEvent: {
+            /**
+             * At
+             * Format: date-time
+             */
+            at: string;
+            /** Action */
+            action: string;
+            /**
+             * Relation
+             * @enum {string}
+             */
+            relation: "actor" | "subject";
+            /** Actor Type */
+            actor_type: string;
+            /** Organizer Name */
+            organizer_name: string | null;
+            /** Event Name */
+            event_name: string | null;
+            /** Entity Type */
+            entity_type: string | null;
+        };
         /** ExportBookmark */
         ExportBookmark: {
+            /** Event Name */
+            event_name: string;
+            /** Booth Name */
+            booth_name: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
+        /**
+         * ExportBoothStaff
+         * @description The person represents this booth (exhibitor portal access).
+         */
+        ExportBoothStaff: {
             /** Event Name */
             event_name: string;
             /** Booth Name */
@@ -3507,6 +3582,25 @@ export interface components {
             created_at: string;
         };
         /**
+         * ExportDeskOperator
+         * @description The person works (or worked) a congress's front desk under this name.
+         */
+        ExportDeskOperator: {
+            /** Event Name */
+            event_name: string;
+            /** Operator Name */
+            operator_name: string;
+            /** Active */
+            active: boolean;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Revoked At */
+            revoked_at: string | null;
+        };
+        /**
          * ExportLead
          * @description An exhibitor scanned this person's pass. The exhibitor's rating and notes are the exhibitor's data.
          */
@@ -3520,6 +3614,29 @@ export interface components {
              * Format: date-time
              */
             captured_at: string;
+        };
+        /**
+         * ExportOrganizerMembership
+         * @description The person signs in (or signed in) to an organizer's console with this role.
+         */
+        ExportOrganizerMembership: {
+            /** Organizer Name */
+            organizer_name: string;
+            /** Role */
+            role: string;
+            /** Display Name */
+            display_name: string;
+            /** Invited By */
+            invited_by: string;
+            /** Active */
+            active: boolean;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Revoked At */
+            revoked_at: string | null;
         };
         /** ExportProfile */
         ExportProfile: {
@@ -5903,6 +6020,15 @@ export interface operations {
                 };
                 content?: never;
             };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
         };
     };
     update_my_profile_api_auth_me_patch: {
@@ -5955,6 +6081,24 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["AccountExport"];
                 };
+            };
+        };
+    };
+    logout_api_auth_logout_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

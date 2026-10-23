@@ -386,9 +386,12 @@ async def logout(user: CurrentUserDep, session: SessionDep) -> Response:
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-@router.delete("/me", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/me", status_code=status.HTTP_204_NO_CONTENT, responses=error_responses(409))
 async def delete_my_account(user: CurrentUserDep, session: SessionDep) -> Response:
-    """Delete the account: it is anonymised (see app/account.py) and every session of it ends."""
+    """Delete the account: it is anonymised (see app/account.py) and every session of it ends.
+
+    Refused with 409 ACCOUNT_LAST_OWNER while the person is the last owner of an organizer.
+    """
     await delete_account(session, user)
     await session.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)

@@ -90,6 +90,7 @@ export const errorMessages: Record<AttendeeLocale, Record<string, string>> = {
     MEMBER_EXISTS: "این شماره هم‌اکنون عضو این سازمان است.",
     MEMBER_REVOKED: "این عضو حذف شده است؛ برای بازگرداندن، دوباره او را دعوت کنید.",
     LAST_OWNER: "پیش از حذف یا تغییر نقش آخرین مالک، مالک دیگری اضافه کنید.",
+    ACCOUNT_LAST_OWNER: "شما آخرین مالک یک سازمان برگزارکننده هستید. پیش از حذف حساب، مالک دیگری اضافه کنید.",
   },
   en: {
     EVENT_NOT_FOUND: "This congress could not be found.",
@@ -175,6 +176,7 @@ export const errorMessages: Record<AttendeeLocale, Record<string, string>> = {
     MEMBER_EXISTS: "This number is already a member of this organization.",
     MEMBER_REVOKED: "This member was removed; invite them again to restore access.",
     LAST_OWNER: "Add another owner before removing or demoting the last one.",
+    ACCOUNT_LAST_OWNER: "You are the last owner of an organizer. Add another owner before deleting your account.",
   },
 };
 

@@ -4,7 +4,8 @@ from fastapi import FastAPI
 from httpx import AsyncClient
 
 from app.sms.outbox import deliver_due
-from tests.helpers import bearer, sign_in, sms_code
+from tests.helpers import bearer, desk_sign_in, provision_organizer, request_code, sign_in, sms_code
+from tests.test_organizer_members import ADMIN, add_member
 from tests.test_participants import auth, congress, register, reschedule, reserved_count
 
 PAST = {"starts_at": "2025-03-01T08:00:00Z", "ends_at": "2025-03-02T18:00:00Z"}
@@ -153,3 +154,87 @@ async def test_lead_mobile_is_shared_only_with_consent(client: AsyncClient) -> N
 async def test_new_accounts_do_not_share_contact_with_exhibitors(client: AsyncClient) -> None:
     user, _ = await sign_in(client, "09122220051", "Fresh")
     assert user["share_contact_with_exhibitors"] is False
+
+
+async def test_deletion_erases_the_persons_name_from_staff_roles(client: AsyncClient) -> None:
+    organizer, event_id, tier_id = await congress(client)
+    await client.post(
+        f"/api/events/{event_id}/desk/operators", json={"operator_name": "Sara Operator", "mobile": "09122220081"},
+        headers=bearer(organizer),
+    )
+    desk = (await desk_sign_in(client, event_id, "09122220081")).json()
+    walk_in = await client.post(
+        f"/api/events/{event_id}/desk-registrations",
+        json={"full_name": "Walk In", "ticket_tier_id": tier_id},
+        headers=auth(desk["access_token"]),
+    )
+    assert walk_in.status_code == 201, walk_in.text
+    await add_member(client, organizer, "09122220081", "staff")
+    _, token = await sign_in(client, "09122220081")
+
+    assert (await client.delete("/api/auth/me", headers=auth(token))).status_code == 204
+
+    participants = (await client.get(f"/api/events/{event_id}/participants", headers=bearer(organizer))).json()["items"]
+    assert [p["issued_by"] for p in participants] == ["حذف‌شده"]
+    csv = (await client.get(f"/api/events/{event_id}/participants/export-csv", headers=bearer(organizer))).text
+    assert "Sara Operator" not in csv
+    (operator,) = (await client.get(f"/api/events/{event_id}/desk/operators", headers=bearer(organizer))).json()
+    assert operator["operator_name"] == "حذف‌شده" and operator["mobile"] is None
+    members = (await client.get(f"/api/organizers/{organizer['id']}/members", headers=ADMIN)).json()
+    assert [(m["display_name"], m["mobile"]) for m in members] == [("حذف‌شده", None)]
+
+
+async def test_the_last_owner_must_hand_over_before_deleting_the_account(client: AsyncClient) -> None:
+    organizer = await provision_organizer(client, "Owned Co")
+    await add_member(client, organizer, "09122220091", "owner")
+    _, token = await sign_in(client, "09122220091")
+
+    refused = await client.delete("/api/auth/me", headers=auth(token))
+
+    assert refused.status_code == 409
+    assert refused.json()["code"] == "ACCOUNT_LAST_OWNER"
+    assert "Owned Co" in refused.json()["detail"]
+    assert (await client.get("/api/auth/me", headers=auth(token))).status_code == 200
+    # Another owner takes over; then the account can go.
+    await add_member(client, organizer, "09122220092", "owner")
+    assert (await client.delete("/api/auth/me", headers=auth(token))).status_code == 204
+    # A revoked organizer has nobody left to hand over to: its last owner may leave.
+    revoked = await provision_organizer(client, "Closed Co")
+    await add_member(client, revoked, "09122220093", "owner")
+    assert (await client.post(f"/api/organizers/{revoked['id']}/revoke", headers=ADMIN)).status_code == 200
+    _, closing = await sign_in(client, "09122220093")
+    assert (await client.delete("/api/auth/me", headers=auth(closing))).status_code == 204
+
+
+async def test_export_lists_staff_roles_and_audit_entries_about_the_person(client: AsyncClient) -> None:
+    organizer, event_id, tier_id = await congress(client)
+    mobile = "09122220071"
+    token, _ = await register(client, event_id, tier_id, mobile, "Many Hats")
+    booth = (
+        await client.post(f"/api/events/{event_id}/booths", json={"name": "Booth A", "slug": "a"}, headers=bearer(organizer))
+    ).json()
+    staffed = await client.post(
+        f"/api/events/{event_id}/booths/{booth['id']}/staff", json={"mobile": mobile}, headers=bearer(organizer)
+    )
+    assert staffed.status_code in (200, 201), staffed.text
+    await client.post(
+        f"/api/events/{event_id}/desk/operators", json={"operator_name": "Desk Hat", "mobile": mobile},
+        headers=bearer(organizer),
+    )
+    await add_member(client, organizer, mobile, "viewer")
+    code = await request_code(client, mobile, "organizer")
+    assert (await client.post("/api/organizer/login", json={"mobile": mobile, "code": code})).status_code == 200
+
+    data = (await client.get("/api/auth/me/export", headers=auth(token))).json()
+
+    (staff,) = data["booth_staff"]
+    assert staff["booth_name"] == "Booth A" and staff["event_name"]
+    (operator,) = data["desk_operators"]
+    assert (operator["operator_name"], operator["active"]) == ("Desk Hat", True)
+    (membership,) = data["organizer_memberships"]
+    assert (membership["organizer_name"], membership["role"], membership["display_name"]) == (
+        "Participants Co", "viewer", "Neda Karimi",
+    )
+    audit = {(entry["action"], entry["relation"]) for entry in data["audit_events"]}
+    assert {("member.invited", "subject"), ("member.signed_in", "actor")} <= audit
+    assert all("ip" not in entry and "summary" not in entry for entry in data["audit_events"])
