@@ -2,10 +2,22 @@
 # Full-stack verification (macOS, Linux, Windows Git Bash): backend mypy + pytest, API schema, web tests, typecheck,
 # lint and build, mobile tests and analysis. Every check runs or the script fails; a missing tool falls back to
 # Docker where it can, never to a skip.
+#   ./scripts/check.sh           the fast gate (also the pre-commit hook)
+#   ./scripts/check.sh --full    the fast gate, then what only CI ran before: Playwright, Caddy validation, k6 inspect,
+#                                pip-audit + npm audit, Docker image builds (scripts/check-full.mjs)
 #   Backend: Docker -> scripts/integration/backend-tests.mjs (disposable PostgreSQL); else local uv + PostgreSQL on
 #            127.0.0.1:5433 (backend/tests/conftest.py).
-#   Dart:    `dart` on PATH, the WinGet Dart SDK, else the dart image (CONGRESS_DART_IMAGE, default dart:stable).
+#   Dart:    `dart` on PATH, the WinGet Dart SDK, else the dart image (CONGRESS_DART_IMAGE, default dart:3.13.5, the
+#            release CI installs).
 set -euo pipefail
+
+FULL=0
+for arg in "$@"; do
+  case "$arg" in
+    --full) FULL=1 ;;
+    *) echo "usage: scripts/check.sh [--full]" >&2; exit 2 ;;
+  esac
+done
 
 # Run from the repository root wherever this is started from (also when installed as .git/hooks/pre-commit).
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || (cd "$(dirname "$0")/.." && pwd))"
@@ -83,7 +95,7 @@ if [ -n "$DART_BIN" ]; then
   "$DART_BIN" analyze lib/models lib/services test
   cd ..
 elif [ "$HAVE_DOCKER" = 1 ]; then
-  DART_IMAGE="${CONGRESS_DART_IMAGE:-dart:stable}"
+  DART_IMAGE="${CONGRESS_DART_IMAGE:-dart:3.13.5}"
   echo "  -> dart is not on PATH; running the Dart checks in $DART_IMAGE..."
   # mobile/ is mounted read-only and copied inside, so nothing is written to the checkout; the pub cache is a
   # named volume so packages are downloaded once. pwd -W gives Git Bash a Windows path Docker understands.
@@ -98,7 +110,17 @@ else
   exit 1
 fi
 
+if [ "$FULL" = 1 ]; then
+  echo ""
+  echo "[full] Checks CI runs beyond the fast gate..."
+  node scripts/check-full.mjs
+fi
+
 echo ""
 echo "=========================================="
-echo "✓ ALL CHECKS PASSED ACROSS ALL THREE STACKS"
+if [ "$FULL" = 1 ]; then
+  echo "✓ ALL CHECKS PASSED (FULL: THREE STACKS + CI-ONLY CHECKS)"
+else
+  echo "✓ ALL CHECKS PASSED ACROSS ALL THREE STACKS"
+fi
 echo "=========================================="

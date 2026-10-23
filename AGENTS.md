@@ -31,6 +31,13 @@ Before marking any task complete, run the unified full-stack verification script
 - Linux / macOS / Git Bash: `./scripts/check.sh`
 - Windows CMD / PowerShell: `scripts\check.bat`
 
+That fast gate covers backend mypy + pytest, the API schema, web unit tests, typecheck, lint and build, the
+operations-tool tests and the Dart checks. CI also runs Playwright, Caddy validation, `k6 inspect`, the dependency
+audits and the Docker image builds; run those locally with `./scripts/check.sh --full` (`scripts\check.bat --full`)
+before merging or when a change touches the browser flows, `deploy/`, `scripts/load/` or dependencies. Locally
+Playwright uses Chrome (`CONGRESS_BROWSER_CHANNEL`, default `chrome` in `--full`) and the production build
+(`CONGRESS_E2E_PREVIEW=1`); `node scripts/check-full.mjs --skip images,playwright` runs a subset.
+
 To install as a git pre-commit hook:
 ```bash
 cp scripts/check.sh .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit
@@ -44,7 +51,9 @@ Enforced standards for TypeScript, Python, and Dart live in `docs/CODING_STANDAR
 
 ### Issue tracker
 
-Issues and specs for this repo live as GitHub issues. Use the `gh` CLI for all operations. See `docs/agents/issue-tracker.md`.
+Issues and specs for this repo live as GitHub issues. Branches are pushed with plain `git push` over SSH
+(`git@github.com:drkalani/AITeb-Congress.git`); the `gh` CLI is optional (use it for issues/PRs when it is
+authenticated, otherwise the product owner opens them on GitHub). See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 
