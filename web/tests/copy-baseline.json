@@ -18,16 +18,8 @@
   "src/components/attendee/CongressSchedule.tsx": {
     "persian": 5
   },
-  "src/components/attendee/DigitalPassCard.tsx": {
-    "ternary": 7,
-    "persian": 7
-  },
   "src/components/attendee/ProgramExplorer.tsx": {
     "ternary": 2
-  },
-  "src/components/attendee/QrFullscreen.tsx": {
-    "ternary": 3,
-    "persian": 2
   },
   "src/components/auth/MobileOtpForm.tsx": {
     "persian": 33,
@@ -260,10 +252,6 @@
     "ternary": 1,
     "persian": 1
   },
-  "src/pages/LinkPassEntry.tsx": {
-    "ternary": 1,
-    "persian": 1
-  },
   "src/pages/Me.tsx": {
     "persian": 29
   },
@@ -273,9 +261,6 @@
   },
   "src/pages/MyProfile.tsx": {
     "persian": 1
-  },
-  "src/pages/MyTickets.tsx": {
-    "persian": 22
   },
   "src/pages/organizer/EventBooths.tsx": {
     "ternary": 13,

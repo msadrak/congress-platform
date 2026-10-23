@@ -136,7 +136,8 @@ test('home leads with the pass, then the program; details shows venue and full p
   await expect(page.locator('main svg[viewBox^="0 0"]').first()).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Saved Exhibition Booths' })).toHaveCount(0);
   await expect(page.getByRole('heading', { name: 'Using your pass' })).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'Print Pass' })).toBeVisible();
+  // Print is for larger screens; on a phone the card is the QR.
+  await expect(page.getByRole('button', { name: 'Show the QR code full screen' })).toBeVisible();
 });
 
 test('network is isolated by congress and edits stay on visible connections', async ({ page }) => {
@@ -172,7 +173,9 @@ test('without a session, personal destinations show sign-in and send no protecte
   await page.evaluate(() => localStorage.setItem('congress_attendee_locale', 'en'));
   for (const d of ['my-congress', 'my-network', 'my-ticket', 'my-profile']) {
     await page.goto(`/c/alpha/${d}`);
-    await expect(page.getByRole('link', { name: /Sign In/ }).first()).toBeVisible();
+    // The pass tab has the phone form on the page itself; the others link to sign-in.
+    if (d === 'my-ticket') await expect(page.getByTestId('otp-mobile-step')).toBeVisible();
+    else await expect(page.getByRole('link', { name: /Sign In/ }).first()).toBeVisible();
   }
   await page.goto('/c/alpha/details');
   await expect(page.getByText('About Alpha Congress')).toBeVisible();

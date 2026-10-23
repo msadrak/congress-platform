@@ -1,7 +1,11 @@
 import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import QRCode from "react-qr-code";
+import { passCopy } from "../../copy/pass";
+import { useWakeLock } from "../../hooks/useWakeLock";
 import type { AttendeeLocale } from "../../lib/i18n";
+
+const DIRECTION = { fa: "rtl", en: "ltr" } as const;
 
 interface QrFullscreenProps {
   value: string;
@@ -13,35 +17,13 @@ interface QrFullscreenProps {
 
 /**
  * The pass's QR alone, as large as the screen allows, black on white for the gate scanner. Keeps the screen awake
- * (Screen Wake Lock API, where available) while open; any tap, Escape or the back button closes it.
+ * (`useWakeLock`) while open; any tap, Escape or the back button closes it.
  */
 export function QrFullscreen({ value, holder, tier, locale, onClose }: QrFullscreenProps) {
-  const isRtl = locale === "fa";
+  const copy = passCopy[locale];
   const surface = useRef<HTMLDivElement>(null);
 
-  // Screen Wake Lock: released by the browser when the tab is hidden, so it is taken again on return.
-  useEffect(() => {
-    if (typeof navigator === "undefined" || !("wakeLock" in navigator)) return;
-    let active = true;
-    let sentinel: WakeLockSentinel | null = null;
-    const acquire = async () => {
-      if (document.visibilityState !== "visible" || (sentinel && !sentinel.released)) return;
-      try {
-        const lock = await navigator.wakeLock.request("screen");
-        if (active) sentinel = lock;
-        else void lock.release();
-      } catch {
-        // refused (battery saver, permissions policy): the QR still shows
-      }
-    };
-    void acquire();
-    document.addEventListener("visibilitychange", acquire);
-    return () => {
-      active = false;
-      document.removeEventListener("visibilitychange", acquire);
-      void sentinel?.release().catch(() => undefined);
-    };
-  }, []);
+  useWakeLock();
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -62,10 +44,10 @@ export function QrFullscreen({ value, holder, tier, locale, onClose }: QrFullscr
       ref={surface}
       role="dialog"
       aria-modal="true"
-      aria-label={isRtl ? "کد QR کارت ورود، تمام‌صفحه" : "Pass QR code, full screen"}
+      aria-label={copy.fullscreen.label}
       data-testid="qr-fullscreen"
       tabIndex={-1}
-      dir={isRtl ? "rtl" : "ltr"}
+      dir={DIRECTION[locale]}
       lang={locale}
       onClick={onClose}
       className="fixed inset-0 z-[80] flex cursor-pointer flex-col items-center justify-center gap-6 bg-white p-6 text-center text-black outline-none print:hidden"
@@ -83,7 +65,7 @@ export function QrFullscreen({ value, holder, tier, locale, onClose }: QrFullscr
         <p dir="auto" className="text-2xl font-bold tracking-[-0.02em]">{holder}</p>
         <p dir="auto" className="text-base font-semibold text-black/75">{tier}</p>
       </div>
-      <p className="text-sm text-black/60">{isRtl ? "برای بستن، صفحه را لمس کنید" : "Tap anywhere to close"}</p>
+      <p className="text-sm text-black/60">{copy.fullscreen.close}</p>
     </div>,
     document.body,
   );

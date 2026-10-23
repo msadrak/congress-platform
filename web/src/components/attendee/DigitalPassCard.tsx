@@ -1,5 +1,6 @@
 import QRCode from "react-qr-code";
 import type { AttendeeTicketDetail } from "../../api/client";
+import { passCopy } from "../../copy/pass";
 import type { AttendeeLocale, TranslationDictionary } from "../../lib/i18n";
 import { isCancelledStatus } from "../../lib/attendeePasses";
 import { formatPassDateRange, formatPassIssuedDate } from "../../lib/passDates";
@@ -22,7 +23,8 @@ export type PassCardTicket = Pick<
 interface DigitalPassCardProps {
   ticket: PassCardTicket;
   locale: AttendeeLocale;
-  t: TranslationDictionary;
+  /** No longer read: the card's words are in `copy/pass.ts`. Callers may drop it. */
+  t?: TranslationDictionary;
   /** Confirmed by the server in this session (not an offline copy or a rejected session). Kept for the preview. */
   verified?: boolean;
   /** Offers the print button (paper backup) when set. */
@@ -35,11 +37,9 @@ interface DigitalPassCardProps {
  * Digital credential, QR first: the scannable code, then whose pass it is (holder, tier, status), then the congress.
  * Prints black on white.
  */
-export function DigitalPassCard({ ticket, locale, t, onPrint, onExpand }: DigitalPassCardProps) {
-  const isRtl = locale === "fa";
+export function DigitalPassCard({ ticket, locale, onPrint, onExpand }: DigitalPassCardProps) {
+  const copy = passCopy[locale].card;
   const cancelled = isCancelledStatus(ticket.status ?? "active");
-  const printLabel = isRtl ? "چاپ کارت ورود" : "Print Pass";
-  const expandLabel = isRtl ? "نمایش تمام‌صفحه کد QR" : "Show the QR code full screen";
   const qr = (
     <QRCode
       value={ticket.qr_secret}
@@ -60,14 +60,14 @@ export function DigitalPassCard({ ticket, locale, t, onPrint, onExpand }: Digita
       <div aria-hidden="true" className="at-print-hide h-[3px] bg-[image:var(--grad-aiteb)]" />
 
       <div className="flex min-h-11 items-center justify-between gap-3 px-5 pt-4 sm:px-6">
-        <span className="text-xs font-semibold text-ink-300">{t.digitalPassTitle}</span>
+        <span className="text-xs font-semibold text-ink-300">{copy.title}</span>
         {onPrint && !cancelled && (
           <button
             type="button"
             onClick={onPrint}
-            className="at-print-hide press -me-2 grid size-11 shrink-0 place-items-center rounded-full text-ink-300 transition-colors hover:bg-white/10 hover:text-white cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-aiteb-orchid print:hidden"
-            title={printLabel}
-            aria-label={printLabel}
+            className="at-print-hide press -me-2 grid size-11 shrink-0 place-items-center rounded-full text-ink-300 transition-colors hover:bg-white/10 hover:text-white cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-aiteb-orchid max-md:hidden print:hidden"
+            title={copy.print}
+            aria-label={copy.print}
           >
             <Icon name="print" size={20} />
           </button>
@@ -83,18 +83,25 @@ export function DigitalPassCard({ ticket, locale, t, onPrint, onExpand }: Digita
           >
             <span className="space-y-2">
               <Icon name="x-circle" size={36} className="mx-auto text-status-danger-solid" />
-              <span className="block">{isRtl ? "کد QR این کارت ورود دیگر کار نمی‌کند." : "This pass's QR code no longer works."}</span>
+              <span className="block">{copy.cancelledQr}</span>
             </span>
           </div>
         ) : onExpand ? (
           <button
             type="button"
             onClick={onExpand}
-            aria-label={expandLabel}
-            title={expandLabel}
-            className="at-qr-plate press cursor-zoom-in p-5 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-aiteb-orchid"
+            aria-label={copy.expandQr}
+            title={copy.expandQr}
+            className="at-qr-plate press relative cursor-zoom-in p-5 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-aiteb-orchid"
           >
             {qr}
+            <span
+              aria-hidden="true"
+              data-testid="pass-qr-expand"
+              className="at-print-hide absolute end-1.5 top-1.5 grid size-6 place-items-center rounded-full bg-black/5 text-black/55"
+            >
+              <Icon name="arrow-up-right" size={14} />
+            </span>
           </button>
         ) : (
           <div className="at-qr-plate p-5">{qr}</div>
@@ -112,12 +119,9 @@ export function DigitalPassCard({ ticket, locale, t, onPrint, onExpand }: Digita
               }`}
             >
               <span aria-hidden="true" className={`at-pass-chip-dot size-2 rounded-full ${cancelled ? "bg-status-danger-solid" : "bg-status-success-solid"}`} />
-              {cancelled ? (isRtl ? "لغو شده" : "Cancelled") : (isRtl ? "معتبر" : "Valid")}
+              {cancelled ? copy.cancelled : copy.valid}
             </span>
           </span>
-          {!cancelled && onExpand && (
-            <span className="at-print-hide text-xs text-ink-400">{isRtl ? "برای بزرگ‌نمایی، کد QR را لمس کنید." : "Tap the QR code to enlarge it."}</span>
-          )}
         </div>
       </div>
 
@@ -144,11 +148,11 @@ export function DigitalPassCard({ ticket, locale, t, onPrint, onExpand }: Digita
         </div>
         <div className="grid grid-cols-2 gap-x-5 border-t border-white/10 pt-4">
           <div className="min-w-0 space-y-1">
-            <span className="block text-[11px] font-medium text-ink-400">{isRtl ? "تاریخ صدور" : "Issued"}</span>
+            <span className="block text-[11px] font-medium text-ink-400">{copy.issued}</span>
             <span className="block text-sm font-semibold text-white">{formatPassIssuedDate(ticket.created_at, locale, ticket.event_timezone)}</span>
           </div>
           <div className="min-w-0 space-y-1">
-            <span className="block text-[11px] font-medium text-ink-400">{t.ticketIdLabel}</span>
+            <span className="block text-[11px] font-medium text-ink-400">{copy.passId}</span>
             {/* LTR bidi isolation for the Latin reference code */}
             <span className="block font-mono text-sm font-semibold tracking-[0.08em] text-white">
               <bdi dir="ltr">{ticket.id.slice(0, 13).toUpperCase()}</bdi>

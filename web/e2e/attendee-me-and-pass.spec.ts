@@ -122,7 +122,7 @@ test('signed out, /me lists the pass opened from an SMS link and offers sign-in'
   await expect(page.getByRole('link', { name: /Sign in to see your pass/ })).toHaveAttribute('href', '/sign-in?next=%2Fme');
   expect(requests).toEqual([]);
   await card.click();
-  await expect(page.getByTestId('link-pass-note')).toBeVisible();
+  await expect(page.getByRole('link', { name: /Sign in for networking/ })).toBeVisible();
   await expect(page.getByText('Delegate pass')).toBeVisible();
 });
 
@@ -173,7 +173,8 @@ test('pass page: QR first, holder and tier under it; tapping opens a full-screen
   });
   expect(order[0]).toBeGreaterThanOrEqual(0);
   expect(order).toEqual([...order].sort((a, b) => a - b));
-  await expect(page.getByTestId('pass-status-line')).toHaveCount(1);
+  // Online and up to date says nothing: no status line.
+  await expect(page.getByTestId('pass-status-line')).toHaveCount(0);
 
   await qr.click();
   const full = page.getByTestId('qr-fullscreen');
@@ -217,10 +218,10 @@ test('pass page: self-cancel asks first, then shows the cancelled pass', async (
   await page.getByRole('button', { name: 'Cancel registration' }).click();
   const dialog = page.getByRole('dialog');
   await expect(dialog).toContainText('your place is released');
-  await dialog.getByRole('button', { name: 'Keep my pass' }).click();
+  await dialog.getByRole('button', { name: 'Keep', exact: true }).click();
   expect(requests.filter(r => r.method === 'POST')).toEqual([]);
   await page.getByRole('button', { name: 'Cancel registration' }).click();
-  await page.getByRole('dialog').getByRole('button', { name: 'Yes, cancel it' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Cancel registration' }).click();
   await expect(page.getByTestId('pass-notice')).toContainText('Your registration has been cancelled.');
   await expect(page.getByTestId('pass-cancelled')).toBeVisible();
   expect(requests.filter(r => r.method === 'POST').map(r => r.path)).toEqual(['/api/attendees/me/tickets/a1/cancel']);
@@ -237,7 +238,7 @@ test('pass page: a refused self-cancel shows the coded reason in Persian', async
   await begin(page, { locale: 'fa' });
   await page.goto('/c/alpha/my-ticket');
   await page.getByRole('button', { name: 'لغو ثبت‌نام' }).click();
-  await page.getByRole('dialog').getByRole('button', { name: 'بله، لغو شود' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'لغو ثبت‌نام' }).click();
   await expect(page.getByTestId('pass-notice')).toContainText('همایش آغاز شده است');
   await expect(page.getByTestId('pass-status')).toHaveText('معتبر');
 });

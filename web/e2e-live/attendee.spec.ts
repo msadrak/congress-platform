@@ -45,7 +45,7 @@ test('attendee: public page, SMS-code sign-up, reserve, pass with QR, short link
     const stranger = await browser.newContext();
     const linkPage = await stranger.newPage();
     await linkPage.goto(link.pathname);
-    await expect(linkPage.getByText('کارت ورود از پیوند پیامک')).toBeVisible();
+    await expect(linkPage.getByRole('link', { name: 'برای شبکه‌سازی وارد شوید' })).toBeVisible();
     const pass = linkPage.getByRole('article', { name: event.name });
     await expect(pass.getByRole('button', { name: 'نمایش تمام‌صفحه کد QR' })).toBeVisible();
     await expect(pass).toContainText(fullName);
@@ -57,7 +57,7 @@ test('attendee: public page, SMS-code sign-up, reserve, pass with QR, short link
   await test.step('self-cancel frees the seat', async () => {
     await page.getByRole('button', { name: 'لغو ثبت‌نام' }).click();
     const confirm = page.getByRole('dialog', { name: 'ثبت‌نام لغو شود؟' });
-    await confirm.getByRole('button', { name: 'بله، لغو شود' }).click();
+    await confirm.getByRole('button', { name: 'لغو ثبت‌نام' }).click();
     await expect(page.getByText('این کارت ورود لغو شده است').first()).toBeVisible();
   });
   const participants = await api<ParticipantPage>('GET', `/api/events/${event.id}/participants`, { token: organizer.api_key });

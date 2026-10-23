@@ -1,12 +1,15 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { createApiClient } from "../api/client";
+import { useAttendeeSession } from "../hooks/useAttendeeSession";
 import { congressPath } from "../lib/congressContext";
 import { useAttendeeLocale } from "../lib/i18n";
 import { linkOutcome, saveLinkPass, type LinkOutcome } from "../lib/linkPass";
 import { signInPath } from "../lib/safeRedirect";
+import { MobileOtpForm } from "../components/auth/MobileOtpForm";
 import { Button, LinkButton } from "../components/ui/Button";
 import { Icon, type IconName } from "../components/ui/Icon";
+import { LanguageToggle } from "../components/ui/LanguageToggle";
 import { StatusPanel } from "../components/ui/PortalState";
 
 interface Failure {
@@ -18,12 +21,14 @@ interface Failure {
 /**
  * `/t/:code`, the short link in the ticket confirmation SMS (ADR 0015). Resolves the code, keeps the pass on
  * this device and replaces the address with the congress pass page, so the code leaves the address bar and
- * the history. A link that no longer works gets a friendly page with a way to sign in.
+ * the history. A link that no longer works gets a friendly page with a way to sign in; an expired one (the pass
+ * exists, the link is old) has the phone form right on it.
  */
 export default function LinkPassEntry() {
   const { code = "" } = useParams<{ code: string }>();
   const navigate = useNavigate();
   const { t, locale, setLocale, dir } = useAttendeeLocale();
+  const { signIn } = useAttendeeSession();
   const [failure, setFailure] = useState<Failure | null>(null);
   const [attempt, setAttempt] = useState(0);
 
@@ -50,20 +55,12 @@ export default function LinkPassEntry() {
     };
   }, [code, attempt, navigate]);
 
-  const otherLocale = locale === "fa" ? "en" : "fa";
   const page = (content: ReactNode) => (
     <div dir={dir} lang={locale} className="flex min-h-dvh flex-col bg-surface-page text-text-primary">
-      <main className="mx-auto flex w-full max-w-md flex-1 flex-col justify-center gap-6 px-4 py-12">
-        {content}
-        <button
-          type="button"
-          onClick={() => setLocale(otherLocale)}
-          className="mx-auto inline-flex min-h-11 items-center gap-2 rounded-full px-4 text-xs font-semibold text-text-muted hover:text-text-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
-        >
-          <Icon name="globe" size={15} />
-          {otherLocale === "en" ? "English" : "فارسی"}
-        </button>
-      </main>
+      <header className="flex min-h-16 items-center justify-end px-4 pt-safe">
+        <LanguageToggle locale={locale} onChange={setLocale} />
+      </header>
+      <main className="mx-auto flex w-full max-w-md flex-1 flex-col justify-center gap-6 px-4 pb-12">{content}</main>
     </div>
   );
 
@@ -85,7 +82,7 @@ export default function LinkPassEntry() {
     offline: { icon: "wifi-off", title: t.linkOfflineTitle, body: t.linkOfflineDesc },
   };
   const { icon, title, body } = copy[failure.outcome];
-  const signIn = failure.slug
+  const signInTo = failure.slug
     ? signInPath(failure.slug, congressPath(failure.slug, "my-ticket"))
     : signInPath(undefined, "/me");
 
@@ -108,10 +105,20 @@ export default function LinkPassEntry() {
             {t.linkRetryAction}
           </Button>
         )}
-        <LinkButton to={signIn} variant={failure.outcome === "offline" ? "secondary" : "primary"} size="lg" isFullWidth>
-          {t.linkSignInAction}
-          <Icon name="arrow-right" size={18} />
-        </LinkButton>
+        {failure.outcome === "expired" ? (
+          <MobileOtpForm
+            locale={locale}
+            onSignedIn={(auth) => {
+              signIn(auth.access_token);
+              navigate(failure.slug ? congressPath(failure.slug, "my-ticket") : "/me", { replace: true });
+            }}
+          />
+        ) : (
+          <LinkButton to={signInTo} variant={failure.outcome === "offline" ? "secondary" : "primary"} size="lg" isFullWidth>
+            {t.linkSignInAction}
+            <Icon name="arrow-right" size={18} />
+          </LinkButton>
+        )}
       </div>
     </StatusPanel>,
   );
