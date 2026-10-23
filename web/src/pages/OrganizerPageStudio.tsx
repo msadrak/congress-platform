@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useOutletContext, useParams } from "react-router-dom";
-import { createApiClient, formatApiError, type EventOut, type MediaAssetOut, type PageStateOut } from "../api/client";
+import { useBlocker, useOutletContext, useParams } from "react-router-dom";
+import { apiErrorCode, createApiClient, localizedApiError, type EventOut, type MediaAssetOut, type PageStateOut } from "../api/client";
 import { Badge } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
 import { ConfirmDialog } from "../components/ui/ConfirmDialog";
@@ -19,6 +19,7 @@ import {
   ADDABLE_SECTIONS,
   MAX_SECTIONS,
   addSection,
+  documentDiff,
   isCoreSection,
   localized,
   moveSection,
@@ -35,6 +36,7 @@ import {
   type SectionType,
 } from "../lib/pageDocument";
 import { uploadPageImage, useOrganizerImages } from "../lib/pageMedia";
+import { sessionAllows } from "../lib/organizerConsole";
 import type { OrganizerOutletContext } from "./OrganizerLayout";
 
 type Tab = "sections" | "brand" | "seo";
@@ -50,8 +52,10 @@ export default function OrganizerPageStudio() {
 }
 
 function PageStudio({ eventId }: { eventId: string }) {
-  const { apiKey, onKeyRejected, reportEvent, locale } = useOutletContext<OrganizerOutletContext>();
+  const { apiKey, onKeyRejected, reportEvent, session, locale } = useOutletContext<OrganizerOutletContext>();
   const copy = studioCopy[locale];
+  // Saving and publishing need the manager role (backend/app/roles.py); a lower role only looks.
+  const canEdit = sessionAllows(session, "manager");
 
   const [load, setLoad] = useState<"loading" | "ready" | "error">("loading");
   const [event, setEvent] = useState<EventOut | null>(null);
@@ -66,7 +70,8 @@ function PageStudio({ eventId }: { eventId: string }) {
   const [device, setDevice] = useState<"desktop" | "mobile">("desktop");
   const [pane, setPane] = useState<"edit" | "preview">("edit");
   const [busy, setBusy] = useState<null | "save" | "publish" | "unpublish" | "discard">(null);
-  const [conflict, setConflict] = useState(false);
+  /** A save or publish lost a race with another editor: their saved version (null when it could not be read). */
+  const [conflict, setConflict] = useState<{ latest: PageStateOut | null } | null>(null);
   const [notice, setNotice] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
   const [confirm, setConfirm] = useState<Confirm>(null);
   const [adding, setAdding] = useState(false);
@@ -105,7 +110,7 @@ function PageStudio({ eventId }: { eventId: string }) {
       setPage(pg.data);
       setSaved(normalized);
       setDoc(normalized);
-      setConflict(false);
+      setConflict(null);
       setLoad("ready");
     } catch {
       setLoad("error");
@@ -119,6 +124,9 @@ function PageStudio({ eventId }: { eventId: string }) {
   }, [loadAll]);
 
   const dirty = Boolean(doc && saved && !sameDocument(doc, saved));
+
+  // Leaving for another console page with unsaved edits asks first (reloads and closing the tab: beforeunload).
+  const blocker = useBlocker(({ currentLocation, nextLocation }) => dirty && canEdit && currentLocation.pathname !== nextLocation.pathname);
 
   useEffect(() => {
     if (!dirty) return;
@@ -135,26 +143,69 @@ function PageStudio({ eventId }: { eventId: string }) {
     return ids;
   }, [doc, saved]);
 
-  const failure = (status: number, body: unknown) => {
-    if (status === 409) setConflict(true);
-    else setNotice({ tone: "error", text: formatApiError(body) });
+  /** A refused save/publish: a stale revision fetches the other editor's version to compare; anything else is told. */
+  const failure = async (body: unknown) => {
+    if (apiErrorCode(body) !== "PAGE_DRAFT_STALE") {
+      setNotice({ tone: "error", text: localizedApiError(body, locale) });
+      return;
+    }
+    const latest = client ? await client.GET("/api/events/{event_id}/page", path).catch(() => null) : null;
+    setConflict({ latest: latest?.data ?? null });
   };
 
   /** Saves the draft; returns the new revision, or null when it failed. */
   const save = async (): Promise<number | null> => {
     if (!client || !doc || !page) return null;
     const sent = doc;
-    const { data, error, response } = await client.PUT("/api/events/{event_id}/page", {
+    const { data, error } = await client.PUT("/api/events/{event_id}/page", {
       ...path,
       body: { revision: page.draft_revision, document: toApiDocument(sent) },
     });
     if (!data) {
-      failure(response.status, error);
+      await failure(error);
       return null;
     }
     const normalized = accept(data);
     setDoc((current) => (current === sent ? normalized : current));
     return data.draft_revision;
+  };
+
+  /** Conflict choice "keep my changes": save this editor's document over the other version. */
+  const overwrite = async () => {
+    const latest = conflict?.latest;
+    if (!client || !doc || !latest) return;
+    const sent = doc;
+    setBusy("save");
+    setNotice(null);
+    try {
+      const { data, error } = await client.PUT("/api/events/{event_id}/page", {
+        ...path,
+        body: { revision: latest.draft_revision, document: toApiDocument(sent) },
+      });
+      if (!data) {
+        await failure(error);
+        return;
+      }
+      setConflict(null);
+      const normalized = accept(data);
+      setDoc((current) => (current === sent ? normalized : current));
+      setNotice({ tone: "ok", text: copy.overwrittenNotice });
+    } catch {
+      setNotice({ tone: "error", text: copy.loadFailed });
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  /** Conflict choice "load the latest": continue from the other version, dropping this editor's unsaved edits. */
+  const loadLatest = () => {
+    const latest = conflict?.latest;
+    if (!latest) {
+      void loadAll();
+      return;
+    }
+    setDoc(accept(latest));
+    setConflict(null);
   };
 
   const run = async (kind: NonNullable<typeof busy>) => {
@@ -167,19 +218,19 @@ function PageStudio({ eventId }: { eventId: string }) {
         return;
       }
       if (kind === "unpublish") {
-        const { data, error, response } = await client.POST("/api/events/{event_id}/page/unpublish", path);
+        const { data, error } = await client.POST("/api/events/{event_id}/page/unpublish", path);
         if (data) {
           accept(data);
           setNotice({ tone: "ok", text: copy.unpublishedNotice });
-        } else failure(response.status, error);
+        } else await failure(error);
         return;
       }
       const revision = dirty ? await save() : page.draft_revision;
       if (revision === null) return;
       const route = kind === "publish" ? "/api/events/{event_id}/page/publish" : "/api/events/{event_id}/page/discard";
-      const { data, error, response } = await client.POST(route, { ...path, body: { revision } });
+      const { data, error } = await client.POST(route, { ...path, body: { revision } });
       if (!data) {
-        failure(response.status, error);
+        await failure(error);
         return;
       }
       const normalized = accept(data);
@@ -195,7 +246,7 @@ function PageStudio({ eventId }: { eventId: string }) {
   // Ctrl/Cmd+S saves the draft, under the same conditions as the Save button.
   const saveRef = useRef<() => void>(() => undefined);
   saveRef.current = () => {
-    if (dirty && busy === null && !conflict) void run("save");
+    if (dirty && canEdit && busy === null && !conflict) void run("save");
   };
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -241,7 +292,7 @@ function PageStudio({ eventId }: { eventId: string }) {
       params: { path: { event_id: eventId, asset_id: id } },
     });
     if (!response.ok) {
-      return formatApiError(error) || copy.media.deleteFailed;
+      return localizedApiError(error, locale) || copy.media.deleteFailed;
     }
     setAssets((current) => current.filter((a) => a.id !== id));
     return null;
@@ -281,6 +332,20 @@ function PageStudio({ eventId }: { eventId: string }) {
     setSelectedId(section?.id ?? null);
   };
   const focusAnchor = selected ? sectionAnchor(selected) : null;
+  const sectionNames = (sections: PageSection[]) => sections.map((section) => copy.sections[section.type].name).join(locale === "fa" ? "، " : ", ");
+  const conflictChanges = (() => {
+    if (!conflict?.latest) return null;
+    const diff = documentDiff(doc, normalizeDocument(conflict.latest.draft));
+    return [
+      diff.hero ? copy.diffHero : "",
+      diff.branding ? copy.diffBranding : "",
+      diff.seo ? copy.diffSeo : "",
+      diff.added.length ? copy.diffAdded(sectionNames(diff.added)) : "",
+      diff.removed.length ? copy.diffRemoved(sectionNames(diff.removed)) : "",
+      diff.changed.length ? copy.diffChanged(sectionNames(diff.changed)) : "",
+      diff.order ? copy.diffOrder : "",
+    ].filter(Boolean);
+  })();
 
   const sectionLabel = (section: PageSection) => {
     const own = localized(section.title, lang);
@@ -324,32 +389,64 @@ function PageStudio({ eventId }: { eventId: string }) {
                 {busy === "save" ? copy.saving : dirty ? copy.unsaved : copy.savedAt(clockTime(page.draft_updated_at, locale))}
               </span>
             </div>
-            <div className="flex flex-wrap items-center gap-2">
-              {dirty && (
-                <Button variant="ghost" size="sm" onClick={() => setConfirm("revert")} disabled={busy !== null}>
-                  {copy.revert}
+            {canEdit && (
+              <div className="flex flex-wrap items-center gap-2">
+                {dirty && (
+                  <Button variant="ghost" size="sm" onClick={() => setConfirm("revert")} disabled={busy !== null}>
+                    {copy.revert}
+                  </Button>
+                )}
+                <Button variant="secondary" size="sm" onClick={() => void run("save")} disabled={!dirty || busy !== null || conflict !== null}>
+                  <Icon name="check" size={15} />
+                  {copy.save}
                 </Button>
-              )}
-              <Button variant="secondary" size="sm" onClick={() => void run("save")} disabled={!dirty || busy !== null || conflict}>
-                <Icon name="check" size={15} />
-                {copy.save}
-              </Button>
-              <Button variant="primary" size="sm" onClick={() => setConfirm("publish")} disabled={!canPublish || busy !== null || conflict}>
-                <Icon name="web" size={15} />
-                {busy === "publish" ? copy.publishing : copy.publish}
-              </Button>
-            </div>
+                <Button variant="primary" size="sm" onClick={() => setConfirm("publish")} disabled={!canPublish || busy !== null || conflict !== null}>
+                  <Icon name="web" size={15} />
+                  {busy === "publish" ? copy.publishing : copy.publish}
+                </Button>
+              </div>
+            )}
           </div>
         </header>
 
+        {!canEdit && (
+          <p role="status" className="flex items-start gap-2.5 rounded-2xl border border-border-default bg-surface-panel-subtle p-4 text-sm leading-relaxed text-text-secondary">
+            <Icon name="eye" size={18} className="mt-0.5 shrink-0" />
+            {copy.readOnly}
+          </p>
+        )}
         {conflict && (
-          <div role="alert" className="flex flex-col gap-3 rounded-2xl border border-status-warning-border bg-status-warning-bg p-4 text-sm text-status-warning-text sm:flex-row sm:items-center">
-            <Icon name="alert" size={18} className="shrink-0" />
-            <p className="flex-1 leading-relaxed">{copy.conflict}</p>
-            <Button variant="secondary" size="sm" onClick={() => void loadAll()}>
-              <Icon name="sync" size={15} />
-              {copy.reload}
-            </Button>
+          <div role="alert" data-testid="studio-conflict" className="space-y-3 rounded-2xl border border-status-warning-border bg-status-warning-bg p-4 text-sm text-status-warning-text">
+            <div className="flex items-start gap-3">
+              <Icon name="alert" size={18} className="mt-0.5 shrink-0" />
+              <div className="min-w-0 flex-1 space-y-2 leading-relaxed">
+                <p>{copy.conflict}</p>
+                {conflictChanges && (
+                  <div data-testid="studio-conflict-diff">
+                    <p className="font-semibold">{conflictChanges.length > 0 ? `${copy.conflictSummary}:` : `${copy.conflictSummary} ${copy.conflictSame}`}</p>
+                    {conflictChanges.length > 0 && (
+                      <ul className="mt-1 list-disc space-y-0.5 ps-5">
+                        {conflictChanges.map((line) => (
+                          <li key={line}>{line}</li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+            <div className="flex flex-wrap justify-end gap-2">
+              {conflict.latest && canEdit && (
+                <Button variant="secondary" size="sm" onClick={() => void overwrite()} disabled={busy !== null}>
+                  <Icon name="check" size={15} />
+                  {copy.keepMine}
+                </Button>
+              )}
+              <Button variant="primary" size="sm" onClick={loadLatest} disabled={busy !== null}>
+                <Icon name="sync" size={15} />
+                {conflict.latest ? copy.loadLatest : copy.reload}
+              </Button>
+            </div>
           </div>
         )}
         {notice && (
@@ -402,12 +499,12 @@ function PageStudio({ eventId }: { eventId: string }) {
                     <Icon name="arrow-up-right" size={14} />
                   </a>
                 )}
-                {page.is_published && page.has_unpublished_changes && (
-                  <Button variant="ghost" size="sm" onClick={() => setConfirm("discard")} disabled={busy !== null || conflict}>
+                {canEdit && page.is_published && page.has_unpublished_changes && (
+                  <Button variant="ghost" size="sm" onClick={() => setConfirm("discard")} disabled={busy !== null || conflict !== null}>
                     {copy.discard}
                   </Button>
                 )}
-                {page.is_published && (
+                {canEdit && page.is_published && (
                   <Button variant="ghost" size="sm" onClick={() => setConfirm("unpublish")} disabled={busy !== null}>
                     <Icon name="eye-off" size={14} />
                     {copy.unpublish}
@@ -688,6 +785,16 @@ function PageStudio({ eventId }: { eventId: string }) {
           }
           setConfirm(null);
         }}
+      />
+      <ConfirmDialog
+        isOpen={blocker.state === "blocked"}
+        tone="danger"
+        title={copy.leaveTitle}
+        description={copy.leaveBody}
+        confirmLabel={copy.leaveConfirm}
+        cancelLabel={copy.stay}
+        onCancel={() => blocker.reset?.()}
+        onConfirm={() => blocker.proceed?.()}
       />
     </StudioContext.Provider>
   );

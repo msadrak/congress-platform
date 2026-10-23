@@ -373,5 +373,43 @@ export function referencedImages(doc: PageDoc): Set<string> {
 /** Stable comparison for "unsaved changes": same content in the same order. */
 export const sameDocument = (a: PageDoc, b: PageDoc) => JSON.stringify(a) === JSON.stringify(b);
 
+/** What another saved version (`theirs`) has that differs from `mine`: the summary of a stale-save conflict. */
+export interface DocumentDiff {
+  hero: boolean;
+  branding: boolean;
+  seo: boolean;
+  /** The sections both versions have are in another order. */
+  order: boolean;
+  /** Sections only `theirs` has. */
+  added: PageSection[];
+  /** Sections only `mine` has. */
+  removed: PageSection[];
+  /** Sections both have, with other content (`theirs`'s copy). */
+  changed: PageSection[];
+}
+
+export function documentDiff(mine: PageDoc, theirs: PageDoc): DocumentDiff {
+  const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+  const byId = (doc: PageDoc) => {
+    const index: Record<string, PageSection> = {};
+    for (const section of doc.sections) index[section.id] = section;
+    return index;
+  };
+  const mineById = byId(mine);
+  const theirsById = byId(theirs);
+  return {
+    hero: !same(mine.hero, theirs.hero) || mine.primary_locale !== theirs.primary_locale,
+    branding: !same(mine.branding, theirs.branding),
+    seo: !same(mine.seo, theirs.seo),
+    order: !same(
+      mine.sections.filter((s) => Object.hasOwn(theirsById, s.id)).map((s) => s.id),
+      theirs.sections.filter((s) => Object.hasOwn(mineById, s.id)).map((s) => s.id),
+    ),
+    added: theirs.sections.filter((s) => !Object.hasOwn(mineById, s.id)),
+    removed: mine.sections.filter((s) => !Object.hasOwn(theirsById, s.id)),
+    changed: theirs.sections.filter((s) => Object.hasOwn(mineById, s.id) && !same(s, mineById[s.id])),
+  };
+}
+
 // Drift guard: the normalised model must stay a valid API document.
 export const toApiDocument = (doc: PageDoc): ApiDocument => doc;
