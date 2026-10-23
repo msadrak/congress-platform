@@ -383,116 +383,7 @@ test('pairing a scanner device issues a point token, shows its pairing link once
   expect(revoke?.auth).toBe(bearer);
 });
 
-test('SMS: the organizer edits the confirmation with placeholders, sees the preview and SMS count, saves, tests and resets', async ({ page }) => {
-  const requests = await fixture(page);
-  await seed(page);
-  await page.goto('/organizer/events/event-a/sms');
-  await expect(page.getByRole('heading', { name: 'SMS', level: 1 })).toBeVisible();
-  await expect(page.getByTestId('sms-delivery')).toContainText('Test mode');
-  await expect(page.getByText('Default text')).toBeVisible();
-  await expect(page.getByTestId('sms-preview')).toContainText('نام شرکت‌کننده عزیز، ثبت‌نام شما در «Alpha Congress» تأیید شد.');
-  await expect(page.getByTestId('sms-size')).toContainText('2 SMS (Persian/Unicode, 67 per SMS)');
-  await expect(page.getByRole('button', { name: 'Save text' })).toBeDisabled();
-  await expect(page.getByText('Queued')).toBeVisible();
-
-  const editor = page.getByLabel('Message text');
-  await editor.fill('Hello {nmae}');
-  await expect(page.getByRole('alert')).toContainText('Unknown placeholder: {nmae}');
-  await expect(page.getByRole('button', { name: 'Save text' })).toBeDisabled();
-  await editor.fill('Hello ');
-  await page.getByRole('button', { name: /Attendee name/ }).click();
-  await editor.press('End');
-  await editor.pressSequentially(' — ');
-  await page.getByRole('button', { name: /Pass link/ }).click();
-  await expect(editor).toHaveValue('Hello {name} — {link}');
-  await expect(page.getByTestId('sms-preview')).toHaveText('Hello نام شرکت‌کننده — http://test/c/event-a/my-ticket');
-
-  await page.getByLabel('Send a test to').fill('۰۹۳۵ ۱۲۳ ۴۵۶۷');
-  await page.getByRole('button', { name: 'Send test SMS' }).click();
-  await expect(page.getByRole('status').filter({ hasText: 'Test mode: the message was only recorded' })).toBeVisible();
-  const test = requests.find(r => r.path === '/api/events/event-a/sms/test');
-  expect(test?.body).toEqual({ mobile: '09351234567', kind: 'ticket_confirmation', body: 'Hello {name} — {link}' });
-  expect(test?.auth).toBe(bearer);
-  await expect(page.getByText('0935***4567')).toBeVisible();
-
-  await page.getByRole('button', { name: 'Save text' }).click();
-  await expect(page.getByRole('status').filter({ hasText: 'Saved.' })).toBeVisible();
-  await expect(page.getByText('Custom for this congress')).toBeVisible();
-  expect(requests.find(r => r.method === 'PUT' && r.path.endsWith('/sms/templates/ticket_confirmation'))?.body).toEqual({ body: 'Hello {name} — {link}' });
-
-  await page.getByRole('button', { name: 'Use the default text' }).click();
-  await page.getByRole('dialog', { name: 'Use the default text?' }).getByRole('button', { name: 'Use default' }).click();
-  await expect(page.getByText('Default text', { exact: true })).toBeVisible();
-  await expect(editor).toHaveValue(/عزیز/);
-  expect(requests.some(r => r.method === 'DELETE' && r.path.endsWith('/sms/templates/ticket_confirmation'))).toBe(true);
-  expect(requests.every(r => r.auth === bearer)).toBe(true);
-});
-
-test('SMS: a failed confirmation is sent again; an unknown one is resent only after a warning, or resolved', async ({ page }) => {
-  await fixture(page);
-  await seed(page);
-  const actions: { path: string; body: unknown }[] = [];
-  await page.route('**/api/events/event-a/sms/messages?*', route => route.fulfill({
-    status: 200,
-    contentType: 'application/json',
-    body: JSON.stringify([
-      { id: 'm-failed', kind: 'ticket_confirmation', mobile: '0912***0001', body: 'A عزیز…', status: 'failed', attempts: 6, last_error: 'HTTP_400', created_at: '2099-01-01T00:00:00Z', sent_at: null, can_retry: true, can_resolve: false },
-      { id: 'm-unknown', kind: 'ticket_confirmation', mobile: '0912***0002', body: 'B عزیز…', status: 'unknown', attempts: 1, last_error: 'TIMEOUT', created_at: '2099-01-01T00:00:00Z', sent_at: null, can_retry: true, can_resolve: true },
-    ]),
-  }));
-  await page.route('**/api/events/event-a/sms/messages/*/*', route => {
-    const path = new URL(route.request().url()).pathname;
-    const raw = route.request().postData();
-    actions.push({ path, body: raw ? JSON.parse(raw) : undefined });
-    const [, id, action] = path.match(/messages\/([^/]+)\/(retry|resolve)$/) ?? [];
-    const status = action === 'resolve' ? 'resolved' : 'pending';
-    return route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ id, kind: 'ticket_confirmation', mobile: id === 'm-failed' ? '0912***0001' : '0912***0002', body: '…', status, attempts: 0, last_error: null, created_at: '2099-01-01T00:00:00Z', sent_at: null, can_retry: false, can_resolve: false }),
-    });
-  });
-  await page.goto('/organizer/events/event-a/sms');
-  const failed = page.getByRole('listitem').filter({ hasText: '0912***0001' });
-  const unknown = page.getByRole('listitem').filter({ hasText: '0912***0002' });
-
-  await failed.getByRole('button', { name: 'Send again' }).click();
-  await expect(failed.getByText('Queued')).toBeVisible();
-  expect(actions.find(a => a.path.endsWith('/m-failed/retry'))?.body).toEqual({ confirm_duplicate: false });
-
-  await unknown.getByRole('button', { name: 'Send again' }).click();
-  const dialog = page.getByRole('dialog', { name: 'Send this message again?' });
-  await expect(dialog).toContainText('may deliver it twice');
-  await dialog.getByRole('button', { name: 'Cancel' }).click();
-  expect(actions.some(a => a.path.endsWith('/m-unknown/retry'))).toBe(false);
-
-  await unknown.getByRole('button', { name: 'Mark resolved' }).click();
-  await expect(unknown.getByText('Resolved')).toBeVisible();
-  await expect(unknown.getByRole('button', { name: 'Send again' })).toHaveCount(0);
-});
-
-test('SMS: older messages load page by page after the last one shown', async ({ page }) => {
-  await fixture(page);
-  await seed(page);
-  const message = (i: number) => ({ id: `m-${i}`, kind: 'test', mobile: `0912***${String(i).padStart(4, '0')}`, body: `message ${i}`, status: 'sent', attempts: 1, last_error: null, created_at: '2099-01-01T00:00:00Z', sent_at: '2099-01-01T00:00:00Z' });
-  const requested: (string | null)[] = [];
-  await page.route('**/api/events/event-a/sms/messages?*', route => {
-    const before = new URL(route.request().url()).searchParams.get('before');
-    requested.push(before);
-    const items = before === null ? Array.from({ length: 50 }, (_, i) => message(i)) : before === 'm-49' ? [message(50), message(51)] : [];
-    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(items) });
-  });
-  await page.goto('/organizer/events/event-a/sms');
-  const log = page.locator('section[aria-labelledby="sms-log-title"]');
-  await expect(log.getByRole('listitem')).toHaveCount(50);
-
-  await log.getByRole('button', { name: 'Older messages' }).click();
-
-  await expect(log.getByRole('listitem')).toHaveCount(52);
-  await expect(log.getByText('0912***0051')).toBeVisible();
-  await expect(log.getByRole('button', { name: 'Older messages' })).toHaveCount(0);
-  expect(requested).toEqual([null, 'm-49']);
-});
+// The SMS section's tests live in e2e/organizer-sms.spec.ts (UX-ORG-4).
 
 test('program: sessions are grouped by day, added in the event time zone, and a CSV timetable is checked before it is imported', async ({ page }) => {
   const requests = await fixture(page);
@@ -574,13 +465,13 @@ test('venue and booths: entrances are added, halls reordered, and a booth is edi
   expect(requests.every(r => r.auth === bearer)).toBe(true);
 });
 
-test('analytics keeps its export and says the filters apply to the CSV files too', async ({ page }) => {
+test('analytics keeps its export behind the one Export menu', async ({ page }) => {
   const requests = await fixture(page);
   await seed(page);
   await page.goto('/organizer/events/event-a/analytics');
-  await expect(page.getByText('Filters apply to this view and to both CSV downloads')).toBeVisible();
   const download = page.waitForEvent('download');
-  await page.getByRole('button', { name: 'Export Attendance CSV' }).click();
+  await page.getByRole('button', { name: 'Export' }).click();
+  await page.getByRole('menuitem', { name: 'Entries' }).click();
   expect((await download).suggestedFilename()).toBe('event-a-attendance.csv');
   expect(requests.find(r => r.path.endsWith('/export-csv'))?.auth).toBe(bearer);
 });

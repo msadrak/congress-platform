@@ -57,15 +57,12 @@ const ALLOWED: Readonly<Record<string, readonly string[]>> = {
   "web/src/components/public/copy.ts": ["بلیت", "گیت", "سرنخ", "نشست"],
   "web/src/components/public/homeCopy.ts": ["گیت", "سرنخ", "فضای کاری", "جست‌وجو", "پرتال"],
   "web/src/components/scanner/copy.ts": ["توکن", "ابطال", "کنسول"],
-  "web/src/components/sms/SmsTemplateEditor.tsx": ["رده", "بلیت", "لینک"],
   "web/src/lib/attendeeSession.ts": ["نشست"],
   "web/src/lib/organizerConsole.ts": ["جست‌وجو", "کنسول", "نشست", "بارگیری"],
-  "web/src/lib/participants.ts": ["بلیت", "گیت"],
   "web/src/pages/AttendeeSignIn.tsx": ["فضای کاری", "پرتال", "سرنخ"],
   "web/src/pages/OrganizerEvents.tsx": ["بلیت"],
   "web/src/pages/OrganizerLayout.tsx": ["فضای کاری", "کنسول"],
   "web/src/pages/OrganizerPanel.tsx": ["بلیت"],
-  "web/src/pages/OrganizerSms.tsx": ["بلیت"],
   "web/src/pages/organizer/EventOperators.tsx": ["نشست"],
 };
 

@@ -134,11 +134,6 @@
     "ternary": 1,
     "persian": 1
   },
-  "src/components/sms/SmsTemplateEditor.tsx": {
-    "persian": 43,
-    "ternary": 34,
-    "devTerm": 2
-  },
   "src/layouts/AttendeeLayout.tsx": {
     "persian": 17,
     "ternary": 2
@@ -220,9 +215,6 @@
     "ternary": 28,
     "persian": 28
   },
-  "src/pages/OrganizerAnalytics.tsx": {
-    "ternary": 2
-  },
   "src/pages/OrganizerEvents.tsx": {
     "ternary": 23,
     "persian": 23,
@@ -248,17 +240,9 @@
     "ternary": 57,
     "persian": 57
   },
-  "src/pages/OrganizerParticipants.tsx": {
-    "ternary": 3,
-    "persian": 2
-  },
   "src/pages/OrganizerProgram.tsx": {
     "ternary": 25,
     "persian": 33
-  },
-  "src/pages/OrganizerSms.tsx": {
-    "ternary": 36,
-    "persian": 42
   },
   "src/pages/OrganizerVenue.tsx": {
     "ternary": 42,

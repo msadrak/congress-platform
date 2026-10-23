@@ -2,8 +2,11 @@ import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 
 // The shipping Participants page against synthetic, intercepted /api/ responses (not FastAPI/PostgreSQL).
+// The browser runs in New York while the congress is in Tehran (+03:30): every time shown must be Tehran's.
+// Desktop unless a test says otherwise (the project default is a 412 px phone).
+test.use({ timezoneId: 'America/New_York', viewport: { width: 1280, height: 800 } });
 const KEY = 'synthetic-b3-organizer';
-const EVENT = { id: 'event-a', name: 'Alpha Congress', slug: 'alpha', starts_at: '2099-05-10T07:00:00Z', ends_at: '2099-05-12T15:00:00Z', location: 'Hall', description: '' };
+const EVENT = { id: 'event-a', name: 'Alpha Congress', slug: 'alpha', starts_at: '2099-05-10T07:00:00Z', ends_at: '2099-05-12T15:00:00Z', location: 'Hall', description: '', timezone: 'Asia/Tehran', archived_at: null as string | null };
 const TIERS = [
   { id: 'tier-1', name: 'Delegate', description: '', quota: 100, reserved_count: 3, is_open: true },
   { id: 'tier-2', name: 'Student', description: '', quota: 50, reserved_count: 1, is_open: true },
@@ -26,7 +29,7 @@ const person = (n: number, name: string, extra: Partial<Participant> = {}): Part
 
 type Recorded = { method: string; path: string; search: string; auth: string | undefined; body: unknown };
 
-async function fixture(page: Page, options: { failFirstList?: boolean; deleteConflict?: boolean } = {}) {
+async function fixture(page: Page, options: { failFirstList?: boolean; deleteConflict?: boolean; role?: 'owner' | 'manager' | 'staff' | 'viewer'; archived?: boolean } = {}) {
   const requests: Recorded[] = [];
   const people: Participant[] = [
     person(1, 'Sara Ahmadi', { checkin_count: 1, can_delete: false }),
@@ -37,7 +40,12 @@ async function fixture(page: Page, options: { failFirstList?: boolean; deleteCon
   const detail = (p: Participant) => ({
     ...p,
     qr_secret: p.status === 'active' ? `qr-${p.ticket_id}` : null,
-    scan_history: p.checkin_count ? [{ checkin_point_name: 'Main Gate', status: 'ADMITTED', rejection_reason: null, scanned_at: '2099-05-10T07:30:00Z' }] : [],
+    scan_history: p.checkin_count
+      ? [
+          { checkin_point_name: 'Main Gate', status: 'ADMITTED', rejection_reason: null, scanned_at: '2099-05-10T07:30:00Z' },
+          { checkin_point_name: 'Lunch', status: 'REJECTED', rejection_reason: 'TIER_NOT_ALLOWED', scanned_at: '2099-05-10T09:30:00Z' },
+        ]
+      : [],
   });
   await page.route(/^https?:\/\/[^/]+\/api\//, async route => {
     const request = route.request();
@@ -48,7 +56,8 @@ async function fixture(page: Page, options: { failFirstList?: boolean; deleteCon
     const body = raw ? JSON.parse(raw) : undefined;
     requests.push({ method, path, search: url.search, auth: request.headers().authorization, body });
     const json = (status: number, payload: unknown) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(payload) });
-    if (path === '/api/events/event-a') return json(200, EVENT);
+    if (path === '/api/organizer/me') return json(200, { kind: options.role ? 'member' : 'key', role: options.role ?? 'owner', organizer: { id: 'org-1', name: 'Org' }, member: null });
+    if (path === '/api/events/event-a') return json(200, { ...EVENT, archived_at: options.archived ? '2099-06-01T00:00:00Z' : null });
     if (path === '/api/events/event-a/ticket-tiers') return json(200, TIERS);
     if (path === '/api/events/event-a/participants' && method === 'GET') {
       if (failList) {
@@ -116,16 +125,27 @@ async function seed(page: Page, locale = 'en') {
 
 const rows = (page: Page) => page.getByTestId('participant-row');
 const listCalls = (requests: Recorded[]) => requests.filter(r => r.method === 'GET' && r.path === '/api/events/event-a/participants');
+const openRow = async (page: Page, name: string) => {
+  await rows(page).filter({ hasText: name }).click();
+  return page.getByRole('dialog', { name });
+};
+// The ⋯ menu closes when its button moves, so wait for the drawer's entrance to settle.
+const fromMenu = async (page: Page, scope: ReturnType<Page['getByRole']>, item: string) => {
+  await expect(async () => {
+    if (!(await page.getByRole('menu').isVisible())) await scope.getByRole('button', { name: 'More actions' }).click();
+    await expect(page.getByRole('menuitem', { name: item })).toBeVisible({ timeout: 1000 });
+  }).toPass();
+  await page.getByRole('menuitem', { name: item }).click();
+};
 
 test('lists participants, searches after typing settles and filters by status', async ({ page }) => {
   const requests = await fixture(page);
   await seed(page);
   await page.goto('/organizer/events/event-a/participants');
   await expect(page.getByRole('heading', { level: 1, name: 'Participants' })).toBeVisible();
-  await expect(page.getByRole('navigation', { name: 'Event workspace' }).getByRole('link', { name: /Participants/ })).toHaveAttribute('aria-current', 'page');
   await expect(rows(page)).toHaveCount(3);
   await expect(page.getByTestId('participants-range')).toHaveText('1–3 of 3');
-  await expect(rows(page).filter({ hasText: 'Mina Rahimi' }).getByText('Cancelled')).toBeVisible();
+  await expect(rows(page).filter({ hasText: 'Mina Rahimi' }).getByText('Cancelled').filter({ visible: true })).toBeVisible();
 
   const before = listCalls(requests).length;
   await page.getByTestId('participants-search').pressSequentially('reza', { delay: 30 });
@@ -136,7 +156,7 @@ test('lists participants, searches after typing settles and filters by status', 
   expect(listCalls(requests).at(-1)?.search).toContain('q=reza');
 
   await page.getByTestId('participants-search').fill('nobody');
-  await expect(page.getByText('No participant matches this search and these filters.')).toBeVisible();
+  await expect(page.getByText('No participant matches this search.')).toBeVisible();
   await page.getByRole('button', { name: 'Clear filters' }).click();
   await expect(rows(page)).toHaveCount(3);
 
@@ -145,6 +165,27 @@ test('lists participants, searches after typing settles and filters by status', 
   expect(listCalls(requests).at(-1)?.search).toContain('status=cancelled');
   expect(requests.every(r => r.auth === `Bearer ${KEY}`)).toBe(true);
   expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
+});
+
+test('a row click opens the drawer; rows carry no edit button and show the check-ins column', async ({ page }) => {
+  await fixture(page);
+  await seed(page);
+  await page.goto('/organizer/events/event-a/participants');
+  await expect(rows(page)).toHaveCount(3);
+  await expect(page.getByRole('columnheader', { name: 'Check-ins' })).toBeVisible();
+  await expect(page.getByRole('columnheader', { name: 'Registered' })).toHaveCount(0);
+  await expect(rows(page).filter({ hasText: 'Sara Ahmadi' }).getByTestId('participant-checkins')).toHaveText('1');
+  await expect(rows(page).getByRole('button', { name: /Edit|Manage/ })).toHaveCount(0);
+
+  const drawer = await openRow(page, 'Reza Karimi');
+  await expect(drawer.getByTestId('participant-drawer')).toBeVisible();
+  // The congress clock (Tehran), not the browser's (New York): 08:00 UTC is 11:30 in Tehran.
+  await expect(drawer).toContainText('11:30');
+  await page.keyboard.press('Escape');
+  // The keyboard way in: the name is a button inside the row.
+  await rows(page).filter({ hasText: 'Mina Rahimi' }).getByRole('button', { name: /Mina Rahimi/ }).focus();
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('dialog', { name: 'Mina Rahimi' })).toBeVisible();
 });
 
 test('a failed load offers a retry', async ({ page }) => {
@@ -156,11 +197,12 @@ test('a failed load offers a retry', async ({ page }) => {
   await expect(rows(page)).toHaveCount(3);
 });
 
-test('edits the registration details of one congress', async ({ page }) => {
+test('edits the registration details of one congress from the drawer', async ({ page }) => {
   const requests = await fixture(page);
   await seed(page);
   await page.goto('/organizer/events/event-a/participants');
-  await page.getByRole('button', { name: 'Edit: Reza Karimi' }).click();
+  const drawer = await openRow(page, 'Reza Karimi');
+  await drawer.getByRole('button', { name: 'Edit' }).click();
   const dialog = page.getByRole('dialog', { name: 'Edit registration details' });
   await dialog.getByLabel('Full name').fill('');
   await dialog.getByRole('button', { name: 'Save' }).click();
@@ -169,24 +211,31 @@ test('edits the registration details of one congress', async ({ page }) => {
   await dialog.getByLabel('Organization').fill('Tehran Heart Center');
   await dialog.getByRole('button', { name: 'Save' }).click();
   await expect(page.getByRole('status').filter({ hasText: 'Registration details saved.' })).toBeVisible();
+  await page.keyboard.press('Escape');
   await expect(rows(page).filter({ hasText: 'Reza Karimi-Nejad' })).toContainText('Tehran Heart Center');
   const patch = requests.find(r => r.method === 'PATCH');
   expect(patch?.path).toBe('/api/events/event-a/participants/t-2');
   expect(patch?.body).toEqual({ attendee_full_name: 'Reza Karimi-Nejad', attendee_organization: 'Tehran Heart Center', attendee_title: 'Doctor' });
 });
 
-test('the drawer shows scan history; cancel and reissue go through confirmations', async ({ page }) => {
+test('the drawer shows readable scan history; cancel and reissue go through confirmations', async ({ page }) => {
   const requests = await fixture(page);
   await seed(page);
   await page.goto('/organizer/events/event-a/participants');
 
-  await page.getByRole('button', { name: 'Manage: Sara Ahmadi' }).click();
-  const drawer = page.getByRole('dialog', { name: 'Sara Ahmadi' });
+  const drawer = await openRow(page, 'Sara Ahmadi');
   await expect(drawer.getByText('Main Gate')).toBeVisible();
   await expect(drawer.getByText('Admitted')).toBeVisible();
-  // Scanned: deleting is not offered, cancelling is.
-  await expect(drawer.getByRole('button', { name: 'Delete registration' })).toHaveCount(0);
-  await expect(drawer.getByText('cancel the ticket instead')).toBeVisible();
+  // The refusal reads in words; the code is only a tooltip.
+  await expect(drawer.getByText('Pass type not allowed')).toBeVisible();
+  await expect(drawer).not.toContainText('TIER_NOT_ALLOWED');
+  // Scanned: deleting is not offered at all, and nothing explains why.
+  await fromMenu(page, drawer, 'Transfer pass');
+  await page.getByRole('dialog', { name: 'Transfer', exact: true }).getByRole('button', { name: 'Cancel' }).click();
+  await drawer.getByRole('button', { name: 'More actions' }).click();
+  await expect(page.getByRole('menuitem', { name: 'Cancel pass' })).toBeVisible();
+  await expect(page.getByRole('menuitem', { name: 'Delete registration' })).toHaveCount(0);
+  await drawer.getByRole('button', { name: 'More actions' }).click();
 
   await drawer.getByRole('button', { name: 'Reissue pass' }).click();
   const reissue = page.getByRole('dialog', { name: 'Reissue the pass?' });
@@ -195,62 +244,123 @@ test('the drawer shows scan history; cancel and reissue go through confirmations
   await expect(drawer.getByText('Last reissued')).toBeVisible();
   expect(requests.find(r => r.path.endsWith('/t-1/reissue'))?.body).toEqual({ notify: true });
 
-  await drawer.getByRole('button', { name: 'Cancel ticket' }).click();
-  const cancel = page.getByRole('dialog', { name: 'Cancel this ticket?' });
-  await cancel.getByLabel('Reason (optional)').fill('Asked by phone');
-  await cancel.getByLabel('Text the participant that the ticket was cancelled').uncheck();
-  await cancel.getByRole('button', { name: 'Cancel ticket' }).click();
-  await expect(page.getByRole('status').filter({ hasText: 'Ticket cancelled.' })).toBeVisible();
+  await fromMenu(page, drawer, 'Cancel pass');
+  const cancel = page.getByRole('dialog', { name: 'Cancel this pass?' });
+  await cancel.getByLabel('Reason').fill('Asked by phone');
+  await cancel.getByRole('switch', { name: 'Text the participant that the pass was cancelled' }).click();
+  await cancel.getByRole('button', { name: 'Cancel pass' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Pass cancelled.' })).toBeVisible();
   expect(requests.find(r => r.path.endsWith('/t-1/cancel'))?.body).toEqual({ reason: 'Asked by phone', notify: false });
-  await expect(drawer.getByText('This ticket\'s pass and QR code no longer work.')).toBeVisible();
+  await expect(drawer.getByText('This pass no longer works.')).toBeVisible();
   await expect(drawer.getByText('Asked by phone')).toBeVisible();
   await expect(drawer.getByRole('button', { name: 'Reissue pass' })).toHaveCount(0);
   await page.keyboard.press('Escape');
-  await expect(rows(page).filter({ hasText: 'Sara Ahmadi' }).getByText('Cancelled')).toBeVisible();
+  await expect(rows(page).filter({ hasText: 'Sara Ahmadi' }).getByText('Cancelled').filter({ visible: true })).toBeVisible();
 });
 
-test('transfer asks for the name when the number has no account; delete explains a 409', async ({ page }) => {
+test('transfer asks for the name when the number has no account; delete is confirmed and explains a 409', async ({ page }) => {
   const requests = await fixture(page, { deleteConflict: true });
   await seed(page);
   await page.goto('/organizer/events/event-a/participants');
 
-  await page.getByRole('button', { name: 'Manage: Reza Karimi' }).click();
-  const drawer = page.getByRole('dialog', { name: 'Reza Karimi' });
-  await drawer.getByRole('button', { name: 'Transfer ticket' }).click();
-  const transfer = page.getByRole('dialog', { name: 'Transfer the ticket to someone else' });
+  const drawer = await openRow(page, 'Reza Karimi');
+  await fromMenu(page, drawer, 'Transfer pass');
+  const transfer = page.getByRole('dialog', { name: 'Transfer', exact: true });
   await transfer.getByLabel('New holder\'s mobile').fill('0912');
   await transfer.getByRole('button', { name: 'Transfer' }).click();
-  await expect(transfer.getByText('Enter a valid Iranian mobile number')).toBeVisible();
+  await expect(transfer.getByText('Enter a valid mobile number')).toBeVisible();
   await transfer.getByLabel('New holder\'s mobile').fill('09351234567');
   await transfer.getByRole('button', { name: 'Transfer' }).click();
   await expect(transfer.getByText('This number has no account yet: enter the new holder\'s name.')).toBeVisible();
   await transfer.getByLabel('Full name').fill('Neda Moradi');
   await transfer.getByRole('button', { name: 'Transfer' }).click();
-  await expect(page.getByRole('status').filter({ hasText: 'Ticket transferred to Neda Moradi.' })).toBeVisible();
-  await expect(page.getByRole('dialog', { name: 'Neda Moradi' })).toBeVisible();
+  await expect(page.getByRole('status').filter({ hasText: 'Pass transferred to Neda Moradi.' })).toBeVisible();
+  const neda = page.getByRole('dialog', { name: 'Neda Moradi' });
+  await expect(neda).toBeVisible();
   expect(requests.filter(r => r.path.endsWith('/t-2/transfer')).at(-1)?.body).toEqual({ mobile: '09351234567', full_name: 'Neda Moradi' });
 
-  // The new holder has no history: delete is offered, but a scan that arrived meanwhile refuses it.
-  const neda = page.getByRole('dialog', { name: 'Neda Moradi' });
-  await neda.getByRole('button', { name: 'Delete registration' }).click();
-  const remove = page.getByRole('dialog', { name: 'Delete this registration?' });
-  await remove.getByRole('button', { name: 'Delete permanently' }).click();
-  await expect(remove.getByRole('alert')).toContainText('cancel the ticket instead');
-  await expect(remove.getByRole('button', { name: 'Cancel ticket' })).toBeVisible();
+  // The new holder has no history: delete is offered in ⋯ and confirmed, but a scan that arrived meanwhile refuses it.
+  await fromMenu(page, neda, 'Delete registration');
+  const confirm = page.getByRole('dialog', { name: 'Delete this registration?' });
+  await confirm.getByRole('button', { name: 'Delete permanently' }).click();
+  await expect(neda.getByRole('alert')).toContainText('cancel their pass instead');
+  expect(requests.some(r => r.method === 'DELETE' && r.path.endsWith('/t-9'))).toBe(true);
 });
 
-test('Persian copy and CSV export of the filtered list', async ({ page }) => {
+test('Persian copy and the Excel export of the filtered list', async ({ page }) => {
   const requests = await fixture(page);
   await seed(page, 'fa');
   await page.goto('/organizer/events/event-a/participants');
   await expect(page.getByRole('heading', { level: 1, name: 'شرکت‌کنندگان' })).toBeVisible();
-  // This page follows the glossary (بلیت, never بلیط); the shared navigation copy is outside its scope.
-  await expect(page.locator('#organizer-main-content')).not.toContainText('بلیط');
-  await page.getByLabel('نوع بلیت').selectOption('tier-2');
+  const main = page.locator('#organizer-main-content');
+  for (const banned of ['بلیط', 'بلیت', 'CSV']) await expect(main).not.toContainText(banned);
+  await expect(page.getByRole('columnheader', { name: 'ورود', exact: true })).toBeVisible();
+  await page.getByLabel('نوع کارت ورود').selectOption('tier-2');
   await expect(rows(page)).toHaveCount(1);
   const download = page.waitForEvent('download');
-  await page.getByRole('button', { name: 'خروجی CSV' }).click();
+  await page.getByRole('button', { name: 'خروجی اکسل' }).click();
   expect((await download).suggestedFilename()).toBe('alpha-participants.csv');
   const csv = requests.find(r => r.path.endsWith('/participants/export-csv'));
   expect(csv?.search).toBe('?tier_id=tier-2');
+  // No Latin in mono: mobiles use Persian digits in the sans font.
+  const mobile = rows(page).first().locator('bdi[dir="ltr"]').filter({ visible: true }).first();
+  await expect(mobile).toHaveText('۰۹۱۲ ۰۰۰ ۰۰۰۲');
+  expect(await mobile.evaluate(el => getComputedStyle(el).fontFamily)).not.toMatch(/Plex Mono/);
+});
+
+test('at 390 px rows stack, the first row is above the fold and the filters open in a sheet', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const requests = await fixture(page);
+  await seed(page);
+  await page.goto('/organizer/events/event-a/participants');
+  const first = rows(page).first();
+  await expect(first).toBeVisible();
+  const box = await first.boundingBox();
+  expect(box && box.y + box.height).toBeLessThanOrEqual(844);
+  await expect(page.getByLabel('Status')).toBeHidden();
+  await page.getByTestId('participants-filter-button').click();
+  const sheet = page.getByRole('dialog', { name: 'Filters' });
+  await sheet.getByLabel('Status').selectOption('cancelled');
+  await sheet.getByRole('button', { name: 'Show results' }).click();
+  await expect(rows(page)).toHaveCount(1);
+  expect(listCalls(requests).at(-1)?.search).toContain('status=cancelled');
+  await expect(page.getByTestId('participants-filter-button')).toHaveText(/Filter \(1\)/);
+  // The export waits in ⋯ on a phone.
+  await expect(page.getByRole('button', { name: 'Export CSV' })).toBeHidden();
+  await page.getByRole('button', { name: 'More actions' }).click();
+  await expect(page.getByRole('menuitem', { name: 'Export CSV' })).toBeVisible();
+  await page.getByRole('button', { name: 'More actions' }).click();
+  await first.click();
+  await expect(page.getByRole('dialog', { name: 'Mina Rahimi' })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
+});
+
+test('staff look participants up without export or changes; a viewer gets a lock with a link to statistics', async ({ page }) => {
+  await fixture(page, { role: 'staff' });
+  await seed(page);
+  await page.goto('/organizer/events/event-a/participants');
+  await expect(rows(page)).toHaveCount(3);
+  await expect(page.getByRole('button', { name: /Export/ })).toHaveCount(0);
+  const drawer = await openRow(page, 'Reza Karimi');
+  await expect(drawer.getByTestId('participant-drawer')).toBeVisible();
+  await expect(drawer.getByRole('button', { name: /Edit|Reissue|More actions/ })).toHaveCount(0);
+
+  await page.unrouteAll({ behavior: 'ignoreErrors' });
+  await fixture(page, { role: 'viewer' });
+  await page.goto('/organizer/events/event-a/participants');
+  await expect(page.getByText('Your role can\'t see personal details.')).toBeVisible();
+  await expect(page.getByRole('search')).toHaveCount(0);
+  await page.getByRole('link', { name: 'Open statistics' }).click();
+  await expect(page).toHaveURL(/\/analytics$/);
+});
+
+test('an archived congress is read-only: banner, no change actions', async ({ page }) => {
+  await fixture(page, { archived: true });
+  await seed(page);
+  await page.goto('/organizer/events/event-a/participants');
+  await expect(page.getByTestId('section-archived')).toBeVisible();
+  await expect(rows(page)).toHaveCount(3);
+  const drawer = await openRow(page, 'Reza Karimi');
+  await expect(drawer.getByTestId('participant-drawer')).toBeVisible();
+  await expect(drawer.getByRole('button', { name: /Edit|Reissue|More actions/ })).toHaveCount(0);
 });

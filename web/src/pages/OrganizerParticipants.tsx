@@ -3,6 +3,7 @@ import {
   ApiResponseError,
   apiErrorCode,
   localizedApiError,
+  type EventOut,
   type ParticipantDetail,
   type ParticipantOut,
   type ParticipantPage,
@@ -10,13 +11,17 @@ import {
 } from "../api/client";
 import { useEventWorkspace } from "../components/organizer/eventWorkspaceContext";
 import { Badge } from "../components/ui/Badge";
-import { Button } from "../components/ui/Button";
-import { Dialog } from "../components/ui/Dialog";
+import { Button, LinkButton } from "../components/ui/Button";
 import { Icon } from "../components/ui/Icon";
+import { Dialog } from "../components/ui/Dialog";
+import { SearchInput, Select, TextInput, Textarea } from "../components/ui/Input";
+import { RowActions, type RowAction } from "../components/ui/RowActions";
+import { Switch } from "../components/ui/Switch";
 import { DialogActions, EmptyState, Field, FormAlert, MetaItem, Notice, SectionHeader } from "../components/organizer/WorkspaceUi";
-import { formatLocalizedNumber } from "../lib/i18n";
+import { organizerDataCopy } from "../copy/organizerData";
+import { formatDate, formatNumber } from "../lib/format";
 import { formatMobile, normalizeIranMobile } from "../lib/mobile";
-import { eventOperationNumber } from "../lib/organizerWorkspace";
+import { eventWorkspacePath } from "../lib/organizerWorkspace";
 import {
   PARTICIPANTS_COPY,
   cancelReasonLabel,
@@ -30,28 +35,35 @@ import {
   type ParticipantsCopy,
 } from "../lib/participants";
 import { createParticipantsApi } from "../lib/participantsApi";
+import { EventSectionGate } from "./organizer/EventSectionUi";
 
 const PAGE_SIZE = 25;
 const SEARCH_DEBOUNCE_MS = 300;
 
-type Action = "edit" | "cancel" | "reissue" | "transfer" | "delete";
+type Action = "edit" | "cancel" | "reissue" | "transfer";
+type Locale = "fa" | "en";
 
 // The event workspace remounts per event, so a late response for event A can never write into event B's state.
 export default function OrganizerParticipants() {
-  // The workspace loads the event (for the header) and reports it to the layout; a 401 on the organizer key
-  // reaches the layout's handler from every request below (registerUnauthorizedHandler).
-  const { eventId, event, client, apiKey, locale, can } = useEventWorkspace();
-  // Staff look participants up; changing a ticket and the export are a manager's (backend/app/roles.py).
-  const canManage = can("manager");
+  return <EventSectionGate>{(event) => <ParticipantsSection event={event} />}</EventSectionGate>;
+}
+
+function ParticipantsSection({ event }: { event: EventOut }) {
+  // A 401 on the organizer key reaches the layout's handler from every request below (registerUnauthorizedHandler).
+  const { eventId, client, apiKey, locale, can, canEdit } = useEventWorkspace();
+  // Changing a pass needs a manager on a congress that is not archived; the export is a manager's (backend/app/roles.py).
+  const canExport = can("manager");
   // The list itself carries personal data: staff and up (a viewer is answered ROLE_FORBIDDEN).
   const canLookUp = can("staff");
   const copy = PARTICIPANTS_COPY[locale];
+  const timeZone = event.timezone;
 
   const api = useMemo(() => (apiKey && eventId ? createParticipantsApi(apiKey, eventId) : null), [apiKey, eventId]);
 
   const [tiers, setTiers] = useState<TicketTierOut[]>([]);
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState<ParticipantListState>({ q: "", tierId: "", status: "", page: 0, pageSize: PAGE_SIZE });
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [data, setData] = useState<ParticipantPage | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -62,31 +74,29 @@ export default function OrganizerParticipants() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detail, setDetail] = useState<ParticipantDetail | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
+  const [drawerError, setDrawerError] = useState<string | null>(null);
   const [action, setAction] = useState<{ kind: Action; participant: ParticipantOut } | null>(null);
 
   /** The error in the organizer's language. */
   const errorText = useCallback(
     (error: unknown, fallback: string) => {
-      if (error instanceof ApiResponseError) return localizedApiError(error, locale);
+      if (error instanceof ApiResponseError) return localizedApiError(error, locale, error.status);
       return error instanceof TypeError ? copy.networkError : fallback;
     },
     [locale, copy],
   );
 
-  // Ticket types (for the filter), once per event and key.
+  // Pass types (for the filter), once per event and key.
   useEffect(() => {
-    if (!client || !eventId) return;
+    if (!client || !eventId || !canLookUp) return;
     let active = true;
-    void client
-      .GET("/api/events/{event_id}/ticket-tiers", { params: { path: { event_id: eventId } } })
-      .then(({ data: loaded }) => {
-        if (active && loaded) setTiers(loaded);
-      })
-      .catch(() => undefined);
+    void client.GET("/api/events/{event_id}/ticket-tiers", { params: { path: { event_id: eventId } } }).then(({ data: loaded }) => {
+      if (active && loaded) setTiers(loaded);
+    });
     return () => {
       active = false;
     };
-  }, [client, eventId]);
+  }, [client, eventId, canLookUp]);
 
   // Typing settles before the list is asked again; a new search starts at the first page.
   useEffect(() => {
@@ -132,6 +142,7 @@ export default function OrganizerParticipants() {
       setSelectedId(ticketId);
       setDetail(null);
       setDetailError(null);
+      setDrawerError(null);
       api
         .get(ticketId)
         .then(setDetail)
@@ -159,6 +170,18 @@ export default function OrganizerParticipants() {
     [selectedId, reload],
   );
 
+  const removeRegistration = async (participant: ParticipantDetail) => {
+    if (!api) return;
+    setDrawerError(null);
+    try {
+      await api.remove(participant.ticket_id);
+      actionDone(copy.deleted, null);
+    } catch (error) {
+      // A scan or lead that arrived meanwhile answers PARTICIPANT_HAS_HISTORY: "cancel the pass instead".
+      setDrawerError(errorText(error, copy.actionError));
+    }
+  };
+
   const handleExport = async () => {
     if (!api) return;
     setExporting(true);
@@ -166,7 +189,7 @@ export default function OrganizerParticipants() {
       const blob = await api.exportCsv(filters);
       const link = document.createElement("a");
       link.href = URL.createObjectURL(blob);
-      link.download = `${event?.slug ?? "congress"}-participants.csv`;
+      link.download = `${event.slug}-participants.csv`;
       document.body.appendChild(link);
       link.click();
       link.remove();
@@ -180,47 +203,68 @@ export default function OrganizerParticipants() {
 
   const setFilter = (patch: Partial<ParticipantListState>) => setFilters((current) => ({ ...current, ...patch, page: 0 }));
   const filtered = Boolean(filters.q.trim() || filters.tierId || filters.status);
+  const activeFilters = (filters.tierId ? 1 : 0) + (filters.status ? 1 : 0);
   const clearFilters = () => {
     setSearch("");
     setFilters((current) => ({ ...current, q: "", tierId: "", status: "", page: 0 }));
   };
-  const num = (n: number) => formatLocalizedNumber(n, locale);
-
-  const header = (
-    <SectionHeader
-      index={eventOperationNumber("participants")}
-      eyebrow={<bdi>{event?.name ?? ""}</bdi>}
-      title={copy.title}
-      description={copy.description}
-      action={
-        canManage ? (
-          <Button type="button" variant="secondary" size="md" onClick={() => void handleExport()} disabled={exporting || !api} aria-busy={exporting}>
-            <Icon name="download" size={16} />
-            {exporting ? copy.exporting : copy.exportCsv}
-          </Button>
-        ) : undefined
-      }
-    />
-  );
-
-  const range = data ? pageRange(data.offset, data.items.length, data.total) : null;
+  const num = (n: number) => formatNumber(n, locale);
+  // Filters and export only once there is something to filter.
+  const hasRows = data !== null && (data.total > 0 || filtered);
 
   if (!canLookUp) {
     return (
       <div className="space-y-6">
-        {header}
-        <EmptyState icon="lock" title={locale === "fa" ? "فهرست شرکت‌کنندگان برای نقش شما در دسترس نیست." : "The participant list is not available to your role."}>
-          {locale === "fa"
-            ? "اطلاعات شخصی شرکت‌کنندگان را کارکنان و مدیران سازمان می‌بینند. آمار کلی در بخش تحلیل در دسترس است."
-            : "Participants' personal data is for the organization's staff and managers. Aggregate figures are in Analytics."}
-        </EmptyState>
+        <SectionHeader title={copy.title} />
+        <EmptyState
+          icon="lock"
+          title={copy.lockedTitle}
+          action={
+            <LinkButton to={eventWorkspacePath(eventId, "/analytics")} variant="secondary" icon="chart">
+              {copy.openStatistics}
+            </LinkButton>
+          }
+        />
       </div>
     );
   }
 
+  const exportAction = canExport && data !== null && data.total > 0 && (
+    <>
+      <Button type="button" variant="secondary" icon="download" loading={exporting} onClick={() => void handleExport()} className="max-sm:hidden">
+        {exporting ? copy.exporting : copy.exportCsv}
+      </Button>
+      <RowActions
+        className="sm:hidden"
+        visible={0}
+        menuLabel={copy.more}
+        actions={[{ label: copy.exportCsv, icon: "download", disabled: exporting, onSelect: () => void handleExport() }]}
+      />
+    </>
+  );
+
+  const tierSelect = (
+    <Select value={filters.tierId} onChange={(e) => setFilter({ tierId: e.target.value })}>
+      <option value="">{copy.all}</option>
+      {tiers.map((tier) => (
+        <option key={tier.id} value={tier.id}>
+          {tier.name}
+        </option>
+      ))}
+    </Select>
+  );
+  const statusSelect = (
+    <Select value={filters.status} onChange={(e) => setFilter({ status: e.target.value as ParticipantStatusFilter })}>
+      <option value="">{copy.all}</option>
+      <option value="active">{copy.statusActive}</option>
+      <option value="cancelled">{copy.statusCancelled}</option>
+    </Select>
+  );
+  const range = data ? pageRange(data.offset, data.items.length, data.total) : null;
+
   return (
-    <div className="space-y-6">
-      {header}
+    <div className="space-y-5">
+      <SectionHeader title={copy.title} action={exportAction || undefined} />
 
       {notice && (
         <Notice tone={notice.tone} onDismiss={() => setNotice(null)} dismissLabel={copy.dismiss}>
@@ -228,50 +272,35 @@ export default function OrganizerParticipants() {
         </Notice>
       )}
 
-      <div role="search" aria-label={copy.filters} className="grid gap-3 sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)]">
-        <Field label={copy.searchLabel}>
-          <span className="relative block">
-            <Icon name="search" size={16} className="pointer-events-none absolute start-3 top-1/2 -translate-y-1/2 text-text-muted" />
-            <input
-              type="search"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder={copy.searchPlaceholder}
-              className="ui-input ps-9"
-              data-testid="participants-search"
-            />
-          </span>
-        </Field>
-        <Field label={copy.tierFilter}>
-          <select value={filters.tierId} onChange={(e) => setFilter({ tierId: e.target.value })} className="ui-select">
-            <option value="">{copy.all}</option>
-            {tiers.map((tier) => (
-              <option key={tier.id} value={tier.id}>
-                {tier.name}
-              </option>
-            ))}
-          </select>
-        </Field>
-        <Field label={copy.statusFilter}>
-          <select
-            value={filters.status}
-            onChange={(e) => setFilter({ status: e.target.value as ParticipantStatusFilter })}
-            className="ui-select"
-          >
-            <option value="">{copy.all}</option>
-            <option value="active">{copy.statusActive}</option>
-            <option value="cancelled">{copy.statusCancelled}</option>
-          </select>
-        </Field>
-      </div>
+      {hasRows && (
+        <div role="search" aria-label={copy.filters} className="flex items-end gap-3">
+          <SearchInput
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            onClear={() => setSearch("")}
+            aria-label={copy.searchLabel}
+            placeholder={copy.searchPlaceholder}
+            wrapperClassName="min-w-0 flex-1 sm:max-w-md"
+            data-testid="participants-search"
+          />
+          <Field label={copy.tierFilter} className="w-48 max-sm:hidden">
+            {tierSelect}
+          </Field>
+          <Field label={copy.statusFilter} className="w-40 max-sm:hidden">
+            {statusSelect}
+          </Field>
+          <Button type="button" variant="secondary" icon="filter" className="sm:hidden" onClick={() => setFiltersOpen(true)} data-testid="participants-filter-button">
+            {activeFilters > 0 ? `${copy.filtersButton} (${num(activeFilters)})` : copy.filtersButton}
+          </Button>
+        </div>
+      )}
 
       {loadError ? (
         <div className="space-y-3">
           <FormAlert>
-            {copy.loadError} {loadError !== copy.loadError && <span>{loadError}</span>}
+            {copy.loadError} {loadError !== copy.loadError && <bdi>{loadError}</bdi>}
           </FormAlert>
-          <Button type="button" variant="secondary" size="md" onClick={reload}>
-            <Icon name="sync" size={16} />
+          <Button type="button" variant="secondary" icon="sync" onClick={reload}>
             {copy.retry}
           </Button>
         </div>
@@ -287,19 +316,25 @@ export default function OrganizerParticipants() {
             icon="search"
             title={copy.noResults}
             action={
-              <Button type="button" variant="secondary" size="md" onClick={clearFilters}>
+              <Button type="button" variant="secondary" onClick={clearFilters}>
                 {copy.clearFilters}
               </Button>
             }
           />
         ) : (
-          <EmptyState icon="users" title={copy.emptyTitle}>
-            {copy.emptyBody}
-          </EmptyState>
+          <EmptyState
+            icon="users"
+            title={copy.emptyTitle}
+            action={
+              <LinkButton to={eventWorkspacePath(eventId, "/desk")} variant="secondary" icon="id-card">
+                {copy.openDesk}
+              </LinkButton>
+            }
+          />
         )
       ) : (
         <div className="space-y-3" aria-busy={loading}>
-          <div className="overflow-clip rounded-2xl border border-border-default bg-surface-panel shadow-soft">
+          <div className="overflow-clip rounded-card border border-border-default bg-surface-panel shadow-soft">
             <table className={`org-table org-table--stack ${loading ? "opacity-60" : ""}`} data-testid="participants-table">
               <caption className="sr-only">{copy.title}</caption>
               <thead>
@@ -308,117 +343,112 @@ export default function OrganizerParticipants() {
                   <th scope="col">{copy.colMobile}</th>
                   <th scope="col">{copy.colTier}</th>
                   <th scope="col">{copy.colStatus}</th>
-                  <th scope="col">{copy.colRegistered}</th>
-                  <th scope="col">
-                    <span className="sr-only">{copy.colActions}</span>
+                  <th scope="col" className="text-end">
+                    {copy.colCheckins}
                   </th>
                 </tr>
               </thead>
               <tbody>
                 {data.items.map((p) => (
-                  <tr key={p.ticket_id} data-testid="participant-row">
+                  // The whole row opens the drawer; the name button gives keyboard users the same way in.
+                  <tr key={p.ticket_id} data-testid="participant-row" onClick={() => openDetail(p.ticket_id)} className="cursor-pointer">
                     <td>
-                      <button
-                        type="button"
-                        onClick={() => openDetail(p.ticket_id)}
-                        className="min-h-[44px] cursor-pointer rounded-md text-start"
-                      >
-                        <span className="block break-words text-sm font-semibold text-text-primary hover:underline">
-                          <bdi>{p.attendee_full_name}</bdi>
-                        </span>
-                        {(p.attendee_organization || p.attendee_title) && (
-                          <span className="block break-words text-xs text-text-muted">
-                            <bdi>{[p.attendee_title, p.attendee_organization].filter(Boolean).join(" · ")}</bdi>
+                      <div className="flex items-start justify-between gap-3">
+                        <button type="button" className="min-h-11 min-w-0 cursor-pointer rounded-md text-start">
+                          <span className="block break-words text-body-sm font-semibold text-text-primary">
+                            <bdi>{p.attendee_full_name}</bdi>
                           </span>
-                        )}
-                      </button>
+                          {(p.attendee_organization || p.attendee_title) && (
+                            <span className="block break-words text-caption text-text-muted">
+                              <bdi>{[p.attendee_title, p.attendee_organization].filter(Boolean).join(" · ")}</bdi>
+                            </span>
+                          )}
+                        </button>
+                        <span className="md:hidden">
+                          <StatusBadge status={p.status} copy={copy} />
+                        </span>
+                      </div>
+                      {/* Phones: one meta line instead of a labelled line per column. */}
+                      <p className="flex flex-wrap gap-x-2 text-caption text-text-secondary md:hidden">
+                        <MobileText participant={p} copy={copy} locale={locale} />
+                        <span aria-hidden="true">·</span>
+                        <bdi>{p.ticket_tier_name}</bdi>
+                        <span aria-hidden="true">·</span>
+                        <span>{fill(copy.checkinsCount, { count: num(p.checkin_count) })}</span>
+                      </p>
                     </td>
-                    <td data-label={copy.colMobile} className="text-xs">
+                    <td data-label={copy.colMobile} className="text-caption max-md:hidden">
                       <MobileText participant={p} copy={copy} locale={locale} />
                     </td>
-                    <td data-label={copy.colTier} className="text-sm">
+                    <td data-label={copy.colTier} className="text-body-sm max-md:hidden">
                       <bdi>{p.ticket_tier_name}</bdi>
                     </td>
-                    <td data-label={copy.colStatus}>
+                    <td data-label={copy.colStatus} className="max-md:hidden">
                       <StatusBadge status={p.status} copy={copy} />
                     </td>
-                    <td data-label={copy.colRegistered} className="text-xs text-text-secondary">
-                      <span>{formatDateTime(p.created_at, locale)}</span>
-                    </td>
-                    <td className="text-end">
-                      <div className="flex flex-wrap justify-end gap-1.5">
-                        {canManage && (
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => setAction({ kind: "edit", participant: p })}
-                            aria-label={`${copy.edit}: ${p.attendee_full_name}`}
-                          >
-                            <Icon name="note" size={15} />
-                            {copy.edit}
-                          </Button>
-                        )}
-                        <Button
-                          type="button"
-                          variant="secondary"
-                          size="sm"
-                          onClick={() => openDetail(p.ticket_id)}
-                          aria-label={`${copy.manage}: ${p.attendee_full_name}`}
-                        >
-                          {copy.manage}
-                        </Button>
-                      </div>
+                    <td data-label={copy.colCheckins} className="tabular text-end text-body-sm max-md:hidden" data-testid="participant-checkins">
+                      {num(p.checkin_count)}
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-          {range && (
-            <nav aria-label={copy.title} className="flex flex-wrap items-center justify-between gap-3 text-sm text-text-secondary">
-              <span data-testid="participants-range">
-                {fill(copy.range, { from: num(range.from), to: num(range.to), total: num(data.total) })}
-              </span>
-              <span className="flex gap-2">
-                <Button
-                  type="button"
-                  variant="secondary"
-                  size="sm"
-                  disabled={!range.hasPrev || loading}
-                  onClick={() => setFilters((c) => ({ ...c, page: c.page - 1 }))}
-                >
-                  {copy.prev}
-                </Button>
-                <Button
-                  type="button"
-                  variant="secondary"
-                  size="sm"
-                  disabled={!range.hasNext || loading}
-                  onClick={() => setFilters((c) => ({ ...c, page: c.page + 1 }))}
-                >
-                  {copy.next}
-                </Button>
-              </span>
+          {range && (range.hasPrev || range.hasNext || data.total > 0) && (
+            <nav aria-label={copy.pager} className="flex flex-wrap items-center justify-between gap-3 text-body-sm text-text-secondary">
+              <span data-testid="participants-range">{fill(copy.range, { from: num(range.from), to: num(range.to), total: num(data.total) })}</span>
+              {(range.hasPrev || range.hasNext) && (
+                <span className="flex gap-2">
+                  <Button type="button" variant="secondary" size="sm" disabled={!range.hasPrev || loading} onClick={() => setFilters((c) => ({ ...c, page: c.page - 1 }))}>
+                    {copy.prev}
+                  </Button>
+                  <Button type="button" variant="secondary" size="sm" disabled={!range.hasNext || loading} onClick={() => setFilters((c) => ({ ...c, page: c.page + 1 }))}>
+                    {copy.next}
+                  </Button>
+                </span>
+              )}
             </nav>
           )}
         </div>
       )}
+
+      {/* Phones: the two filters live in a sheet behind the «فیلتر» button. */}
+      <Dialog
+        isOpen={filtersOpen}
+        onClose={() => setFiltersOpen(false)}
+        title={copy.filtersTitle}
+        size="sm"
+        footer={
+          <div className="flex flex-col-reverse gap-2">
+            {activeFilters > 0 && (
+              <Button type="button" variant="ghost" onClick={() => setFilters((c) => ({ ...c, tierId: "", status: "", page: 0 }))}>
+                {copy.clearFilters}
+              </Button>
+            )}
+            <Button type="button" variant="primary" isFullWidth onClick={() => setFiltersOpen(false)}>
+              {copy.showResults}
+            </Button>
+          </div>
+        }
+      >
+        <div className="space-y-4" data-testid="participants-filter-sheet">
+          <Field label={copy.tierFilter}>{tierSelect}</Field>
+          <Field label={copy.statusFilter}>{statusSelect}</Field>
+        </div>
+      </Dialog>
 
       {/* Detail drawer: a side sheet on larger screens, a bottom sheet on phones. */}
       <Dialog
         isOpen={selectedId !== null}
         onClose={() => setSelectedId(null)}
         title={detail?.attendee_full_name ?? copy.detailTitle}
-        description={detail ? copy.detailTitle : undefined}
         size="lg"
         className="sm:ms-auto sm:self-stretch"
       >
         {detailError ? (
           <div className="space-y-3">
             <FormAlert>{detailError}</FormAlert>
-            <Button type="button" variant="secondary" size="md" onClick={() => selectedId && openDetail(selectedId)}>
-              <Icon name="sync" size={16} />
+            <Button type="button" variant="secondary" icon="sync" onClick={() => selectedId && openDetail(selectedId)}>
               {copy.retry}
             </Button>
           </div>
@@ -428,7 +458,16 @@ export default function OrganizerParticipants() {
             <div className="skeleton h-32" />
           </div>
         ) : (
-          <ParticipantDrawer participant={detail} copy={copy} locale={locale} canManage={canManage} onAction={(kind) => setAction({ kind, participant: detail })} />
+          <ParticipantDrawer
+            participant={detail}
+            copy={copy}
+            locale={locale}
+            timeZone={timeZone}
+            canEdit={canEdit}
+            error={drawerError}
+            onAction={(kind) => setAction({ kind, participant: detail })}
+            onDelete={() => void removeRegistration(detail)}
+          />
         )}
       </Dialog>
 
@@ -468,26 +507,7 @@ export default function OrganizerParticipants() {
           errorText={errorText}
         />
       )}
-      {api && action?.kind === "delete" && (
-        <DeleteDialog
-          participant={action.participant}
-          copy={copy}
-          onClose={() => setAction(null)}
-          onSubmit={async () => {
-            await api.remove(action.participant.ticket_id);
-            actionDone(copy.deleted, null);
-          }}
-          onCancelInstead={() => setAction({ kind: "cancel", participant: action.participant })}
-          errorText={errorText}
-        />
-      )}
     </div>
-  );
-}
-
-function formatDateTime(iso: string, locale: "fa" | "en"): string {
-  return new Intl.DateTimeFormat(locale === "fa" ? "fa-IR-u-ca-persian" : "en-US", { dateStyle: "medium", timeStyle: "short" }).format(
-    new Date(iso),
   );
 }
 
@@ -503,47 +523,84 @@ function StatusBadge({ status, copy }: { status: ParticipantOut["status"]; copy:
   );
 }
 
-function MobileText({ participant, copy, locale }: { participant: ParticipantOut; copy: ParticipantsCopy; locale: "fa" | "en" }) {
+function MobileText({ participant, copy, locale }: { participant: ParticipantOut; copy: ParticipantsCopy; locale: Locale }) {
   if (participant.account_deleted) return <span className="text-text-muted">{copy.accountDeleted}</span>;
   if (!participant.mobile) return <span className="text-text-muted">{copy.noMobile}</span>;
   return (
-    <bdi dir="ltr" className="font-mono">
+    <bdi dir="ltr" className="tabular">
       {formatMobile(participant.mobile, locale)}
     </bdi>
   );
+}
+
+/** A refused scan in the organizer's words; the code stays in the tooltip for support. */
+function scanReasonLabel(reason: string, locale: Locale): string {
+  const reasons: Record<string, string> = organizerDataCopy[locale].scanReasons;
+  if (reason.startsWith("LOCAL_REJECTED:")) return reasons.OFFLINE;
+  return reasons[reason] ?? reasons.other;
 }
 
 function ParticipantDrawer({
   participant: p,
   copy,
   locale,
-  canManage,
+  timeZone,
+  canEdit,
+  error,
   onAction,
+  onDelete,
 }: {
   participant: ParticipantDetail;
   copy: ParticipantsCopy;
-  locale: "fa" | "en";
-  /** The signed-in role may change tickets; otherwise the drawer only shows them. */
-  canManage: boolean;
+  locale: Locale;
+  timeZone: string;
+  /** The signed-in role may change passes on this (not archived) congress; otherwise the drawer only shows them. */
+  canEdit: boolean;
+  error: string | null;
   onAction: (kind: Action) => void;
+  onDelete: () => void;
 }) {
   const active = p.status === "active";
-  const num = (n: number) => formatLocalizedNumber(n, locale);
+  const when = (iso: string) => formatDate(iso, "dayTime", locale, timeZone);
+  const actions: RowAction[] = [
+    { label: copy.edit, icon: "note", onSelect: () => onAction("edit") },
+    ...(active
+      ? ([
+          { label: copy.reissue, icon: "qr", onSelect: () => onAction("reissue") },
+          { label: copy.transfer, icon: "user-plus", onSelect: () => onAction("transfer") },
+          { label: copy.cancelTicket, icon: "x-circle", onSelect: () => onAction("cancel") },
+        ] satisfies RowAction[])
+      : []),
+    ...(p.can_delete
+      ? ([
+          {
+            label: copy.delete,
+            icon: "trash",
+            onSelect: onDelete,
+            destructive: { title: copy.deleteTitle, description: copy.deleteDescription, confirmLabel: copy.confirmDelete },
+          },
+        ] satisfies RowAction[])
+      : []),
+  ];
   return (
     <div className="space-y-6" data-testid="participant-drawer">
-      <div className="flex flex-wrap items-center gap-2">
-        <StatusBadge status={p.status} copy={copy} />
-        <Badge variant="neutral" size="sm" icon={<Icon name="ticket" size={12} />}>
-          <bdi>{p.ticket_tier_name}</bdi>
-        </Badge>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <StatusBadge status={p.status} copy={copy} />
+          <Badge variant="neutral" size="sm" icon={<Icon name="ticket" size={12} />}>
+            <bdi>{p.ticket_tier_name}</bdi>
+          </Badge>
+        </div>
+        {canEdit && <RowActions actions={actions} visible={2} menuLabel={copy.more} />}
       </div>
-      {!active && <p className="text-sm text-text-secondary">{copy.passInactive}</p>}
+      {!active && <p className="text-body-sm text-text-secondary">{copy.passInactive}</p>}
+      {error && <FormAlert>{error}</FormAlert>}
 
       <dl className="grid grid-cols-2 gap-4">
         <MetaItem label={copy.colMobile}>
           <MobileText participant={p} copy={copy} locale={locale} />
         </MetaItem>
-        <MetaItem label={copy.registeredAt}>{formatDateTime(p.created_at, locale)}</MetaItem>
+        <MetaItem label={copy.registeredAt}>{when(p.created_at)}</MetaItem>
         {p.attendee_organization && (
           <MetaItem label={copy.organization}>
             <bdi>{p.attendee_organization}</bdi>
@@ -554,15 +611,15 @@ function ParticipantDrawer({
             <bdi>{p.attendee_title}</bdi>
           </MetaItem>
         )}
-        <MetaItem label={copy.checkins}>{num(p.checkin_count)}</MetaItem>
-        <MetaItem label={copy.leads}>{num(p.lead_count)}</MetaItem>
+        <MetaItem label={copy.checkins}>{formatNumber(p.checkin_count, locale)}</MetaItem>
+        <MetaItem label={copy.leads}>{formatNumber(p.lead_count, locale)}</MetaItem>
         {p.issued_by && (
           <MetaItem label={copy.issuedBy}>
             <bdi>{p.issued_by}</bdi>
           </MetaItem>
         )}
-        {p.reissued_at && <MetaItem label={copy.reissuedAt}>{formatDateTime(p.reissued_at, locale)}</MetaItem>}
-        {p.cancelled_at && <MetaItem label={copy.cancelledAt}>{formatDateTime(p.cancelled_at, locale)}</MetaItem>}
+        {p.reissued_at && <MetaItem label={copy.reissuedAt}>{when(p.reissued_at)}</MetaItem>}
+        {p.cancelled_at && <MetaItem label={copy.cancelledAt}>{when(p.cancelled_at)}</MetaItem>}
         {p.cancelled_by && <MetaItem label={copy.cancelledBy}>{cancelledByLabel(p.cancelled_by, copy)}</MetaItem>}
         {p.cancelled_reason && (
           <MetaItem label={copy.cancelReason} className="col-span-2">
@@ -571,63 +628,25 @@ function ParticipantDrawer({
         )}
       </dl>
 
-      {canManage && (
-        <div className="flex flex-wrap gap-2">
-          <Button type="button" variant="secondary" size="sm" onClick={() => onAction("edit")}>
-            <Icon name="note" size={15} />
-            {copy.edit}
-          </Button>
-          {active && (
-            <>
-              <Button type="button" variant="secondary" size="sm" onClick={() => onAction("reissue")}>
-                <Icon name="qr" size={15} />
-                {copy.reissue}
-              </Button>
-              <Button type="button" variant="secondary" size="sm" onClick={() => onAction("transfer")}>
-                <Icon name="user-plus" size={15} />
-                {copy.transfer}
-              </Button>
-              <Button
-                type="button"
-                variant="secondary"
-                size="sm"
-                onClick={() => onAction("cancel")}
-                className="!text-status-danger-text hover:!border-status-danger-border hover:!bg-status-danger-bg"
-              >
-                <Icon name="x-circle" size={15} />
-                {copy.cancelTicket}
-              </Button>
-            </>
-          )}
-          {p.can_delete && (
-            <Button type="button" variant="ghost" size="sm" onClick={() => onAction("delete")} className="!text-status-danger-text">
-              <Icon name="trash" size={15} />
-              {copy.delete}
-            </Button>
-          )}
-        </div>
-      )}
-      {canManage && !p.can_delete && <p className="text-xs leading-relaxed text-text-muted">{copy.deleteBlocked}</p>}
-
       <section aria-labelledby="participant-scans" className="space-y-2">
-        <h3 id="participant-scans" className="text-sm font-bold text-text-primary">
+        <h3 id="participant-scans" className="text-body-sm font-bold text-text-primary">
           {copy.scanHistory}
         </h3>
         {p.scan_history.length === 0 ? (
-          <p className="text-sm text-text-muted">{copy.noScans}</p>
+          <p className="text-body-sm text-text-muted">{copy.noScans}</p>
         ) : (
-          <ol className="divide-y divide-border-subtle rounded-xl border border-border-default">
+          <ol className="divide-y divide-border-subtle rounded-control border border-border-default">
             {p.scan_history.map((scan, i) => (
-              <li key={`${scan.scanned_at}-${i}`} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2.5 text-sm">
+              <li key={`${scan.scanned_at}-${i}`} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2.5 text-body-sm">
                 <span className="min-w-0">
                   <bdi className="font-semibold text-text-primary">{scan.checkin_point_name}</bdi>
-                  <span className="block text-xs text-text-muted">{formatDateTime(scan.scanned_at, locale)}</span>
+                  <span className="block text-caption text-text-muted">{when(scan.scanned_at)}</span>
                 </span>
                 <span className="flex items-center gap-2">
                   {scan.rejection_reason && (
-                    <bdi dir="ltr" className="font-mono text-[11px] text-text-muted">
-                      {scan.rejection_reason}
-                    </bdi>
+                    <span className="text-caption text-text-muted" title={scan.rejection_reason}>
+                      {scanReasonLabel(scan.rejection_reason, locale)}
+                    </span>
                   )}
                   <Badge variant={scan.status === "ADMITTED" ? "success" : "danger"} size="sm">
                     {scan.status === "ADMITTED" ? copy.scanAdmitted : copy.scanRejected}
@@ -703,11 +722,11 @@ function SubmitRow({
 }) {
   return (
     <DialogActions>
-      <Button type="button" variant="secondary" size="md" onClick={onCancel}>
+      <Button type="button" variant="secondary" onClick={onCancel}>
         {copy.back}
       </Button>
-      <Button type="submit" variant={tone} size="md" disabled={busy} aria-busy={busy}>
-        {busy ? copy.saving : label}
+      <Button type="submit" variant={tone} loading={busy}>
+        {label}
       </Button>
     </DialogActions>
   );
@@ -739,44 +758,29 @@ function EditDialog({
           setNameMissing(true);
           return;
         }
-        void run(() =>
-          onSubmit({ attendee_full_name: fullName.trim(), attendee_organization: organization.trim(), attendee_title: jobTitle.trim() }),
-        );
+        void run(() => onSubmit({ attendee_full_name: fullName.trim(), attendee_organization: organization.trim(), attendee_title: jobTitle.trim() }));
       }}
     >
-      <>
-        <Field label={copy.fullName} required hint={nameMissing ? <span className="text-status-danger-text">{copy.nameRequired}</span> : undefined}>
-          <input
-            value={fullName}
-            onChange={(e) => {
-              setFullName(e.target.value);
-              setNameMissing(false);
-            }}
-            maxLength={200}
-            aria-invalid={nameMissing || undefined}
-            className="ui-input"
-            autoComplete="off"
-          />
-        </Field>
-        <Field label={copy.organization}>
-          <input value={organization} onChange={(e) => setOrganization(e.target.value)} maxLength={200} className="ui-input" autoComplete="off" />
-        </Field>
-        <Field label={copy.jobTitle}>
-          <input value={jobTitle} onChange={(e) => setJobTitle(e.target.value)} maxLength={100} className="ui-input" autoComplete="off" />
-        </Field>
-        {error && <FormAlert>{error.text}</FormAlert>}
-        <SubmitRow copy={copy} busy={busy} onCancel={onClose} label={copy.save} />
-      </>
+      <Field label={copy.fullName} required error={nameMissing ? copy.nameRequired : undefined}>
+        <TextInput
+          value={fullName}
+          onChange={(e) => {
+            setFullName(e.target.value);
+            setNameMissing(false);
+          }}
+          maxLength={200}
+          autoComplete="off"
+        />
+      </Field>
+      <Field label={copy.organization}>
+        <TextInput value={organization} onChange={(e) => setOrganization(e.target.value)} maxLength={200} autoComplete="off" />
+      </Field>
+      <Field label={copy.jobTitle}>
+        <TextInput value={jobTitle} onChange={(e) => setJobTitle(e.target.value)} maxLength={100} autoComplete="off" />
+      </Field>
+      {error && <FormAlert>{error.text}</FormAlert>}
+      <SubmitRow copy={copy} busy={busy} onCancel={onClose} label={copy.save} />
     </ActionDialog>
-  );
-}
-
-function NotifyToggle({ checked, onChange, label }: { checked: boolean; onChange: (value: boolean) => void; label: string }) {
-  return (
-    <label className="flex min-h-[40px] cursor-pointer items-start gap-3 text-sm text-text-primary">
-      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} className="mt-0.5 size-4 shrink-0 accent-aiteb-indigo" />
-      <span>{label}</span>
-    </label>
   );
 }
 
@@ -794,14 +798,12 @@ function CancelDialog({ copy, onClose, onSubmit, errorText }: ActionDialogProps 
         void run(() => onSubmit({ reason: reason.trim(), notify }));
       }}
     >
-      <>
-        <Field label={copy.reason}>
-          <textarea rows={3} value={reason} onChange={(e) => setReason(e.target.value)} maxLength={300} className="ui-textarea" />
-        </Field>
-        <NotifyToggle checked={notify} onChange={setNotify} label={copy.notify} />
-        {error && <FormAlert>{error.text}</FormAlert>}
-        <SubmitRow copy={copy} busy={busy} onCancel={onClose} label={copy.confirmCancel} tone="danger" />
-      </>
+      <Field label={copy.reason} optional>
+        <Textarea rows={3} value={reason} onChange={(e) => setReason(e.target.value)} maxLength={300} />
+      </Field>
+      <Switch label={copy.notify} checked={notify} onChange={setNotify} />
+      {error && <FormAlert>{error.text}</FormAlert>}
+      <SubmitRow copy={copy} busy={busy} onCancel={onClose} label={copy.confirmCancel} tone="danger" />
     </ActionDialog>
   );
 }
@@ -819,11 +821,9 @@ function ReissueDialog({ copy, onClose, onSubmit, errorText }: ActionDialogProps
         void run(() => onSubmit(notify));
       }}
     >
-      <>
-        <NotifyToggle checked={notify} onChange={setNotify} label={copy.notifyReissue} />
-        {error && <FormAlert>{error.text}</FormAlert>}
-        <SubmitRow copy={copy} busy={busy} onCancel={onClose} label={copy.confirmReissue} />
-      </>
+      <Switch label={copy.notifyReissue} checked={notify} onChange={setNotify} />
+      {error && <FormAlert>{error.text}</FormAlert>}
+      <SubmitRow copy={copy} busy={busy} onCancel={onClose} label={copy.confirmReissue} />
     </ActionDialog>
   );
 }
@@ -870,105 +870,48 @@ function TransferDialog({
         });
       }}
     >
-      <>
+      <Field label={copy.newMobile} required error={problem === "mobileInvalid" ? copy.mobileInvalid : undefined}>
+        <TextInput
+          type="tel"
+          inputMode="tel"
+          dir="ltr"
+          value={mobile}
+          onChange={(e) => {
+            setMobile(e.target.value);
+            setProblem(null);
+          }}
+          autoComplete="off"
+          placeholder="09121234567"
+        />
+      </Field>
+      <fieldset className="space-y-4">
+        <legend className="ui-label">{nameRequired ? copy.transferNeedsName : copy.optionalDetails}</legend>
         <Field
-          label={copy.newMobile}
-          required
-          hint={problem === "mobileInvalid" ? <span className="text-status-danger-text">{copy.mobileInvalid}</span> : undefined}
+          label={copy.fullName}
+          required={nameRequired}
+          optional={!nameRequired}
+          error={problem === "nameRequired" ? copy.nameRequired : undefined}
+          hint={nameRequired ? undefined : copy.transferNameHint}
         >
-          <input
-            type="tel"
-            inputMode="tel"
-            dir="ltr"
-            value={mobile}
+          <TextInput
+            value={fullName}
             onChange={(e) => {
-              setMobile(e.target.value);
-              setProblem(null);
+              setFullName(e.target.value);
+              if (problem === "nameRequired") setProblem(null);
             }}
-            aria-invalid={problem === "mobileInvalid" || undefined}
-            className="ui-input"
+            maxLength={200}
             autoComplete="off"
-            placeholder="09121234567"
           />
         </Field>
-        <fieldset className="space-y-4">
-          <legend className="ui-label">{nameRequired ? copy.transferNeedsName : copy.optionalDetails}</legend>
-          <Field
-            label={copy.fullName}
-            required={nameRequired}
-            hint={
-              problem === "nameRequired" ? <span className="text-status-danger-text">{copy.nameRequired}</span> : nameRequired ? undefined : copy.transferNameHint
-            }
-          >
-            <input
-              value={fullName}
-              onChange={(e) => {
-                setFullName(e.target.value);
-                if (problem === "nameRequired") setProblem(null);
-              }}
-              maxLength={200}
-              aria-invalid={problem === "nameRequired" || undefined}
-              className="ui-input"
-              autoComplete="off"
-            />
-          </Field>
-          <Field label={copy.organization}>
-            <input value={organization} onChange={(e) => setOrganization(e.target.value)} maxLength={200} className="ui-input" autoComplete="off" />
-          </Field>
-          <Field label={copy.jobTitle}>
-            <input value={jobTitle} onChange={(e) => setJobTitle(e.target.value)} maxLength={100} className="ui-input" autoComplete="off" />
-          </Field>
-        </fieldset>
-        {error && <FormAlert>{error.text}</FormAlert>}
-        <SubmitRow copy={copy} busy={busy} onCancel={onClose} label={copy.confirmTransfer} />
-      </>
-    </ActionDialog>
-  );
-}
-
-function DeleteDialog({
-  participant,
-  copy,
-  onClose,
-  onSubmit,
-  onCancelInstead,
-  errorText,
-}: ActionDialogProps & { participant: ParticipantOut; onSubmit: () => Promise<void>; onCancelInstead: () => void }) {
-  const { busy, error, run } = useSubmit(errorText, copy.actionError);
-  // The button is only offered while deleting is allowed; a scan or lead that arrived meanwhile answers 409.
-  const blocked = error?.code === "PARTICIPANT_HAS_HISTORY";
-  return (
-    <ActionDialog
-      title={copy.deleteTitle}
-      description={copy.deleteDescription}
-      onClose={onClose}
-      onSubmit={(e) => {
-        e.preventDefault();
-        if (!blocked) void run(onSubmit);
-      }}
-    >
-      <>
-        {blocked ? (
-          <>
-            <FormAlert>{copy.deleteBlocked}</FormAlert>
-            <DialogActions>
-              <Button type="button" variant="secondary" size="md" onClick={onClose}>
-                {copy.close}
-              </Button>
-              {participant.status === "active" && (
-                <Button type="button" variant="danger" size="md" onClick={onCancelInstead}>
-                  {copy.cancelTicket}
-                </Button>
-              )}
-            </DialogActions>
-          </>
-        ) : (
-          <>
-            {error && <FormAlert>{error.text}</FormAlert>}
-            <SubmitRow copy={copy} busy={busy} onCancel={onClose} label={copy.confirmDelete} tone="danger" />
-          </>
-        )}
-      </>
+        <Field label={copy.organization} optional>
+          <TextInput value={organization} onChange={(e) => setOrganization(e.target.value)} maxLength={200} autoComplete="off" />
+        </Field>
+        <Field label={copy.jobTitle} optional>
+          <TextInput value={jobTitle} onChange={(e) => setJobTitle(e.target.value)} maxLength={100} autoComplete="off" />
+        </Field>
+      </fieldset>
+      {error && <FormAlert>{error.text}</FormAlert>}
+      <SubmitRow copy={copy} busy={busy} onCancel={onClose} label={copy.confirmTransfer} />
     </ActionDialog>
   );
 }

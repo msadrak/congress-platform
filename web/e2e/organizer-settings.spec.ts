@@ -326,7 +326,7 @@ test('staff see booth representatives but cannot change them', async ({ page }) 
 test('a viewer is told the participant list is not for their role, with no search or export', async ({ page }) => {
   await fixture(page, { role: 'viewer' });
   await page.goto('/organizer/events/event-s/participants');
-  await expect(page.getByText('The participant list is not available to your role.')).toBeVisible();
+  await expect(page.getByText('Your role can\'t see personal details.')).toBeVisible();
   await expect(page.getByRole('search')).toHaveCount(0);
   await expect(page.getByRole('button', { name: /CSV/ })).toHaveCount(0);
 });

@@ -122,7 +122,8 @@ test('list, detail, analytics and CSV export transmit only the organizer key wit
   await expect(page.getByRole('heading', { name: 'Event A' }).first()).toBeVisible();
   await page.goto('/organizer/events/event-a/analytics');
   const download = page.waitForEvent('download');
-  await page.getByRole('button', { name: 'Export Attendance CSV' }).click();
+  await page.getByRole('button', { name: 'Export' }).click();
+  await page.getByRole('menuitem', { name: 'Entries' }).click();
   expect((await download).suggestedFilename()).toBe('event-a-attendance.csv');
   const paths = requests.map(r => `${r.method} ${r.path}`);
   for (const expected of ['GET /api/events', 'GET /api/events/event-a', 'GET /api/events/event-a/ticket-tiers', 'GET /api/events/event-a/checkin-points', 'GET /api/events/event-a/booths', 'GET /api/events/event-a/desk/operators', 'GET /api/events/event-a/analytics/attendance', 'GET /api/events/event-a/analytics/export-csv']) {
