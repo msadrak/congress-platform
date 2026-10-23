@@ -7,6 +7,7 @@ snapshot (see `routes/public.py`) and the images it references (`/api/public/med
 """
 
 import uuid
+from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Annotated, Any
@@ -29,7 +30,7 @@ from app.media import (
     storage_key_for,
     write_file,
 )
-from app.models import Event, EventPage, MediaAsset
+from app.models import Booth, Event, EventPage, MediaAsset
 from app.page_document import PageDocument
 from app.page_render import organizer_media_url, render_page
 from app.routes.events import OwnedEventDep, WritableEventDep, new_event_page
@@ -246,8 +247,123 @@ async def _own_asset(session: AsyncSession, event: Event, asset_id: uuid.UUID) -
         select(MediaAsset).where(MediaAsset.id == asset_id, MediaAsset.event_id == event.id)
     )
     if asset is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Image not found")
+        raise ApiError(status.HTTP_404_NOT_FOUND, "MEDIA_NOT_FOUND", "Image not found")
     return asset
+
+
+async def store_image(
+    request: Request,
+    session: AsyncSession,
+    event_id: uuid.UUID,
+    *,
+    content_type: str | None,
+    content_length: int | None,
+    attach: Callable[[MediaAsset], Awaitable[None]] | None = None,
+) -> MediaAsset:
+    """Receives an uploaded image for the event's media library and commits it as a new `MediaAsset`.
+
+    The declared type, the size (announced and streamed), emptiness and the per-event quota are checked first;
+    then the bytes are decoded and re-encoded off the event loop (`process_image`) and written under a generated
+    key. `attach` runs in the same transaction, before the commit (a booth taking the image as its logo, its
+    audit row). When anything after the write fails, the file is removed again.
+    """
+    declared = (content_type or "").split(";")[0].strip().lower()
+    if declared not in ACCEPTED_UPLOAD_TYPES:
+        raise ApiError(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, "IMAGE_TYPE_UNSUPPORTED", "Upload a PNG, JPEG or WebP image")
+    limit: int = request.app.state.settings.media_max_bytes
+    too_large = ApiError(
+        status.HTTP_413_CONTENT_TOO_LARGE, "IMAGE_TOO_LARGE", f"Images are limited to {limit // (1024 * 1024)} MB"
+    )
+    if content_length is not None and content_length > limit:
+        raise too_large
+    count = await session.scalar(select(func.count(MediaAsset.id)).where(MediaAsset.event_id == event_id)) or 0
+    if count >= MAX_ASSETS_PER_EVENT:
+        raise ApiError(
+            status.HTTP_409_CONFLICT,
+            "MEDIA_LIMIT_REACHED",
+            "This event already has the maximum number of images; delete unused ones first",
+        )
+
+    received = bytearray()
+    async for chunk in request.stream():
+        received.extend(chunk)
+        if len(received) > limit:
+            raise too_large
+    if not received:
+        raise ApiError(status.HTTP_400_BAD_REQUEST, "IMAGE_EMPTY", "The upload is empty")
+
+    try:
+        image = await run_in_threadpool(process_image, bytes(received))
+    except RejectedImage as exc:
+        raise ApiError(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, "IMAGE_REJECTED", str(exc)) from None
+
+    asset_id = uuid.uuid4()
+    key = storage_key_for(event_id, asset_id, image.extension)
+    root = _media_root(request)
+    await run_in_threadpool(write_file, root, key, image.data)
+    asset = MediaAsset(
+        id=asset_id,
+        event_id=event_id,
+        content_type=image.content_type,
+        width=image.width,
+        height=image.height,
+        byte_size=len(image.data),
+        sha256=image.sha256,
+        storage_key=key,
+    )
+    try:
+        session.add(asset)
+        await session.flush()
+        if attach is not None:
+            await attach(asset)
+        await session.commit()
+    except BaseException:
+        await run_in_threadpool(delete_file, root, key)
+        raise
+    await session.refresh(asset)
+    return asset
+
+
+# Statuses `store_image` answers with, for `responses=` on the routes that call it.
+IMAGE_UPLOAD_ERRORS = (
+    status.HTTP_400_BAD_REQUEST,
+    status.HTTP_409_CONFLICT,
+    status.HTTP_413_CONTENT_TOO_LARGE,
+    status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+)
+IMAGE_REQUEST_BODY: dict[str, Any] = {
+    "requestBody": {
+        "required": True,
+        "description": "The image bytes. PNG, JPEG or WebP; SVG and other formats are refused.",
+        "content": {t: {"schema": {"type": "string", "format": "binary"}} for t in sorted(ACCEPTED_UPLOAD_TYPES)},
+    }
+}
+
+
+async def delete_if_unused(session: AsyncSession, event_id: uuid.UUID, asset_id: uuid.UUID | None) -> str | None:
+    """Deletes an image a booth stopped using as its logo, unless the event's page (draft or published) or a
+    booth's logo still uses it. Call it after the booth change; returns the storage key, so the caller deletes
+    the file once the transaction has committed (`delete_media_file`), or None when the image stays."""
+    if asset_id is None:
+        return None
+    asset = await session.scalar(select(MediaAsset).where(MediaAsset.id == asset_id, MediaAsset.event_id == event_id))
+    if asset is None:
+        return None
+    page = await session.scalar(select(EventPage).where(EventPage.event_id == event_id).with_for_update())
+    if page is not None and (
+        asset.id in PageDocument.model_validate(page.draft).asset_ids() or str(asset.id) in page.published_asset_ids
+    ):
+        return None
+    if await session.scalar(select(Booth.id).where(Booth.logo_asset_id == asset.id).limit(1)) is not None:
+        return None
+    key = asset.storage_key
+    await session.delete(asset)
+    return key
+
+
+async def delete_media_file(request: Request, key: str | None) -> None:
+    if key is not None:
+        await run_in_threadpool(delete_file, _media_root(request), key)
 
 
 def _file_response(request: Request, asset: MediaAsset, cache_control: str) -> FileResponse:
@@ -274,13 +390,8 @@ async def list_media(event: OwnedEventDep, session: SessionDep) -> list[MediaAss
 @router.post(
     "/api/events/{event_id}/media",
     status_code=status.HTTP_201_CREATED,
-    openapi_extra={
-        "requestBody": {
-            "required": True,
-            "description": "The image bytes. PNG, JPEG or WebP; SVG and other formats are refused.",
-            "content": {t: {"schema": {"type": "string", "format": "binary"}} for t in sorted(ACCEPTED_UPLOAD_TYPES)},
-        }
-    },
+    openapi_extra=IMAGE_REQUEST_BODY,
+    responses=error_responses(*IMAGE_UPLOAD_ERRORS),
 )
 async def upload_media(
     request: Request,
@@ -289,53 +400,7 @@ async def upload_media(
     content_type: Annotated[str | None, Header()] = None,
     content_length: Annotated[int | None, Header()] = None,
 ) -> MediaAssetOut:
-    declared = (content_type or "").split(";")[0].strip().lower()
-    if declared not in ACCEPTED_UPLOAD_TYPES:
-        raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, "Upload a PNG, JPEG or WebP image")
-    limit: int = request.app.state.settings.media_max_bytes
-    too_large = HTTPException(
-        status.HTTP_413_CONTENT_TOO_LARGE, f"Images are limited to {limit // (1024 * 1024)} MB"
-    )
-    if content_length is not None and content_length > limit:
-        raise too_large
-    count = await session.scalar(select(func.count(MediaAsset.id)).where(MediaAsset.event_id == event.id)) or 0
-    if count >= MAX_ASSETS_PER_EVENT:
-        raise HTTPException(status.HTTP_409_CONFLICT, "This event already has the maximum number of images; delete unused ones first")
-
-    received = bytearray()
-    async for chunk in request.stream():
-        received.extend(chunk)
-        if len(received) > limit:
-            raise too_large
-    if not received:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "The upload is empty")
-
-    try:
-        image = await run_in_threadpool(process_image, bytes(received))
-    except RejectedImage as exc:
-        raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, str(exc)) from None
-
-    asset_id = uuid.uuid4()
-    key = storage_key_for(event.id, asset_id, image.extension)
-    root = _media_root(request)
-    await run_in_threadpool(write_file, root, key, image.data)
-    asset = MediaAsset(
-        id=asset_id,
-        event_id=event.id,
-        content_type=image.content_type,
-        width=image.width,
-        height=image.height,
-        byte_size=len(image.data),
-        sha256=image.sha256,
-        storage_key=key,
-    )
-    session.add(asset)
-    try:
-        await session.commit()
-    except BaseException:
-        await run_in_threadpool(delete_file, root, key)
-        raise
-    await session.refresh(asset)
+    asset = await store_image(request, session, event.id, content_type=content_type, content_length=content_length)
     return MediaAssetOut.model_validate(asset)
 
 
@@ -375,18 +440,20 @@ async def delete_media(asset_id: uuid.UUID, request: Request, event: WritableEve
     tags=["public"],
 )
 async def public_media(asset_id: uuid.UUID, request: Request, session: SessionDep) -> FileResponse:
-    """Anonymous image access: only images the published page of an unarchived event references (an archived
-    event's public page is gone, like its schedule files)."""
+    """Anonymous image access: only images the published page of an unarchived event references, and its booths'
+    logos (an archived event's public page is gone, like its schedule files)."""
     asset = await session.get(MediaAsset, asset_id)
     if asset is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Image not found")
     page = await session.get(EventPage, asset.event_id)
     archived_at = await session.scalar(select(Event.archived_at).where(Event.id == asset.event_id))
-    if (
-        page is None
-        or page.published is None
-        or archived_at is not None
-        or str(asset.id) not in page.published_asset_ids
-    ):
+    if page is None or page.published is None or archived_at is not None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Image not found")
+    if str(asset.id) not in page.published_asset_ids:
+        # A booth logo is public with the event's booth pages: while the page is published.
+        logo_of = await session.scalar(
+            select(Booth.id).where(Booth.logo_asset_id == asset.id, Booth.event_id == asset.event_id).limit(1)
+        )
+        if logo_of is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Image not found")
     return _file_response(request, asset, "public, max-age=3600")
