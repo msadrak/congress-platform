@@ -31,6 +31,7 @@ DEFERRED_ERRORS = frozenset({NOT_CONFIGURED, HOURLY_CAP_REACHED, DAILY_CAP_REACH
 HOURLY_KEY = "sms:platform:hour"
 DAILY_KEY = "sms:platform:day"
 WARN_FRACTION = 0.8
+UNCAPPED = 2**31 - 1
 
 logger = logging.getLogger("congress.sms")
 alerts = logging.getLogger("congress.sms.alerts")
@@ -90,15 +91,15 @@ class SmsGateway:
 
     async def _reserve(self, config: SmsConfig) -> str | None:
         """Count this send against the platform caps; the error to answer when a cap is reached."""
+        # Counted even without a cap (0), so the console can show how many SMS went out.
         caps = [
-            (name, key, Budget(cap, window), error)
+            (name, key, Budget(cap or UNCAPPED, window), error)
             for name, key, cap, window, error in (
                 ("hourly", HOURLY_KEY, config.hourly_cap, LONGEST_WINDOW_SECONDS, HOURLY_CAP_REACHED),
                 ("daily", DAILY_KEY, config.daily_cap, DAY_SECONDS, DAILY_CAP_REACHED),
             )
-            if cap > 0
         ]
-        if not caps or self.counters is None:
+        if self.counters is None:
             return None
         try:
             totals = await self.counters.take(*((key, budget) for _, key, budget, _ in caps))
@@ -107,7 +108,7 @@ class SmsGateway:
             alerts.error("SMS platform cap reached (%s): sends are refused until it frees up", error)
             return error
         for (name, _, budget, _), total in zip(caps, totals):
-            if total == math.ceil(budget.limit * WARN_FRACTION):
+            if budget.limit != UNCAPPED and total == math.ceil(budget.limit * WARN_FRACTION):
                 alerts.warning("SMS platform %s cap at %d of %d", name, total, budget.limit)
                 if self.on_cap_warning is not None:
                     self.on_cap_warning(name, total, budget.limit)

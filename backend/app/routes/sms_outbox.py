@@ -37,7 +37,7 @@ async def recorded_sms(
     try:
         number: IranMobile = normalize_ir_mobile(mobile)
     except ValueError as exc:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from None
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from None
     if gateway.config is None or gateway.config.effective != "console":
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Only available while SMS is in test mode")
     return [

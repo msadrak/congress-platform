@@ -234,6 +234,20 @@ class FailureLimiter:
             self._memory.check(limits, time.monotonic())
             return []
 
+    async def peek(self, *limits: tuple[str, Budget]) -> list[int]:
+        """The current totals for display; never raises (zeros when the counters cannot be read)."""
+        if self.sessionmaker is None:
+            return [0] * len(limits)
+        now = time.time()
+        try:
+            async with self.sessionmaker() as session:
+                return [
+                    int((await session.execute(_COUNT, {"key": key, "since": _since(now, budget)})).one().total)
+                    for key, budget in limits
+                ]
+        except (SQLAlchemyError, OSError):
+            return [0] * len(limits)
+
     async def take(self, *limits: tuple[str, Budget]) -> list[int]:
         """Add one to every key and return the totals, atomically; LimitExceeded (nothing added) when one is over."""
         limits = _active(limits)
