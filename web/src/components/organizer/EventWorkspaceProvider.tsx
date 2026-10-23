@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { createApiClient, localizedApiError, type EventOut, type OrganizerRole } from "../../api/client";
-import { sessionAllows } from "./roleAccess";
+import { createApiClient, isNetworkFailure, localizedApiError, type EventOut, type OrganizerRole } from "../../api/client";
+import { canEditEvent, sessionAllows } from "./roleAccess";
 import type { OrganizerOutletContext } from "../../pages/OrganizerLayout";
-import { EventWorkspaceContext } from "./eventWorkspaceContext";
+import { EventWorkspaceContext, type EventLoadErrorKind } from "./eventWorkspaceContext";
 
 interface EventWorkspaceProviderProps {
   eventId: string;
@@ -16,12 +16,17 @@ interface EventWorkspaceProviderProps {
  */
 export function EventWorkspaceProvider({ eventId, organizer, children }: EventWorkspaceProviderProps) {
   const { apiKey, onKeyRejected, reportEvent, session, locale, t, isRtl, dir } = organizer;
-  const client = useMemo(() => (apiKey ? createApiClient({ kind: "organizer", token: apiKey }) : null), [apiKey]);
+  // A failed fetch (offline venue Wi-Fi, DNS, reset) resolves to an error result instead of rejecting, so every
+  // section that loads through this client ends in data or an error card, never an endless skeleton.
+  const client = useMemo(
+    () => (apiKey ? createApiClient({ kind: "organizer", token: apiKey }, { networkErrors: "result" }) : null),
+    [apiKey],
+  );
   const [active, setActive] = useState(false);
   const [event, setEvent] = useState<EventOut | null>(null);
   const [loading, setLoading] = useState(true);
   // The failure body is kept and localized when shown, so a language switch re-words it without a refetch.
-  const [failure, setFailure] = useState<{ body: unknown } | null>(null);
+  const [failure, setFailure] = useState<{ body: unknown; kind: EventLoadErrorKind } | null>(null);
   const error = failure ? localizedApiError(failure.body, locale) : null;
   const [reloadToken, setReloadToken] = useState(0);
 
@@ -33,17 +38,23 @@ export function EventWorkspaceProvider({ eventId, organizer, children }: EventWo
     const loadEvent = async () => {
       setLoading(true);
       setFailure(null);
-      // A 401 reaches the layout's key gate through the API client (registerUnauthorizedHandler).
-      const { data, error: err } = await client.GET("/api/events/{event_id}", {
-        params: { path: { event_id: eventId } },
-      });
-      if (!isMounted) return;
-      if (err) {
-        setFailure({ body: err });
-      } else if (data) {
-        setEvent(data);
+      try {
+        // A 401 reaches the layout's key gate through the API client (registerUnauthorizedHandler).
+        const { data, error: err, response } = await client.GET("/api/events/{event_id}", {
+          params: { path: { event_id: eventId } },
+        });
+        if (!isMounted) return;
+        if (data) setEvent(data);
+        else {
+          const kind = isNetworkFailure(response) ? "network" : response.status === 404 ? "not-found" : "other";
+          setFailure({ body: err, kind });
+        }
+      } catch (thrown) {
+        // Not a network failure (those resolve): a request the client refused to build. Still end the load.
+        if (isMounted) setFailure({ body: thrown, kind: "other" });
+      } finally {
+        if (isMounted) setLoading(false);
       }
-      setLoading(false);
     };
 
     loadEvent();
@@ -59,6 +70,8 @@ export function EventWorkspaceProvider({ eventId, organizer, children }: EventWo
   const activate = useCallback(() => setActive(true), []);
   const reload = useCallback(() => setReloadToken((n) => n + 1), []);
   const can = useCallback((needed: OrganizerRole) => sessionAllows(session, needed), [session]);
+  const canEdit = canEditEvent(session, event);
+  const errorKind = failure?.kind ?? null;
 
   const value = useMemo(
     () => ({
@@ -74,13 +87,15 @@ export function EventWorkspaceProvider({ eventId, organizer, children }: EventWo
       event,
       loading,
       error,
+      errorKind,
       reload,
       replaceEvent: setEvent,
       client,
       can,
+      canEdit,
       activate,
     }),
-    [apiKey, onKeyRejected, reportEvent, session, locale, t, isRtl, dir, eventId, event, loading, error, reload, client, can, activate],
+    [apiKey, onKeyRejected, reportEvent, session, locale, t, isRtl, dir, eventId, event, loading, error, errorKind, reload, client, can, canEdit, activate],
   );
 
   return <EventWorkspaceContext.Provider value={value}>{children}</EventWorkspaceContext.Provider>;

@@ -122,10 +122,6 @@
     "ternary": 4,
     "persian": 4
   },
-  "src/components/organizer/WorkspaceUi.tsx": {
-    "persian": 3,
-    "ternary": 1
-  },
   "src/components/QrCameraInput.tsx": {
     "ternary": 7,
     "persian": 7,
@@ -270,10 +266,6 @@
   "src/pages/organizer/EventOverview.tsx": {
     "ternary": 25,
     "persian": 25
-  },
-  "src/pages/organizer/EventSectionUi.tsx": {
-    "ternary": 3,
-    "persian": 3
   },
   "src/pages/organizer/EventSettingsPanel.tsx": {
     "ternary": 34,
