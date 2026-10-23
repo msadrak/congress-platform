@@ -206,3 +206,54 @@ export function reconstructLocalState(
 
   return { ticketMap, currentAdmittedCount: admittedCount };
 }
+
+/** What the server answered for one scan it decided (the online path). */
+export interface ServerScanVerdict {
+  status: string;
+  rejection_reason?: string | null;
+  attendee_name?: string | null;
+  ticket_tier_name?: string | null;
+}
+
+/**
+ * Applies a scan the server decided to the live admission state, as reconstructLocalState replays it:
+ * an admission marks the ticket admitted and advances the count; an ALREADY_ADMITTED rejection proves an
+ * admission elsewhere. Mutates the ticket entry. A code missing from the manifest (e.g. a walk-in issued
+ * since the last refresh) still shows the attendee the server named.
+ */
+export function applyServerScan(
+  state: { ticketMap: Record<string, LocalTicket>; admittedCount: number },
+  qrHashKey: string,
+  verdict: ServerScanVerdict
+): LocalScanResult {
+  const admitted = verdict.status === "ADMITTED";
+  let ticket: LocalTicket | null = state.ticketMap[qrHashKey.trim().toLowerCase()] ?? null;
+  let count = state.admittedCount;
+  if (ticket) {
+    if (admitted) {
+      ticket.is_admitted = true;
+      ticket.admission_count += 1;
+    } else if (verdict.rejection_reason === "ALREADY_ADMITTED") {
+      ticket.is_admitted = true;
+    }
+  } else if (verdict.attendee_name) {
+    ticket = {
+      qr_hash: qrHashKey,
+      ticket_id: "",
+      attendee_name: verdict.attendee_name,
+      ticket_tier_id: "",
+      ticket_tier_name: verdict.ticket_tier_name ?? "",
+      is_admitted: admitted,
+      admission_count: admitted ? 1 : 0,
+    };
+  }
+  if (admitted) count += 1;
+  return {
+    status: admitted ? "ADMITTED" : "REJECTED",
+    outcome: admitted ? "ADMITTED" : "REJECTED",
+    is_provisional: false,
+    rejection_reason: admitted ? null : verdict.rejection_reason || "SERVER_REJECTED",
+    ticket,
+    current_admitted_count: count,
+  };
+}
