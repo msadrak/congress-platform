@@ -14,10 +14,26 @@ def create_access_token(
     exp = now + (expires_delta or timedelta(days=7))
     payload = {
         "sub": str(user_id),
+        "type": "user",
         "iat": int(now.timestamp()),
         "exp": int(exp.timestamp()),
     }
     return jwt.encode(payload, secret, algorithm="HS256")
+
+
+# User access tokens carried no "type" until late 2026. Untyped tokens are honoured only when issued before this
+# instant, so sessions from before the change keep working until they expire (7 days) while no other kind of
+# token, now or later, can pass for a user by leaving its type out. Delete the allowance after 2026-12-08.
+LEGACY_UNTYPED_USER_TOKENS_UNTIL = int(datetime(2026, 12, 1, tzinfo=timezone.utc).timestamp())
+
+
+def is_user_token(payload: dict[str, Any]) -> bool:
+    """True for a user access token: `type` is "user", or absent on a token issued before the cutoff above."""
+    if "type" not in payload:
+        issued_at = payload.get("iat")
+        return type(issued_at) is int and issued_at < LEGACY_UNTYPED_USER_TOKENS_UNTIL
+    token_type: object = payload["type"]
+    return token_type == "user"
 
 
 SIGNUP_TOKEN_MINUTES = 15

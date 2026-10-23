@@ -7,6 +7,7 @@ import jwt
 import pytest
 from httpx import AsyncClient
 
+from app import security
 from app.security import create_access_token
 from tests.conftest import TEST_JWT_SECRET, TEST_URL
 from tests.helpers import bearer as organizer_bearer, desk_sign_in, provision_organizer, request_code
@@ -93,9 +94,9 @@ async def test_user_token_family_preserves_identity_and_consumers(
 ) -> None:
     user, issued = await register_user(client, "09121000009")
     payload = jwt.decode(issued, TEST_JWT_SECRET, algorithms=["HS256"])
-    assert "type" not in payload  # Existing issuance remains compatible.
-    if typed:
-        payload["type"] = "user"
+    assert payload["type"] == "user"  # Issued sessions name their kind.
+    if not typed:
+        del payload["type"]  # A session issued before tokens carried a type (still before the cutoff).
     token = jwt.encode(payload, TEST_JWT_SECRET, algorithm="HS256")
     for path in USER_ENDPOINTS:
         response = await client.get(path, headers=bearer(token))
@@ -152,6 +153,25 @@ async def test_non_user_types_rejected_with_existing_uuid_subject(
         assert response.json() == {
             "detail": "Invalid token type for user authentication",
         }
+
+
+async def test_untyped_tokens_count_as_user_sessions_only_when_issued_before_the_cutoff(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    user, issued = await register_user(client, "09121000012")
+    payload = jwt.decode(issued, TEST_JWT_SECRET, algorithms=["HS256"])
+    del payload["type"]
+    untyped = bearer(jwt.encode(payload, TEST_JWT_SECRET, algorithm="HS256"))
+    no_iat = bearer(jwt.encode({k: v for k, v in payload.items() if k != "iat"}, TEST_JWT_SECRET, algorithm="HS256"))
+    assert (await client.get("/api/auth/me", headers=untyped)).status_code == 200
+
+    monkeypatch.setattr(security, "LEGACY_UNTYPED_USER_TOKENS_UNTIL", payload["iat"])
+
+    for headers in (untyped, no_iat):
+        refused = await client.get("/api/auth/me", headers=headers)
+        assert refused.status_code == 401
+        assert refused.json() == {"detail": "Invalid token type for user authentication"}
+    assert (await client.get("/api/auth/me", headers=bearer(issued))).json() == user
 
 
 @pytest.mark.parametrize(

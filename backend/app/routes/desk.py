@@ -8,15 +8,15 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 
-from app.auth import hash_api_key
+from app.auth import organizer_is_active, resolve_organizer_key
 from app.db import SessionDep
+from app.links import active_ticket_link, mint_ticket_link
 from app.models import (
     CheckIn,
     CheckInPoint,
     DeskOperator,
     EntityQR,
     Event,
-    Organizer,
     SmsMessage,
     Ticket,
     TicketTier,
@@ -231,6 +231,13 @@ async def authorized_desk_operator(
                 headers={"WWW-Authenticate": "Bearer"},
             )
 
+        if not await organizer_is_active(session, event.organizer_id):
+            raise HTTPException(
+                status.HTTP_401_UNAUTHORIZED,
+                "Front desk session is no longer valid",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
         return AuthorizedDeskContext(
             event=event,
             operator=operator,
@@ -239,10 +246,7 @@ async def authorized_desk_operator(
         )
 
     # 2. Master Organizer API key fallback
-    token_hash = hash_api_key(token)
-    token_organizer = await session.scalar(
-        select(Organizer).where(Organizer.api_key_hash == token_hash)
-    )
+    token_organizer = await resolve_organizer_key(session, request, token)
     if token_organizer is not None:
         if token_organizer.id != event.organizer_id:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Event not found")
@@ -302,6 +306,11 @@ async def desk_operator_login(
         raise HTTPException(
             status.HTTP_403_FORBIDDEN,
             "Front desk operator access has been revoked",
+        )
+    if not await organizer_is_active(session, event.organizer_id):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "Front desk access for this event is suspended",
         )
 
     jwt_secret: str = request.app.state.settings.jwt_secret
@@ -592,17 +601,21 @@ async def create_desk_registration(
         is_active=True,
     )
     session.add(qr)
+    link = await mint_ticket_link(session, ticket, event)
     await queue_ticket_confirmation(
-        session, request.app.state.settings, str(request.base_url), user=user, event=event, ticket=ticket
+        session, request.app.state.settings, str(request.base_url), user=user, event=event, ticket=ticket,
+        code=link.code,
     )
     await session.commit()
 
+    # The pass shows what the desk typed. When the number already has an account, the account keeps its own
+    # profile, which is not echoed back: typing a number must not reveal who holds it.
     return DeskRegistrationOut(
         ticket_id=ticket.id,
-        attendee_name=user.full_name,
-        attendee_mobile=user.mobile,
-        organization=user.organization,
-        title=user.title,
+        attendee_name=body.full_name.strip(),
+        attendee_mobile=body.mobile,
+        organization=body.organization.strip(),
+        title=body.title.strip(),
         ticket_tier_name=tier_name,
         qr_secret=secret,
         issued_by=desk_ctx.operator_name,
@@ -780,8 +793,10 @@ async def resend_pass_sms(
     )
     throttle.hit(cooldown, per_ticket, per_event)
 
+    link = await active_ticket_link(session, ticket, event)
     text = await ticket_confirmation_text(
-        session, request.app.state.settings, str(request.base_url), user=user, event=event, ticket=ticket
+        session, request.app.state.settings, str(request.base_url), user=user, event=event, ticket=ticket,
+        code=link.code,
     )
     result = await provider.send_text(user.mobile, text, kind="ticket_resend")
     outcome: Literal["sent", "failed", "unknown"] = "sent" if result.ok else "unknown" if result.unknown else "failed"

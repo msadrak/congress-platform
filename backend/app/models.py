@@ -169,7 +169,7 @@ class DeskOperator(Base):
     event_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("events.id"), index=True)
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), index=True)
     operator_name: Mapped[str] = mapped_column(String(200))
-    is_revoked: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    is_revoked: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", index=True)
     session_version: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0, server_default="0"
     )
@@ -221,6 +221,27 @@ class Ticket(Base):
     )
 
 
+
+class ShortLink(Base):
+    """The short code in a ticket confirmation SMS: `/t/{code}` opens that ticket's pass read-only (ADR 0015).
+
+    A bearer credential like the pass QR itself: whoever holds the SMS sees the pass. Minted with the ticket
+    (app/links.py), valid until 30 days after the event, revocable; the code never appears in an API URL.
+    """
+
+    __tablename__ = "short_links"
+
+    code: Mapped[str] = mapped_column(String(16), primary_key=True)
+    ticket_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tickets.id", ondelete="CASCADE"), index=True)
+    event_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("events.id", ondelete="CASCADE"), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    first_opened_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_opened_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    open_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+
+
 class EntityQR(Base):
     """Universal polymorphic QR registry (attendee_ticket, booth, hall, session)."""
 
@@ -257,6 +278,16 @@ class CheckIn(Base):
     """An admission scan event processed at a Check-In Point."""
 
     __tablename__ = "checkins"
+    __table_args__ = (
+        # At most one admission per ticket at a SINGLE_USE point, enforced under concurrency (migration 0009).
+        Index(
+            "uq_checkin_single_use_admitted",
+            "checkin_point_id",
+            "ticket_id",
+            unique=True,
+            postgresql_where=text("status = 'ADMITTED' AND policy_type = 'SINGLE_USE' AND ticket_id IS NOT NULL"),
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True)  # client-generated scan_id
     checkin_point_id: Mapped[uuid.UUID] = mapped_column(
@@ -266,7 +297,7 @@ class CheckIn(Base):
         ForeignKey("tickets.id"), nullable=True, index=True
     )
     qr_secret: Mapped[str] = mapped_column(String(64), index=True)
-    policy_type: Mapped[str] = mapped_column(String(32), default="MULTI_ENTRY", index=True)
+    policy_type: Mapped[str] = mapped_column(String(32), default="MULTI_ENTRY", server_default="MULTI_ENTRY")
     status: Mapped[str] = mapped_column(String(32))  # ADMITTED or REJECTED
     rejection_reason: Mapped[str | None] = mapped_column(String(64), nullable=True)
     scanned_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
@@ -284,8 +315,8 @@ class ScannerDevice(Base):
         ForeignKey("checkin_points.id"), index=True
     )
     event_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("events.id"), index=True)
-    device_name: Mapped[str] = mapped_column(String(100), default="Scanner Client")
-    is_revoked: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    device_name: Mapped[str] = mapped_column(String(100), default="Scanner Client", server_default="Scanner Client")
+    is_revoked: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", index=True)
     revoked_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )

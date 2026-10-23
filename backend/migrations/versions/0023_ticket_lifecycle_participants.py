@@ -1,7 +1,7 @@
 """ticket lifecycle and participant management: registration details, cancellation, reissue, privacy
 
 Revision ID: 0023
-Revises: 0018
+Revises: 0019
 Create Date: 2026-10-22
 
 A user (one per mobile number) is shared by every congress on the platform, so an organizer edits the
@@ -17,7 +17,7 @@ from alembic import op
 import sqlalchemy as sa
 
 revision: str = "0023"
-down_revision: Union[str, Sequence[str], None] = "0018"
+down_revision: Union[str, Sequence[str], None] = "0019"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

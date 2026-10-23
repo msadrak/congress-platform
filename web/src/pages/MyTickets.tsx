@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useLocation, useParams } from "react-router-dom";
 import {
   ATTENDEE_TOKEN_STORAGE,
   createApiClient,
@@ -23,6 +23,7 @@ import {
 import { AttendeeLayout } from "../layouts/AttendeeLayout";
 import { congressPath } from "../lib/congressContext";
 import { signInPath } from "../lib/safeRedirect";
+import { isLinkPass, linkPassCard, loadLinkPasses, type LinkPass } from "../lib/linkPass";
 import { Button, LinkButton } from "../components/ui/Button";
 import { Icon } from "../components/ui/Icon";
 import { CongressSignature } from "../components/brand/CongressSignature";
@@ -53,6 +54,18 @@ export default function MyTickets() {
     undo?: { booth: BookmarkedBoothOut; index: number };
   } | null>(null);
   const [sessionRejected, setSessionRejected] = useState(false);
+  // Passes opened from the SMS short link (ADR 0015), kept on this device without a sign-in. Shown in a congress
+  // portal only while nobody is signed in; history state carries the pass when the browser cannot store it.
+  const location = useLocation();
+  const [linkPasses] = useState<LinkPass[]>(() => {
+    if (!slug) return [];
+    const stored = loadLinkPasses(slug);
+    if (stored.length > 0) return stored;
+    const state: unknown = location.state;
+    const handed = typeof state === "object" && state !== null && "linkPass" in state ? state.linkPass : null;
+    return isLinkPass(handed) && handed.event.slug === slug ? [handed] : [];
+  });
+  const [linkPassIndex, setLinkPassIndex] = useState(0);
 
   // Inside a congress portal only that congress's passes are shown, and only the card itself; saved
   // booths and the pass guide belong to the cross-congress `/my-tickets` page.
@@ -227,6 +240,58 @@ export default function MyTickets() {
   };
 
   const signInTarget = signInPath(slug, slug ? congressPath(slug, "my-ticket") : "/my-tickets");
+
+  // Opened from the SMS link without signing in: that pass, read-only, with a way to sign in for the rest.
+  const linkPass = !token ? (linkPasses[linkPassIndex] ?? linkPasses[0]) : undefined;
+  if (slug && linkPass) {
+    return (
+      <AttendeeLayout activeTab="tickets" localeProps={localeHook} eventSlug={slug} destination="my-ticket">
+        <div className="mx-auto max-w-[480px] space-y-5 px-4 pt-5 sm:pt-8">
+          <div
+            role="note"
+            data-testid="link-pass-note"
+            className="at-print-collapse flex flex-col gap-3 rounded-2xl border border-action-subtle-border bg-action-subtle p-4 text-xs leading-relaxed text-text-secondary"
+          >
+            <div className="flex items-start gap-3">
+              <span aria-hidden="true" className="grid size-9 shrink-0 place-items-center rounded-xl bg-white/70 text-action-primary">
+                <Icon name="link" size={18} />
+              </span>
+              <div className="space-y-0.5">
+                <span className="block text-sm font-semibold text-text-primary">{t.linkPassNote}</span>
+                <p>{t.linkPassNoteDesc}</p>
+              </div>
+            </div>
+            <LinkButton
+              to={signInPath(slug, congressPath(slug, "my-congress"))}
+              variant="secondary"
+              size="md"
+              className="self-start"
+            >
+              {t.linkPassSignInAction}
+              <Icon name="arrow-right" size={16} />
+            </LinkButton>
+          </div>
+          {linkPasses.length > 1 && (
+            <div className="at-print-collapse flex flex-wrap gap-2">
+              {linkPasses.map((p, idx) => (
+                <Button
+                  key={p.ticket_id}
+                  type="button"
+                  variant={p === linkPass ? "primary" : "secondary"}
+                  size="sm"
+                  aria-pressed={p === linkPass}
+                  onClick={() => setLinkPassIndex(idx)}
+                >
+                  {p.attendee.full_name}
+                </Button>
+              ))}
+            </div>
+          )}
+          <DigitalPassCard ticket={linkPassCard(linkPass)} locale={locale} t={t} verified={false} onPrint={handlePrintBadge} />
+        </div>
+      </AttendeeLayout>
+    );
+  }
 
   // Unauthenticated view (fails closed)
   if (!token) {

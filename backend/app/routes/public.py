@@ -15,7 +15,7 @@ from app.page_render import PublicPage, public_media_url, render_page
 from app.seo import default_head, page_language, pick, render_head
 from app.routes.program import PublicSession, PublicVenuePlace, live_program
 from app.routes.ticket_tiers import TicketTierOut
-from app.security import decode_access_token
+from app.security import decode_access_token, is_user_token
 
 router = APIRouter(prefix="/api/public/events", tags=["public"])
 
@@ -114,7 +114,7 @@ async def optional_user_id(
     token = authorization[7:].strip()
     secret: str = request.app.state.settings.jwt_secret
     payload = decode_access_token(token, secret)
-    if payload and "sub" in payload:
+    if payload and "sub" in payload and is_user_token(payload):
         try:
             return uuid.UUID(payload["sub"])
         except Exception:

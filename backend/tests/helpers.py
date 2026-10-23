@@ -1,8 +1,20 @@
+import uuid
 from typing import Any
 
+from fastapi import FastAPI
 from httpx import AsyncClient
+from sqlalchemy import select
 
+from app.models import ShortLink
 from tests.conftest import ADMIN_TOKEN
+
+
+async def pass_link(app: FastAPI, ticket_id: str) -> str:
+    """The short pass link (ADR 0015) a ticket's confirmation SMS carries in the test client's origin."""
+    async with app.state.sessionmaker() as session:
+        code = await session.scalar(select(ShortLink.code).where(ShortLink.ticket_id == uuid.UUID(ticket_id)))
+    assert code is not None, f"ticket {ticket_id} has no short link"
+    return f"http://test/t/{code}"
 
 
 async def sms_code(client: AsyncClient, mobile: str) -> str:

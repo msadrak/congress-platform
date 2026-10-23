@@ -1,5 +1,6 @@
 """Organizer participants register: search, edit registration details, cancel, reissue, transfer, delete, CSV."""
 
+import re
 import uuid
 from typing import Any
 
@@ -7,7 +8,7 @@ from fastapi import FastAPI
 from httpx import AsyncClient
 from sqlalchemy import select
 
-from app.models import EntityQR, TicketTier
+from app.models import EntityQR, ShortLink, TicketTier
 from app.sms.gateway import SmsGateway
 from app.sms.outbox import deliver_due
 from tests.helpers import bearer, provision_organizer, sign_in
@@ -384,3 +385,88 @@ async def test_csv_export_is_formula_safe_and_follows_the_filters(client: AsyncC
     assert "'=HYPERLINK" in text and ",'+Org,'@title," in text
     assert "'-oops" in text and "09121230101" in text
     assert len(active_only.text.lstrip("﻿").splitlines()) == 2
+
+
+RESOLVE = "/api/public/passes/resolve"
+LINK = re.compile(r"http://test/t/([a-z0-9]{10})")
+
+
+async def resolve(client: AsyncClient, code: str) -> tuple[int, str | None]:
+    """(status, error code) for a refused short link, (200, QR secret) for one that opens the pass."""
+    resp = await client.post(RESOLVE, json={"code": code})
+    body: dict[str, Any] = resp.json()
+    return resp.status_code, body["qr_secret"] if resp.status_code == 200 else body.get("code")
+
+
+async def link_codes(app: FastAPI, ticket_id: str) -> list[str]:
+    async with app.state.sessionmaker() as session:
+        rows = await session.scalars(
+            select(ShortLink.code).where(ShortLink.ticket_id == uuid.UUID(ticket_id)).order_by(ShortLink.created_at)
+        )
+        return [str(code) for code in rows]
+
+
+async def test_cancelled_tickets_short_link_stops_working(app: FastAPI, client: AsyncClient) -> None:
+    organizer, event_id, tier_id = await congress(client)
+    _, ticket = await register(client, event_id, tier_id, "09121230111", "Link Holder")
+    (code,) = await link_codes(app, ticket["id"])
+    assert await resolve(client, code) == (200, ticket["qr_secret"])
+
+    await client.post(f"/api/events/{event_id}/participants/{ticket['id']}/cancel", json={}, headers=bearer(organizer))
+
+    assert await resolve(client, code) == (410, "LINK_REVOKED")
+
+
+async def test_reissue_revokes_the_old_link_and_texts_a_working_new_one(app: FastAPI, client: AsyncClient) -> None:
+    organizer, event_id, tier_id = await congress(client)
+    _, ticket = await register(client, event_id, tier_id, "09121230121", "Reissued Link")
+    (old,) = await link_codes(app, ticket["id"])
+
+    reissued = (
+        await client.post(f"/api/events/{event_id}/participants/{ticket['id']}/reissue", json={}, headers=bearer(organizer))
+    ).json()
+    await deliver_due(app.state.sessionmaker, app.state.sms)
+
+    codes = await link_codes(app, ticket["id"])
+    assert len(codes) == 2 and codes[0] == old
+    texted = LINK.search(sms_to(app, "09121230121")[-1].text)
+    assert texted is not None and texted.group(1) == codes[1]
+    assert await resolve(client, old) == (410, "LINK_REVOKED")
+    assert await resolve(client, codes[1]) == (200, reissued["qr_secret"])
+
+
+async def test_transferred_ticket_gets_a_new_holder_link(app: FastAPI, client: AsyncClient) -> None:
+    organizer, event_id, tier_id = await congress(client)
+    _, ticket = await register(client, event_id, tier_id, "09121230131", "Giver")
+    (old,) = await link_codes(app, ticket["id"])
+
+    moved = (
+        await client.post(
+            f"/api/events/{event_id}/participants/{ticket['id']}/transfer",
+            json={"mobile": "09121230132", "full_name": "Receiver"},
+            headers=bearer(organizer),
+        )
+    ).json()
+    await deliver_due(app.state.sessionmaker, app.state.sms)
+
+    assert await resolve(client, old) == (410, "LINK_REVOKED")
+    (new,) = await link_codes(app, moved["ticket_id"])
+    texted = LINK.search(sms_to(app, "09121230132")[-1].text)
+    assert texted is not None and texted.group(1) == new
+    assert await resolve(client, new) == (200, moved["qr_secret"])
+    pass_page = (await client.post(RESOLVE, json={"code": new})).json()
+    assert pass_page["attendee"]["full_name"] == "Receiver"
+
+
+async def test_registering_again_texts_a_working_link(app: FastAPI, client: AsyncClient) -> None:
+    organizer, event_id, tier_id = await congress(client)
+    token, ticket = await register(client, event_id, tier_id, "09121230141", "Comes Back")
+    await client.post(f"/api/events/{event_id}/participants/{ticket['id']}/cancel", json={}, headers=bearer(organizer))
+    again = (
+        await client.post(f"/api/events/{event_id}/tickets/reserve", json={"ticket_tier_id": tier_id}, headers=auth(token))
+    ).json()
+    await deliver_due(app.state.sessionmaker, app.state.sms)
+
+    texted = LINK.search(sms_to(app, "09121230141")[-1].text)
+    assert texted is not None
+    assert await resolve(client, texted.group(1)) == (200, again["qr_secret"])

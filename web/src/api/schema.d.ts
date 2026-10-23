@@ -1280,6 +1280,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/public/passes/resolve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Resolve Pass Link */
+        post: operations["resolve_pass_link_api_public_passes_resolve_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/events/{event_id}/sms": {
         parameters: {
             query?: never;
@@ -2230,6 +2247,13 @@ export interface components {
              */
             created_at: string;
         };
+        /** ErrorResponse */
+        ErrorResponse: {
+            /** Detail */
+            detail: string;
+            /** Code */
+            code?: string | null;
+        };
         /** EventCreate */
         EventCreate: {
             /** Name */
@@ -2672,6 +2696,80 @@ export interface components {
             /** Notes */
             notes?: string | null;
         };
+        /** LinkErrorOut */
+        LinkErrorOut: {
+            /** Detail */
+            detail: string;
+            /**
+             * Code
+             * @enum {string}
+             */
+            code: "LINK_NOT_FOUND" | "LINK_REVOKED" | "LINK_EXPIRED" | "TICKET_INACTIVE";
+            /** Event Slug */
+            event_slug?: string | null;
+        };
+        /** LinkPassAttendee */
+        LinkPassAttendee: {
+            /** Full Name */
+            full_name: string;
+            /** Organization */
+            organization: string;
+            /** Title */
+            title: string;
+        };
+        /** LinkPassEvent */
+        LinkPassEvent: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Slug */
+            slug: string;
+            /** Name */
+            name: string;
+            /**
+             * Starts At
+             * Format: date-time
+             */
+            starts_at: string;
+            /**
+             * Ends At
+             * Format: date-time
+             */
+            ends_at: string;
+            /** Location */
+            location: string;
+        };
+        /**
+         * LinkPassOut
+         * @description What the SMS link shows: the pass, never the attendee's mobile number or anything editable.
+         */
+        LinkPassOut: {
+            /**
+             * Ticket Id
+             * Format: uuid
+             */
+            ticket_id: string;
+            /** Status */
+            status: string;
+            /**
+             * Issued At
+             * Format: date-time
+             */
+            issued_at: string;
+            /** Qr Secret */
+            qr_secret: string;
+            /** Tier Name */
+            tier_name: string;
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+            event: components["schemas"]["LinkPassEvent"];
+            attendee: components["schemas"]["LinkPassAttendee"];
+        };
         /**
          * LocalizedLabel
          * @description Short single-line text: headings, labels, names.
@@ -2985,6 +3083,11 @@ export interface components {
             /** Has Unpublished Changes */
             has_unpublished_changes: boolean;
         };
+        /** PassResolveRequest */
+        PassResolveRequest: {
+            /** Code */
+            code: string;
+        };
         /** PassSmsResendOut */
         PassSmsResendOut: {
             /**
@@ -3056,6 +3159,8 @@ export interface components {
             environment: string;
             /** Public Origin */
             public_origin: string | null;
+            /** Short Link Origin */
+            short_link_origin?: string | null;
             sms: components["schemas"]["SmsSettingsOut"];
             sign_in: components["schemas"]["SignInOut"];
         };
@@ -3454,6 +3559,8 @@ export interface components {
             created_at: string;
             /** Sent At */
             sent_at: string | null;
+            /** Link Opened At */
+            link_opened_at?: string | null;
         };
         /** SmsPanelOut */
         SmsPanelOut: {
@@ -4343,6 +4450,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TicketOut"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Gone */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
             /** @description Validation Error */
@@ -6549,6 +6692,57 @@ export interface operations {
                 };
                 content: {
                     "text/html": string;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    resolve_pass_link_api_public_passes_resolve_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PassResolveRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LinkPassOut"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LinkErrorOut"];
+                };
+            };
+            /** @description Gone */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LinkErrorOut"];
                 };
             };
             /** @description Validation Error */

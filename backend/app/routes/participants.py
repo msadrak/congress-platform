@@ -13,16 +13,18 @@ import uuid
 from datetime import datetime
 from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, HTTPException, Query, Request, Response, status
+from fastapi import APIRouter, Query, Request, Response, status
 from pydantic import BaseModel, Field, StringConstraints
 from sqlalchemy import ColumnElement, Select, delete, exists, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import QueryableAttribute
 
 from app.db import SessionDep
+from app.errors import ApiError, error_responses
 from app.models import CheckIn, CheckInPoint, DeskOperator, EntityQR, Event, Lead, Ticket, TicketTier, User
 from app.routes.events import OwnedEventDep
 from app.security import sanitize_csv_cell
+from app.sms.outbox import link_origin
 from app.sms.phone import IranMobile, ascii_digits, search_digits
 from app.ticket_lifecycle import (
     TICKET_QR_TYPE,
@@ -232,14 +234,14 @@ async def _owned_ticket(session: SessionDep, event: Event, ticket_id: uuid.UUID)
         select(Ticket).where(Ticket.id == ticket_id, Ticket.event_id == event.id).with_for_update()
     )
     if ticket is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Participant not found")
+        raise ApiError(status.HTTP_404_NOT_FOUND, "PARTICIPANT_NOT_FOUND", "Participant not found")
     return ticket
 
 
 async def _detail(session: SessionDep, event: Event, ticket_id: uuid.UUID) -> ParticipantDetail:
     row = (await session.execute(_base_query(event.id).where(Ticket.id == ticket_id))).one_or_none()
     if row is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Participant not found")
+        raise ApiError(status.HTTP_404_NOT_FOUND, "PARTICIPANT_NOT_FOUND", "Participant not found")
     participant = _participant(row)
     secret = await session.scalar(
         select(EntityQR.secret).where(
@@ -266,12 +268,16 @@ async def _detail(session: SessionDep, event: Event, ticket_id: uuid.UUID) -> Pa
 
 
 def _origin(request: Request) -> str:
-    origin: str = request.app.state.settings.public_origin or str(request.base_url)
-    return origin
+    """Where SMS links point."""
+    return link_origin(request.app.state.settings, str(request.base_url))
 
 
-def _conflict(exc: TicketStateError) -> HTTPException:
-    return HTTPException(status.HTTP_409_CONFLICT, str(exc))
+def _conflict(exc: TicketStateError) -> ApiError:
+    return ApiError(status.HTTP_409_CONFLICT, "TICKET_STATE_CONFLICT", str(exc))
+
+
+NOT_FOUND = error_responses(status.HTTP_404_NOT_FOUND)
+NOT_FOUND_OR_CONFLICT = error_responses(status.HTTP_404_NOT_FOUND, status.HTTP_409_CONFLICT)
 
 
 @router.get("")
@@ -343,12 +349,12 @@ async def export_participants_csv(
     )
 
 
-@router.get("/{ticket_id}")
+@router.get("/{ticket_id}", responses=NOT_FOUND)
 async def get_participant(event: OwnedEventDep, ticket_id: uuid.UUID, session: SessionDep) -> ParticipantDetail:
     return await _detail(session, event, ticket_id)
 
 
-@router.patch("/{ticket_id}")
+@router.patch("/{ticket_id}", responses=NOT_FOUND)
 async def update_participant(
     event: OwnedEventDep, ticket_id: uuid.UUID, body: ParticipantUpdate, session: SessionDep
 ) -> ParticipantDetail:
@@ -364,7 +370,7 @@ async def update_participant(
     return await _detail(session, event, ticket_id)
 
 
-@router.post("/{ticket_id}/cancel")
+@router.post("/{ticket_id}/cancel", responses=NOT_FOUND_OR_CONFLICT)
 async def cancel_participant(
     event: OwnedEventDep, ticket_id: uuid.UUID, body: ParticipantCancel, request: Request, session: SessionDep
 ) -> ParticipantDetail:
@@ -381,21 +387,21 @@ async def cancel_participant(
     return await _detail(session, event, ticket_id)
 
 
-@router.post("/{ticket_id}/reissue")
+@router.post("/{ticket_id}/reissue", responses=NOT_FOUND_OR_CONFLICT)
 async def reissue_participant(
     event: OwnedEventDep, ticket_id: uuid.UUID, body: ParticipantReissue, request: Request, session: SessionDep
 ) -> ParticipantDetail:
     """Issue a new pass (new QR code); the old one stops working."""
     ticket = await _owned_ticket(session, event, ticket_id)
     try:
-        await reissue_ticket(session, ticket, notify=(_origin(request), event) if body.notify else None)
+        await reissue_ticket(session, ticket, event, notify_origin=_origin(request) if body.notify else None)
     except TicketStateError as exc:
         raise _conflict(exc) from None
     await session.commit()
     return await _detail(session, event, ticket_id)
 
 
-@router.post("/{ticket_id}/transfer")
+@router.post("/{ticket_id}/transfer", responses=NOT_FOUND_OR_CONFLICT)
 async def transfer_participant(
     event: OwnedEventDep, ticket_id: uuid.UUID, body: ParticipantTransfer, request: Request, session: SessionDep
 ) -> ParticipantDetail:
@@ -404,8 +410,9 @@ async def transfer_participant(
     target = await session.scalar(select(User).where(User.mobile == body.mobile))
     if target is None:
         if body.full_name is None:
-            raise HTTPException(
-                status.HTTP_422_UNPROCESSABLE_CONTENT, "This number has no account yet: enter the person's full name."
+            raise ApiError(
+                status.HTTP_422_UNPROCESSABLE_CONTENT, "FULL_NAME_REQUIRED",
+                "This number has no account yet: enter the person's full name."
             )
         target = User(
             mobile=body.mobile, full_name=body.full_name,
@@ -418,7 +425,7 @@ async def transfer_participant(
         except IntegrityError:
             target = await session.scalar(select(User).where(User.mobile == body.mobile))
             if target is None:
-                raise HTTPException(status.HTTP_409_CONFLICT, "The account could not be created") from None
+                raise ApiError(status.HTTP_409_CONFLICT, "ACCOUNT_CONFLICT", "The account could not be created") from None
     snapshot = {
         "attendee_full_name": body.full_name or target.full_name,
         "attendee_organization": body.organization if body.organization is not None else target.organization,
@@ -434,7 +441,7 @@ async def transfer_participant(
     return await _detail(session, event, new_ticket.id)
 
 
-@router.delete("/{ticket_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{ticket_id}", status_code=status.HTTP_204_NO_CONTENT, responses=NOT_FOUND_OR_CONFLICT)
 async def delete_participant(event: OwnedEventDep, ticket_id: uuid.UUID, session: SessionDep) -> Response:
     """Remove a registration made by mistake. A ticket that was scanned or captured as a lead is part of the
     congress's history: cancel it instead (409)."""
@@ -442,8 +449,8 @@ async def delete_participant(event: OwnedEventDep, ticket_id: uuid.UUID, session
     scanned = await session.scalar(select(exists().where(CheckIn.ticket_id == ticket.id)))
     has_leads = await session.scalar(select(exists().where(Lead.ticket_id == ticket.id)))
     if scanned or has_leads:
-        raise HTTPException(
-            status.HTTP_409_CONFLICT,
+        raise ApiError(
+            status.HTTP_409_CONFLICT, "PARTICIPANT_HAS_HISTORY",
             "This participant has check-ins or exhibitor leads and cannot be deleted. Cancel the ticket instead.",
         )
     if ticket.status == "active":
@@ -459,8 +466,8 @@ async def delete_participant(event: OwnedEventDep, ticket_id: uuid.UUID, session
     except IntegrityError:
         # A scan or lead arrived meanwhile.
         await session.rollback()
-        raise HTTPException(
-            status.HTTP_409_CONFLICT,
+        raise ApiError(
+            status.HTTP_409_CONFLICT, "PARTICIPANT_HAS_HISTORY",
             "This participant was just checked in or captured as a lead. Cancel the ticket instead.",
         ) from None
     return Response(status_code=status.HTTP_204_NO_CONTENT)

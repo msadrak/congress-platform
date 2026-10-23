@@ -1,0 +1,118 @@
+import { useEffect, useState, type ReactNode } from "react";
+import { useNavigate, useParams } from "react-router-dom";
+import { createApiClient } from "../api/client";
+import { congressPath } from "../lib/congressContext";
+import { useAttendeeLocale } from "../lib/i18n";
+import { linkOutcome, saveLinkPass, type LinkOutcome } from "../lib/linkPass";
+import { signInPath } from "../lib/safeRedirect";
+import { Button, LinkButton } from "../components/ui/Button";
+import { Icon, type IconName } from "../components/ui/Icon";
+import { StatusPanel } from "../components/ui/PortalState";
+
+interface Failure {
+  outcome: LinkOutcome;
+  /** Known for a real link that no longer works (410), so sign-in can go straight to that congress. */
+  slug?: string;
+}
+
+/**
+ * `/t/:code`, the short link in the ticket confirmation SMS (ADR 0015). Resolves the code, keeps the pass on
+ * this device and replaces the address with the congress pass page, so the code leaves the address bar and
+ * the history. A link that no longer works gets a friendly page with a way to sign in.
+ */
+export default function LinkPassEntry() {
+  const { code = "" } = useParams<{ code: string }>();
+  const navigate = useNavigate();
+  const { t, locale, setLocale, dir } = useAttendeeLocale();
+  const [failure, setFailure] = useState<Failure | null>(null);
+  const [attempt, setAttempt] = useState(0);
+
+  useEffect(() => {
+    let active = true;
+    createApiClient(null)
+      .POST("/api/public/passes/resolve", { body: { code } })
+      .then(({ data, error, response }) => {
+        if (!active) return;
+        if (data) {
+          // Without storage (a locked-down browser) the pass still reaches the page once, through history state.
+          const stored = saveLinkPass(data);
+          navigate(congressPath(data.event.slug, "my-ticket"), { replace: true, state: stored ? null : { linkPass: data } });
+          return;
+        }
+        const slug = error && "event_slug" in error && error.event_slug ? error.event_slug : undefined;
+        setFailure({ outcome: linkOutcome(response.status), slug });
+      })
+      .catch(() => {
+        if (active) setFailure({ outcome: "offline" });
+      });
+    return () => {
+      active = false;
+    };
+  }, [code, attempt, navigate]);
+
+  const otherLocale = locale === "fa" ? "en" : "fa";
+  const page = (content: ReactNode) => (
+    <div dir={dir} lang={locale} className="flex min-h-dvh flex-col bg-surface-page text-text-primary">
+      <main className="mx-auto flex w-full max-w-md flex-1 flex-col justify-center gap-6 px-4 py-12">
+        {content}
+        <button
+          type="button"
+          onClick={() => setLocale(otherLocale)}
+          className="mx-auto inline-flex min-h-11 items-center gap-2 rounded-full px-4 text-xs font-semibold text-text-muted hover:text-text-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
+        >
+          <Icon name="globe" size={15} />
+          {otherLocale === "en" ? "English" : "فارسی"}
+        </button>
+      </main>
+    </div>
+  );
+
+  if (!failure) {
+    return page(
+      <div role="status" aria-busy="true" className="flex flex-col items-center gap-4 text-sm text-text-secondary">
+        <span aria-hidden="true" className="grid size-14 place-items-center rounded-2xl bg-aiteb-lavender text-aiteb-indigo motion-safe:animate-pulse">
+          <Icon name="ticket" size={26} />
+        </span>
+        {t.linkOpeningLabel}
+      </div>,
+    );
+  }
+
+  const copy: Record<LinkOutcome, { icon: IconName; title: string; body: string }> = {
+    expired: { icon: "hourglass", title: t.linkExpiredTitle, body: t.linkExpiredDesc },
+    invalid: { icon: "link", title: t.linkInvalidTitle, body: t.linkInvalidDesc },
+    throttled: { icon: "clock", title: t.linkThrottledTitle, body: t.linkThrottledDesc },
+    offline: { icon: "wifi-off", title: t.linkOfflineTitle, body: t.linkOfflineDesc },
+  };
+  const { icon, title, body } = copy[failure.outcome];
+  const signIn = failure.slug
+    ? signInPath(failure.slug, congressPath(failure.slug, "my-ticket"))
+    : signInPath(undefined, "/my-tickets");
+
+  return page(
+    <StatusPanel tone={failure.outcome === "offline" ? "neutral" : "danger"} icon={icon} title={title}>
+      <p>{body}</p>
+      <div className="flex flex-col gap-3">
+        {failure.outcome === "offline" && (
+          <Button
+            type="button"
+            variant="primary"
+            size="lg"
+            isFullWidth
+            onClick={() => {
+              setFailure(null);
+              setAttempt((n) => n + 1);
+            }}
+          >
+            <Icon name="sync" size={18} />
+            {t.linkRetryAction}
+          </Button>
+        )}
+        <LinkButton to={signIn} variant={failure.outcome === "offline" ? "secondary" : "primary"} size="lg" isFullWidth>
+          {t.linkSignInAction}
+          <Icon name="arrow-right" size={18} />
+        </LinkButton>
+      </div>
+    </StatusPanel>,
+  );
+}

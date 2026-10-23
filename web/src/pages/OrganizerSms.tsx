@@ -212,7 +212,25 @@ function OrganizerSmsContent() {
                     <p className="text-xs text-status-danger-text"><bdi dir="ltr">{m.last_error}</bdi></p>
                   )}
                 </div>
-                <Badge variant={STATUS_BADGE[m.status] ?? "neutral"} size="sm">{statusLabel(m.status)}</Badge>
+                <div className="flex flex-col items-end gap-1.5">
+                  <Badge variant={STATUS_BADGE[m.status] ?? "neutral"} size="sm">{statusLabel(m.status)}</Badge>
+                  {/* Whether the attendee opened the pass link in this confirmation (ADR 0015). */}
+                  {m.kind === "ticket_confirmation" && (
+                    m.link_opened_at ? (
+                      <Badge
+                        variant="info"
+                        size="sm"
+                        icon={<Icon name="eye" size={12} />}
+                        title={when(m.link_opened_at)}
+                        data-testid="sms-link-opened"
+                      >
+                        {isRtl ? "پیوند باز شد" : "Link opened"}
+                      </Badge>
+                    ) : (
+                      <span className="text-[11px] text-text-muted">{isRtl ? "پیوند هنوز باز نشده" : "Link not opened yet"}</span>
+                    )
+                  )}
+                </div>
               </li>
             ))}
           </ul>

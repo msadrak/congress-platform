@@ -32,34 +32,40 @@ def backoff(attempts: int) -> timedelta:
     return timedelta(seconds=min(60 * 2 ** (attempts - 1), 3600))
 
 
-def pass_link(origin: str, event: Event) -> str:
-    return f"{origin.rstrip('/')}/c/{event.slug}/my-ticket"
+def link_origin(settings: Settings, origin: str) -> str:
+    """Where SMS links point: the short-link origin, else the public origin, else this request's origin."""
+    return settings.short_link_origin or settings.public_origin or origin
 
 
-def confirmation_values(origin: str, *, name: str, event: Event, tier_name: str) -> dict[str, str]:
+def pass_link(origin: str, code: str) -> str:
+    """The one-tap pass link (ADR 0015): short on purpose, so the SMS stays as few parts as the wording allows."""
+    return f"{origin.rstrip('/')}/t/{code}"
+
+
+def confirmation_values(origin: str, *, name: str, event: Event, tier_name: str, code: str) -> dict[str, str]:
     """The placeholder values of a ticket confirmation (also used for previews and test sends)."""
     return {
         "name": name,
         "event": event.name,
         "tier": tier_name,
         "location": event.location,
-        "link": pass_link(origin, event),
+        "link": pass_link(origin, code),
     }
 
 
 async def ticket_confirmation_text(
-    session: AsyncSession, settings: Settings, origin: str, *, user: User, event: Event, ticket: Ticket
+    session: AsyncSession, settings: Settings, origin: str, *, user: User, event: Event, ticket: Ticket, code: str
 ) -> str:
-    """The ticket confirmation for this attendee, in the event's current wording."""
+    """The ticket confirmation for this attendee, in the event's current wording, linking to short link `code`."""
     tier = await session.get(TicketTier, ticket.ticket_tier_id)
     values = confirmation_values(
-        settings.public_origin or origin, name=user.full_name, event=event, tier_name=tier.name if tier else ""
+        link_origin(settings, origin), name=user.full_name, event=event, tier_name=tier.name if tier else "", code=code
     )
     return render(await effective_body(session, "ticket_confirmation", event.id), values)
 
 
 async def queue_ticket_confirmation(
-    session: AsyncSession, settings: Settings, origin: str, *, user: User, event: Event, ticket: Ticket
+    session: AsyncSession, settings: Settings, origin: str, *, user: User, event: Event, ticket: Ticket, code: str
 ) -> None:
     """Queue "your ticket is confirmed" in the event's wording; a no-op for an attendee without a mobile.
 
@@ -71,7 +77,9 @@ async def queue_ticket_confirmation(
         SmsMessage(
             kind="ticket_confirmation",
             mobile=user.mobile,
-            body=await ticket_confirmation_text(session, settings, origin, user=user, event=event, ticket=ticket),
+            body=await ticket_confirmation_text(
+                session, settings, origin, user=user, event=event, ticket=ticket, code=code
+            ),
             event_id=event.id,
             ticket_id=ticket.id,
             status="pending",

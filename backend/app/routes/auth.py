@@ -17,7 +17,7 @@ from app.rate_limit import (
     client_ip,
     limiter,
 )
-from app.security import create_access_token, create_signup_token, decode_access_token
+from app.security import create_access_token, create_signup_token, decode_access_token, is_user_token
 from app.sms import SmsProvider, sms_provider
 from app.sms.otp import OtpPurpose, consume_challenge, issue_challenge
 from app.sms.phone import IranMobile, ascii_digits
@@ -124,7 +124,7 @@ async def current_user(
             status.HTTP_401_UNAUTHORIZED, "Invalid authorization token",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    if "type" in payload and payload["type"] != "user":
+    if not is_user_token(payload):
         raise HTTPException(
             status.HTTP_401_UNAUTHORIZED, "Invalid token type for user authentication",
             headers={"WWW-Authenticate": "Bearer"},

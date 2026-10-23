@@ -2,16 +2,18 @@ import uuid
 from datetime import datetime, timezone
 from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Query, Request, status
+from fastapi import APIRouter, Query, Request, status
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 
 from app.db import SessionDep
+from app.errors import ApiError, error_responses
+from app.links import mint_ticket_link
 from app.models import EntityQR, Event, Ticket, TicketTier
 from app.routes.auth import CurrentUserDep
 from app.security import generate_entity_qr_secret
-from app.sms.outbox import queue_ticket_confirmation
+from app.sms.outbox import link_origin, queue_ticket_confirmation
 from app.ticket_lifecycle import (
     TicketStateError,
     attendee_snapshot,
@@ -61,6 +63,9 @@ class AttendeeTicketDetail(BaseModel):
 @router.post(
     "/api/events/{event_id}/tickets/reserve",
     status_code=status.HTTP_201_CREATED,
+    responses=error_responses(
+        status.HTTP_400_BAD_REQUEST, status.HTTP_404_NOT_FOUND, status.HTTP_409_CONFLICT, status.HTTP_410_GONE
+    ),
 )
 async def reserve_ticket(
     event_id: uuid.UUID,
@@ -71,7 +76,7 @@ async def reserve_ticket(
 ) -> TicketOut:
     event = await session.get(Event, event_id)
     if event is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Event not found")
+        raise ApiError(status.HTTP_404_NOT_FOUND, "EVENT_NOT_FOUND", "Event not found")
 
     # Check if user already holds a ticket for this event
     existing = await session.scalar(
@@ -82,8 +87,9 @@ async def reserve_ticket(
     if existing is not None and existing.status == "cancelled":
         return await _register_again(existing, body, user, event, request, session)
     if existing is not None:
-        raise HTTPException(
+        raise ApiError(
             status.HTTP_409_CONFLICT,
+            "ALREADY_REGISTERED",
             "User already holds a ticket for this event",
         )
 
@@ -106,16 +112,12 @@ async def reserve_ticket(
         # Investigate why the update failed
         tier = await session.get(TicketTier, body.ticket_tier_id)
         if tier is None or tier.event_id != event_id:
-            raise HTTPException(
-                status.HTTP_404_NOT_FOUND, "Ticket tier not found"
-            )
+            raise ApiError(status.HTTP_404_NOT_FOUND, "TIER_NOT_FOUND", "Ticket tier not found")
         if not tier.is_open:
-            raise HTTPException(
-                status.HTTP_400_BAD_REQUEST, "Ticket tier is closed for registration"
+            raise ApiError(
+                status.HTTP_400_BAD_REQUEST, "TIER_CLOSED", "Ticket tier is closed for registration"
             )
-        raise HTTPException(
-            status.HTTP_410_GONE, "Ticket tier is sold out / quota exhausted"
-        )
+        raise ApiError(status.HTTP_410_GONE, "TIER_SOLD_OUT", "Ticket tier is sold out / quota exhausted")
 
     ticket = Ticket(
         event_id=event_id,
@@ -128,8 +130,9 @@ async def reserve_ticket(
     try:
         await session.flush()
     except IntegrityError:
-        raise HTTPException(
+        raise ApiError(
             status.HTTP_409_CONFLICT,
+            "ALREADY_REGISTERED",
             "User already holds a ticket for this event",
         ) from None
 
@@ -141,8 +144,10 @@ async def reserve_ticket(
         is_active=True,
     )
     session.add(qr)
+    link = await mint_ticket_link(session, ticket, event)
     await queue_ticket_confirmation(
-        session, request.app.state.settings, str(request.base_url), user=user, event=event, ticket=ticket
+        session, request.app.state.settings, str(request.base_url), user=user, event=event, ticket=ticket,
+        code=link.code,
     )
     await session.commit()
 
@@ -165,16 +170,16 @@ async def _register_again(
     """Registering again after a cancellation reactivates the person's ticket row with a new pass."""
     tier = await session.get(TicketTier, body.ticket_tier_id)
     if tier is None or tier.event_id != event.id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Ticket tier not found")
+        raise ApiError(status.HTTP_404_NOT_FOUND, "TIER_NOT_FOUND", "Ticket tier not found")
     if not tier.is_open:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Ticket tier is closed for registration")
+        raise ApiError(status.HTTP_400_BAD_REQUEST, "TIER_CLOSED", "Ticket tier is closed for registration")
     try:
-        secret = await reactivate_ticket(session, ticket, tier.id, user)
+        secret, code = await reactivate_ticket(session, ticket, tier.id, user, event)
     except TicketStateError:
-        raise HTTPException(status.HTTP_410_GONE, "Ticket tier is sold out / quota exhausted") from None
-    origin = request.app.state.settings.public_origin or str(request.base_url)
+        raise ApiError(status.HTTP_410_GONE, "TIER_SOLD_OUT", "Ticket tier is sold out / quota exhausted") from None
     await queue_ticket_sms(
-        session, origin, "ticket_confirmation", mobile=user.mobile, name=ticket.attendee_full_name, event=event, ticket=ticket
+        session, link_origin(request.app.state.settings, str(request.base_url)), "ticket_confirmation",
+        mobile=user.mobile, name=ticket.attendee_full_name, event=event, ticket=ticket, code=code,
     )
     await session.commit()
     await session.refresh(ticket)
@@ -185,7 +190,10 @@ async def _register_again(
     )
 
 
-@router.post("/api/attendees/me/tickets/{ticket_id}/cancel")
+@router.post(
+    "/api/attendees/me/tickets/{ticket_id}/cancel",
+    responses=error_responses(status.HTTP_404_NOT_FOUND, status.HTTP_409_CONFLICT),
+)
 async def cancel_my_ticket(
     ticket_id: uuid.UUID, user: CurrentUserDep, request: Request, session: SessionDep
 ) -> AttendeeTicketDetail:
@@ -199,17 +207,18 @@ async def cancel_my_ticket(
         )
     ).one_or_none()
     if row is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Ticket not found")
+        raise ApiError(status.HTTP_404_NOT_FOUND, "TICKET_NOT_FOUND", "Ticket not found")
     ticket, event = row[0], row[1]
     if event.starts_at <= datetime.now(timezone.utc):
-        raise HTTPException(
-            status.HTTP_409_CONFLICT, "The congress has started; ask the organizer to cancel the registration."
+        raise ApiError(
+            status.HTTP_409_CONFLICT, "EVENT_STARTED",
+            "The congress has started; ask the organizer to cancel the registration.",
         )
-    origin = request.app.state.settings.public_origin or str(request.base_url)
+    origin = link_origin(request.app.state.settings, str(request.base_url))
     try:
         await cancel_ticket(session, ticket, actor="attendee", notify=(origin, event))
     except TicketStateError as exc:
-        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from None
+        raise ApiError(status.HTTP_409_CONFLICT, "TICKET_ALREADY_CANCELLED", str(exc)) from None
     await session.commit()
     (detail,) = [t for t in await get_my_tickets(user, session, include_cancelled=True) if t.id == ticket_id]
     return detail

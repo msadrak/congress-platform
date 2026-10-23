@@ -39,9 +39,31 @@ Mechanical rules live in checks, not here: no `any` (oxlint `typescript/no-expli
 - **Rule:** When writing tests that provision more than one event, every secondary event must randomize or parameterize its slug (e.g. `f"event-b-{uuid.uuid4().hex[:6]}"`).
 - **Why:** Global unique constraints on `events.slug` reject duplicate slugs with `409 Conflict`. Reusing static dictionary fixtures across multiple events causes unforced test failures.
 
+### F. Stable Error Codes (`app/errors.py`)
+- **Rule:** An error a client must react to or show to a person is raised as `ApiError(status, "UPPER_SNAKE_CODE", "English message")`, and the route declares it with `responses=error_responses(...)` so the OpenAPI document and `web/src/api/schema.d.ts` describe the body. The response is `{"detail": "<English message>", "code": "<CODE>"}`; `detail` stays a string, plain `HTTPException`s keep answering `{"detail": ...}`, and 422 validation bodies are unchanged.
+- **Naming:** `SUBJECT_STATE` in upper snake case, describing what happened rather than the status (`TIER_SOLD_OUT`, `TIER_CLOSED`, `ALREADY_REGISTERED`, `EVENT_NOT_FOUND`). A code is a contract: never rename or reuse one; keep its status and `detail` stable when converting an existing error.
+- **Web:** decide with `apiErrorCode(error)` and show `localizedApiError(error, locale)` (both in `web/src/api/client.ts`); add every new code to the fa and en maps in `web/src/lib/errorMessages.ts`. Never match or branch on the English `detail` text.
+- **Why:** Persian readers must not see raw English, and UI behaviour must not break when a message is reworded.
+
 ---
 
 ## 3. Flutter & Dart Standards (`mobile/`)
 
 ### A. Pure Business Logic Separation
 - **Rule:** Core domain logic (e.g., `PolicyEngine`) must remain pure Dart with zero Flutter widget or DOM dependencies so it can be verified in milliseconds via `dart test`.
+
+---
+
+## 4. Verification Infrastructure
+
+### A. Models Match the Migrations (`backend/tests/test_migrations.py`)
+- **Rule:** `Base.metadata` and the database built by `alembic upgrade head` must be identical (tables, columns, types, server defaults, indexes, constraints), and `alembic downgrade base` followed by `upgrade head` must leave an empty schema in between and no drift afterwards.
+- **How to fix a failure:** a model change needs a migration (`alembic revision`); a migration-only object (e.g. a partial unique index such as `uq_checkin_single_use_admitted`) must also be declared on the model, exactly as the migration creates it. Never edit an applied migration to silence the test.
+
+### B. Backend Runner (`scripts/integration/backend-tests.mjs`)
+- **What:** mypy + pytest in a container against a fresh PostgreSQL on a private `--internal` Docker network, with the `*_test` database guard of `backend/tests/conftest.py`; everything is removed afterwards. Extra arguments go to pytest (`node scripts/integration/backend-tests.mjs tests/test_migrations.py`).
+- **Image:** `scripts/integration/backend-test.Dockerfile` (Python 3.11, uv, every locked dependency), built on first use as `congress-backend-test:<hash of the Dockerfile, pyproject.toml and uv.lock>`, so a fresh machine needs only Docker and a lock change builds a new image. `CONGRESS_E2E_BACKEND_IMAGE` overrides it for every `scripts/integration/*` stack.
+- **Guardrail:** `scripts/check.sh` / `scripts\check.bat` use it whenever Docker is running; without Docker they need `uv` and PostgreSQL on `127.0.0.1:5433`. Without `dart` on PATH they run the Dart checks in the `dart:stable` image. A missing tool fails the run, never skips a check.
+
+### C. CI (`.github/workflows/ci.yml`)
+- Besides the stack checks, CI builds both Docker images, validates `deploy/staging/Caddyfile` in every edge mode (`node scripts/ci/validate-caddyfile.mjs`), audits dependencies (high and critical fail: `scripts/ci/pip-audit-gate.mjs`, `npm audit --omit=dev --audit-level=high`), and runs every `web/e2e` spec against the production build in Playwright's Chromium (`CONGRESS_BROWSER_CHANNEL=chromium CONGRESS_E2E_PREVIEW=1 npx playwright test`; the local default browser stays Edge). `scanner-real-api.spec.ts` needs a live API and is skipped there.

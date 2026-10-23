@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Settings
 from app.models import PlatformSetting
-from app.secret_box import open_sealed, seal
+from app.secret_box import open_sealed, opening_secrets, seal, sealing_secret
 
 logger = logging.getLogger("congress.platform")
 
@@ -93,7 +93,7 @@ def _build(stored: dict[str, Any], settings: Settings) -> PlatformConfig:
     api_key_source: Source | None = None
     unreadable = False
     if SMS_API_KEY in stored:
-        api_key = open_sealed(settings.jwt_secret, str(stored[SMS_API_KEY].get("sealed", "")))
+        api_key = open_sealed(str(stored[SMS_API_KEY].get("sealed", "")), *opening_secrets(settings))
         unreadable = api_key is None
         api_key_source = "console"
     elif settings.smsir_api_key.strip():
@@ -140,7 +140,21 @@ async def delete_setting(session: AsyncSession, key: str) -> None:
 
 
 def sealed_api_key(settings: Settings, api_key: str) -> dict[str, str]:
-    return {"sealed": seal(settings.jwt_secret, api_key)}
+    return {"sealed": seal(sealing_secret(settings), api_key)}
+
+
+async def reseal_api_key(session: AsyncSession, settings: Settings) -> None:
+    """Seal the stored API key again with the current secret when it only opens with an older one (it was saved
+    before CONGRESS_SECRET_BOX_KEY was set). A key no secret opens is left for the admin to enter again."""
+    row = await session.get(PlatformSetting, SMS_API_KEY, with_for_update=True)
+    if row is None:
+        return
+    token = str(row.value.get("sealed", ""))
+    if open_sealed(token, sealing_secret(settings)) is not None:
+        return
+    api_key = open_sealed(token, *opening_secrets(settings))
+    if api_key is not None:
+        row.value = sealed_api_key(settings, api_key)
 
 
 def apply_platform(app: FastAPI, config: PlatformConfig) -> PlatformConfig:

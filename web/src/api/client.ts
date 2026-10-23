@@ -1,6 +1,9 @@
 import createClient from "openapi-fetch";
 import type { components, paths } from "./schema";
+import type { AttendeeLocale } from "../lib/i18n";
+import { errorMessages } from "../lib/errorMessages.ts";
 
+export type ErrorResponse = components["schemas"]["ErrorResponse"];
 export type EventOut = components["schemas"]["EventOut"];
 export type EventCreate = components["schemas"]["EventCreate"];
 export type EventUpdate = components["schemas"]["EventUpdate"];
@@ -251,4 +254,19 @@ export function formatApiError(err: unknown): string {
     if (e.message) return e.message;
   }
   return "An unexpected error occurred.";
+}
+
+/** The stable error code of an error body or ApiResponseError (backend/app/errors.py), if it has one. */
+export function apiErrorCode(error: unknown): string | undefined {
+  const body = error instanceof ApiResponseError ? error.body : error;
+  if (typeof body !== "object" || body === null || !("code" in body)) return undefined;
+  return typeof body.code === "string" && body.code.length > 0 ? body.code : undefined;
+}
+
+/** The error in the reader's language when its code is known; otherwise the existing `formatApiError` text. */
+export function localizedApiError(error: unknown, locale: AttendeeLocale): string {
+  const code = apiErrorCode(error);
+  const messages = errorMessages[locale];
+  if (code !== undefined && Object.hasOwn(messages, code)) return messages[code];
+  return formatApiError(error instanceof ApiResponseError ? error.body : error);
 }

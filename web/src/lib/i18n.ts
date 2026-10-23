@@ -358,6 +358,22 @@ export const translations = {
     deviceUnpairAction: "قطع اتصال دستگاه",
     audioToggleLabel: "بازخورد صوتی اسکن",
     cameraToggleLabel: "روشن/خاموش دوربین",
+
+    // ── SMS short link / one-tap pass (ADR 0015). Glossary: «کارت ورود» = pass, «کد QR», «بلیت» (never «بلیط»).
+    linkOpeningLabel: "در حال باز کردن کارت ورود…",
+    linkPassNote: "این کارت ورود از پیوند پیامک شما باز شده است",
+    linkPassNoteDesc: "برای نشان دادن کارت ورود و کد QR در ورودی نیازی به ورود ندارید. شبکه‌سازی و نمایه به ورود نیاز دارند.",
+    linkPassSignInAction: "ورود برای شبکه‌سازی و نمایه",
+    linkExpiredTitle: "این پیوند منقضی شده یا دیگر معتبر نیست",
+    linkExpiredDesc: "برای دیدن کارت ورود و کد QR خود وارد شوید. اگر بلیت شما لغو یا دوباره صادر شده است، پیوند تازه‌ترین پیامک را باز کنید.",
+    linkInvalidTitle: "این پیوند معتبر نیست",
+    linkInvalidDesc: "پیوند را کامل و بدون تغییر از پیامک باز کنید، یا برای دیدن کارت ورود وارد شوید.",
+    linkThrottledTitle: "تلاش‌های زیادی انجام شد",
+    linkThrottledDesc: "چند دقیقه دیگر دوباره تلاش کنید، یا برای دیدن کارت ورود وارد شوید.",
+    linkOfflineTitle: "اتصال برقرار نشد",
+    linkOfflineDesc: "اتصال اینترنت را بررسی کنید و دوباره تلاش کنید.",
+    linkRetryAction: "تلاش دوباره",
+    linkSignInAction: "ورود و دیدن کارت ورود",
   },
   en: {
     // Navigation & Shell
@@ -709,6 +725,22 @@ export const translations = {
     deviceUnpairAction: "Disconnect Device",
     audioToggleLabel: "Audio Chimes",
     cameraToggleLabel: "Camera On/Off",
+
+    // ── SMS short link / one-tap pass (ADR 0015).
+    linkOpeningLabel: "Opening your pass…",
+    linkPassNote: "Opened from your SMS link",
+    linkPassNoteDesc: "You don't need to sign in to show this pass and its QR code at the entrance. Networking and your profile need a sign-in.",
+    linkPassSignInAction: "Sign in for networking and profile",
+    linkExpiredTitle: "This link has expired or is no longer valid",
+    linkExpiredDesc: "Sign in to see your pass and QR code. If your ticket was cancelled or reissued, open the link in the newest SMS.",
+    linkInvalidTitle: "This link is not valid",
+    linkInvalidDesc: "Open the link from the SMS exactly as it was sent, or sign in to see your pass.",
+    linkThrottledTitle: "Too many attempts",
+    linkThrottledDesc: "Try again in a few minutes, or sign in to see your pass.",
+    linkOfflineTitle: "Couldn't connect",
+    linkOfflineDesc: "Check your internet connection and try again.",
+    linkRetryAction: "Try again",
+    linkSignInAction: "Sign in to see your pass",
   },
 };
 /**

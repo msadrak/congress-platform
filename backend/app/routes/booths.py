@@ -1,9 +1,10 @@
 import uuid
 from datetime import datetime
 from typing import Annotated
+from urllib.parse import urlsplit
 
 from fastapi import APIRouter, HTTPException, Response, status
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, StringConstraints
 from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 
@@ -21,13 +22,34 @@ SlugStr = Annotated[
 ]
 
 
+def _web_link(value: str) -> str:
+    """Empty, or an absolute http(s) address: these become links on the public booth page, so no
+    javascript:/data: schemes, scheme-relative or relative paths."""
+    value = value.strip()
+    if not value:
+        return ""
+    parts = urlsplit(value)
+    if (
+        parts.scheme.lower() not in ("http", "https")
+        or not parts.hostname
+        or any(ch.isspace() or ord(ch) < 32 for ch in value)
+    ):
+        raise ValueError("Enter a full web address starting with https:// or http://.")
+    return value
+
+
+WebLink = Annotated[str, Field(max_length=500), AfterValidator(_web_link)]
+# A short overview shown on the public booth page and in the booth directory.
+BoothDescription = Annotated[str, Field(max_length=2000)]
+
+
 class BoothCreate(BaseModel):
     name: Annotated[str, Field(min_length=1, max_length=200)]
     slug: SlugStr
     location: Annotated[str, Field(max_length=100)] = ""
-    description: str = ""
-    website_url: Annotated[str, Field(max_length=500)] = ""
-    brochure_url: Annotated[str, Field(max_length=500)] = ""
+    description: BoothDescription = ""
+    website_url: WebLink = ""
+    brochure_url: WebLink = ""
 
 
 class BoothUpdate(BaseModel):
@@ -36,9 +58,9 @@ class BoothUpdate(BaseModel):
     name: Annotated[str, Field(min_length=1, max_length=200)] | None = None
     slug: SlugStr | None = None
     location: Annotated[str, Field(max_length=100)] | None = None
-    description: str | None = None
-    website_url: Annotated[str, Field(max_length=500)] | None = None
-    brochure_url: Annotated[str, Field(max_length=500)] | None = None
+    description: BoothDescription | None = None
+    website_url: WebLink | None = None
+    brochure_url: WebLink | None = None
 
 
 
@@ -266,6 +288,9 @@ async def assign_booth_staff(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Booth not found")
 
     user = await session.scalar(select(User).where(User.mobile == body.mobile))
+    # The answer names the representative as submitted: an existing account keeps its own name, which is not
+    # echoed back, so typing a number never reveals who holds it.
+    shown_name = body.full_name
 
     if user is None:
         # The representative signs in later with an SMS code to this number.
@@ -276,6 +301,7 @@ async def assign_booth_staff(
         )
         session.add(user)
         await session.flush()
+        shown_name = user.full_name
 
     existing_staff = await session.scalar(
         select(BoothStaff).where(
@@ -287,8 +313,8 @@ async def assign_booth_staff(
             id=existing_staff.id,
             booth_id=booth.id,
             user_id=user.id,
-            mobile=user.mobile,
-            full_name=user.full_name,
+            mobile=body.mobile,
+            full_name=shown_name,
         )
 
     staff = BoothStaff(booth_id=booth.id, user_id=user.id)
@@ -299,8 +325,8 @@ async def assign_booth_staff(
         id=staff.id,
         booth_id=booth.id,
         user_id=user.id,
-        mobile=user.mobile,
-        full_name=user.full_name,
+        mobile=body.mobile,
+        full_name=shown_name,
     )
 
 

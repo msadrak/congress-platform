@@ -12,19 +12,21 @@
  * database inside its own PostgreSQL container. Nothing outside those containers is touched.
  *
  * Requirements: Docker, a local backend image with the dependencies in /app/.venv
- * (CONGRESS_E2E_BACKEND_IMAGE, default congress-t0-backend:2c0085137f), the postgres:16 image,
+ * (CONGRESS_E2E_BACKEND_IMAGE, default: the hashed test-runner image, built on first use), the postgres:16 image,
  * Node 22+, `npm ci` done in web/, and Microsoft Edge (Playwright channel `msedge`).
  */
 import { randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { backendImage, syncBackendDependencies } from '../lib/backend-image.mjs';
 import { freePorts, run, startPreview, stopProcess } from '../lib/process.mjs';
 import { runJourney } from './journey.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const args = new Set(process.argv.slice(2));
-const IMAGE = process.env.CONGRESS_E2E_BACKEND_IMAGE ?? 'congress-t0-backend:2c0085137f';
+// The hashed test-runner image (built on first use) or CONGRESS_E2E_BACKEND_IMAGE: scripts/lib/backend-image.mjs.
+const IMAGE = backendImage();
 const PG_IMAGE = process.env.CONGRESS_E2E_PG_IMAGE ?? 'postgres:16';
 const NET = 'congress-e2e-net';
 const PG = 'congress-e2e-pg';
@@ -79,7 +81,7 @@ async function up() {
   }
   for (const f of ['alembic.ini', 'pyproject.toml', 'uv.lock']) docker('cp', resolve(root, 'backend', f), `${API}:/app/${f}`);
   // The image predates some dependencies (Pillow): sync the venv to the lock file while the container is still online.
-  docker('exec', '-e', 'UV_PROJECT_ENVIRONMENT=/app/.venv', '-w', '/app', API, 'uv', 'sync', '--frozen', '--no-dev', '--quiet');
+  syncBackendDependencies(API, ['--no-dev']);
   // Staging mode: the hardened configuration (explicit database, media volume, generated secrets) must hold. Not
   // production, which requires real sms.ir delivery: the console provider records SMS for the journey to read, and
   // the send limits are relaxed because the journey signs the same numbers in repeatedly within seconds.

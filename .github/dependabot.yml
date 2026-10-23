@@ -1,0 +1,38 @@
+# Weekly dependency updates. Minor and patch updates arrive as one grouped pull request per ecosystem; major
+# updates stay separate so each can be reviewed on its own. Security updates are not grouped or delayed.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /web
+    schedule:
+      interval: weekly
+    groups:
+      web-minor-and-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: uv
+    directory: /backend
+    schedule:
+      interval: weekly
+    groups:
+      backend-minor-and-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions-minor-and-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: docker
+    directories:
+      - /backend
+      - /deploy/web
+      - /scripts/integration
+    schedule:
+      interval: weekly
+    groups:
+      images-minor-and-patch:
+        update-types: [minor, patch]
