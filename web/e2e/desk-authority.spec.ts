@@ -44,7 +44,8 @@ async function fixture(page: Page, options: Options = {}) {
 }
 
 async function seed(page: Page, credentials: { organizer?: boolean; eventA?: boolean; eventB?: boolean } = {}) {
-  await page.goto('/');
+  // A same-origin static file, not the app: the home page would load its public congress list (an API request) mid-seed.
+  await page.goto('/favicon.png');
   await page.evaluate(({ credentials, organizerKey, deskA, deskB, userToken }) => {
     if (credentials.organizer) sessionStorage.setItem('congress_organizer_api_key', organizerKey);
     if (credentials.eventA) sessionStorage.setItem('congress_desk_token_event-a', deskA);
@@ -70,7 +71,7 @@ async function issueWalkIn(page: Page) {
 const issued = (page: Page) => page.getByRole('dialog', { name: 'Issued' });
 /** Organizer administration only: the desk's mode choice lives in the ⋮ menu. */
 async function chooseMode(page: Page, mode: 'Organizer mode' | 'Operator mode') {
-  await page.getByRole('button', { name: 'Menu' }).click();
+  await page.locator('#organizer-main-content').getByRole('button', { name: 'Menu' }).click();
   await page.getByRole('menuitem', { name: mode }).click();
 }
 

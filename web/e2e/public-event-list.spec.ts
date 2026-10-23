@@ -33,13 +33,12 @@ async function fixture(page: Page, options: { items?: typeof ALL; status?: numbe
 /** The home list sits right under the hero and loads at once. */
 const scrollToList = (page: Page) => page.locator('#congresses').scrollIntoViewIfNeeded();
 
-test('a home visit that leaves at once asks nothing of the API', async ({ page }) => {
+test('the home list is asked for once, as soon as it is in view', async ({ page }) => {
   const queries = await fixture(page);
   await page.goto('/');
-  await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
-  await page.goto('/no/such/page');
-  await page.waitForTimeout(800);
-  expect(queries).toEqual([]);
+  await expect.poll(() => queries).toEqual(['?limit=6&offset=0']);
+  await expect(page.getByTestId('public-event-card').first()).toBeVisible();
+  expect(queries).toEqual(['?limit=6&offset=0']);
 });
 
 test('at 390×844 the upcoming congresses start within one and a half screens of the top', async ({ page }) => {

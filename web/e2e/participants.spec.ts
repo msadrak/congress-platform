@@ -116,7 +116,8 @@ async function fixture(page: Page, options: { failFirstList?: boolean; deleteCon
 }
 
 async function seed(page: Page, locale = 'en') {
-  await page.goto('/');
+  // A same-origin static file, not the app: the home page would load its public congress list (an API request) mid-seed.
+  await page.goto('/favicon.png');
   await page.evaluate(({ key, locale }) => {
     sessionStorage.setItem('congress_organizer_api_key', key);
     localStorage.setItem('congress_attendee_locale', locale);
