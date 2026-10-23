@@ -22,9 +22,6 @@
     "ternary": 7,
     "persian": 7
   },
-  "src/components/attendee/Monogram.tsx": {
-    "persian": 4
-  },
   "src/components/attendee/ProgramExplorer.tsx": {
     "ternary": 2
   },
@@ -215,9 +212,6 @@
     "persian": 43,
     "ternary": 34,
     "devTerm": 2
-  },
-  "src/components/ui/Dialog.tsx": {
-    "persian": 1
   },
   "src/layouts/AttendeeLayout.tsx": {
     "persian": 17,

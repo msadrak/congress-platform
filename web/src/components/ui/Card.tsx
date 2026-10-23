@@ -12,18 +12,18 @@ const toneStyles: Record<CardTone, string> = {
 export interface CardProps extends React.HTMLAttributes<HTMLDivElement> {
   isHoverable?: boolean;
   tone?: CardTone;
-  /** `arc` gives the signature quarter-arc corner (mirrors in RTL). */
+  /** Deprecated: every card uses the one 16 px card radius. */
   shape?: "default" | "arc";
 }
 
-export function Card({ isHoverable = false, tone = "panel", shape = "default", className = "", children, ...props }: CardProps) {
+/** A panel: 16 px radius, default border, soft shadow; lifts on hover only when `isHoverable` (clickable). */
+export function Card({ isHoverable = false, tone = "panel", shape: _shape, className = "", children, ...props }: CardProps) {
   const hoverClass = isHoverable
     ? "transition-[border-color,box-shadow,transform] duration-300 ease-[var(--ease-arc)] hover:border-border-strong hover:shadow-lift motion-safe:hover:-translate-y-0.5 motion-reduce:transition-none"
     : "";
-  const shapeClass = shape === "arc" ? "shape-arc" : "rounded-2xl";
 
   return (
-    <div className={`border overflow-hidden ${toneStyles[tone]} ${shapeClass} ${hoverClass} ${className}`.trim()} {...props}>
+    <div className={`border overflow-hidden rounded-card ${toneStyles[tone]} ${hoverClass} ${className}`.trim()} {...props}>
       {children}
     </div>
   );
@@ -39,7 +39,7 @@ export function CardHeader({ className = "", children, ...props }: React.HTMLAtt
 
 export function CardTitle({ className = "", children, ...props }: React.HTMLAttributes<HTMLHeadingElement>) {
   return (
-    <h3 className={`text-lg sm:text-xl font-bold text-text-primary tracking-tight ${className}`.trim()} {...props}>
+    <h3 className={`text-title-sm font-bold text-text-primary tracking-tight ${className}`.trim()} {...props}>
       {children}
     </h3>
   );
@@ -47,7 +47,7 @@ export function CardTitle({ className = "", children, ...props }: React.HTMLAttr
 
 export function CardDescription({ className = "", children, ...props }: React.HTMLAttributes<HTMLParagraphElement>) {
   return (
-    <p className={`mt-1.5 text-sm text-text-secondary leading-relaxed ${className}`.trim()} {...props}>
+    <p className={`mt-1.5 text-body-sm text-text-secondary leading-relaxed ${className}`.trim()} {...props}>
       {children}
     </p>
   );
