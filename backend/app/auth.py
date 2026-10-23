@@ -159,14 +159,14 @@ async def organizer_principal(
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer)],
 ) -> OrganizerPrincipal:
     if credentials is None:
-        raise HTTPException(
-            status.HTTP_401_UNAUTHORIZED, "Missing API key",
+        raise ApiError(
+            status.HTTP_401_UNAUTHORIZED, "API_KEY_MISSING", "Missing API key",
             headers={"WWW-Authenticate": "Bearer"},
         )
     principal = await resolve_organizer_principal(session, request, credentials.credentials)
     if principal is None:
-        raise HTTPException(
-            status.HTTP_401_UNAUTHORIZED, "Invalid API key",
+        raise ApiError(
+            status.HTTP_401_UNAUTHORIZED, "API_KEY_INVALID", "Invalid API key",
             headers={"WWW-Authenticate": "Bearer"},
         )
     authorize(request, principal)

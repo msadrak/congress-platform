@@ -90,6 +90,14 @@ export const errorMessages: Record<AttendeeLocale, Record<string, string>> = {
     MEMBER_EXISTS: "این شماره هم‌اکنون عضو این سازمان است.",
     MEMBER_REVOKED: "این عضو حذف شده است؛ برای بازگرداندن، دوباره او را دعوت کنید.",
     LAST_OWNER: "پیش از حذف یا تغییر نقش آخرین مالک، مالک دیگری اضافه کنید.",
+    // Organizer credentials, events and booths (backend/app/auth.py, routes/events.py, booths.py, organizer_console.py)
+    API_KEY_MISSING: "برای ادامه وارد پنل برگزارکننده شوید.",
+    API_KEY_INVALID: "کلید دسترسی نامعتبر است یا نشست شما به پایان رسیده است. دوباره وارد شوید.",
+    EVENT_SLUG_TAKEN: "این نشانی (اسلاگ) را همایش دیگری استفاده می‌کند. نشانی دیگری انتخاب کنید.",
+    BOOTH_SLUG_TAKEN: "این نشانی (اسلاگ) را غرفهٔ دیگری در این همایش استفاده می‌کند. نشانی دیگری انتخاب کنید.",
+    EVENT_TIMES_INVALID: "زمان پایان همایش باید پس از زمان آغاز آن باشد.",
+    REGISTRATION_WINDOW_INVALID: "زمان بسته‌شدن ثبت‌نام باید پس از زمان بازشدن آن باشد.",
+    MEMBER_NOT_FOUND: "این عضو یافت نشد. فهرست را به‌روز کنید.",
   },
   en: {
     EVENT_NOT_FOUND: "This congress could not be found.",
@@ -175,6 +183,14 @@ export const errorMessages: Record<AttendeeLocale, Record<string, string>> = {
     MEMBER_EXISTS: "This number is already a member of this organization.",
     MEMBER_REVOKED: "This member was removed; invite them again to restore access.",
     LAST_OWNER: "Add another owner before removing or demoting the last one.",
+    // Organizer credentials, events and booths (backend/app/auth.py, routes/events.py, booths.py, organizer_console.py)
+    API_KEY_MISSING: "Sign in to the organizer console to continue.",
+    API_KEY_INVALID: "The access key is invalid or your session has ended. Sign in again.",
+    EVENT_SLUG_TAKEN: "Another congress already uses this address (slug). Choose a different one.",
+    BOOTH_SLUG_TAKEN: "Another booth of this congress already uses this address (slug). Choose a different one.",
+    EVENT_TIMES_INVALID: "The congress must end after it starts.",
+    REGISTRATION_WINDOW_INVALID: "Registration must close after it opens.",
+    MEMBER_NOT_FOUND: "This member could not be found. Refresh the list.",
   },
 };
 

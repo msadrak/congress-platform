@@ -10,7 +10,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, HTTPException, Query, Request, Response, status
+from fastapi import APIRouter, Query, Request, Response, status
 from pydantic import BaseModel, ConfigDict, StringConstraints
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
@@ -338,7 +338,7 @@ async def _organizer_member(session: SessionDep, organizer_id: uuid.UUID, member
         .with_for_update()
     )
     if member is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Member not found")
+        raise ApiError(status.HTTP_404_NOT_FOUND, "MEMBER_NOT_FOUND", "Member not found")
     return member
 
 
@@ -377,7 +377,9 @@ async def invite_member(
     return await add_member(session, request, principal.organizer, body, principal.label)
 
 
-@router.patch("/members/{member_id}", responses=error_responses(status.HTTP_409_CONFLICT))
+@router.patch(
+    "/members/{member_id}", responses=error_responses(status.HTTP_404_NOT_FOUND, status.HTTP_409_CONFLICT)
+)
 async def update_member(
     member_id: uuid.UUID, body: MemberUpdate, principal: OrganizerPrincipalDep, request: Request, session: SessionDep
 ) -> MemberOut:
@@ -404,7 +406,9 @@ async def update_member(
     return _member_out(member, await _mobile(session, member))
 
 
-@router.post("/members/{member_id}/revoke", responses=error_responses(status.HTTP_409_CONFLICT))
+@router.post(
+    "/members/{member_id}/revoke", responses=error_responses(status.HTTP_404_NOT_FOUND, status.HTTP_409_CONFLICT)
+)
 async def revoke_member(
     member_id: uuid.UUID, principal: OrganizerPrincipalDep, request: Request, session: SessionDep
 ) -> MemberOut:

@@ -181,8 +181,8 @@ async def create_booth(
     try:
         await session.flush()
     except IntegrityError:
-        raise HTTPException(
-            status.HTTP_409_CONFLICT, "Booth slug already in use for this event"
+        raise ApiError(
+            status.HTTP_409_CONFLICT, "BOOTH_SLUG_TAKEN", "Booth slug already in use for this event"
         ) from None
 
     secret = generate_entity_qr_secret()
@@ -310,8 +310,8 @@ async def update_booth(
     try:
         await session.flush()
     except IntegrityError:
-        raise HTTPException(
-            status.HTTP_409_CONFLICT, "Booth slug already in use for this event"
+        raise ApiError(
+            status.HTTP_409_CONFLICT, "BOOTH_SLUG_TAKEN", "Booth slug already in use for this event"
         ) from None
     secret = await session.scalar(
         select(EntityQR.secret).where(
