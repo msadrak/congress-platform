@@ -71,7 +71,7 @@ def _prose() -> LocalizedProse:
 
 
 Accent = Literal["auto", "indigo", "magenta", "azure", "violet", "orchid"]
-HeroLayout = Literal["signature", "cover", "split"]
+HeroLayout = Literal["signature", "banner", "cover", "split"]
 HighlightIcon = Literal[
     "qr", "booth", "users", "wifi-off", "calendar", "clock", "pin", "ticket", "shield", "activity",
     "globe", "layers", "note", "chart", "device", "mail", "bookmark", "congress", "id-card",
@@ -89,7 +89,14 @@ class Branding(Strict):
     logo_asset_id: uuid.UUID | None = None
 
 
+# Where the subject of a cropped hero image sits, in percent of its width and height (CSS object-position).
+FocalPercent = Annotated[int, Field(ge=0, le=100)]
+
+
 class Hero(Strict):
+    # signature: generative artwork, no image. banner: the whole image at its own proportions above the
+    # title, never cropped. cover: the image fills the hero behind a scrim (cropped to the screen, around the
+    # focal point). split: a framed image beside the title (above it on small screens).
     layout: HeroLayout = "signature"
     eyebrow: LocalizedLabel = Field(default_factory=_label)
     # Empty title means the event name (an operational field, live immediately).
@@ -97,6 +104,10 @@ class Hero(Strict):
     subtitle: LocalizedLine = Field(default_factory=_line)
     cta_label: LocalizedLabel = Field(default_factory=_label)
     cover_asset_id: uuid.UUID | None = None
+    focal_x: FocalPercent = 50
+    focal_y: FocalPercent = 50
+    # Cover layout only: a separately composed (usually portrait) image for narrow screens.
+    mobile_cover_asset_id: uuid.UUID | None = None
 
 
 class Seo(Strict):
@@ -245,7 +256,12 @@ class PageDocument(Strict):
 
     def asset_ids(self) -> set[uuid.UUID]:
         """Every image the document references, wherever it is used."""
-        found = {self.branding.logo_asset_id, self.hero.cover_asset_id, self.seo.share_image_asset_id}
+        found = {
+            self.branding.logo_asset_id,
+            self.hero.cover_asset_id,
+            self.hero.mobile_cover_asset_id,
+            self.seo.share_image_asset_id,
+        }
         for section in self.sections:
             if isinstance(section, ImageTextSection):
                 found.add(section.image_asset_id)

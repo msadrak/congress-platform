@@ -112,6 +112,35 @@ export interface paths {
         get: operations["get_my_profile_api_auth_me_get"];
         put?: never;
         post?: never;
+        /**
+         * Delete My Account
+         * @description Delete the account: it is anonymised (see app/account.py) and this session stops working.
+         */
+        delete: operations["delete_my_account_api_auth_me_delete"];
+        options?: never;
+        head?: never;
+        /**
+         * Update My Profile
+         * @description Update the account; name, organization and title also replace the registration details of the
+         *     person's active tickets for congresses that have not ended (past registrations keep theirs).
+         */
+        patch: operations["update_my_profile_api_auth_me_patch"];
+        trace?: never;
+    };
+    "/api/auth/me/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export My Data
+         * @description A copy of everything the platform holds about the signed-in person.
+         */
+        get: operations["export_my_data_api_auth_me_export_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -283,6 +312,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/attendees/me/tickets/{ticket_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cancel My Ticket
+         * @description The attendee cancels their own registration; allowed until the congress starts.
+         */
+        post: operations["cancel_my_ticket_api_attendees_me_tickets__ticket_id__cancel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/attendees/me/tickets": {
         parameters: {
             query?: never;
@@ -290,10 +339,139 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get My Tickets */
+        /**
+         * Get My Tickets
+         * @description The attendee's passes. Cancelled registrations (whose passes no longer work) only on request.
+         */
         get: operations["get_my_tickets_api_attendees_me_tickets_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/events/{event_id}/participants": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Participants
+         * @description Newest registrations first. `total` counts every match, for pagination.
+         */
+        get: operations["list_participants_api_events__event_id__participants_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/events/{event_id}/participants/export-csv": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export Participants Csv
+         * @description Every registration matching the list filters, as CSV (UTF-8 with BOM for Excel; formula-safe cells).
+         */
+        get: operations["export_participants_csv_api_events__event_id__participants_export_csv_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/events/{event_id}/participants/{ticket_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Participant */
+        get: operations["get_participant_api_events__event_id__participants__ticket_id__get"];
+        put?: never;
+        post?: never;
+        /**
+         * Delete Participant
+         * @description Remove a registration made by mistake. A ticket that was scanned or captured as a lead is part of the
+         *     congress's history: cancel it instead (409).
+         */
+        delete: operations["delete_participant_api_events__event_id__participants__ticket_id__delete"];
+        options?: never;
+        head?: never;
+        /**
+         * Update Participant
+         * @description Correct the registration's name, organization or title for this congress only.
+         */
+        patch: operations["update_participant_api_events__event_id__participants__ticket_id__patch"];
+        trace?: never;
+    };
+    "/api/events/{event_id}/participants/{ticket_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cancel Participant
+         * @description Cancel the ticket: its place returns to the tier and its pass stops working.
+         */
+        post: operations["cancel_participant_api_events__event_id__participants__ticket_id__cancel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/events/{event_id}/participants/{ticket_id}/reissue": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reissue Participant
+         * @description Issue a new pass (new QR code); the old one stops working.
+         */
+        post: operations["reissue_participant_api_events__event_id__participants__ticket_id__reissue_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/events/{event_id}/participants/{ticket_id}/transfer": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Transfer Participant
+         * @description Give the ticket's place to another person (by mobile). Returns the new holder's registration.
+         */
+        post: operations["transfer_participant_api_events__event_id__participants__ticket_id__transfer_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -432,8 +610,32 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Ingest Scans Batch */
+        /**
+         * Ingest Scans Batch
+         * @description Queued scans (at most 200 per request, in order), idempotent by scan_id.
+         */
         post: operations["ingest_scans_batch_api_checkin_points__point_id__scans_batch_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/checkin-points/{point_id}/scan": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Record Single Scan
+         * @description One scan decided by the server while the scanner is online. Same rules, locks and idempotency
+         *     as the batch, so a scanner that timed out can queue the same scan_id and get this verdict back.
+         */
+        post: operations["record_single_scan_api_checkin_points__point_id__scan_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -641,8 +843,32 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Export Attendance Csv */
+        /**
+         * Export Attendance Csv
+         * @description Every scan matching the dashboard's filters, newest first.
+         */
         get: operations["export_attendance_csv_api_events__event_id__analytics_export_csv_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/events/{event_id}/analytics/registrations-csv": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export Registrations Csv
+         * @description One row per ticket in any status, oldest registration first. The tier filter picks the tickets; the
+         *     point and date filters scope the admission columns.
+         */
+        get: operations["export_registrations_csv_api_events__event_id__analytics_registrations_csv_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1580,6 +1806,25 @@ export interface components {
             /** Events */
             events: components["schemas"]["AccessEvent"][];
         };
+        /** AccountExport */
+        AccountExport: {
+            /**
+             * Exported At
+             * Format: date-time
+             */
+            exported_at: string;
+            profile: components["schemas"]["ExportProfile"];
+            /** Tickets */
+            tickets: components["schemas"]["ExportTicket"][];
+            /** Connections */
+            connections: components["schemas"]["ExportConnection"][];
+            /** Booth Bookmarks */
+            booth_bookmarks: components["schemas"]["ExportBookmark"][];
+            /** Exhibitor Leads */
+            exhibitor_leads: components["schemas"]["ExportLead"][];
+            /** Sms Messages */
+            sms_messages: components["schemas"]["ExportSms"][];
+        };
         /** AgendaItem */
         AgendaItem: {
             /**
@@ -1617,8 +1862,25 @@ export interface components {
              * Format: uuid
              */
             event_id: string;
-            /** Total Tickets */
+            /**
+             * Timezone
+             * @description IANA zone of every local date and time in this response.
+             */
+            timezone: string;
+            /**
+             * Days
+             * @description Local dates of the event and of any scans, for a day picker.
+             */
+            days: string[];
+            /**
+             * Total Tickets
+             * @description Active tickets (tier filter applies).
+             */
             total_tickets: number;
+            /** Tickets By Status */
+            tickets_by_status: components["schemas"]["TicketStatusCount"][];
+            /** Tier Registrations */
+            tier_registrations: components["schemas"]["TierRegistration"][];
             /** Unique Admitted */
             unique_admitted: number;
             /** Checkin Rate */
@@ -1629,6 +1891,11 @@ export interface components {
             total_admitted: number;
             /** Total Rejected */
             total_rejected: number;
+            /**
+             * Hourly Scans
+             * @description Scans of every listed point per local hour.
+             */
+            hourly_scans: components["schemas"]["HourlyScanCount"][];
             /** Catering Metrics */
             catering_metrics: components["schemas"]["CateringMetric"][];
             /** Gate Breakdown */
@@ -1964,8 +2231,26 @@ export interface components {
              * Format: date-time
              */
             generated_at: string;
-            /** Tickets */
+            /**
+             * Tickets
+             * @description Full manifest: every admissible ticket. Delta: tickets added or whose admission state at this point changed since the cursor (upsert by qr_hash).
+             */
             tickets: components["schemas"]["ManifestTicket"][];
+            /**
+             * Cursor
+             * @description Pass back as ?since= to receive only what changed after this manifest
+             */
+            cursor: string;
+            /**
+             * Is Delta
+             * @default false
+             */
+            is_delta: boolean;
+            /**
+             * Removed Qr Hashes
+             * @description Delta only: tickets that are no longer admissible (cancelled ticket or deactivated QR)
+             */
+            removed_qr_hashes?: string[];
         };
         /** CheckInPointCreate */
         CheckInPointCreate: {
@@ -2489,6 +2774,143 @@ export interface components {
             type: "exhibitors";
             lead?: components["schemas"]["LocalizedLine"];
         };
+        /** ExportBookmark */
+        ExportBookmark: {
+            /** Event Name */
+            event_name: string;
+            /** Booth Name */
+            booth_name: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
+        /** ExportConnection */
+        ExportConnection: {
+            /** Event Name */
+            event_name: string;
+            /** Full Name */
+            full_name: string;
+            /** Organization */
+            organization: string;
+            /** Title */
+            title: string;
+            /** Private Notes */
+            private_notes: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
+        /**
+         * ExportLead
+         * @description An exhibitor scanned this person's pass. The exhibitor's rating and notes are the exhibitor's data.
+         */
+        ExportLead: {
+            /** Event Name */
+            event_name: string;
+            /** Booth Name */
+            booth_name: string;
+            /**
+             * Captured At
+             * Format: date-time
+             */
+            captured_at: string;
+        };
+        /** ExportProfile */
+        ExportProfile: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Mobile */
+            mobile: string | null;
+            /** Full Name */
+            full_name: string;
+            /** Organization */
+            organization: string;
+            /** Title */
+            title: string;
+            /** Share Contact With Peers */
+            share_contact_with_peers: boolean;
+            /** Share Contact With Exhibitors */
+            share_contact_with_exhibitors: boolean;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
+        /** ExportScan */
+        ExportScan: {
+            /** Checkin Point */
+            checkin_point: string;
+            /** Status */
+            status: string;
+            /**
+             * Scanned At
+             * Format: date-time
+             */
+            scanned_at: string;
+        };
+        /** ExportSms */
+        ExportSms: {
+            /** Kind */
+            kind: string;
+            /** Status */
+            status: string;
+            /** Body */
+            body: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
+        /** ExportTicket */
+        ExportTicket: {
+            /**
+             * Ticket Id
+             * Format: uuid
+             */
+            ticket_id: string;
+            /** Event Name */
+            event_name: string;
+            /**
+             * Event Starts At
+             * Format: date-time
+             */
+            event_starts_at: string;
+            /**
+             * Event Ends At
+             * Format: date-time
+             */
+            event_ends_at: string;
+            /** Ticket Tier */
+            ticket_tier: string;
+            /** Status */
+            status: string;
+            /** Attendee Full Name */
+            attendee_full_name: string;
+            /** Attendee Organization */
+            attendee_organization: string;
+            /** Attendee Title */
+            attendee_title: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Cancelled At */
+            cancelled_at: string | null;
+            /** Cancelled Reason */
+            cancelled_reason: string | null;
+            /** Scans */
+            scans: components["schemas"]["ExportScan"][];
+        };
         /** FaqItem */
         FaqItem: {
             question?: components["schemas"]["LocalizedLine"];
@@ -2530,7 +2952,16 @@ export interface components {
             total_admitted: number;
             /** Total Rejected */
             total_rejected: number;
-            /** Current Occupancy */
+            /**
+             * Admissions
+             * @description Cumulative admissions at this point; exits are not tracked.
+             */
+            admissions: number;
+            /**
+             * Current Occupancy
+             * @deprecated
+             * @description Deprecated: the cumulative admissions (same as `admissions`), not who is inside now.
+             */
             current_occupancy: number;
             /** Hourly Scans */
             hourly_scans: components["schemas"]["HourlyScanCount"][];
@@ -2547,13 +2978,25 @@ export interface components {
              * @default signature
              * @enum {string}
              */
-            layout: "signature" | "cover" | "split";
+            layout: "signature" | "banner" | "cover" | "split";
             eyebrow?: components["schemas"]["LocalizedLabel"];
             title?: components["schemas"]["LocalizedLine"];
             subtitle?: components["schemas"]["LocalizedLine"];
             cta_label?: components["schemas"]["LocalizedLabel"];
             /** Cover Asset Id */
             cover_asset_id?: string | null;
+            /**
+             * Focal X
+             * @default 50
+             */
+            focal_x: number;
+            /**
+             * Focal Y
+             * @default 50
+             */
+            focal_y: number;
+            /** Mobile Cover Asset Id */
+            mobile_cover_asset_id?: string | null;
         };
         /** HighlightItem */
         HighlightItem: {
@@ -2591,12 +3034,33 @@ export interface components {
             /** Items */
             items?: components["schemas"]["HighlightItem"][];
         };
-        /** HourlyScanCount */
+        /**
+         * HourlyScanCount
+         * @description Scans in one hour of the event's wall clock (`starts_at` to one hour later).
+         */
         HourlyScanCount: {
-            /** Hour */
+            /**
+             * Day
+             * Format: date
+             * @description Local date in the event's timezone.
+             */
+            day: string;
+            /**
+             * Hour
+             * @description Local hour, "HH:00".
+             */
             hour: string;
+            /**
+             * Starts At
+             * @description Start of the hour as an ISO 8601 local time with the event's UTC offset.
+             */
+            starts_at: string;
             /** Count */
             count: number;
+            /** Admitted */
+            admitted: number;
+            /** Rejected */
+            rejected: number;
         };
         /** ImageTextSection */
         ImageTextSection: {
@@ -2820,8 +3284,11 @@ export interface components {
         };
         /** ManifestTicket */
         ManifestTicket: {
-            /** Qr Secret */
-            qr_secret: string;
+            /**
+             * Qr Hash
+             * @description sha256 hex of '<event_id>:<normalized QR secret>'; the raw secret is never sent
+             */
+            qr_hash: string;
             /**
              * Ticket Id
              * Format: uuid
@@ -3083,6 +3550,190 @@ export interface components {
             /** Has Unpublished Changes */
             has_unpublished_changes: boolean;
         };
+        /** ParticipantCancel */
+        ParticipantCancel: {
+            /**
+             * Reason
+             * @default
+             */
+            reason: string;
+            /**
+             * Notify
+             * @default true
+             */
+            notify: boolean;
+        };
+        /** ParticipantDetail */
+        ParticipantDetail: {
+            /**
+             * Ticket Id
+             * Format: uuid
+             */
+            ticket_id: string;
+            /**
+             * User Id
+             * Format: uuid
+             */
+            user_id: string;
+            /** Attendee Full Name */
+            attendee_full_name: string;
+            /** Attendee Organization */
+            attendee_organization: string;
+            /** Attendee Title */
+            attendee_title: string;
+            /** Mobile */
+            mobile: string | null;
+            /**
+             * Ticket Tier Id
+             * Format: uuid
+             */
+            ticket_tier_id: string;
+            /** Ticket Tier Name */
+            ticket_tier_name: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "active" | "cancelled";
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Cancelled At */
+            cancelled_at: string | null;
+            /** Cancelled Reason */
+            cancelled_reason: string | null;
+            /** Cancelled By */
+            cancelled_by: string | null;
+            /** Reissued At */
+            reissued_at: string | null;
+            /** Issued By */
+            issued_by: string | null;
+            /** Checkin Count */
+            checkin_count: number;
+            /** Lead Count */
+            lead_count: number;
+            /** Can Delete */
+            can_delete: boolean;
+            /** Account Deleted */
+            account_deleted: boolean;
+            /** Qr Secret */
+            qr_secret: string | null;
+            /** Scan History */
+            scan_history: components["schemas"]["ScanOut"][];
+        };
+        /** ParticipantOut */
+        ParticipantOut: {
+            /**
+             * Ticket Id
+             * Format: uuid
+             */
+            ticket_id: string;
+            /**
+             * User Id
+             * Format: uuid
+             */
+            user_id: string;
+            /** Attendee Full Name */
+            attendee_full_name: string;
+            /** Attendee Organization */
+            attendee_organization: string;
+            /** Attendee Title */
+            attendee_title: string;
+            /** Mobile */
+            mobile: string | null;
+            /**
+             * Ticket Tier Id
+             * Format: uuid
+             */
+            ticket_tier_id: string;
+            /** Ticket Tier Name */
+            ticket_tier_name: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "active" | "cancelled";
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Cancelled At */
+            cancelled_at: string | null;
+            /** Cancelled Reason */
+            cancelled_reason: string | null;
+            /** Cancelled By */
+            cancelled_by: string | null;
+            /** Reissued At */
+            reissued_at: string | null;
+            /** Issued By */
+            issued_by: string | null;
+            /** Checkin Count */
+            checkin_count: number;
+            /** Lead Count */
+            lead_count: number;
+            /** Can Delete */
+            can_delete: boolean;
+            /** Account Deleted */
+            account_deleted: boolean;
+        };
+        /** ParticipantPage */
+        ParticipantPage: {
+            /** Items */
+            items: components["schemas"]["ParticipantOut"][];
+            /** Total */
+            total: number;
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+        };
+        /** ParticipantReissue */
+        ParticipantReissue: {
+            /**
+             * Notify
+             * @default true
+             */
+            notify: boolean;
+        };
+        /**
+         * ParticipantTransfer
+         * @description The new holder, by mobile number. Name details are required when the number has no account yet.
+         */
+        ParticipantTransfer: {
+            /** Mobile */
+            mobile: string;
+            /** Full Name */
+            full_name?: string | null;
+            /** Organization */
+            organization?: string | null;
+            /** Title */
+            title?: string | null;
+        };
+        /**
+         * ParticipantUpdate
+         * @description Registration details for this congress only; the person's account is left unchanged.
+         */
+        ParticipantUpdate: {
+            /** Attendee Full Name */
+            attendee_full_name?: string | null;
+            /** Attendee Organization */
+            attendee_organization?: string | null;
+            /** Attendee Title */
+            attendee_title?: string | null;
+        };
         /** PassResolveRequest */
         PassResolveRequest: {
             /** Code */
@@ -3149,7 +3800,7 @@ export interface components {
              * @default otp
              * @enum {string}
              */
-            kind: "otp" | "ticket_confirmation";
+            kind: "otp" | "ticket_confirmation" | "ticket_cancelled" | "ticket_reissued";
             /** Body */
             body?: string | null;
         };
@@ -3173,6 +3824,20 @@ export interface components {
         PrivacyPreferenceUpdate: {
             /** Share Contact With Peers */
             share_contact_with_peers: boolean;
+        };
+        /**
+         * ProfileUpdate
+         * @description The account's own details. Name changes also apply to registrations for congresses that have not ended.
+         */
+        ProfileUpdate: {
+            /** Full Name */
+            full_name?: string | null;
+            /** Organization */
+            organization?: string | null;
+            /** Title */
+            title?: string | null;
+            /** Share Contact With Exhibitors */
+            share_contact_with_exhibitors?: boolean | null;
         };
         /** PublicBoothOut */
         PublicBoothOut: {
@@ -3366,6 +4031,20 @@ export interface components {
              */
             scanned_at: string;
         };
+        /** ScanOut */
+        ScanOut: {
+            /** Checkin Point Name */
+            checkin_point_name: string;
+            /** Status */
+            status: string;
+            /** Rejection Reason */
+            rejection_reason: string | null;
+            /**
+             * Scanned At
+             * Format: date-time
+             */
+            scanned_at: string;
+        };
         /** ScanResult */
         ScanResult: {
             /**
@@ -3383,6 +4062,11 @@ export interface components {
             attendee_name?: string | null;
             /** Ticket Tier Name */
             ticket_tier_name?: string | null;
+            /**
+             * Clock Skew
+             * @default false
+             */
+            clock_skew: boolean;
         };
         /** ScanSubmission */
         ScanSubmission: {
@@ -3391,13 +4075,24 @@ export interface components {
              * Format: uuid
              */
             scan_id: string;
-            /** Qr Secret */
+            /**
+             * Qr Secret
+             * @description The raw scanned code
+             */
             qr_secret: string;
             /**
              * Scanned At
              * Format: date-time
+             * @description Device time of the scan, with a UTC offset. A time later than the server's clock plus 5 minutes is not trusted: the scan is recorded at the receive time with clock_skew set.
              */
             scanned_at: string;
+            /**
+             * Client Verdict
+             * @description What the scanner decided on its own (offline or after a server timeout). REJECTED is final: the server records a rejection and never admits. Omitted by server-decided scans and by older scanners, whose scans the server evaluates.
+             */
+            client_verdict?: ("ADMITTED" | "PROVISIONAL" | "REJECTED") | null;
+            /** Client Rejection Reason */
+            client_rejection_reason?: string | null;
         };
         /** ScannerDeviceCreate */
         ScannerDeviceCreate: {
@@ -3628,7 +4323,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "otp" | "ticket_confirmation";
+            kind: "otp" | "ticket_confirmation" | "ticket_cancelled" | "ticket_reissued";
             /** Body */
             body: string;
             /** Is Custom */
@@ -3669,9 +4364,9 @@ export interface components {
             /**
              * Kind
              * @default ticket_confirmation
-             * @constant
+             * @enum {string}
              */
-            kind: "ticket_confirmation";
+            kind: "ticket_confirmation" | "ticket_cancelled" | "ticket_reissued";
             /** Body */
             body?: string | null;
         };
@@ -3744,6 +4439,13 @@ export interface components {
              */
             ticket_tier_id: string;
         };
+        /** TicketStatusCount */
+        TicketStatusCount: {
+            /** Status */
+            status: string;
+            /** Count */
+            count: number;
+        };
         /** TicketTierCreate */
         TicketTierCreate: {
             /** Name */
@@ -3793,6 +4495,28 @@ export interface components {
             /** Is Open */
             is_open?: boolean | null;
         };
+        /** TierRegistration */
+        TierRegistration: {
+            /**
+             * Tier Id
+             * Format: uuid
+             */
+            tier_id: string;
+            /** Tier Name */
+            tier_name: string;
+            /** Quota */
+            quota: number;
+            /**
+             * Active
+             * @description Tickets with status active.
+             */
+            active: number;
+            /**
+             * Total
+             * @description Tickets in any status (active, cancelled, ...).
+             */
+            total: number;
+        };
         /** UserOut */
         UserOut: {
             /**
@@ -3813,6 +4537,11 @@ export interface components {
              * @default false
              */
             share_contact_with_peers: boolean;
+            /**
+             * Share Contact With Exhibitors
+             * @default false
+             */
+            share_contact_with_exhibitors: boolean;
         };
         /** ValidationError */
         ValidationError: {
@@ -4051,6 +4780,77 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["UserOut"];
+                };
+            };
+        };
+    };
+    delete_my_account_api_auth_me_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    update_my_profile_api_auth_me_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProfileUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    export_my_data_api_auth_me_export_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountExport"];
                 };
             };
         };
@@ -4499,9 +5299,60 @@ export interface operations {
             };
         };
     };
-    get_my_tickets_api_attendees_me_tickets_get: {
+    cancel_my_ticket_api_attendees_me_tickets__ticket_id__cancel_post: {
         parameters: {
             query?: never;
+            header?: never;
+            path: {
+                ticket_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AttendeeTicketDetail"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_my_tickets_api_attendees_me_tickets_get: {
+        parameters: {
+            query?: {
+                include_cancelled?: boolean;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -4515,6 +5366,383 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AttendeeTicketDetail"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_participants_api_events__event_id__participants_get: {
+        parameters: {
+            query?: {
+                q?: string;
+                tier_id?: string | null;
+                status?: ("active" | "cancelled") | null;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path: {
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ParticipantPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    export_participants_csv_api_events__event_id__participants_export_csv_get: {
+        parameters: {
+            query?: {
+                q?: string;
+                tier_id?: string | null;
+                status?: ("active" | "cancelled") | null;
+            };
+            header?: never;
+            path: {
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_participant_api_events__event_id__participants__ticket_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ticket_id: string;
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ParticipantDetail"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_participant_api_events__event_id__participants__ticket_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ticket_id: string;
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_participant_api_events__event_id__participants__ticket_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ticket_id: string;
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ParticipantUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ParticipantDetail"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    cancel_participant_api_events__event_id__participants__ticket_id__cancel_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ticket_id: string;
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ParticipantCancel"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ParticipantDetail"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reissue_participant_api_events__event_id__participants__ticket_id__reissue_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ticket_id: string;
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ParticipantReissue"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ParticipantDetail"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    transfer_participant_api_events__event_id__participants__ticket_id__transfer_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ticket_id: string;
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ParticipantTransfer"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ParticipantDetail"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -4752,7 +5980,10 @@ export interface operations {
     };
     get_checkin_manifest_api_checkin_points__point_id__manifest_get: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Cursor of a previous manifest: return only what changed after it */
+                since?: string | null;
+            };
             header?: never;
             path: {
                 point_id: string;
@@ -4803,6 +6034,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["BatchScanResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    record_single_scan_api_checkin_points__point_id__scan_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                point_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ScanSubmission"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScanResult"];
                 };
             };
             /** @description Validation Error */
@@ -5181,8 +6447,12 @@ export interface operations {
             query?: {
                 point_id?: string | null;
                 ticket_tier_id?: string | null;
+                /** @description Inclusive; naive means the event's local time. */
                 from_time?: string | null;
+                /** @description Inclusive; naive means the event's local time. */
                 to_time?: string | null;
+                /** @description One local day of the event's clock. */
+                day?: string | null;
             };
             header?: never;
             path: {
@@ -5201,6 +6471,15 @@ export interface operations {
                     "application/json": components["schemas"]["AttendanceAnalyticsResponse"];
                 };
             };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description Validation Error */
             422: {
                 headers: {
@@ -5214,7 +6493,16 @@ export interface operations {
     };
     export_attendance_csv_api_events__event_id__analytics_export_csv_get: {
         parameters: {
-            query?: never;
+            query?: {
+                point_id?: string | null;
+                ticket_tier_id?: string | null;
+                /** @description Inclusive; naive means the event's local time. */
+                from_time?: string | null;
+                /** @description Inclusive; naive means the event's local time. */
+                to_time?: string | null;
+                /** @description One local day of the event's clock. */
+                day?: string | null;
+            };
             header?: never;
             path: {
                 event_id: string;
@@ -5228,8 +6516,62 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
+                content?: never;
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    export_registrations_csv_api_events__event_id__analytics_registrations_csv_get: {
+        parameters: {
+            query?: {
+                point_id?: string | null;
+                ticket_tier_id?: string | null;
+                /** @description Inclusive; naive means the event's local time. */
+                from_time?: string | null;
+                /** @description Inclusive; naive means the event's local time. */
+                to_time?: string | null;
+                /** @description One local day of the event's clock. */
+                day?: string | null;
+            };
+            header?: never;
+            path: {
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
             /** @description Validation Error */
@@ -6792,7 +8134,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                kind: "ticket_confirmation";
+                kind: "ticket_confirmation" | "ticket_cancelled" | "ticket_reissued";
                 event_id: string;
             };
             cookie?: never;
@@ -6828,7 +8170,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                kind: "ticket_confirmation";
+                kind: "ticket_confirmation" | "ticket_cancelled" | "ticket_reissued";
                 event_id: string;
             };
             cookie?: never;
@@ -6961,7 +8303,7 @@ export interface operations {
                 "x-admin-token"?: string | null;
             };
             path: {
-                kind: "otp" | "ticket_confirmation";
+                kind: "otp" | "ticket_confirmation" | "ticket_cancelled" | "ticket_reissued";
             };
             cookie?: never;
         };
@@ -6998,7 +8340,7 @@ export interface operations {
                 "x-admin-token"?: string | null;
             };
             path: {
-                kind: "otp" | "ticket_confirmation";
+                kind: "otp" | "ticket_confirmation" | "ticket_cancelled" | "ticket_reissued";
             };
             cookie?: never;
         };

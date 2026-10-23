@@ -1,5 +1,13 @@
 # 01 — Authentication Architecture
 
+> **Historical design (planning, October 2026). Superseded by ADR 0012 for sign-in and ADR 0015 for the SMS link pass.**
+>
+> Since then, **e-mail and passwords were removed**: attendees, booth staff and desk operators sign in with an Iranian
+> mobile number and a one-time SMS code (ADR 0012, migration `0015`); organizers keep their API key and scanners their
+> device tokens. Read e-mail fields, password checks, "wrong password" errors and operator password lifecycles below as
+> the state of that date. Current sources of truth: `docs/adr/` (with their status sections), `GLOSSARY.md` and
+> `docs/pilot/MASTER-PILOT-READINESS.md`.
+
 **Status:** RECOMMENDED design (planning only). Evidence verified against `backend/app/security.py`, `backend/app/auth.py`, `backend/app/routes/auth.py`, `backend/app/routes/desk.py`, `backend/app/routes/checkin.py`, `web/src/api/client.ts`.
 
 Legend: **[CURRENT]** verified in source · **[DESIGN]** recommended design · **[REQ]** client requirement.

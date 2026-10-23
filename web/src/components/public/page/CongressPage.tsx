@@ -1,5 +1,5 @@
 import { Fragment, type ReactNode } from "react";
-import type { PublicBoothSummary } from "../../../api/client";
+import type { PublicBoothSummary, PublicSession, PublicVenuePlace } from "../../../api/client";
 import {
   isSectionVisible,
   localized,
@@ -15,6 +15,9 @@ import { BoothIndex } from "../BoothIndex";
 import { CongressHero, type HeroEvent } from "../CongressHero";
 import { proseDir, publicCopy, type PublicLocale } from "../copy";
 import { EditorialSection } from "../EditorialSection";
+import { EventActions } from "../EventActions";
+import { PublicProgram } from "../PublicProgram";
+import { PublicVenue } from "../PublicVenue";
 import {
   AgendaBlock,
   CtaBlock,
@@ -28,7 +31,11 @@ import {
 import { RichText } from "./RichText";
 
 export interface CongressPageEvent extends HeroEvent {
+  id: string;
   description: string;
+  /** Program and venue directory (optional: older payloads and fixtures have neither). */
+  sessions?: PublicSession[];
+  venue?: PublicVenuePlace[];
 }
 
 interface CongressPageProps {
@@ -76,6 +83,26 @@ export function CongressPage({ event, doc, images, locale, passes, booths, mode 
   const exhibitionVisible = isSectionVisible(doc, "exhibitors");
   const exhibitorsTitle = doc.sections.find((section) => section.type === "exhibitors")?.title;
   let index = 0;
+  // Program and venue (operational data) sit right before the passes, or at the end without them.
+  const passesSectionId = doc.sections.find((section) => section.visible && section.type === "passes")?.id;
+  const programAndVenue = (): ReactNode => {
+    const sessions = event.sessions ?? [];
+    const venue = event.venue ?? [];
+    return (
+      <>
+        {sessions.length > 0 && (
+          <EditorialSection id="program" headingId="program-heading" index={++index} eyebrow={c.sectionProgramEyebrow} title={c.sectionProgram} lead={c.programLead} locale={locale}>
+            <PublicProgram sessions={sessions} locale={locale} hallIds={new Set(venue.map((p) => p.id))} />
+          </EditorialSection>
+        )}
+        {venue.length > 0 && (
+          <EditorialSection id="venue" headingId="venue-heading" index={++index} eyebrow={c.sectionVenueEyebrow} title={c.sectionVenue} locale={locale}>
+            <PublicVenue address={event.location} venue={venue} sessions={sessions} locale={locale} />
+          </EditorialSection>
+        )}
+      </>
+    );
+  };
 
   const text = (value: PageSection["title"], fallback: string): ReactNode => {
     const own = localized(value, locale);
@@ -245,12 +272,17 @@ export function CongressPage({ event, doc, images, locale, passes, booths, mode 
         exhibitionLabel={exhibitionVisible ? text(exhibitorsTitle, c.ctaExhibition) : null}
       />
       <div className="pub-sheet">
+        <EventActions event={event} locale={locale} />
         <div className="mx-auto max-w-7xl space-y-20 px-4 pt-14 pb-20 sm:space-y-28 sm:px-6 sm:pt-20 sm:pb-28 lg:px-10">
           {doc.sections
             .filter((section) => section.visible)
             .map((section) => (
-              <Fragment key={section.id}>{render(section)}</Fragment>
+              <Fragment key={section.id}>
+                {section.id === passesSectionId && programAndVenue()}
+                {render(section)}
+              </Fragment>
             ))}
+          {!passesSectionId && programAndVenue()}
         </div>
       </div>
     </>

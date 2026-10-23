@@ -16,6 +16,7 @@ import { translations, type AttendeeLocale } from "../lib/i18n";
 import { eventSectionNumber, eventWorkspacePath } from "../lib/organizerWorkspace";
 import { normalizeDocument } from "../lib/pageDocument";
 import { useOrganizerImages } from "../lib/pageMedia";
+import { usePageTitle } from "../hooks/usePageTitle";
 import type { OrganizerOutletContext } from "./OrganizerLayout";
 import "../styles/attendee.css";
 
@@ -118,6 +119,7 @@ export function OrganizerPanelFrame() {
   }, [view, anchor]);
 
   const preview = load.status === "ready" ? load.preview : null;
+  usePageTitle(locale === "fa" ? "پیش‌نمایش پنل شرکت‌کننده" : "Attendee panel preview", preview?.name);
   const doc = useMemo(() => (preview ? normalizeDocument(preview.page.document) : null), [preview]);
   const images = useOrganizerImages(apiKey, eventId, preview?.page.assets ?? []);
   const isRtl = locale === "fa";
@@ -323,7 +325,7 @@ export default function OrganizerPanel() {
 }
 
 function PanelControl({ eventId }: { eventId: string }) {
-  const { apiKey, onKeyRejected, reportEvent, locale, isRtl } = useOutletContext<OrganizerOutletContext>();
+  const { apiKey, reportEvent, locale, isRtl } = useOutletContext<OrganizerOutletContext>();
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const [preview, setPreview] = useState<PagePreview | null>(null);
   const [pageState, setPageState] = useState<PageStateOut | null>(null);
@@ -333,6 +335,7 @@ function PanelControl({ eventId }: { eventId: string }) {
   const [refreshTick, setRefreshTick] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
 
+  // A 401 reaches the organizer layout's key gate through the API client (registerUnauthorizedHandler).
   const client = useMemo(() => (apiKey ? createApiClient({ kind: "organizer", token: apiKey }) : null), [apiKey]);
 
   const load = useCallback(async () => {
@@ -341,8 +344,6 @@ function PanelControl({ eventId }: { eventId: string }) {
     try {
       const [pv, pg] = await Promise.all([client.GET("/api/events/{event_id}/page/preview", path), client.GET("/api/events/{event_id}/page", path)]);
       if (!pv.data || !pg.data) {
-        const status = [pv, pg].find((r) => !r.data)?.response.status;
-        if (status === 401 && apiKey) onKeyRejected(apiKey);
         // A failed refresh keeps what is on screen.
         setStatus((prev) => (prev === "ready" ? prev : "error"));
         return;
@@ -353,7 +354,7 @@ function PanelControl({ eventId }: { eventId: string }) {
     } catch {
       setStatus((prev) => (prev === "ready" ? prev : "error"));
     }
-  }, [client, eventId, apiKey, onKeyRejected]);
+  }, [client, eventId]);
 
   useEffect(() => {
     // oxlint-disable-next-line react/set-state-in-effect -- load's state updates happen after the preview and page fetches resolve; the effect syncs this event's server state.

@@ -7,6 +7,6 @@ After=docker.service
 Type=oneshot
 User=congress
 WorkingDirectory=/opt/congress-platform
-# Off-host credentials (BACKUP_S3_*), readable by root/congress only.
+# Off-host, encryption and alert settings (BACKUP_*, ALERT_*), readable by root/congress only.
 EnvironmentFile=-/etc/congress/backup.env
 ExecStart=/usr/bin/node scripts/staging/stack.mjs scheduled-backup

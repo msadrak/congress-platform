@@ -1,7 +1,7 @@
 """data integrity: CHECK constraints, same-event foreign keys, delete rules, indexes, walk-in idempotency keys
 
 Revision ID: 0021
-Revises: 0019
+Revises: 0023
 Create Date: 2026-10-23
 
 What the application already enforced in code is now enforced by PostgreSQL as well:
@@ -25,6 +25,9 @@ What the application already enforced in code is now enforced by PostgreSQL as w
 Existing rows are checked before any constraint is added. Nothing is "repaired" silently: if a row would
 violate a new rule the upgrade stops with a message naming the table and up to five offending ids, and the
 data has to be corrected by hand (the right fix depends on what the organizer meant).
+
+Not backward-compatible (a contract step, so no `backward_compatible` flag): the previous release inserts leads
+without `event_id`, which is now NOT NULL, so it cannot run on this schema.
 """
 from typing import Sequence, Union
 
@@ -32,7 +35,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "0021"
-down_revision: Union[str, Sequence[str], None] = "0019"
+down_revision: Union[str, Sequence[str], None] = "0023"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

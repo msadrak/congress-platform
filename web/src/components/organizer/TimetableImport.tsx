@@ -1,6 +1,6 @@
 import React, { useId, useMemo, useState } from "react";
 import type { EventSessionImport, EventSessionImportOut, VenuePlaceOut } from "../../api/client";
-import { formatLocalizedNumber } from "../../lib/i18n";
+import { codeFontClass, formatLocalizedNumber } from "../../lib/i18n";
 import {
   MAX_SESSION_IMPORT_ROWS,
   parseSessionCsv,
@@ -247,7 +247,7 @@ export function TimetableImport({ existingCount, halls, templateDay, fileBase, l
               <tbody className="divide-y divide-border-subtle">
                 {rows.map((r) => (
                   <tr key={r.row} className={r.problems.length ? "bg-status-danger-bg/60" : undefined}>
-                    <td className="px-3 py-2 align-top font-mono text-xs text-text-muted">
+                    <td className={`px-3 py-2 align-top ${codeFontClass(fmt(r.row))} text-xs text-text-muted tabular`}>
                       <span title={isRtl ? `خط ${r.line} فایل` : `Line ${r.line} of the file`}>{fmt(r.row)}</span>
                     </td>
                     <td className="max-w-[16rem] px-3 py-2 align-top font-semibold text-text-primary">

@@ -13,7 +13,15 @@ export const EVENT_SETUP_SECTIONS = [
 ] as const;
 
 export type EventSetupSection = (typeof EVENT_SETUP_SECTIONS)[number]["key"];
-export type EventWorkspaceSection = EventSetupSection | "analytics" | "desk";
+/** Day-to-day sections after the setup ones, in navigation order. */
+export const EVENT_OPERATION_SECTIONS = ["participants", "analytics", "desk"] as const;
+export type EventOperationSection = (typeof EVENT_OPERATION_SECTIONS)[number];
+export type EventWorkspaceSection = EventSetupSection | EventOperationSection;
+
+/** Navigation index of an operational section: it continues the setup sections' numbering. */
+export function eventOperationNumber(key: EventOperationSection): number {
+  return EVENT_SETUP_SECTIONS.length + 1 + EVENT_OPERATION_SECTIONS.indexOf(key);
+}
 
 /** 1-based position of a setup section in the workspace navigation: the "01", "02" … index its header shows. */
 export function eventSectionNumber(key: EventSetupSection): number {
@@ -30,7 +38,8 @@ export function eventSectionFromPath(pathname: string): EventWorkspaceSection | 
   if (!match) return null;
   const segment = match[1];
   if (!segment) return "overview";
-  if (segment === "analytics" || segment === "desk") return segment;
+  const operation = EVENT_OPERATION_SECTIONS.find((s) => s === segment);
+  if (operation) return operation;
   const setup = EVENT_SETUP_SECTIONS.find((s) => s.path === `/${segment}`);
   return setup ? setup.key : null;
 }

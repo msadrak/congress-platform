@@ -7,9 +7,10 @@
  *
  * Policy:
  * - Maximum offline operating window: 24 hours since the last successful
- *   server contact (manifest refresh OR batch sync), whichever is later.
+ *   manifest fetch (full or delta). A batch sync proves the server is reachable
+ *   but says nothing about new or cancelled tickets, so it does not extend it.
  * - Validation inputs: persisted credential metadata (token issued/expiry)
- *   and manifest freshness (`cached_at` from IndexedDB).
+ *   and manifest freshness (time of the last successful manifest fetch).
  * - Enforcement: `evaluateOfflineAuthorization` returns a verdict the UI
  *   consumes — `ok: true` admits locally, `ok: false` blocks new admissions
  *   while preserving every outstanding record for controlled recovery.
@@ -28,7 +29,7 @@ export type OfflineAuthReason =
 export interface OfflineAuthVerdict {
   ok: boolean;
   reason: OfflineAuthReason;
-  /** Milliseconds since last server contact, or null when no baseline exists. */
+  /** Milliseconds since the last manifest fetch, or null when no baseline exists. */
   offlineForMs: number | null;
   /** Remaining window in ms before expiry (0 when expired). */
   remainingMs: number;
@@ -44,17 +45,15 @@ function parseTime(value: string | null | undefined): number | null {
  * Evaluate whether local admissions are permitted right now.
  *
  * @param nowMs - current time in epoch ms (injectable for tests).
- * @param opts - token expiry, last server contact, and manifest age.
+ * @param opts - token expiry and the time of the last manifest fetch.
  */
 export function evaluateOfflineAuthorization(
   nowMs: number,
   opts: {
     /** ISO timestamp of scanner JWT `exp` claim, if known. */
     tokenExpiresAt?: string | null;
-    /** ISO timestamp of last successful server contact (manifest or sync). */
-    lastServerContactAt?: string | null;
-    /** ISO timestamp of cached manifest (`cached_at`), if known. */
-    manifestCachedAt?: string | null;
+    /** ISO timestamp of the last successful manifest fetch, if known. */
+    manifestFetchedAt?: string | null;
     /** Whether the browser currently reports online (never an authorization bypass). */
     isOnline?: boolean;
   } = {}
@@ -68,16 +67,8 @@ export function evaluateOfflineAuthorization(
     return { ok: false, reason: "TOKEN_EXPIRED", offlineForMs: null, remainingMs: 0 };
   }
   // Browser online state is only a display hint. Authorization always requires
-  // a recent successful server contact or a fresh cached manifest.
-
-  // The window baseline is the freshest proof of server contact.
-  const contactMs = parseTime(opts.lastServerContactAt);
-  const manifestMs = parseTime(opts.manifestCachedAt);
-  const baselineMs =
-    contactMs !== null && manifestMs !== null
-      ? Math.max(contactMs, manifestMs)
-      : contactMs ?? manifestMs;
-
+  // a manifest fetched within the window.
+  const baselineMs = parseTime(opts.manifestFetchedAt);
   if (baselineMs === null) {
     return { ok: false, reason: "NO_BASELINE", offlineForMs: null, remainingMs: 0 };
   }
@@ -92,6 +83,23 @@ export function evaluateOfflineAuthorization(
     offlineForMs,
     remainingMs: MAX_OFFLINE_WINDOW_MS - offlineForMs,
   };
+}
+
+/** How recently a request must have succeeded for the scanner to ask the server first. */
+export const SERVER_CONTACT_FRESH_MS = 45_000;
+
+/**
+ * Whether scans go to the server (online) or are decided locally (offline). `navigator.onLine` alone
+ * says nothing about a captive portal or a dead backend: the scanner is online only when its latest
+ * request succeeded, recently (the 30 s manifest poll keeps that fresh).
+ */
+export function isServerReachable(
+  nowMs: number,
+  opts: { browserOnline: boolean; lastSuccessAt: number | null; lastFailureAt: number | null }
+): boolean {
+  if (!opts.browserOnline || opts.lastSuccessAt === null) return false;
+  if (opts.lastFailureAt !== null && opts.lastFailureAt >= opts.lastSuccessAt) return false;
+  return nowMs - opts.lastSuccessAt < SERVER_CONTACT_FRESH_MS;
 }
 
 /**

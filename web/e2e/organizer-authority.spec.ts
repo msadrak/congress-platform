@@ -10,7 +10,7 @@ const scannerToken = 'synthetic-t05-scanner';
 
 const eventNames: Record<string, string> = { 'event-a': 'Event A', 'event-b': 'Event B', 'event-new': 'Created Event' };
 const eventOf = (id: string, name = eventNames[id]) => ({ id, name, slug: id, starts_at: '2027-04-10T08:00:00Z', ends_at: '2027-04-10T18:00:00Z', location: 'Fixture Hall', description: 'Synthetic fixture' });
-const analytics = { event_id: 'event-a', total_tickets: 10, unique_admitted: 5, checkin_rate: 0.5, total_scans: 7, total_admitted: 5, total_rejected: 2, catering_metrics: [], gate_breakdown: [] };
+const analytics = { event_id: 'event-a', timezone: 'Asia/Tehran', days: ['2027-04-10'], total_tickets: 10, tickets_by_status: [{ status: 'active', count: 10 }], tier_registrations: [], unique_admitted: 5, checkin_rate: 0.5, total_scans: 7, total_admitted: 5, total_rejected: 2, hourly_scans: [], catering_metrics: [], gate_breakdown: [] };
 
 type Recorded = { method: string; path: string; auth: string | undefined };
 type Options = { listStatus?: number; createStatus?: number; foreignStatus?: number; tierStatus?: number };

@@ -73,15 +73,10 @@ function PageStudio({ eventId }: { eventId: string }) {
   const [libraryOpen, setLibraryOpen] = useState(false);
   const pickResolver = useRef<((id: string | null) => void) | null>(null);
 
+  // `client` reports a 401 to the organizer layout's key gate itself (registerUnauthorizedHandler);
+  // only the raw-fetch image upload below reports its own.
   const client = useMemo(() => (apiKey ? createApiClient({ kind: "organizer", token: apiKey }) : null), [apiKey]);
   const path = { params: { path: { event_id: eventId } } };
-
-  const reject = useCallback(
-    (status: number) => {
-      if (status === 401 && apiKey) onKeyRejected(apiKey);
-    },
-    [apiKey, onKeyRejected],
-  );
 
   const accept = (next: PageStateOut) => {
     const normalized = normalizeDocument(next.draft);
@@ -100,7 +95,6 @@ function PageStudio({ eventId }: { eventId: string }) {
         client.GET("/api/events/{event_id}/media", path),
       ]);
       if (!ev.data || !pg.data || !media.data) {
-        reject([ev, pg, media].find((r) => !r.data)?.response.status ?? 0);
         setLoad("error");
         return;
       }
@@ -118,7 +112,7 @@ function PageStudio({ eventId }: { eventId: string }) {
     }
     // `path` is derived from eventId, which is fixed for this mount.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [client, reject, reportEvent, eventId]);
+  }, [client, reportEvent, eventId]);
 
   useEffect(() => {
     void loadAll();
@@ -143,10 +137,7 @@ function PageStudio({ eventId }: { eventId: string }) {
 
   const failure = (status: number, body: unknown) => {
     if (status === 409) setConflict(true);
-    else {
-      reject(status);
-      setNotice({ tone: "error", text: formatApiError(body) });
-    }
+    else setNotice({ tone: "error", text: formatApiError(body) });
   };
 
   /** Saves the draft; returns the new revision, or null when it failed. */
@@ -235,7 +226,7 @@ function PageStudio({ eventId }: { eventId: string }) {
     if (!apiKey) return copy.loadFailed;
     const result = await uploadPageImage(apiKey, eventId, file);
     if ("message" in result) {
-      reject(result.status);
+      if (result.status === 401) onKeyRejected(apiKey);
       if (result.status === 415) return copy.media.typeError;
       if (result.status === 413) return copy.media.sizeError;
       return result.message || copy.media.uploadFailed;
@@ -250,7 +241,6 @@ function PageStudio({ eventId }: { eventId: string }) {
       params: { path: { event_id: eventId, asset_id: id } },
     });
     if (!response.ok) {
-      reject(response.status);
       return formatApiError(error) || copy.media.deleteFailed;
     }
     setAssets((current) => current.filter((a) => a.id !== id));

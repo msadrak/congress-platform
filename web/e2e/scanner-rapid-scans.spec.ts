@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
+import { storedScans, wireManifest } from './scannerFixtures';
 
 // Synthetic, intercepted /api/ responses: not FastAPI/PostgreSQL. The real-backend scanner
 // journey is scripts/integration/congress-e2e.mjs.
@@ -15,38 +16,31 @@ const MANIFEST = {
   ],
 };
 
-interface StoredScan { qr_secret: string; status: string; sync_state: string; rejection_reason: string | null }
-
-const storedScans = (page: Page) => page.evaluate(() => new Promise<StoredScan[]>((resolve) => {
-  const req = indexedDB.open('congress_scanner_db', 2);
-  req.onsuccess = () => {
-    const all = req.result.transaction('queued_scans', 'readonly').objectStore('queued_scans').getAll();
-    all.onsuccess = () => resolve(all.result);
-    all.onerror = () => resolve([]);
-  };
-  req.onerror = () => resolve([]);
-}));
-
 async function openScanner(page: Page) {
   const admitted = new Set<string>();
   await page.addInitScript(() => localStorage.setItem('congress_attendee_locale', 'en'));
-  await page.route('**/api/checkin-points/*/manifest', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(MANIFEST) }));
+  await page.route('**/api/checkin-points/*/manifest*', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(wireManifest(MANIFEST)) }));
   // A faithful single-gate server: first scan of a ticket is admitted, any later one is rejected.
+  const decide = (s: { scan_id: string; qr_secret: string }) => {
+    const repeat = admitted.has(s.qr_secret);
+    admitted.add(s.qr_secret);
+    return repeat
+      ? { scan_id: s.scan_id, qr_secret: s.qr_secret, status: 'REJECTED', rejection_reason: 'ALREADY_ADMITTED', clock_skew: false }
+      : { scan_id: s.scan_id, qr_secret: s.qr_secret, status: 'ADMITTED', attendee_name: s.qr_secret === 'secalice0001' ? 'Alice' : 'Bob', ticket_tier_name: 'General', clock_skew: false };
+  };
   await page.route('**/api/checkin-points/*/scans/batch', (route) => {
     const posted = route.request().postDataJSON() as { scans: Array<{ scan_id: string; qr_secret: string }> };
-    const results = posted.scans.map((s) => {
-      const repeat = admitted.has(s.qr_secret);
-      admitted.add(s.qr_secret);
-      return repeat
-        ? { scan_id: s.scan_id, qr_secret: s.qr_secret, status: 'REJECTED', rejection_reason: 'ALREADY_ADMITTED' }
-        : { scan_id: s.scan_id, qr_secret: s.qr_secret, status: 'ADMITTED', attendee_name: s.qr_secret === 'secalice0001' ? 'Alice' : 'Bob', ticket_tier_name: 'General' };
-    });
-    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ results }) });
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ results: posted.scans.map(decide) }) });
+  });
+  await page.route('**/api/checkin-points/*/scan', (route) => {
+    const posted = route.request().postDataJSON() as { scan_id: string; qr_secret: string };
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(decide(posted)) });
   });
   await page.goto(`/scan/${POINT_ID}?token=${TOKEN}`);
   await expect(page.getByText('Rapid Gate')).toBeVisible();
   await expect(page.getByText(/Manifest synced/)).toBeVisible();
   await page.waitForLoadState('networkidle');
+  return admitted;
 }
 
 const submit = async (page: Page, code: string) => {
@@ -61,6 +55,8 @@ test('a different badge scanned right after another is evaluated and recorded, n
   await expect.poll(async () => (await storedScans(page)).map((s) => s.qr_secret).sort()).toEqual(['secalice0001', 'secbob000002']);
   const scans = await storedScans(page);
   expect(scans.every((s) => s.status === 'ADMITTED')).toBe(true);
+  // Online, the server decided both: nothing is left to upload.
+  expect(scans.every((s) => s.synced && s.sync_state === 'CONFIRMED')).toBe(true);
   // The result on screen is the latest badge's, not the earlier one's.
   await expect(page.getByText('Bob').first()).toBeVisible();
 });

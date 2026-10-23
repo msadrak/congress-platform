@@ -116,7 +116,7 @@ async function fixture(page: Page, options: Options = {}) {
     if (rest === '/desk/me') return json(200, { operator_id: null, operator_name: 'Organizer Admin', event_id: id, event_name: events[id].name, event_slug: id, is_organizer_admin: true });
     if (rest === '/desk/tiers') return json(200, tiers[id]);
     if (rest === '/attendees') return json(200, []);
-    if (rest === '/analytics/attendance') return json(200, { event_id: id, total_tickets: 60, unique_admitted: 30, checkin_rate: 50, total_scans: 44, total_admitted: 40, total_rejected: 4, catering_metrics: [], gate_breakdown: [] });
+    if (rest === '/analytics/attendance') return json(200, { event_id: id, timezone: 'Asia/Tehran', days: ['2099-05-10', '2099-05-11', '2099-05-12'], total_tickets: 60, tickets_by_status: [{ status: 'active', count: 60 }], tier_registrations: [], unique_admitted: 30, checkin_rate: 50, total_scans: 44, total_admitted: 40, total_rejected: 4, hourly_scans: [], catering_metrics: [], gate_breakdown: [] });
     if (rest === '/analytics/export-csv') return route.fulfill({ status: 200, contentType: 'text/csv', body: 'ticket,state\n1,admitted\n' });
     if (id === 'event-a') {
       if (rest === '/venue-places' && method === 'GET') return json(200, places);
@@ -184,6 +184,7 @@ test('events overview lists authorized events with a status derived from their o
   await page.goto('/organizer');
   await expect(page.getByRole('link', { name: 'Alpha Congress' })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Beta Summit' })).toBeVisible();
+  await expect(page).toHaveTitle('Events List · Organizer Console');
   await expect(page.getByRole('article').filter({ hasText: 'Alpha Congress' }).getByText('Upcoming')).toBeVisible();
   await expect(page.getByRole('article').filter({ hasText: 'Beta Summit' }).getByText('Ended')).toBeVisible();
   expect(requests.every(r => r.auth === bearer)).toBe(true);
@@ -194,7 +195,7 @@ test('one workspace navigation addresses every section of the selected event by 
   await seed(page);
   await page.goto('/organizer/events/event-a');
   await expect(page.getByTestId('active-event')).toHaveText('Alpha Congress');
-  await expect(workspaceNav(page).getByRole('link')).toHaveText([/Overview/, /Program/, /Venue/, /Ticket Tiers/, /Check-In Gates/, /Exhibition Booths/, /Desk Staff/, /Public page/, /Attendee panel/, /SMS/, /Analytics/, /Front Desk/]);
+  await expect(workspaceNav(page).getByRole('link')).toHaveText([/Overview/, /Program/, /Venue/, /Ticket Tiers/, /Check-In Gates/, /Exhibition Booths/, /Desk Staff/, /Public page/, /Attendee panel/, /SMS/, /Participants/, /Analytics/, /Front Desk/]);
   await expect(workspaceNav(page).getByRole('link', { name: /Overview/ })).toHaveAttribute('aria-current', 'page');
 
   const eventReads = () => requests.filter(r => r.method === 'GET' && r.path === '/api/events/event-a').length;
@@ -216,6 +217,7 @@ test('one workspace navigation addresses every section of the selected event by 
 
   await page.goto('/organizer/events/event-a/booths');
   await expect(workspaceNav(page).getByRole('link', { name: /Exhibition Booths/ })).toHaveAttribute('aria-current', 'page');
+  await expect(page).toHaveTitle('Exhibition Booths · Alpha Congress');
   await workspaceNav(page).getByRole('link', { name: /Analytics/ }).click();
   await expect(page).toHaveURL(/\/analytics$/);
   await expect(page.getByTestId('active-event')).toHaveText('Alpha Congress');
@@ -506,11 +508,11 @@ test('venue and booths: entrances are added, halls reordered, and a booth is edi
   expect(requests.every(r => r.auth === bearer)).toBe(true);
 });
 
-test('analytics keeps its export and says the CSV is not filtered', async ({ page }) => {
+test('analytics keeps its export and says the filters apply to the CSV files too', async ({ page }) => {
   const requests = await fixture(page);
   await seed(page);
   await page.goto('/organizer/events/event-a/analytics');
-  await expect(page.getByText('Filters change this view only')).toBeVisible();
+  await expect(page.getByText('Filters apply to this view and to both CSV downloads')).toBeVisible();
   const download = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Export Attendance CSV' }).click();
   expect((await download).suggestedFilename()).toBe('event-a-attendance.csv');

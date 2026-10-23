@@ -11,12 +11,14 @@ interface BufferBarProps {
   copy: ScannerCopy;
   pendingCount: number;
   isSyncing: boolean;
+  /** A manifest refresh the operator asked for is running. */
+  refreshing: boolean;
   onSync: () => void;
   onRefresh: () => void;
 }
 
 /** Offline buffer readout + the two manual sync controls. */
-export function BufferBar({ locale, copy, pendingCount, isSyncing, onSync, onRefresh }: BufferBarProps) {
+export function BufferBar({ locale, copy, pendingCount, isSyncing, refreshing, onSync, onRefresh }: BufferBarProps) {
   return (
     <div className="scanner-panel flex flex-wrap items-center justify-between gap-x-4 gap-y-2 p-3.5 sm:p-4">
       <p className="text-[13.5px] text-ink-300">
@@ -38,10 +40,12 @@ export function BufferBar({ locale, copy, pendingCount, isSyncing, onSync, onRef
         </button>
         <button
           type="button"
+          disabled={refreshing}
+          aria-busy={refreshing}
           onClick={onRefresh}
-          className="scanner-tool inline-flex min-h-11 items-center gap-2 rounded-[10px] border border-white/12 bg-white/[0.04] px-3 text-[13px] font-semibold text-ink-100 hover:bg-white/[0.09]"
+          className="scanner-tool inline-flex min-h-11 items-center gap-2 rounded-[10px] border border-white/12 bg-white/[0.04] px-3 text-[13px] font-semibold text-ink-100 hover:bg-white/[0.09] disabled:cursor-progress disabled:opacity-60"
         >
-          <Icon name="sync" size={16} />
+          <Icon name="sync" size={16} className={refreshing ? "motion-safe:animate-spin" : undefined} />
           <BiLabel locale={locale} label={copy.refreshCache} />
         </button>
       </div>
@@ -87,7 +91,7 @@ export function ScanLog({ scans, copy, t }: { scans: QueuedScan[]; copy: Scanner
                   </p>
                   {s.rejection_reason && (
                     <p className="mt-0.5 text-[12px] leading-snug text-ink-300">
-                      {rejectionLabel(t, s.rejection_reason) ?? (
+                      {rejectionLabel(t, copy, s.rejection_reason) ?? (
                         <span className="font-mono text-[11px]" dir="ltr">
                           {s.rejection_reason}
                         </span>

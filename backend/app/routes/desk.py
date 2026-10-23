@@ -39,6 +39,7 @@ from app.security import (
 from app.sms import SmsGateway, sms_provider
 from app.sms.outbox import queue_ticket_confirmation, ticket_confirmation_text
 from app.sms.phone import IranMobile, OptionalIranMobile, ascii_digits, search_digits
+from app.ticket_lifecycle import attendee_snapshot
 
 _bearer = HTTPBearer(auto_error=False)
 router = APIRouter(tags=["desk"])
@@ -675,6 +676,7 @@ async def create_desk_registration(
         user_id=user.id,
         status="active",
         issued_by_operator_id=operator_id,
+        **attendee_snapshot(user),
     )
     session.add(ticket)
     try:
@@ -749,8 +751,8 @@ async def search_event_attendees(
         digits = search_digits(term)
         query = query.where(
             or_(
-                User.full_name.ilike(like_term),
-                User.organization.ilike(like_term),
+                Ticket.attendee_full_name.ilike(like_term),
+                Ticket.attendee_organization.ilike(like_term),
                 *([User.mobile.contains(digits)] if digits else []),
             )
         )
@@ -778,10 +780,10 @@ async def search_event_attendees(
         AttendeeSearchItem(
             ticket_id=ticket.id,
             attendee_id=user.id,
-            attendee_name=user.full_name,
+            attendee_name=ticket.attendee_full_name,
             attendee_mobile=user.mobile,
-            organization=user.organization,
-            title=user.title,
+            organization=ticket.attendee_organization,
+            title=ticket.attendee_title,
             ticket_tier_id=tier.id,
             ticket_tier_name=tier.name,
             qr_secret=qr.secret,
@@ -842,10 +844,10 @@ async def get_attendee_ticket_detail(
     return AttendeeDetailCard(
         ticket_id=ticket.id,
         attendee_id=user.id,
-        attendee_name=user.full_name,
+        attendee_name=ticket.attendee_full_name,
         attendee_mobile=user.mobile,
-        organization=user.organization,
-        title=user.title,
+        organization=ticket.attendee_organization,
+        title=ticket.attendee_title,
         ticket_tier_name=tier.name,
         qr_secret=qr.secret,
         status=ticket.status,

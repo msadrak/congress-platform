@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
-import { Link, NavLink, Outlet } from "react-router-dom";
+import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
 import { PLATFORM_TOKEN_STORAGE, createApiClient, type PlatformStatusOut } from "../api/client";
 import { useAttendeeLocale } from "../lib/i18n";
+import { usePageTitle } from "../hooks/usePageTitle";
 import { Badge } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
 import { Icon, type IconName } from "../components/ui/Icon";
@@ -32,6 +33,19 @@ export default function PlatformConsole() {
   const [checking, setChecking] = useState(false);
 
   const client = useMemo(() => (token ? createApiClient({ kind: "platform", token }) : null), [token]);
+
+  // The layout names the tab: a section's own effect would run before this one and be overwritten.
+  const { pathname } = useLocation();
+  const consoleName = isRtl ? "پنل مدیریت سامانه" : "Platform console";
+  const sectionTitles: Record<string, string> = {
+    "/platform/sign-in": isRtl ? "قواعد ورود با پیامک" : "SMS sign-in rules",
+    "/platform/organizers": isRtl ? "برگزارکنندگان" : "Organizers",
+  };
+  const unlocked = Boolean(client && status);
+  usePageTitle(
+    unlocked ? (sectionTitles[pathname.replace(/\/$/, "")] ?? (isRtl ? "پیامک" : "SMS")) : consoleName,
+    unlocked ? consoleName : null,
+  );
 
   const signOut = useCallback((reason: GateProblem = null) => {
     try {

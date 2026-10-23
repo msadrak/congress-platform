@@ -59,6 +59,8 @@ if errorlevel 1 ( echo [FAIL] Web lint failed & exit /b 1 )
 call npm run build
 if errorlevel 1 ( echo [FAIL] Web build failed & exit /b 1 )
 cd ..
+call node --test scripts\staging\stack.test.mjs
+if errorlevel 1 ( echo [FAIL] Operations tool tests ^(scripts\staging^) failed & exit /b 1 )
 
 echo.
 echo [3/3] Checking Mobile (Flutter / Dart)...

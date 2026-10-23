@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import type { PublicEvent } from "../../api/client";
 import type { PageDoc, PageImage, PageImages } from "../../lib/pageDocument";
 import { localized } from "../../lib/pageDocument";
+import { bannerWidth, heroPresentation } from "../../lib/heroImage";
 import { CongressSignature } from "../brand/CongressSignature";
 import { buttonClassName } from "../ui/buttonStyles";
 import { Icon } from "../ui/Icon";
@@ -12,6 +13,13 @@ import { PageImg } from "./page/PageImg";
 import { BELOW_HEADER_MIN_H } from "./viewport";
 
 const STATUS_DOT = { open: "bg-[#3EE0A1]", full: "bg-status-warning-solid", closed: "bg-ink-400" } as const;
+
+/** Tallest a banner may be: the rest of the hero (title, dates, buttons) still starts on the first screen. */
+const BANNER_MAX_H = "min(60svh, 40rem)";
+/** Cover on a phone: this much of the photograph stays clear above the text. */
+const COVER_OPEN_BAND = "min(34svh, 18rem)";
+/** An image frame breathes while its image is still on the way (PageImg `reveal` marks it data-loaded). */
+const LOADING_PULSE = "motion-safe:has-[img[data-loaded=false]]:animate-pulse";
 
 export type HeroEvent = Pick<PublicEvent, "name" | "slug" | "starts_at" | "ends_at" | "location" | "ticket_tiers">;
 
@@ -30,11 +38,14 @@ interface CongressHeroProps {
 }
 
 /**
- * Ink hero: the congress name leads, metadata set in columns. Three curated layouts: the generative
- * signature, a full-bleed cover photograph under a legibility scrim, or a split with a framed image.
+ * Ink hero: the congress name leads, metadata set in columns. Four curated layouts: the generative
+ * signature; a banner (the organizer's artwork whole, at its own proportions, above the title: posters
+ * with text survive every screen); a full-bleed cover photograph under a legibility scrim, cropped around
+ * its focal point, with an optional phone image; or a split with a framed image (above the title on small
+ * screens). Each image layout renders exactly one hero <img>, revealed once decoded over a placeholder.
  * Status chips, dates and buttons always sit on ink, so organizer imagery cannot break their contrast.
- * Header plus hero fill one screen: the section is at least the viewport below the header, and the type
- * scale and vertical rhythm follow the viewport height so title, meta and buttons fit above the fold.
+ * Header plus hero fill at least one screen, and the type scale and vertical rhythm follow the viewport
+ * height so title, meta and buttons fit above the fold where the layout allows.
  */
 export function CongressHero({ event, locale, hero, accent, images, logo, showPasses, exhibitionLabel }: CongressHeroProps) {
   const c = publicCopy[locale];
@@ -43,8 +54,7 @@ export function CongressHero({ event, locale, hero, accent, images, logo, showPa
   const status = timing.kind === "ended" ? "closed" : registrationStatus(event.ticket_tiers);
   const days = calendarDays(event.starts_at, event.ends_at);
   const openTiers = event.ticket_tiers.filter((t) => tierState(t) === "AVAILABLE").length;
-  const cover = hero.cover_asset_id ? images[hero.cover_asset_id] ?? null : null;
-  const layout = hero.layout !== "signature" && cover ? hero.layout : "signature";
+  const { layout, image: cover, mobileImage, focus } = heroPresentation(hero, images);
 
   const title = localized(hero.title, locale) ?? event.name;
   const eyebrow = localized(hero.eyebrow, locale);
@@ -114,41 +124,78 @@ export function CongressHero({ event, locale, hero, accent, images, logo, showPa
   );
 
   return (
-    <section aria-labelledby="congress-title" className={`relative isolate flex flex-col overflow-hidden bg-surface-ink text-white ${BELOW_HEADER_MIN_H}`}>
+    <section
+      aria-labelledby="congress-title"
+      data-hero-layout={layout}
+      style={layout === "cover" ? { ["--pub-cover-band" as string]: COVER_OPEN_BAND } : undefined}
+      className={`relative isolate flex flex-col overflow-hidden bg-surface-ink text-white ${BELOW_HEADER_MIN_H}`}
+    >
+      <CongressSignature
+        seed={event.slug}
+        accent={accent}
+        tone="ink"
+        animate
+        className={`absolute inset-0 -z-30 size-full rtl:-scale-x-100 ${layout === "split" ? "opacity-60" : ""}`}
+      />
       {layout === "cover" && cover ? (
         <>
-          <PageImg image={cover} alt="" priority className="absolute inset-0 -z-20 size-full object-cover" />
+          {/* The signature artwork underneath is the placeholder while the photograph loads. */}
+          <PageImg
+            image={cover}
+            mobile={mobileImage}
+            alt=""
+            priority
+            reveal
+            // A phone image is composed for the phone: the focal point anchors the main image only.
+            style={mobileImage ? { ["--hero-focus" as string]: focus } : { objectPosition: focus }}
+            // Phones: the photograph fills the open band above the text and fades into the ink below it.
+            className={`absolute inset-0 -z-20 size-full object-cover max-md:h-[calc(var(--pub-cover-band)+12rem)] ${
+              mobileImage ? "md:[object-position:var(--hero-focus)]" : ""
+            }`}
+          />
           <div aria-hidden="true" className="pub-hero-scrim pub-hero-scrim--cover absolute inset-0 -z-10" />
         </>
       ) : (
         <>
-          <CongressSignature
-            seed={event.slug}
-            accent={accent}
-            tone="ink"
-            animate
-            className={`absolute inset-0 -z-20 size-full rtl:-scale-x-100 ${layout === "split" ? "opacity-60" : ""}`}
-          />
-          {/* Below lg the split image becomes the backdrop, so the hero still fits one screen. */}
-          {layout === "split" && cover && <PageImg image={cover} alt="" priority className="absolute inset-0 -z-20 size-full object-cover lg:hidden" />}
           <div aria-hidden="true" className="pub-hero-grid absolute inset-0 -z-10 bg-meridian-ink" />
           <div aria-hidden="true" className="pub-hero-scrim absolute inset-0 -z-10" />
         </>
       )}
 
       {/* Bottom padding clears the content sheet that overlaps the hero (pub-sheet: 2rem, 3.5rem from md). */}
-      <div className="mx-auto flex w-full max-w-7xl flex-1 flex-col justify-center px-4 pt-[clamp(1rem,3.5svh,3.5rem)] pb-[calc(2rem+clamp(1rem,3svh,2.5rem))] sm:px-6 md:pb-[calc(3.5rem+clamp(1rem,4svh,3rem))] lg:px-10">
-        {layout === "split" && cover ? (
-          <div className="grid grid-cols-1 items-center gap-8 lg:grid-cols-12 lg:gap-12">
+      <div
+        className={`mx-auto flex w-full max-w-7xl flex-1 flex-col px-4 pt-[clamp(1rem,3.5svh,3.5rem)] pb-[calc(2rem+clamp(1rem,3svh,2.5rem))] sm:px-6 md:pb-[calc(3.5rem+clamp(1rem,4svh,3rem))] lg:px-10 ${
+          layout === "cover" ? "justify-end max-md:pt-[calc(var(--pub-cover-band)+1rem)] md:justify-center" : "justify-center"
+        }`}
+      >
+        {layout === "banner" && cover ? (
+          <>
+            <figure
+              className={`mx-auto mb-[clamp(1.25rem,4svh,2.5rem)] w-full overflow-hidden rounded-2xl bg-white/[0.06] shadow-pop ring-1 ring-white/12 sm:rounded-3xl ${LOADING_PULSE}`}
+              style={{ maxWidth: bannerWidth(cover, BANNER_MAX_H) }}
+            >
+              <PageImg image={cover} alt="" priority reveal className="block h-auto w-full" />
+            </figure>
+            {heading}
+          </>
+        ) : layout === "split" && cover ? (
+          <div className="grid grid-cols-1 items-center gap-6 sm:gap-8 lg:grid-cols-12 lg:gap-12">
             <div className="lg:col-span-7">{heading}</div>
-            <figure className="relative hidden lg:col-span-5 lg:block motion-safe:animate-fade [animation-delay:160ms]">
-              <div aria-hidden="true" className="absolute -inset-3 rounded-[28px] border border-white/10 [border-start-end-radius:72px]" />
-              <PageImg
-                image={cover}
-                alt=""
-                priority
-                className="relative max-h-[min(30rem,46svh)] w-full rounded-3xl object-cover shadow-pop ring-1 ring-white/15 [border-start-end-radius:64px]"
-              />
+            {/* Above the title on small screens (still the framed image, never a backdrop), beside it from lg. */}
+            <figure className="relative order-first lg:order-none lg:col-span-5 motion-safe:animate-fade [animation-delay:160ms]">
+              <div aria-hidden="true" className="absolute -inset-3 hidden rounded-[28px] border border-white/10 [border-start-end-radius:72px] lg:block" />
+              <div
+                className={`relative overflow-hidden rounded-2xl bg-white/[0.06] shadow-pop ring-1 ring-white/15 [border-start-end-radius:40px] lg:rounded-3xl lg:[border-start-end-radius:64px] ${LOADING_PULSE}`}
+              >
+                <PageImg
+                  image={cover}
+                  alt=""
+                  priority
+                  reveal
+                  style={{ objectPosition: focus }}
+                  className="block max-h-[min(22rem,36svh)] w-full object-cover lg:max-h-[min(30rem,46svh)]"
+                />
+              </div>
             </figure>
           </div>
         ) : (

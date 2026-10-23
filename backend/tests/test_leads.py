@@ -78,7 +78,8 @@ async def test_booth_staff_scans_attendee_badge_and_captures_lead(
     data = scan_resp.json()
     assert data["booth_id"] == booth_id
     assert data["attendee_name"] == "Dr. Lead Buyer"
-    assert data["attendee_mobile"] == "09121000046"
+    # The attendee has not consented to share their number with exhibitors.
+    assert data["attendee_mobile"] is None
     assert data["rating"] == "HOT"
     assert data["tags"] == ["Send Quote", "Schedule Demo"]
     assert data["notes"] == "Interested in 5 CT scanner systems for Q3."

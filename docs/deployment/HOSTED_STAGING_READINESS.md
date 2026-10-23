@@ -7,6 +7,16 @@ Branch `integration/task-05h`, started at `93e6965ae8a64ddf54265052f36bb27f833bb
 | `46324deda15d1455b3dce4ffb376e62cf96b9e69` | Organizer key rotation/revocation (migration 0014), failed-authentication throttling, tests |
 | *(this handoff's commit)* | Hosted Caddy modes, scheduled/off-host backups with retention, health check, operator CLI, systemd units, docs, evidence |
 
+> **Update — operations hardening (branch `ws/a3-ops`, 2026-10-22/23).** Sections 1, 3 and 6–9 below are updated to it; section 2 keeps the Milestone 10 results and adds the new drills in §2.1. What changed:
+> - Off-host copies are always **encrypted** on the server (rclone `crypt`, key `BACKUP_ENCRYPTION_KEY`) and proven with `rclone cryptcheck`; `backups --offsite` lists them and `restore-verify <name> --from-offsite` restores from them.
+> - Optional **point-in-time recovery** (`BACKUP_WAL=on`): pgBackRest archives every WAL segment, encrypted (aes-256-cbc), to the same bucket; `base-backup`, `pitr-restore --to <time|latest>`.
+> - **Releases and rollback:** `up` tags images with the commit and keeps 5 releases; `rollback [<sha>]` runs an older release without migrating, accepted by the schema guard when the newer migrations are `backward_compatible = True` (`docs/CODING_STANDARDS.md` §2.D).
+> - **Alerts:** `check` sends deduplicated Telegram alerts, reminders and a recovery message itself (`ALERT_TELEGRAM_*`), and also checks WAL archiving and base-backup age.
+> - **Timers:** `install-timers` / `uninstall-timers` render and enable the systemd units; `event-mode on|off` switches backups to hourly during a congress.
+> - **Monitoring:** JSON logs with `X-Request-ID`, Prometheus `/api/metrics` (bearer token + edge allow-list), optional Sentry/GlitchTip with personal data scrubbed.
+>
+> The operator reference for all of it is [`STAGING_OPERATIONS.md`](STAGING_OPERATIONS.md).
+
 ## 1. What was implemented
 
 **Organizer credential lifecycle** (admin token only; existing keys keep working):
@@ -40,8 +50,8 @@ Branch `integration/task-05h`, started at `93e6965ae8a64ddf54265052f36bb27f833bb
 
 **Backups** (`stack.mjs scheduled-backup`):
 1. `pg_dump` is taken first, then the media tar, with a consistency check that every database image is in the archive. Missing images fail the run.
-2. Optional off-host copy to any S3-compatible bucket (`BACKUP_S3_*`) via `rclone`, then a checksum `rclone check`.
-3. Retention keeps the newest `BACKUP_KEEP_DAILY` backups (7), plus one per week for `BACKUP_KEEP_WEEKLY` weeks (4) and one per month for `BACKUP_KEEP_MONTHLY` months (6), both locally and remotely.
+2. Optional off-host copy to any S3-compatible bucket (`BACKUP_S3_*`) via `rclone`, **encrypted on the server** through an rclone `crypt` remote keyed by `BACKUP_ENCRYPTION_KEY` (required; there is no unencrypted mode), then `rclone cryptcheck` proves every remote file decrypts to the local bytes. *(Milestone 10 uploaded plain files and used `rclone check`.)*
+3. Retention keeps the newest `BACKUP_KEEP_DAILY` backups (7), the newest of each of the last 7 days (so hourly event-day backups never push out the dailies), plus one per week for `BACKUP_KEEP_WEEKLY` weeks (4) and one per month for `BACKUP_KEEP_MONTHLY` months (6), both locally and remotely.
    - It touches only directories named `staging-YYYYMMDD-HHMMSS`.
    - Local copies are pruned only after the new backup succeeded, including its off-host copy when configured.
 4. Writes `.staging/backups/last-backup.json` and exits 1 on any failure.
@@ -53,9 +63,17 @@ Branch `integration/task-05h`, started at `93e6965ae8a64ddf54265052f36bb27f833bb
 - HTTP 5xx in the last 15 minutes from Caddy's JSON log;
 - API error lines;
 - disk use of the filesystem holding the volumes (warning at 80 %, critical at 90 %) and volume sizes;
-- backup age (critical over `BACKUP_MAX_AGE_HOURS`, 26) and the last backup result.
+- backup age (critical over `BACKUP_MAX_AGE_HOURS`, 26, or `BACKUP_EVENT_MAX_AGE_HOURS`, 2, in event mode) and the last backup result;
+- with `BACKUP_WAL=on`: archiving on and succeeding, the archive backlog, and base-backup age (`BACKUP_WAL_MAX_AGE_HOURS`, 26);
+- delivery: Telegram alert on a new or changed problem, a reminder every `ALERT_REPEAT_HOURS` (6), a recovery message; a crash of the check itself is critical and alerted.
 
-**Scheduling templates:** `deploy/hosted/systemd/congress-backup.{service,timer}` (nightly 02:30) and `congress-check.{service,timer}` (every 5 min, attach an `OnFailure=` alert).
+**Point-in-time recovery** (`BACKUP_WAL=on`, ws/a3-ops): `deploy/db/Dockerfile` (postgres:16-alpine + pgBackRest) and the `deploy/staging/compose.wal.yaml` overlay archive WAL at least every `BACKUP_WAL_ARCHIVE_TIMEOUT` (60) s to `<prefix>/pgbackrest`; `base-backup` (full weekly, differential otherwise); `pitr-restore` drills into a disposable project.
+
+**Releases and rollback** (ws/a3-ops): `up` records each release (`.staging/releases.json`, 5 kept); `rollback` restarts `api` + `web` on older images without migrating. The migrate service runs `python -m app.schema_guard migrate`, which records the revision chain in `schema_compatibility` so older builds can accept a database ahead of them by backward-compatible migrations only.
+
+**Monitoring endpoints** (ws/a3-ops): JSON logs with request ids (`CONGRESS_LOG_FORMAT`), `/api/metrics` behind `CONGRESS_METRICS_TOKEN` and the Caddy allow-list `CONGRESS_METRICS_ALLOW`, optional `CONGRESS_SENTRY_DSN`.
+
+**Scheduling:** `deploy/hosted/systemd/congress-backup.{service,timer}` (nightly 02:30; hourly in event mode), `congress-basebackup.{service,timer}` (daily 03:15, only with `BACKUP_WAL=on`) and `congress-check.{service,timer}` (every 5 min; `check` sends its own alerts, exits 1/2 are not unit failures). `sudo node scripts/staging/stack.mjs install-timers --user congress` writes them for the actual checkout path, user and Node and enables them.
 
 ## 2. What was tested
 
@@ -80,6 +98,18 @@ Branch `integration/task-05h`, started at `93e6965ae8a64ddf54265052f36bb27f833bb
 
 **Retention ran for real:** it removed 4 older ad-hoc test backups from today under the documented 7/4/6 rule. The pre-upgrade backup `staging-20261013-165633` was kept.
 
+### 2.1 Operations drills (ws/a3-ops)
+
+| Drill | Result |
+|---|---|
+| `restore-verify <name> --from-offsite` (download, decrypt, restore, compare) | passed |
+| WAL archiving RPO: time from a commit until its segment is in the bucket | **8.6 s observed**; worst case ≈ `archive_timeout` (60 s) + upload, about 1 min |
+| `pitr-restore --to <time>`: nothing newer than the target in `organizers`, `events`, `users`, `tickets`, `checkins`, `sms_messages`; API accepted the recovered schema | passed |
+| `rollback` after an **unmarked** migration | refused by the schema guard; previous images restarted |
+| `rollback` after a migration marked `backward_compatible = True` | worked; the older `migrate` left the database alone |
+
+The bucket was again a local stand-in, not a real provider. **Not exercised:** ACME, a real S3 provider, systemd timers on Linux, a Sentry/GlitchTip endpoint, Telegram delivery (or a relay) from Iran.
+
 ## 3. Environment variables and secrets
 
 The template is `deploy/hosted/.env.hosted.example`. On the server it becomes `.staging/staging.env`, which is git-ignored. `stack.mjs init` generates the three secrets.
@@ -95,8 +125,16 @@ The template is `deploy/hosted/.env.hosted.example`. On the server it becomes `.
 | `CONGRESS_LOCAL_HTTP` / `CONGRESS_HSTS` | `off` / `on` (HSTS only once the domain is final) |
 | `CONGRESS_ADMIN_ALLOW` | `127.0.0.1/32` |
 | `CONGRESS_BIND` / `CONGRESS_HTTPS_PORT` / `CONGRESS_HTTP_PORT` | `0.0.0.0` / `443` / `80` |
-| `BACKUP_S3_ENDPOINT`, `_REGION`, `_BUCKET`, `_PREFIX`, `_ACCESS_KEY_ID`, `_SECRET_ACCESS_KEY` | from the backup provider; keep them in `/etc/congress/backup.env` (root-only) for the timer |
-| `BACKUP_KEEP_DAILY` / `_WEEKLY` / `_MONTHLY`, `BACKUP_MAX_AGE_HOURS` | 7 / 4 / 6, 26 |
+| `CONGRESS_METRICS_TOKEN` | generated (≥ 32 chars), or empty to disable `/api/metrics` |
+| `CONGRESS_METRICS_ALLOW` | your Prometheus server's address, or `127.0.0.1/32` (nobody through the proxy) |
+| `CONGRESS_LOG_FORMAT` / `CONGRESS_SENTRY_DSN` | empty (JSON logs) / optional DSN |
+| `BACKUP_S3_ENDPOINT`, `_REGION`, `_BUCKET`, `_PREFIX`, `_ACCESS_KEY_ID`, `_SECRET_ACCESS_KEY` | from the backup provider (endpoint `https://` for WAL); keep them in `/etc/congress/backup.env` (root, group `congress`, mode 640), read by `stack.mjs` and every timer |
+| `BACKUP_ENCRYPTION_KEY` | `openssl rand -base64 48`; also in the operator's password manager — without it no off-host copy can be restored |
+| `BACKUP_KEEP_DAILY` / `_WEEKLY` / `_MONTHLY`, `BACKUP_MAX_AGE_HOURS`, `BACKUP_EVENT_MAX_AGE_HOURS` | 7 / 4 / 6, 26, 2 |
+| `BACKUP_WAL`, `BACKUP_WAL_ARCHIVE_TIMEOUT`, `_RETENTION_FULL`, `_FULL_DAYS`, `_MAX_AGE_HOURS`, `_QUEUE_MAX` | `on`, 60, 2, 7, 26, `1GiB` (point-in-time recovery) |
+| `ALERT_TELEGRAM_BOT_TOKEN`, `ALERT_TELEGRAM_CHAT_ID`, `ALERT_TELEGRAM_API`, `ALERT_REPEAT_HOURS` | bot from @BotFather, on-call chat, relay URL if Telegram is blocked, 6 |
+
+The full list with defaults is in `STAGING_OPERATIONS.md` → *Operations settings*.
 
 **Credentials stored in the database (the sms.ir API key saved in the platform console)** are encrypted with a key derived from `CONGRESS_SECRET_BOX_KEY`, or from `CONGRESS_JWT_SECRET` while that is unset. With the dedicated key, rotating the JWT secret (which signs out every session) no longer makes the stored key unreadable.
 
@@ -117,12 +155,14 @@ The template is `deploy/hosted/.env.hosted.example`. On the server it becomes `.
 - This leaves room for image builds on the server, which need Node and npm, and peak during `npm ci`/`vite build`. Building elsewhere and loading images reduces the need.
 - Add disk in proportion to uploads: ≤ 200 images per event, each ≤ 2400 px after re-encoding.
 - **Not measured:** load at real congress scale (hundreds of simultaneous gate scans). Run a load test before relying on 1 vCPU.
+- Scale up the VPS, not the process count: the API must stay **one uvicorn process** while rate limits are in-process.
+- Disk: add room for 5 releases' images (rollback) and, with WAL, the local archive queue (up to `BACKUP_WAL_QUEUE_MAX`, 1 GiB).
 
 ## 5. DNS and firewall
 
 - **DNS:** an `A` record (and `AAAA` if IPv6) for `<domain>` pointing to the VPS. Use a low TTL during the first deployment.
 - **Firewall:** inbound **TCP 80 and 443** from anywhere (ACME HTTP-01 and the redirect), **SSH 22** from the operator's addresses only. Nothing else; PostgreSQL and the API are never published.
-- **Outbound:** HTTPS to the ACME CA, the container registries and the backup endpoint.
+- **Outbound:** HTTPS to the ACME CA, the container registries, the backup endpoint (also from the `db` container when `BACKUP_WAL=on`) and the Telegram API or its relay.
 
 ## 6. Safe deployment procedure
 
@@ -139,31 +179,37 @@ The template is `deploy/hosted/.env.hosted.example`. On the server it becomes `.
    - `https://<domain>/api/ready` → 200;
    - `https://<domain>/api/organizers` → 404.
 6. Create organizers with `stack.mjs organizer create "<name>"` and hand each key over a secure channel.
-7. Put `/etc/congress/backup.env` in place, then run `stack.mjs scheduled-backup` once by hand. Confirm the copy in the bucket, then `stack.mjs restore-verify <name>`.
-8. Enable the timers: `systemctl enable --now congress-backup.timer congress-check.timer`, plus an `OnFailure` alert.
-9. **Updates:** `scheduled-backup` first, then `git pull` the reviewed commit, `stack.mjs up`, `check`.
+7. Put `/etc/congress/backup.env` in place (off-host store, `BACKUP_ENCRYPTION_KEY`, optionally `BACKUP_WAL=on`, `ALERT_TELEGRAM_*`). With `BACKUP_WAL=on` run `stack.mjs up` again: it creates the pgBackRest stanza and takes the first full base backup.
+8. Run `stack.mjs scheduled-backup` once by hand. Confirm it with `stack.mjs backups --offsite`, then `stack.mjs restore-verify <name> --from-offsite`. With WAL: `stack.mjs pitr-restore --to latest`.
+9. Enable the timers: `sudo node scripts/staging/stack.mjs install-timers --user congress` (try `--dry-run` first). Confirm a Telegram message arrives for a deliberate problem and a recovery message after it.
+10. **Updates:** `scheduled-backup` first, then `git pull` the reviewed commit, `stack.mjs up` (records the release), `check`. If the new release misbehaves: `stack.mjs rollback` (works only when its migrations are all `backward_compatible`; otherwise restore the pre-update backup or `pitr-restore` to just before it).
+11. **Before congress day:** follow `STAGING_OPERATIONS.md` → *Before congress day* (`event-mode on`, verified off-host restore, PITR drill, alert test).
 
 ## 7. Backup and recovery
 
-- **Routine:** the nightly timer, `last-backup.json`, and `check` alerting on age or failure.
-- **Verification:** run `restore-verify <name>` monthly and after every migration. It only creates and removes `congress-restore-*` projects.
-- **Real recovery:** as in `STAGING_OPERATIONS.md` → *Restoring for real*. Download the backup directory from the bucket with `rclone copy offsite:<bucket>/<prefix>/<name> .staging/backups/<name>`, verify it, then restore into fresh volumes. Never delete the old volumes before the restored stack passes `check`.
+- **Routine:** the nightly timer (hourly in event mode), `last-backup.json`, the daily base backup with `BACKUP_WAL=on`, and `check` alerting on age or failure.
+- **RPO:** nightly dumps only: up to a day (an hour in event mode). With `BACKUP_WAL=on`: about 1 minute for the database (8.6 s observed); media files still come from the newest scheduled backup.
+- **Verification:** run `restore-verify <name> --from-offsite` monthly and after every migration, and `pitr-restore --to <time>` monthly with WAL. They only create and remove `congress-restore-*` / `congress-pitr-*` projects.
+- **Real recovery:** as in `STAGING_OPERATIONS.md` → *Restoring for real* and *Point-in-time recovery*. The bucket holds **encrypted** files: a plain `rclone copy offsite:…` yields ciphertext; fetch through the `crypt` remote as shown there (*Fetching an off-host backup by hand*), verify, then restore into fresh folders. Never delete the old data before the restored stack passes `check`.
 
 ## 8. What should alert an operator during a live congress
 
 - `check` exit 2: any container down or unhealthy, `/api/ready` failing, or a failed migration. Act immediately; gates and registration depend on it.
 - 5xx above 5 % or more than 20 in 15 minutes, or repeated API tracebacks.
 - Volume disk at 80 % (warning) or 90 % (critical).
-- Backup older than 26 h or the last backup failed.
+- Backup older than 26 h (2 h in event mode) or the last backup failed; WAL archiving failing or behind; base backup older than 26 h.
 - A burst of 429s on logins (credential stuffing or a locked-out operator): check `stack.mjs logs web`.
-- **Recovery:** `stack.mjs logs api|web|db`, then `stack.mjs start` (restarts stopped services, waits for health). A failed migration shows its error in `logs migrate`. Restore only after `restore-verify`.
+- **Delivery:** `check` sends these to Telegram itself every 5 minutes (deduplicated, reminder every 6 h, recovery message). Use the `X-Request-ID` from a user's failing request to find its lines in `stack.mjs logs api`.
+- **Recovery:** `stack.mjs logs api|web|db`, then `stack.mjs start` (restarts stopped services, waits for health). A failed migration shows its error in `logs migrate`. A bad release: `stack.mjs rollback`. Restore only after `restore-verify`.
 
 ## 9. Still requires the real VPS, domain or provider
 
 - [ ] ACME certificate issuance and renewal on the real domain (only `tls internal` was tested).
 - [ ] HTTP→HTTPS redirect and admin blocking with real public client IPs (Linux Docker preserves source IPs; Docker Desktop was used here).
-- [ ] Off-host backup to the real S3-compatible provider, including a restore from a copy downloaded out of that bucket.
-- [ ] systemd timers and the alert delivery channel (units are provided but not run).
+- [ ] Off-host backup to the real S3-compatible provider, including `restore-verify --from-offsite` and, with WAL, `pitr-restore` against that bucket (both passed against a local stand-in).
+- [ ] systemd timers on the real Linux host (`install-timers`; rendering tested, units not run).
+- [ ] Telegram alert delivery from the server, directly or through `ALERT_TELEGRAM_API` (relay) if `api.telegram.org` is blocked.
+- [ ] Sentry/GlitchTip endpoint, if wanted (`CONGRESS_SENTRY_DSN`; scrubbing tested only with a capturing transport).
 - [ ] Load test at expected congress concurrency; final VPS size.
 - [ ] Decision on an e-mail provider for password recovery.
 
@@ -173,8 +219,8 @@ The template is `deploy/hosted/.env.hosted.example`. On the server it becomes `.
 2. VPS: provider, region, public IPv4/IPv6, OS (Ubuntu 24.04 LTS recommended), at least 2 vCPU / 2 GB RAM / 40 GB SSD, SSH access for the operator.
 3. Firewall policy: allowed SSH source addresses; confirmation that inbound 80/443 is open.
 4. ACME contact e-mail for certificates.
-5. Off-host backup target: S3-compatible endpoint, region, bucket, prefix, an access key limited to that bucket, and the retention preference if it differs from 7/4/6.
-6. Alert channel for `check`/backup failures (e-mail, Telegram or webhook) and who is on call during the congress.
+5. Off-host backup target: S3-compatible `https://` endpoint, region, bucket, prefix, an access key limited to that bucket, and the retention preference if it differs from 7/4/6. A decision on point-in-time recovery (`BACKUP_WAL=on`), and where the operator keeps `BACKUP_ENCRYPTION_KEY` off the server.
+6. Telegram bot token and chat id for `check` alerts (and a relay URL if Telegram is not reachable from the server), and who is on call during the congress.
 7. Organizer list (names) to provision, and a secure channel to deliver their keys.
 8. Whether HSTS may be enabled immediately (domain final) and whether IPv6 is used.
 9. An e-mail provider decision (for future password recovery), or explicit acceptance of the operator-assisted process.

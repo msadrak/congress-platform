@@ -9,6 +9,7 @@
  */
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
+import { manifestExists as cachedManifestExists, wireManifest } from './scannerFixtures';
 
 const POINT_ID = 'test-point-001';
 const tokenPayload = Buffer.from(
@@ -47,7 +48,7 @@ async function injectScan(page: Page, scan: {
     return new Promise<void>((resolve, reject) => {
       const { pointId, scanData } = args;
       const dbPromise = new Promise<IDBDatabase>((resolveDb, rejectDb) => {
-        const req = indexedDB.open('congress_scanner_db', 2);
+        const req = indexedDB.open('congress_scanner_db');
         req.onsuccess = () => resolveDb(req.result);
         req.onerror = () => rejectDb(req.error);
       });
@@ -70,7 +71,7 @@ async function injectScan(page: Page, scan: {
 async function getScanCount(page: Page): Promise<number> {
   return page.evaluate(() => {
     return new Promise<number>((resolve) => {
-      const req = indexedDB.open('congress_scanner_db', 2);
+      const req = indexedDB.open('congress_scanner_db');
       req.onsuccess = () => {
         const db = req.result;
         const tx = db.transaction('queued_scans', 'readonly');
@@ -85,22 +86,7 @@ async function getScanCount(page: Page): Promise<number> {
 }
 
 // ── Helper: check if manifest exists in IndexedDB ──
-async function manifestExists(page: Page): Promise<boolean> {
-  return page.evaluate((pointId) => {
-    return new Promise<boolean>((resolve) => {
-      const req = indexedDB.open('congress_scanner_db', 2);
-      req.onsuccess = () => {
-        const db = req.result;
-        const tx = db.transaction('manifests', 'readonly');
-        const store = tx.objectStore('manifests');
-        const get = store.get(pointId);
-        get.onsuccess = () => resolve(!!get.result);
-        get.onerror = () => resolve(false);
-      };
-      req.onerror = () => resolve(false);
-    });
-  }, POINT_ID);
-}
+const manifestExists = (page: Page) => cachedManifestExists(page, POINT_ID);
 
 // ── Helper: get stored scanner token from IndexedDB ──
 async function getScannerToken(page: Page): Promise<string | null> {
@@ -140,7 +126,7 @@ async function clearScannerCredential(page: Page) {
 async function getSyncStates(page: Page): Promise<string[]> {
   return page.evaluate(() => {
     return new Promise<string[]>((resolve) => {
-      const req = indexedDB.open('congress_scanner_db', 2);
+      const req = indexedDB.open('congress_scanner_db');
       req.onsuccess = () => {
         const db = req.result;
         const tx = db.transaction('queued_scans', 'readonly');
@@ -158,7 +144,7 @@ async function getSyncStates(page: Page): Promise<string[]> {
 async function getConflictCount(page: Page): Promise<number> {
   return page.evaluate(() => {
     return new Promise<number>((resolve) => {
-      const req = indexedDB.open('congress_scanner_db', 2);
+      const req = indexedDB.open('congress_scanner_db');
       req.onsuccess = () => {
         const db = req.result;
         const tx = db.transaction('queued_scans', 'readonly');
@@ -175,11 +161,11 @@ async function getConflictCount(page: Page): Promise<number> {
 
 // ── Helper: set up mock API routes ──
 async function setupApiRoutes(page: Page) {
-  await page.route('**/api/checkin-points/*/manifest', (route) => {
+  await page.route('**/api/checkin-points/*/manifest*', (route) => {
     return route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify(MOCK_MANIFEST),
+      body: JSON.stringify(wireManifest(MOCK_MANIFEST)),
     });
   });
 
@@ -203,6 +189,15 @@ async function setupApiRoutes(page: Page) {
           },
         ],
       }),
+    });
+  });
+  // Online scans are decided by the server.
+  await page.route('**/api/checkin-points/*/scan', (route) => {
+    const posted = route.request().postDataJSON() as { scan_id: string; qr_secret: string };
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ scan_id: posted.scan_id, qr_secret: posted.qr_secret, status: 'ADMITTED', attendee_name: 'Alice', ticket_tier_name: 'General', clock_skew: false }),
     });
   });
   await page.route('**/api/checkin-points/*/devices/self/revoke', (route) =>
@@ -444,7 +439,7 @@ test('T07: Conflicts persist across offline reload', async ({ context }) => {
 // ═══════════════════════════════════════════════════════════
 test('T08: Scanner rejects unauthorized access', async ({ context }) => {
   const page = await context.newPage();
-  await page.route('**/api/checkin-points/*/manifest', (route) => {
+  await page.route('**/api/checkin-points/*/manifest*', (route) => {
     return route.fulfill({
       status: 403,
       contentType: 'application/json',
@@ -468,11 +463,11 @@ test('T08: Scanner rejects unauthorized access', async ({ context }) => {
 test('T09: Scanner handles malformed sync response', async ({ context }) => {
   const page = await context.newPage();
 
-  await page.route('**/api/checkin-points/*/manifest', (route) => {
+  await page.route('**/api/checkin-points/*/manifest*', (route) => {
     return route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify(MOCK_MANIFEST),
+      body: JSON.stringify(wireManifest(MOCK_MANIFEST)),
     });
   });
 
@@ -598,8 +593,8 @@ test('T12: App update preserves queued scans', async ({ context }) => {
 // Task 05C — Scanner session lifecycle (U01–U10)
 // ═══════════════════════════════════════════════════════════
 
-// U01: Successful device unpairing removes the credential, keeps scans
-test('U01: Successful unpair removes credential and preserves scans', async ({ context }) => {
+// U01: Successful device unpairing uploads the queue, then removes the credential and the attendee data
+test('U01: Successful unpair uploads queued scans, then removes credential and cached data', async ({ context }) => {
   const page = await context.newPage();
   await setupApiRoutes(page);
   await navigateToScanner(page, TEST_TOKEN);
@@ -616,9 +611,10 @@ test('U01: Successful unpair removes credential and preserves scans', async ({ c
   await page.getByRole('button', { name: /Unpair This Scanner/i }).click();
   await page.getByRole('button', { name: /Confirm Unpair/i }).click();
   await expect(page.getByText(/Server revocation confirmed/i)).toBeVisible({ timeout: 10000 });
-  // Credential gone from IndexedDB, scans preserved
+  // Credential gone; the scan reached the server first, so nothing about attendees stays on the device
   expect(await getScannerToken(page)).toBeNull();
-  expect(await getScanCount(page)).toBe(1);
+  expect(await getScanCount(page)).toBe(0);
+  expect(await manifestExists(page)).toBe(false);
   await page.close();
 });
 
@@ -662,7 +658,7 @@ test('U03: Revoked device stops admissions and preserves records', async ({ cont
     sync_state: 'PROVISIONAL',
   });
   // From now on the server rejects this device as revoked
-  await page.route('**/api/checkin-points/*/manifest', (route) => {
+  await page.route('**/api/checkin-points/*/manifest*', (route) => {
     return route.fulfill({ status: 401, contentType: 'application/json', body: JSON.stringify({ detail: 'Scanner device token has been revoked' }) });
   });
   await page.route('**/api/checkin-points/*/scans/batch', (route) => {
@@ -671,8 +667,9 @@ test('U03: Revoked device stops admissions and preserves records', async ({ cont
   // Forcing a manifest refresh surfaces the definitive reject
   await page.getByRole('button', { name: /Refresh Cache/i }).click();
   await expect(page.getByText(/device deauthorized/i)).toBeVisible({ timeout: 10000 });
-  // History preserved, admissions paused
+  // The unsynced scan is the only copy: kept (attendee data and synced scans are wiped), admissions paused
   expect(await getScanCount(page)).toBe(1);
+  expect(await manifestExists(page)).toBe(false);
   await expect(page.getByText(/unsynced scan\(s\) preserved/i)).toBeVisible();
   await page.close();
 });
@@ -680,7 +677,7 @@ test('U03: Revoked device stops admissions and preserves records', async ({ cont
 // U04: Expired credential blocks with re-pair guidance
 test('U04: Expired credential blocks with re-pair guidance', async ({ context }) => {
   const page = await context.newPage();
-  await page.route('**/api/checkin-points/*/manifest', (route) => {
+  await page.route('**/api/checkin-points/*/manifest*', (route) => {
     return route.fulfill({ status: 401, contentType: 'application/json', body: JSON.stringify({ detail: 'Signature has expired' }) });
   });
   await page.goto(`/scan/${POINT_ID}?token=${TEST_TOKEN}`);
@@ -693,7 +690,7 @@ test('U04: Expired credential blocks with re-pair guidance', async ({ context })
 // U05: Wrong point/event scope renders FORBIDDEN guidance
 test('U05: Wrong-scope token renders forbidden guidance', async ({ context }) => {
   const page = await context.newPage();
-  await page.route('**/api/checkin-points/*/manifest', (route) => {
+  await page.route('**/api/checkin-points/*/manifest*', (route) => {
     return route.fulfill({ status: 403, contentType: 'application/json', body: JSON.stringify({ detail: 'Scanner token is not authorized for this check-in point' }) });
   });
   await page.goto(`/scan/${POINT_ID}?token=${TEST_TOKEN}`);
@@ -718,7 +715,7 @@ test('U06: Stale manifest pauses admissions and preserves records', async ({ con
   // Backdate the cached manifest >24h so the enforced window expires
   await page.evaluate((pointId) => {
     return new Promise<void>((resolve) => {
-      const req = indexedDB.open('congress_scanner_db', 2);
+      const req = indexedDB.open('congress_scanner_db');
       req.onsuccess = () => {
         const db = req.result;
         const tx = db.transaction('manifests', 'readwrite');
@@ -748,11 +745,11 @@ test('U06: Stale manifest pauses admissions and preserves records', async ({ con
 test('U07: Re-pairing clears auth block and keeps scans', async ({ context }) => {
   const page = await context.newPage();
   let revoked = true;
-  await page.route('**/api/checkin-points/*/manifest', (route) => {
+  await page.route('**/api/checkin-points/*/manifest*', (route) => {
     if (revoked) {
       return route.fulfill({ status: 401, contentType: 'application/json', body: JSON.stringify({ detail: 'Scanner device token has been revoked' }) });
     }
-    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(MOCK_MANIFEST) });
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(wireManifest(MOCK_MANIFEST)) });
   });
   await page.route('**/api/checkin-points/*/scans/batch', (route) => {
     return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ results: [] }) });
@@ -792,8 +789,8 @@ test('U08: Reconnection refreshes manifest and resumes sync', async ({ context }
   await page.close();
 });
 
-// U09: Safe IndexedDB cleanup removes only the credential
-test('U09: Unpair cleanup removes credential, keeps operational data', async ({ context }) => {
+// U09: Unpair cleanup removes the credential and the cached attendee data, never an unsynced scan
+test('U09: Unpair cleanup removes credential and cached attendee data', async ({ context }) => {
   const page = await context.newPage();
   await setupApiRoutes(page);
   await navigateToScanner(page, TEST_TOKEN);
@@ -809,10 +806,10 @@ test('U09: Unpair cleanup removes credential, keeps operational data', async ({ 
   await page.getByRole('button', { name: /Unpair This Scanner/i }).click();
   await page.getByRole('button', { name: /Confirm Unpair/i }).click();
   await expect(page.getByText(/Server revocation confirmed/i)).toBeVisible({ timeout: 10000 });
-  // Credential DB cleared for this point; scan DB + manifest intact
+  // Credential DB cleared for this point; the manifest and the (uploaded) scan are gone too
   expect(await getScannerToken(page)).toBeNull();
-  expect(await getScanCount(page)).toBe(1);
-  expect(await manifestExists(page)).toBe(true);
+  expect(await getScanCount(page)).toBe(0);
+  expect(await manifestExists(page)).toBe(false);
   await page.close();
 });
 
@@ -832,7 +829,7 @@ test('U10: Restart after revocation preserves records and demands re-pair', asyn
   await page1.close();
   // Restarted browser, revoked server-side: manifest refresh is rejected
   const page2 = await context.newPage();
-  await page2.route('**/api/checkin-points/*/manifest', (route) => {
+  await page2.route('**/api/checkin-points/*/manifest*', (route) => {
     return route.fulfill({ status: 401, contentType: 'application/json', body: JSON.stringify({ detail: 'Scanner device token has been revoked' }) });
   });
   await page2.goto(`/scan/${POINT_ID}`);

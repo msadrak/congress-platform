@@ -2,6 +2,7 @@
 peer. Every ticket is active today; these tests flip the status in the database to pin the rule down before
 cancellation or pass reissue exist."""
 
+import hashlib
 import uuid
 from typing import Any
 
@@ -60,7 +61,9 @@ async def test_gates_admit_only_active_tickets_with_active_qr(app: FastAPI, clie
         headers=bearer(organizer),
     )
 
-    assert [t["qr_secret"] for t in manifest.json()["tickets"]] == [active["qr_secret"]]
+    # The manifest carries sha256("<event_id>:<secret>") (ws A2), never the raw secret.
+    active_hash = hashlib.sha256(f"{event_id}:{active['qr_secret']}".encode()).hexdigest()
+    assert [t["qr_hash"] for t in manifest.json()["tickets"]] == [active_hash]
     verdicts = [(r["status"], r["rejection_reason"]) for r in scans.json()["results"]]
     assert verdicts == [("ADMITTED", None), ("REJECTED", "TICKET_INACTIVE"), ("REJECTED", "INVALID_TICKET")]
     assert scans.json()["results"][1]["attendee_name"] == "Attendee 72"

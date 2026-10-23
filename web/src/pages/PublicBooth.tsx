@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import {
-  ATTENDEE_TOKEN_STORAGE,
   createApiClient,
   type PublicBoothOut,
 } from "../api/client";
+import { attendeeResponseState, isStoredAttendeeToken } from "../lib/attendeeSession";
+import { useAttendeeSession } from "../hooks/useAttendeeSession";
+import { usePageTitle } from "../hooks/usePageTitle";
 import { PublicLayout } from "../layouts/PublicLayout";
 import { Button, LinkButton } from "../components/ui/Button";
 import { Icon } from "../components/ui/Icon";
@@ -40,10 +42,7 @@ export default function PublicBooth() {
   const [bookmarkLoading, setBookmarkLoading] = useState(false);
   const bookmarkContext = useRef<{ active: boolean } | null>(null);
 
-  const token =
-    typeof window !== "undefined"
-      ? localStorage.getItem(ATTENDEE_TOKEN_STORAGE)
-      : null;
+  const { token, expired } = useAttendeeSession();
 
   useEffect(() => {
     if (!slug || !boothId) return;
@@ -84,15 +83,16 @@ export default function PublicBooth() {
       try {
         const client = createApiClient({ kind: "user", token });
         const { data, error: err, response } = await client.GET("/api/attendees/me/bookmarks/booths");
-        if (!context.active || localStorage.getItem(ATTENDEE_TOKEN_STORAGE) !== token) return;
-        if (err) {
-          if (response.status === 401) localStorage.removeItem(ATTENDEE_TOKEN_STORAGE);
-          setBookmarkFeedback(response.status === 401 ? "fbSessionExpired" : "fbLoadFailed");
+        if (!context.active) return;
+        const session = attendeeResponseState(token, response.status);
+        if (session === "changed") return;
+        if (session === "expired" || err) {
+          setBookmarkFeedback(session === "expired" ? "fbSessionExpired" : "fbLoadFailed");
         } else if (data) {
           setIsBookmarked(data.some((saved) => saved.booth_id === boothId && saved.event_slug === slug));
         }
       } catch {
-        if (context.active && localStorage.getItem(ATTENDEE_TOKEN_STORAGE) === token) setBookmarkFeedback("fbLoadFailed");
+        if (context.active && isStoredAttendeeToken(token)) setBookmarkFeedback("fbLoadFailed");
       } finally {
         if (context.active) setBookmarkLoading(false);
       }
@@ -104,7 +104,7 @@ export default function PublicBooth() {
   const handleToggleBookmark = async () => {
     if (!token || !boothId || !booth || bookmarkLoading || bookmarking) return;
     // The rendered token can outlive the stored session (e.g. another tab signed in or out).
-    if (localStorage.getItem(ATTENDEE_TOKEN_STORAGE) !== token) {
+    if (!isStoredAttendeeToken(token)) {
       setBookmarkFeedback("fbSessionChanged");
       return;
     }
@@ -119,16 +119,17 @@ export default function PublicBooth() {
       const { data, error: err, response } = isBookmarked
         ? await client.DELETE("/api/attendees/me/bookmarks/booths/{booth_id}", options)
         : await client.POST("/api/attendees/me/bookmarks/booths/{booth_id}", options);
-      if (!context.active || localStorage.getItem(ATTENDEE_TOKEN_STORAGE) !== token) return;
-      if (err) {
-        if (response.status === 401) localStorage.removeItem(ATTENDEE_TOKEN_STORAGE);
-        setBookmarkFeedback(response.status === 401 ? "fbSessionExpired" : "fbUpdateFailed");
+      if (!context.active) return;
+      const session = attendeeResponseState(token, response.status);
+      if (session === "changed") return;
+      if (session === "expired" || err) {
+        setBookmarkFeedback(session === "expired" ? "fbSessionExpired" : "fbUpdateFailed");
       } else if (data) {
         setIsBookmarked(data.bookmarked);
         setBookmarkFeedback(data.bookmarked ? "fbSaved" : "fbRemoved");
       }
     } catch {
-      if (context.active && localStorage.getItem(ATTENDEE_TOKEN_STORAGE) === token) setBookmarkFeedback("fbUpdateFailed");
+      if (context.active && isStoredAttendeeToken(token)) setBookmarkFeedback("fbUpdateFailed");
     } finally {
       if (context.active) setBookmarking(false);
     }
@@ -136,6 +137,7 @@ export default function PublicBooth() {
 
   const { locale, setLocale } = usePublicLocale(booth ? contentLocale(booth.event_name) : undefined);
   const c = publicCopy[locale];
+  usePageTitle(booth?.name, booth?.event_name);
 
   // Loading skeleton
   if (loading) {
@@ -195,7 +197,7 @@ export default function PublicBooth() {
   const websiteUrl = booth.website_url && /^https?:\/\//i.test(booth.website_url) ? booth.website_url : null;
   const code = booth.location || c.mainFloor;
   const latinCode = Boolean(booth.location) && LATIN_CODE.test(booth.location) && booth.location.length <= 8;
-  const feedbackText = bookmarkFeedback ? c[bookmarkFeedback] : null;
+  const feedbackText = expired ? c.fbSessionExpired : bookmarkFeedback ? c[bookmarkFeedback] : null;
   const feedbackOk = bookmarkFeedback === "fbSaved" || bookmarkFeedback === "fbRemoved";
 
   return (
@@ -244,9 +246,8 @@ export default function PublicBooth() {
                   >
                     {code}
                   </p>
-                  <div className="mt-6 flex flex-wrap items-center justify-between gap-2 border-t border-border-default pt-4 text-xs text-text-muted">
-                    <span className="font-mono ltr-isolate">/{booth.slug}</span>
-                    <span className="truncate"><Bidi text={booth.event_name} /></span>
+                  <div className="mt-6 border-t border-border-default pt-4 text-xs text-text-muted">
+                    <span className="block truncate"><Bidi text={booth.event_name} /></span>
                   </div>
                 </div>
               </div>

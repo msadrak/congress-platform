@@ -1,5 +1,14 @@
 # 02 — Security, Privacy & Data Integrity Review
 
+> **Historical review (2026-10-10), kept as evidence. Superseded in parts.** Since this review, sign-in moved to mobile
+> number + SMS code and passwords and e-mail were removed (ADR 0012); the confirmation SMS opens a read-only pass via a
+> short link (ADR 0015); later hardening refuses revoked organizer keys and their sessions on scanner and desk routes,
+> requires the user type on attendee tokens, encodes braces in the server-rendered page head, accepts only active
+> tickets with an active QR, hides `/docs` and `/openapi.json` in production, and adds the optional
+> `CONGRESS_SECRET_BOX_KEY` (ADR 0013 status); client-facing errors carry stable codes
+> (`docs/CODING_STANDARDS.md` §2.F). References below to e-mail fields describe the data model of that date. For the
+> current verdict see `docs/pilot/MASTER-PILOT-READINESS.md` and the ADR status sections.
+
 **Evaluation Date:** 2026-10-10  
 **Security Standard:** OWASP Top 10 / CWE-1236 / Tenant & Booth Isolation Standards  
 **Classification:** VERIFIED  
