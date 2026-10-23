@@ -263,7 +263,7 @@ async def test_reissue_replaces_the_secret_and_texts_the_new_pass(app: FastAPI, 
     await deliver_due(app.state.sessionmaker, app.state.sms)
     notice = sms_to(app, "09121230061")[-1]
     assert notice.kind == "ticket_reissued"
-    assert "دوباره صادر شد" in notice.text and "/my-ticket" in notice.text
+    assert "دوباره صادر شد" in notice.text and "/t/" in notice.text
 
 
 async def test_transfer_moves_the_place_to_another_person(app: FastAPI, client: AsyncClient) -> None:
