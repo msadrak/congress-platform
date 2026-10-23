@@ -94,11 +94,11 @@ def process_image(raw: bytes) -> ProcessedImage:
 
 PDF_MAGIC = b"%PDF-"
 # Names a schedule never needs: scripts, launching programs, embedded files and multimedia, forms (XFA, submit,
-# import), automatic actions (/AA), web links (/URI) and jumps into other documents. Compared after decoding
-# `#xx` escapes, so `/J#61vaScript` is `/JavaScript`.
+# import), automatic actions (/AA) and jumps into other documents. Compared after decoding `#xx` escapes, so
+# `/J#61vaScript` is `/JavaScript`. Ordinary web links (/URI) are allowed; their targets are checked below.
 _PDF_BLOCKED_NAMES = frozenset(
     {
-        b"JavaScript", b"JS", b"Launch", b"EmbeddedFile", b"EmbeddedFiles", b"RichMedia", b"XFA", b"AA", b"URI",
+        b"JavaScript", b"JS", b"Launch", b"EmbeddedFile", b"EmbeddedFiles", b"RichMedia", b"XFA", b"AA",
         b"SubmitForm", b"ImportData", b"GoToR", b"GoToE", b"Rendition", b"Sound", b"Movie",
     }
 )
@@ -133,10 +133,45 @@ def _pdf_names(data: bytes) -> list[tuple[bytes, int]]:
     ]
 
 
+# Link targets a schedule may open: web pages, e-mail and phone. Anything else (javascript:, data:, file:, …)
+# is refused; a target with no scheme is a relative link and harmless.
+_PDF_LINK_SCHEMES = frozenset({b"http", b"https", b"mailto", b"tel"})
+_PDF_SCHEME = re.compile(rb"^\s*([A-Za-z][A-Za-z0-9+.\-]*):")
+
+
+def _pdf_string_at(data: bytes, start: int) -> bytes | None:
+    """The literal `( … )` or hex `< … >` string starting at `start` (after whitespace), or None."""
+    rest = data[start:].lstrip(_PDF_WHITESPACE)
+    if rest[:1] == b"(":
+        depth, out, i = 1, bytearray(), 1
+        while i < len(rest) and depth:
+            c = rest[i : i + 1]
+            if c == b"\\":
+                out += rest[i + 1 : i + 2]
+                i += 2
+                continue
+            depth += c == b"("
+            depth -= c == b")"
+            if depth:
+                out += c
+            i += 1
+        return bytes(out)
+    if rest[:1] == b"<" and rest[1:2] != b"<":
+        end = rest.find(b">")
+        digits = re.sub(rb"[^0-9A-Fa-f]", b"", rest[1 : end if end > 0 else len(rest)])
+        return bytes.fromhex((digits + b"0" * (len(digits) % 2)).decode())
+    return None
+
+
 def _refuse_active_names(data: bytes) -> None:
     for name, end in _pdf_names(data):
         if name in _PDF_BLOCKED_NAMES:
             raise RejectedPdf(ACTIVE_PDF)
+        if name == b"URI":
+            target = _pdf_string_at(data, end)
+            scheme = _PDF_SCHEME.match(target) if target is not None else None
+            if scheme is not None and scheme.group(1).lower() not in _PDF_LINK_SCHEMES:
+                raise RejectedPdf(ACTIVE_PDF)
         # A document-open action is accepted only as an explicit destination (`[page /Fit]`), which merely sets
         # the first view; a dictionary or a reference can be an action.
         if name == b"OpenAction" and data[end:].lstrip(_PDF_WHITESPACE)[:1] != b"[":
@@ -174,7 +209,7 @@ def _object_streams(raw: bytes) -> list[bytes]:
     return inflated
 
 
-ACTIVE_PDF = "PDFs with scripts, automatic actions, web links, forms or embedded files are not accepted."
+ACTIVE_PDF = "PDFs with scripts, automatic actions, unsafe links, forms or embedded files are not accepted."
 UNCHECKABLE_PDF = "This PDF stores its content in a way that cannot be checked; save or print it again as a PDF."
 
 
