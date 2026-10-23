@@ -263,8 +263,8 @@ export default function EventCheckIn() {
             )}
           </div>
           {(showDayActions || menu.length > 0) && (
-            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border-subtle px-5 py-3">
-              <div className="flex flex-wrap items-center gap-2">
+            <div className="flex items-center justify-between gap-2 border-t border-border-subtle px-5 py-3">
+              <div className="flex min-w-0 flex-wrap items-center gap-2">
                 {showDayActions && (
                   <>
                     <Button type="button" variant="secondary" size="sm" icon="smartphone" onClick={() => setDevicesPoint(pt)}>
