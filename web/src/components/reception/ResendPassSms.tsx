@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { PassSmsResendOut } from "../../api/client";
 import { formatMobile } from "../../lib/mobile";
-import type { AttendeeLocale } from "../../lib/i18n";
+import { codeFontClass, type AttendeeLocale } from "../../lib/i18n";
 import { Button } from "../ui/Button";
 import { Icon } from "../ui/Icon";
 
@@ -49,7 +49,7 @@ export function ResendPassSms({ mobile, locale, isRtl, onResend }: ResendPassSms
     if (mounted.current && outcome.kind !== "unauthorized") setState({ status: "done", outcome });
   };
 
-  const number = <bdi dir="ltr" className="font-mono">{formatMobile(mobile, locale)}</bdi>;
+  const number = <bdi dir="ltr" className={codeFontClass(formatMobile(mobile, locale))}>{formatMobile(mobile, locale)}</bdi>;
   const outcome = state.status === "done" ? state.outcome : null;
   let tone: "success" | "warning" | "danger" = "success";
   let message: ReactNode = null;

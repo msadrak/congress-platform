@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useParams } from "react-router-dom";
-import { ATTENDEE_TOKEN_STORAGE, createApiClient } from "../api/client";
+import { createApiClient } from "../api/client";
 import { AttendeeLayout } from "../layouts/AttendeeLayout";
 import { useAttendeeLocale } from "../lib/i18n";
-import { isStoredAttendeeToken, rejectAttendeeToken } from "../lib/attendeeSession";
+import { attendeeResponseState, isStoredAttendeeToken } from "../lib/attendeeSession";
+import { useAttendeeSession } from "../hooks/useAttendeeSession";
 import { loadOwnerScopedTickets, saveOwnerScopedTickets } from "../lib/ticketCache";
 import { congressPath, useCongressEvent, useRevalidateOnFocus } from "../lib/congressContext";
 import { signInPath } from "../lib/safeRedirect";
@@ -19,7 +20,7 @@ export default function MyCongress() {
   const localeHook = useAttendeeLocale();
   const { locale, t, isRtl } = localeHook;
   const congress = useCongressEvent(slug);
-  const token = typeof window !== "undefined" ? localStorage.getItem(ATTENDEE_TOKEN_STORAGE) : null;
+  const { token } = useAttendeeSession();
   const [overview, setOverview] = useState<HomeOverview | null>(null);
   const [failed, setFailed] = useState(false);
   // Bumped when the attendee returns to the tab: passes (tier names included) and counts are re-read.
@@ -42,13 +43,15 @@ export default function MyCongress() {
           client.GET("/api/attendees/me/network"),
           client.GET("/api/me/access"),
         ]);
-        if (!active || !isStoredAttendeeToken(token)) return;
-        if ([ticketsRes, networkRes, accessRes].some((r) => r.response.status === 401)) {
-          rejectAttendeeToken(token);
+        if (!active) return;
+        const states = [ticketsRes, networkRes, accessRes].map((r) => attendeeResponseState(token, r.response.status));
+        if (states.includes("expired")) {
+          // The API client already removed the token and this owner's cached passes.
           setOverview(null);
           setFailed(true);
           return;
         }
+        if (!isStoredAttendeeToken(token)) return;
         const cache = loadOwnerScopedTickets(token);
         if (ticketsRes.data) saveOwnerScopedTickets(token, ticketsRes.data);
         const tickets = ticketsRes.data ?? (cache.status === "valid" ? cache.tickets : []);

@@ -4,6 +4,7 @@ import { asciiDigits } from "../lib/mobile";
 import { Button } from "../components/ui/Button";
 import { Icon } from "../components/ui/Icon";
 import { Field, FormAlert, SectionHeader } from "../components/organizer/WorkspaceUi";
+import { useMutation } from "../hooks/useMutation";
 import { usePlatform } from "./platformContext";
 
 type RuleField =
@@ -23,15 +24,26 @@ const FIELDS: { key: RuleField; min: number; max: number; fa: string; en: string
 
 /** Sign-in code rules (length, validity, send limits), applied immediately to new codes. */
 export default function PlatformSignIn() {
-  const { client, status, refreshStatus, checkResponse, isRtl } = usePlatform();
+  const { client, status, refreshStatus, checkResponse, locale, isRtl } = usePlatform();
   const [rules, setRules] = useState<SignInOut>(status.sign_in);
   const [values, setValues] = useState<Record<RuleField, string>>(() =>
     Object.fromEntries(FIELDS.map((f) => [f.key, String(status.sign_in[f.key])])) as Record<RuleField, string>,
   );
-  const [saving, setSaving] = useState(false);
+  // Each request ends its own spinner whatever happens (useMutation); a network failure is its error.
+  const saveRequest = useMutation(locale);
+  const resetRequest = useMutation(locale);
+  const saving = saveRequest.busy;
+  const resetting = resetRequest.busy;
+  /** An HTTP failure's message; network failures live in the mutations. */
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
-  const [resetting, setResetting] = useState(false);
+  const shownError = error ?? saveRequest.error ?? resetRequest.error;
+  const clearMessages = () => {
+    setError(null);
+    setSaved(null);
+    saveRequest.setError(null);
+    resetRequest.setError(null);
+  };
 
   const parsed = (key: RuleField) => {
     const digits = asciiDigits(values[key].trim());
@@ -51,13 +63,12 @@ export default function PlatformSignIn() {
   const save = async (e: FormEvent) => {
     e.preventDefault();
     if (saving || invalid.length) return;
-    setSaving(true);
-    setError(null);
-    setSaved(null);
+    clearMessages();
     const changed = Object.fromEntries(FIELDS.filter((f) => parsed(f.key) !== rules[f.key]).map((f) => [f.key, parsed(f.key)]));
-    const { data, error: err, response } = await client.PUT("/api/platform/sign-in", { body: { ...changed, reset: [] } });
+    const result = await saveRequest.run(() => client.PUT("/api/platform/sign-in", { body: { ...changed, reset: [] } }));
+    if (!result.ok) return;
+    const { data, error: err, response } = result.value;
     checkResponse(response.status);
-    setSaving(false);
     if (data) {
       apply(data);
       setSaved(isRtl ? "ذخیره و اعمال شد." : "Saved and applied.");
@@ -68,23 +79,17 @@ export default function PlatformSignIn() {
 
   const reset = async (key: RuleField) => {
     if (resetting) return;
-    setResetting(true);
-    setError(null);
-    setSaved(null);
-    try {
-      const { data, error: err, response } = await client.PUT("/api/platform/sign-in", { body: { reset: [key] } });
-      checkResponse(response.status);
-      if (data) {
-        apply(data);
-        const field = FIELDS.find((f) => f.key === key);
-        setSaved(isRtl ? `«${field?.fa ?? key}» اکنون از مقدار .env پیروی می‌کند.` : `“${field?.en ?? key}” now follows the .env value.`);
-      } else {
-        setError(err ? formatApiError(err) : isRtl ? "تغییری اعمال نشد." : "Nothing was changed.");
-      }
-    } catch {
-      setError(isRtl ? "اتصال به سرور برقرار نشد." : "Could not reach the server.");
-    } finally {
-      setResetting(false);
+    clearMessages();
+    const result = await resetRequest.run(() => client.PUT("/api/platform/sign-in", { body: { reset: [key] } }));
+    if (!result.ok) return;
+    const { data, error: err, response } = result.value;
+    checkResponse(response.status);
+    if (data) {
+      apply(data);
+      const field = FIELDS.find((f) => f.key === key);
+      setSaved(isRtl ? `«${field?.fa ?? key}» اکنون از مقدار .env پیروی می‌کند.` : `“${field?.en ?? key}” now follows the .env value.`);
+    } else {
+      setError(err ? formatApiError(err) : isRtl ? "تغییری اعمال نشد." : "Nothing was changed.");
     }
   };
 
@@ -126,7 +131,7 @@ export default function PlatformSignIn() {
           ))}
         </div>
         {invalid.length > 0 && <FormAlert>{isRtl ? "برخی مقدارها خارج از بازه مجاز است." : "Some values are outside the allowed range."}</FormAlert>}
-        {error && <FormAlert>{error}</FormAlert>}
+        {shownError && <FormAlert>{shownError}</FormAlert>}
         {saved && <p role="status" className="text-sm font-medium text-status-success-text">{saved}</p>}
         <Button type="submit" variant="primary" size="md" disabled={saving || invalid.length > 0} aria-busy={saving}>
           <Icon name="check" size={16} />

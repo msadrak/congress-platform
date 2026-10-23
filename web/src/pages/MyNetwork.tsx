@@ -1,16 +1,18 @@
 import React, { useCallback, useEffect, useState } from "react";
 import {
-  ATTENDEE_TOKEN_STORAGE,
   createApiClient,
   formatApiError,
+  localizedApiError,
   type ConnectionOut,
   type PrivacyPreferenceOut,
 } from "../api/client";
 import {
+  attendeeResponseState,
   isStoredAttendeeToken,
-  rejectAttendeeToken,
   sessionChangedMessage,
 } from "../lib/attendeeSession";
+import { useAttendeeSession } from "../hooks/useAttendeeSession";
+import { useMutation } from "../hooks/useMutation";
 import {
   useAttendeeLocale,
   formatLocalizedDate,
@@ -45,25 +47,28 @@ export default function MyNetwork() {
   const congress = useCongressEvent(slug);
   const [connections, setConnections] = useState<ConnectionOut[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [actionError, setError] = useState<string | null>(null);
+  /** Why the list could not be loaded, localized at render so a language switch never refetches. */
+  const [loadError, setLoadError] = useState<unknown>(null);
+  const error = actionError ?? (loadError === null ? null : localizedApiError(loadError, locale));
 
   // Privacy preference state (Issue #19)
   const [privacyPref, setPrivacyPref] = useState<PrivacyPreferenceOut | null>(null);
-  const [updatingPrivacy, setUpdatingPrivacy] = useState(false);
+  const { busy: updatingPrivacy, run: runPrivacy } = useMutation(locale);
   const [privacyFeedback, setPrivacyFeedback] = useState<string | null>(null);
 
   // Connect modal state
   const [isConnectModalOpen, setIsConnectModalOpen] = useState(false);
   const [peerQrSecret, setPeerQrSecret] = useState("");
   const [initialNotes, setInitialNotes] = useState("");
-  const [submittingConnect, setSubmittingConnect] = useState(false);
+  const { busy: submittingConnect, run: runConnect } = useMutation(locale);
   const [connectModalError, setConnectModalError] = useState<string | null>(null);
   const [connectFeedback, setConnectFeedback] = useState<ConnectFeedback | null>(null);
 
   // Notes editing state
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editNotesText, setEditNotesText] = useState("");
-  const [savingNote, setSavingNote] = useState(false);
+  const { busy: savingNote, run: runSaveNote } = useMutation(locale);
   const [noteFeedback, setNoteFeedback] = useState<string | null>(null);
 
   // Inside a congress portal only that congress's connections are shown and actionable. The list
@@ -74,10 +79,7 @@ export default function MyNetwork() {
     : connections;
   const isVisibleConnection = (id: string) => visibleConnections.some((c) => c.id === id);
 
-  const token =
-    typeof window !== "undefined"
-      ? localStorage.getItem(ATTENDEE_TOKEN_STORAGE)
-      : null;
+  const { token } = useAttendeeSession();
 
   const loadData = useCallback(async () => {
     if (!token) {
@@ -86,34 +88,31 @@ export default function MyNetwork() {
     }
     setLoading(true);
     setError(null);
-    const client = createApiClient({ kind: "user", token });
+    setLoadError(null);
+    // A network failure resolves as a typed result, so the list shows an error instead of spinning.
+    const client = createApiClient({ kind: "user", token }, { networkErrors: "result" });
+    try {
+      const [connRes, privacyRes] = await Promise.all([
+        client.GET("/api/attendees/me/network"),
+        client.GET("/api/attendees/me/network/privacy"),
+      ]);
 
-    const [connRes, privacyRes] = await Promise.all([
-      client.GET("/api/attendees/me/network"),
-      client.GET("/api/attendees/me/network/privacy"),
-    ]);
+      // The stored session changed (or a 401 removed it) while the request was in flight: ignore
+      // this response and never delete a newer session. The re-render reads the current token.
+      if (attendeeResponseState(token, connRes.response.status) !== "current") return;
 
-    // The stored session changed while the request was in flight: ignore this response and
-    // never delete the newer session. The re-render re-reads the current token.
-    if (!isStoredAttendeeToken(token)) {
+      if (connRes.error) {
+        setLoadError(connRes.error);
+      } else if (connRes.data) {
+        setConnections(connRes.data);
+      }
+
+      if (privacyRes.data) {
+        setPrivacyPref(privacyRes.data);
+      }
+    } finally {
       setLoading(false);
-      return;
     }
-    if (connRes.response.status === 401 || privacyRes.response.status === 401) {
-      rejectAttendeeToken(token);
-    }
-
-    if (connRes.error) {
-      setError(formatApiError(connRes.error));
-    } else if (connRes.data) {
-      setConnections(connRes.data);
-    }
-
-    if (privacyRes.data) {
-      setPrivacyPref(privacyRes.data);
-    }
-
-    setLoading(false);
   }, [token]);
 
   useEffect(() => {
@@ -164,29 +163,27 @@ export default function MyNetwork() {
       setError(sessionChangedMessage(locale));
       return;
     }
-    setUpdatingPrivacy(true);
     setPrivacyFeedback(null);
     const newConsent = !privacyPref.share_contact_with_peers;
     const client = createApiClient({ kind: "user", token });
 
-    const { data, error: err, response } = await client.PATCH(
-      "/api/attendees/me/network/privacy",
-      {
+    const result = await runPrivacy(() =>
+      client.PATCH("/api/attendees/me/network/privacy", {
         body: { share_contact_with_peers: newConsent },
-      }
+      })
     );
-
-    const stillCurrent = isStoredAttendeeToken(token);
-    if (response.status === 401) rejectAttendeeToken(token);
-    if (stillCurrent) {
-      if (err) {
-        setError(formatApiError(err));
-      } else if (data) {
-        setPrivacyPref(data);
-        setPrivacyFeedback(t.privacySavedFeedback);
-      }
+    if (!result.ok) {
+      if (result.message && isStoredAttendeeToken(token)) setError(result.message);
+      return;
     }
-    setUpdatingPrivacy(false);
+    const { data, error: err, response } = result.value;
+    if (attendeeResponseState(token, response.status) !== "current") return;
+    if (err) {
+      setError(formatApiError(err));
+    } else if (data) {
+      setPrivacyPref(data);
+      setPrivacyFeedback(t.privacySavedFeedback);
+    }
   };
 
   // One submit path for both inputs: a decoded camera value and the typed fallback code.
@@ -208,24 +205,23 @@ export default function MyNetwork() {
     }
 
     const note = initialNotes.trim();
-    setSubmittingConnect(true);
     setConnectModalError(null);
     const client = createApiClient({ kind: "user", token });
-    const { data, error: err, response } = await client.POST(
-      "/api/attendees/me/network/scan",
-      {
+    const result = await runConnect(() =>
+      client.POST("/api/attendees/me/network/scan", {
         body: {
           qr_secret: secret,
           private_notes: note,
           event_id: activeEventId,
         },
-      }
+      })
     );
-
-    const stillCurrent = isStoredAttendeeToken(token);
-    if (response.status === 401) rejectAttendeeToken(token);
-    setSubmittingConnect(false);
-    if (!stillCurrent) return;
+    if (!result.ok) {
+      if (result.message && isStoredAttendeeToken(token)) setConnectModalError(result.message);
+      return;
+    }
+    const { data, error: err, response } = result.value;
+    if (attendeeResponseState(token, response.status) !== "current") return;
     if (err) {
       setConnectModalError(
         response.status === 409
@@ -266,20 +262,20 @@ export default function MyNetwork() {
       setError(sessionChangedMessage(locale));
       return;
     }
-    setSavingNote(true);
     setNoteFeedback(null);
     const client = createApiClient({ kind: "user", token });
-    const { data, error: err, response } = await client.PATCH(
-      "/api/attendees/me/network/{connection_id}",
-      {
+    const result = await runSaveNote(() =>
+      client.PATCH("/api/attendees/me/network/{connection_id}", {
         params: { path: { connection_id: connectionId } },
         body: { private_notes: editNotesText.trim() },
-      }
+      })
     );
-    const stillCurrent = isStoredAttendeeToken(token);
-    if (response.status === 401) rejectAttendeeToken(token);
-    setSavingNote(false);
-    if (!stillCurrent) return;
+    if (!result.ok) {
+      if (result.message && isStoredAttendeeToken(token)) setError(result.message);
+      return;
+    }
+    const { data, error: err, response } = result.value;
+    if (attendeeResponseState(token, response.status) !== "current") return;
     if (err) {
       setError(formatApiError(err));
     } else if (data) {
@@ -303,20 +299,10 @@ export default function MyNetwork() {
         "/api/attendees/me/network/{connection_id}/vcard",
         { params: { path: { connection_id: connectionId } }, parseAs: "blob" }
       );
-      const stillCurrent = isStoredAttendeeToken(token);
-      if (response.status === 401) rejectAttendeeToken(token);
-      // No completion feedback for a session that has since changed.
-      if (!stillCurrent) return;
+      // No completion feedback for a session that has since changed or expired (the page signs out).
+      if (attendeeResponseState(token, response.status) !== "current") return;
       if (!response.ok || !blob) {
-        setError(
-          response.status === 401
-            ? isRtl
-              ? "نشست شما دیگر معتبر نیست. لطفاً دوباره وارد شوید."
-              : "Your session is no longer valid. Please sign in again."
-            : isRtl
-              ? "دریافت کارت تماس ممکن نشد."
-              : "Failed to download the contact card."
-        );
+        setError(isRtl ? "دریافت کارت تماس ممکن نشد." : "Failed to download the contact card.");
         return;
       }
       const link = document.createElement("a");

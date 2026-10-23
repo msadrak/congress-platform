@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { createApiClient } from "../../api/client";
-import { isStoredAttendeeToken, rejectAttendeeToken } from "../../lib/attendeeSession";
+import { isStoredAttendeeToken } from "../../lib/attendeeSession";
 import { loadOwnerScopedTickets } from "../../lib/ticketCache";
 
 /**
@@ -22,10 +22,10 @@ export function useHeldPass(slug: string | undefined, token: string | null): boo
     };
     createApiClient({ kind: "user", token })
       .GET("/api/attendees/me/tickets")
-      .then(({ data, response }) => {
+      .then(({ data }) => {
+        // A 401 has already removed the token (the API client applies the session policy), so the page
+        // re-renders signed out and this answer is dropped with the rest of a changed session's.
         if (!active || !isStoredAttendeeToken(token)) return;
-        // An expired session is cleared; the state update re-renders the page, so the header reads it.
-        if (response.status === 401) rejectAttendeeToken(token);
         setAnswer({ key, held: data ? data.some((ticket) => ticket.event_slug === slug) : fromCache() });
       })
       .catch(() => {

@@ -8,6 +8,7 @@ import { CongressSignature } from "../components/brand/CongressSignature";
 import { indexLabel, usePublicLocale, type PublicLocale } from "../components/public/copy";
 import { homeCopy, type EnvironmentCopy } from "../components/public/homeCopy";
 import { BELOW_HEADER_MIN_H } from "../components/public/viewport";
+import { usePageTitle } from "../hooks/usePageTitle";
 
 type HomeCopy = (typeof homeCopy)[PublicLocale];
 
@@ -48,6 +49,7 @@ export default function Home() {
   const { locale, setLocale } = usePublicLocale();
   const h = homeCopy[locale];
   const pad = (n: number) => indexLabel(n, locale);
+  usePageTitle(locale === "fa" ? "سامانهٔ همایش" : "Congress platform");
   return (
     <PublicLayout locale={locale} onLocaleChange={setLocale}>
       {/* 1. Hero: header plus hero fill one screen on desktop; type and rhythm follow the viewport height. */}

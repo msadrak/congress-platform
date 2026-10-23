@@ -5,7 +5,7 @@ import { LinkButton } from "../components/ui/Button";
 import { Icon } from "../components/ui/Icon";
 import { AitebAttribution, AitebLogo } from "../components/brand/Aiteb";
 import { CongressSignature } from "../components/brand/CongressSignature";
-import { useAttendeeToken } from "../lib/attendeeSession";
+import { useAttendeeSession } from "../hooks/useAttendeeSession";
 import { eventAccentStyle } from "../lib/eventAccent";
 import { signInPath } from "../lib/safeRedirect";
 import { publicCopy, type PublicLocale } from "../components/public/copy";
@@ -56,7 +56,7 @@ export function PublicLayout({ children, locale, onLocaleChange, congressName, c
   // Event pages (/e/:slug…) sign in straight back to that congress's portal.
   const eventSlug = congressSlug ?? /^\/e\/([A-Za-z0-9_-]+)/.exec(location.pathname)?.[1];
   const signInTarget = eventSlug ? signInPath(eventSlug, `/c/${eventSlug}/my-congress`) : "/sign-in";
-  const signedIn = useAttendeeToken() !== null;
+  const { signedIn } = useAttendeeSession();
   // Inside a congress the attendee links open that congress's own pass and network.
   const passPath = eventSlug ? `/c/${eventSlug}/my-ticket` : "/my-tickets";
   const networkPath = eventSlug ? `/c/${eventSlug}/my-network` : "/my-network";

@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Link, Outlet, useLocation, useNavigate, useParams } from "react-router-dom";
-import { ORGANIZER_KEY_STORAGE, type EventOut } from "../api/client";
+import { ORGANIZER_KEY_STORAGE, registerUnauthorizedHandler, type EventOut } from "../api/client";
 import { formatLocalizedDate, useAttendeeLocale, type TranslationDictionary } from "../lib/i18n";
 import {
   EVENT_SETUP_SECTIONS,
@@ -14,6 +14,7 @@ import { Icon, type IconName } from "../components/ui/Icon";
 import { AitebAttribution, ArcMotif } from "../components/brand/Aiteb";
 import { CongressSignature } from "../components/brand/CongressSignature";
 import { OrganizerKeyGate } from "../components/organizer/OrganizerKeyGate";
+import { usePageTitle } from "../hooks/usePageTitle";
 import { EventStatusBadge } from "../components/organizer/WorkspaceUi";
 import { eventAccentStyle } from "../lib/eventAccent";
 import "../styles/organizer.css";
@@ -22,7 +23,11 @@ export type ActiveEvent = Pick<EventOut, "id" | "name" | "slug" | "starts_at" | 
 
 export interface OrganizerOutletContext {
   apiKey: string | null;
-  /** Reports a 401 for the exact key that was sent; any other key or failure is left alone. */
+  /**
+   * Reports a 401 for the exact key that was sent; any other key or failure is left alone. Requests
+   * through `createApiClient({ kind: "organizer" })` already report it (registerUnauthorizedHandler),
+   * so only raw `fetch` calls need this.
+   */
   onKeyRejected: (sentKey: string) => void;
   /** A page reports the event it has successfully loaded so the workspace can name it. */
   reportEvent: (event: ActiveEvent) => void;
@@ -96,6 +101,9 @@ export default function OrganizerLayout() {
     setKeyRejected(true);
   }, []);
 
+  // Every organizer-key request answered 401 lands here, whichever page sent it.
+  useEffect(() => registerUnauthorizedHandler("organizer", handleKeyRejected), [handleKeyRejected]);
+
   const reportEvent = useCallback((reported: ActiveEvent) => {
     setActiveEvent({
       id: reported.id,
@@ -141,6 +149,11 @@ export default function OrganizerLayout() {
   };
 
   const showGate = !apiKey && !isDesk;
+  // The layout names the tab for every section (a section's own effect would run first and be overwritten):
+  // "<section> · <event>", the console name until the event is known, and the console alone at the key gate.
+  const sectionLabel =
+    section === "analytics" ? t.breadcrumbAnalytics : section === "desk" ? t.breadcrumbDesk : section ? setupLabels[section] : t.breadcrumbEvents;
+  usePageTitle(showGate ? t.organizerConsole : sectionLabel, showGate ? null : (contextEvent?.name ?? t.organizerConsole));
   const languageLabel = isRtl ? "Switch language to English" : "تغییر زبان به فارسی";
 
   if (showGate) {

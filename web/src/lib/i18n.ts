@@ -791,28 +791,43 @@ export const translations = {
 };
 /**
  * Format date using Solar Hijri (Jalali) for Persian and Gregorian for English.
+ * Persian reads "پنجشنبه ۲۳ مهر ۱۴۰۵": ICU's fa pattern with a weekday puts the year first and the
+ * weekday last behind a Latin comma, so the parts are assembled in natural order instead.
+ * `timeZone` defaults to the reader's own.
  */
-export function formatLocalizedDate(dateStr: string, locale: AttendeeLocale): string {
+export function formatLocalizedDate(dateStr: string, locale: AttendeeLocale, timeZone?: string): string {
   try {
     const d = new Date(dateStr);
     if (isNaN(d.getTime())) return dateStr;
     if (locale === "fa") {
-      return new Intl.DateTimeFormat("fa-IR-u-ca-persian", {
+      const parts = new Intl.DateTimeFormat("fa-IR-u-ca-persian", {
         weekday: "long",
         year: "numeric",
         month: "long",
         day: "numeric",
-      }).format(d);
+        timeZone,
+      }).formatToParts(d);
+      const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((p) => p.type === type)?.value ?? "";
+      return [part("weekday"), part("day"), part("month"), part("year")].filter(Boolean).join(" ");
     }
     return new Intl.DateTimeFormat("en-US", {
       weekday: "short",
       year: "numeric",
       month: "short",
       day: "numeric",
+      timeZone,
     }).format(d);
   } catch {
     return dateStr;
   }
+}
+
+/**
+ * Class for a short code or number shown inline: IBM Plex Mono only covers Latin, so Persian text
+ * (Persian digits included) keeps the normal font with tabular numerals.
+ */
+export function codeFontClass(text: string): string {
+  return /^[\x20-\x7E]*$/.test(text) ? "font-mono" : "tabular";
 }
 /**
  * Format numbers using Persian numerals for 'fa' and Latin for 'en'.

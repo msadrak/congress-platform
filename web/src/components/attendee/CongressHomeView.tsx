@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
 import type { AccessEvent, AttendeeTicketDetail, PublicEvent } from "../../api/client";
-import { formatLocalizedNumber, type AttendeeLocale, type TranslationDictionary } from "../../lib/i18n";
+import { codeFontClass, formatLocalizedNumber, type AttendeeLocale, type TranslationDictionary } from "../../lib/i18n";
 import { congressPath } from "../../lib/congressContext";
 import { CongressSignature } from "../brand/CongressSignature";
 import { LinkButton } from "../ui/Button";
@@ -38,7 +38,7 @@ interface CongressHomeViewProps {
 
 function ModuleIndex({ value }: { value: string }) {
   return (
-    <span aria-hidden="true" className="flex items-center gap-2 font-mono text-xs font-medium text-text-muted tabular">
+    <span aria-hidden="true" className={`flex items-center gap-2 ${codeFontClass(value)} text-xs font-medium text-text-muted tabular`}>
       {value}
       <span className="h-px w-6 bg-border-strong" />
     </span>

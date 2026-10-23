@@ -22,7 +22,7 @@ import { EventEditDialog } from "../components/organizer/EventEditDialog";
 import { eventTiming } from "../components/organizer/eventTiming";
 
 export default function OrganizerEvents() {
-  const { apiKey, onKeyRejected, locale, t, isRtl } = useOutletContext<OrganizerOutletContext>();
+  const { apiKey, locale, t, isRtl } = useOutletContext<OrganizerOutletContext>();
   const [events, setEvents] = useState<EventOut[]>([]);
   const [now] = useState(() => Date.now());
   const [notice, setNotice] = useState<string | null>(null);
@@ -53,9 +53,8 @@ export default function OrganizerEvents() {
       setLoading(true);
       setError(null);
       const client = createApiClient({ kind: "organizer", token: apiKey });
-      const { data, error: err, response } = await client.GET("/api/events");
-      // 401 invalidates only the key that was sent, even if this page has since unmounted.
-      if (response.status === 401) onKeyRejected(apiKey);
+      // A 401 reaches the layout's key gate through the API client (registerUnauthorizedHandler).
+      const { data, error: err } = await client.GET("/api/events");
       if (!isMounted) return;
       if (err) {
         setError(formatApiError(err));
@@ -68,7 +67,7 @@ export default function OrganizerEvents() {
     return () => {
       isMounted = false;
     };
-  }, [apiKey, onKeyRejected]);
+  }, [apiKey]);
 
   const handleNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const newName = e.target.value;
@@ -101,7 +100,7 @@ export default function OrganizerEvents() {
     if (!apiKey) return;
     setSubmitting(true);
     const client = createApiClient({ kind: "organizer", token: apiKey });
-    const { data, error: err, response } = await client.POST("/api/events", {
+    const { data, error: err } = await client.POST("/api/events", {
       body: {
         name: name.trim(),
         slug: slug.trim(),
@@ -112,7 +111,6 @@ export default function OrganizerEvents() {
       },
     });
 
-    if (response.status === 401) onKeyRejected(apiKey);
     setSubmitting(false);
     if (err) {
       setFormError(formatApiError(err));
@@ -395,7 +393,6 @@ export default function OrganizerEvents() {
       <EventEditDialog
         event={editingEvent}
         apiKey={apiKey}
-        onKeyRejected={onKeyRejected}
         t={t}
         isRtl={isRtl}
         onClose={() => setEditingEvent(null)}

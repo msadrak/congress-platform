@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
-  ATTENDEE_TOKEN_STORAGE,
   createApiClient,
   formatApiError,
   type BoothOut,
@@ -10,10 +9,12 @@ import {
   type LeadScanRequest,
 } from "../api/client";
 import {
+  attendeeResponseState,
   isStoredAttendeeToken,
-  rejectAttendeeToken,
   sessionChangedMessage,
 } from "../lib/attendeeSession";
+import { useAttendeeSession } from "../hooks/useAttendeeSession";
+import { usePageTitle } from "../hooks/usePageTitle";
 import {
   useAttendeeLocale,
   formatLocalizedDate,
@@ -22,7 +23,6 @@ import {
 import { SkipLink } from "../components/ui/SkipLink";
 import { QrCameraInput } from "../components/QrCameraInput";
 import { boothSignInPath } from "../lib/safeRedirect";
-import { clearOwnerScopedTickets } from "../lib/ticketCache";
 import { eventAccentStyle } from "../lib/eventAccent";
 import { Badge } from "../components/ui/Badge";
 import { Button, LinkButton } from "../components/ui/Button";
@@ -105,10 +105,7 @@ function ExhibitorPortalContent() {
   const [exportError, setExportError] = useState<string | null>(null);
   const [exportNotice, setExportNotice] = useState<string | null>(null);
 
-  const token =
-    typeof window !== "undefined"
-      ? localStorage.getItem(ATTENDEE_TOKEN_STORAGE)
-      : null;
+  const { token, signOut } = useAttendeeSession();
 
   const sessionRef = useRef<string | null>(token);
 
@@ -143,14 +140,11 @@ function ExhibitorPortalContent() {
         ]);
 
         if (!isMounted) return;
-        // The stored session changed while the request was in flight: ignore this response and
-        // never delete the newer session. The re-render re-reads the current token.
-        if (!isStoredAttendeeToken(token)) {
+        // The stored session changed, or a 401 removed it, while the request was in flight: ignore
+        // this response and never delete a newer session. The re-render reads the current token.
+        if ([boothRes, leadsRes].some((res) => attendeeResponseState(token, res.response.status) !== "current")) {
           setLoading(false);
           return;
-        }
-        if (boothRes.response.status === 401 || leadsRes.response.status === 401) {
-          rejectAttendeeToken(token);
         }
 
         if (boothRes.error) {
@@ -184,12 +178,10 @@ function ExhibitorPortalContent() {
     if (!boothId || !token || !isStoredAttendeeToken(token)) return;
     try {
       const client = createApiClient({ kind: "user", token });
-      const { data, response } = await client.GET("/api/booths/{booth_id}/leads", {
+      const { data } = await client.GET("/api/booths/{booth_id}/leads", {
         params: { path: { booth_id: boothId } },
       });
-      const stillCurrent = isStoredAttendeeToken(token);
-      if (response.status === 401) rejectAttendeeToken(token);
-      if (data && stillCurrent) setAllLeads(data);
+      if (data && isStoredAttendeeToken(token)) setAllLeads(data);
     } catch {
       // The list keeps its last confirmed state.
     }
@@ -208,10 +200,7 @@ function ExhibitorPortalContent() {
   }, [allLeads, searchFilter, ratingFilter]);
 
   const handleLogout = () => {
-    if (typeof window !== "undefined") {
-      clearOwnerScopedTickets(localStorage.getItem(ATTENDEE_TOKEN_STORAGE));
-      localStorage.removeItem(ATTENDEE_TOKEN_STORAGE);
-    }
+    signOut();
     navigate(boothId ? boothSignInPath(boothId) : "/");
   };
 
@@ -258,9 +247,8 @@ function ExhibitorPortalContent() {
         body: input as LeadScanRequest,
       });
 
-      const stillCurrent = isStoredAttendeeToken(token);
-      if (response.status === 401) rejectAttendeeToken(token);
-      if (!stillCurrent) return;
+      // A changed or expired session (the API client removed it) gets no feedback here.
+      if (attendeeResponseState(token, response.status) !== "current") return;
       if (err) {
         setCaptureError(
           response.status === 404
@@ -346,9 +334,8 @@ function ExhibitorPortalContent() {
         body: { rating: editRating, tags, notes: editNotes.trim() },
       });
 
-      const stillCurrent = isStoredAttendeeToken(token);
-      if (response.status === 401) rejectAttendeeToken(token);
-      if (!stillCurrent) return;
+      // A changed or expired session (the API client removed it) gets no feedback here.
+      if (attendeeResponseState(token, response.status) !== "current") return;
       if (err) {
         setEditError(formatApiError(err));
       } else if (data) {
@@ -406,10 +393,8 @@ function ExhibitorPortalContent() {
         params: { path: { booth_id: boothId } },
         parseAs: "blob",
       });
-      const stillCurrent = isStoredAttendeeToken(token);
-      if (response.status === 401) rejectAttendeeToken(token);
-      // No download or completion feedback for a session that has since changed.
-      if (!stillCurrent) return;
+      // No download or completion feedback for a session that has since changed or expired.
+      if (attendeeResponseState(token, response.status) !== "current") return;
       if (!response.ok || !blob) {
         setExportError(isRtl ? "فهرست لیدها دریافت نشد. دوباره تلاش کنید؛ اگر تکرار شد دوباره وارد شوید." : "Couldn't export the lead list. Try again; if it keeps failing, sign in again.");
         return;
@@ -436,6 +421,7 @@ function ExhibitorPortalContent() {
   }
   const tagPresets = PRESET_TAG_KEYS.map((key) => t[key]);
   const workspaceLabel = isRtl ? "پیشخوان غرفه" : "Booth workspace";
+  usePageTitle(workspaceLabel, booth?.name);
   const spinner = <span aria-hidden="true" className="size-4 rounded-full border-2 border-current border-e-transparent animate-spin" />;
 
   // Unauthenticated view (fails closed)

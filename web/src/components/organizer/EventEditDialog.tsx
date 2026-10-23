@@ -11,7 +11,6 @@ interface EventEditDialogProps {
   /** The event being edited, open while non-null; each opening starts from the event's saved values. */
   event: EventOut | null;
   apiKey: string | null;
-  onKeyRejected: (sentKey: string) => void;
   t: TranslationDictionary;
   isRtl: boolean;
   onClose: () => void;
@@ -20,7 +19,7 @@ interface EventEditDialogProps {
 }
 
 /** Edit an event's name, schedule, venue and description. The slug is shown but never changes. */
-export function EventEditDialog({ event, apiKey, onKeyRejected, t, isRtl, onClose, onSaved }: EventEditDialogProps) {
+export function EventEditDialog({ event, apiKey, t, isRtl, onClose, onSaved }: EventEditDialogProps) {
   const [name, setName] = useState("");
   const [location, setLocation] = useState("");
   const [startsAt, setStartsAt] = useState("");
@@ -62,8 +61,9 @@ export function EventEditDialog({ event, apiKey, onKeyRejected, t, isRtl, onClos
     const endsDate = new Date(endsAt);
     if (!apiKey) return;
     setSubmitting(true);
+    // A 401 reaches the organizer layout's key gate through the API client (registerUnauthorizedHandler).
     const client = createApiClient({ kind: "organizer", token: apiKey });
-    const { data, error: err, response } = await client.PATCH("/api/events/{event_id}", {
+    const { data, error: err } = await client.PATCH("/api/events/{event_id}", {
       params: { path: { event_id: event.id } },
       body: {
         name: name.trim(),
@@ -73,7 +73,6 @@ export function EventEditDialog({ event, apiKey, onKeyRejected, t, isRtl, onClos
         description: description.trim(),
       },
     });
-    if (response.status === 401) onKeyRejected(apiKey);
     setSubmitting(false);
     if (err) {
       setFormError(formatApiError(err));

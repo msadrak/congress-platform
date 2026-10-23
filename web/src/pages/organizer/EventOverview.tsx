@@ -25,7 +25,7 @@ import {
 
 /** `/organizer/events/:eventId`: the congress at a glance, with a count and a link for every section. */
 export default function EventOverview() {
-  const { event, error, apiKey, onKeyRejected, replaceEvent, locale, t, isRtl } = useEventWorkspace();
+  const { event, error, apiKey, replaceEvent, locale, t, isRtl } = useEventWorkspace();
   const tiers = useEventList(loadTicketTiers);
   const points = useEventList(loadCheckInPoints);
   const booths = useEventList(loadBooths);
@@ -275,7 +275,6 @@ export default function EventOverview() {
       <EventEditDialog
         event={editingEvent}
         apiKey={apiKey}
-        onKeyRejected={onKeyRejected}
         t={t}
         isRtl={isRtl}
         onClose={() => setEditingEvent(null)}
