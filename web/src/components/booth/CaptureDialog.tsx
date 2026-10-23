@@ -9,7 +9,7 @@ import {
 } from "../../api/client";
 import { attendeeResponseState, isStoredAttendeeToken, sessionChangedMessage } from "../../lib/attendeeSession";
 import { translations, type AttendeeLocale } from "../../lib/i18n";
-import { isBoothAccessRevoked } from "../../lib/leadList";
+import { accessBlockOf, isEventArchived, type AccessBlock } from "../../lib/leadList";
 import { boothText, codedMessage } from "./boothText";
 import { QrCameraInput } from "../QrCameraInput";
 import { Badge } from "../ui/Badge";
@@ -36,7 +36,9 @@ interface CaptureDialogProps {
   /** Stores the scan on this device to send later; false when the device could not keep it. */
   onQueue: (input: LeadScanInput) => Promise<boolean>;
   /** 403 BOOTH_STAFF_REQUIRED: this account was removed from the booth. */
-  onAccessRevoked: () => void;
+  onAccessBlocked: (block: AccessBlock) => void;
+  /** 409 EVENT_ARCHIVED: the congress is closed; its leads are read-only. */
+  onArchived: () => void;
   /** The stored session changed in another tab: the portal re-renders for the current one. */
   onSessionChanged: () => void;
 }
@@ -45,7 +47,7 @@ interface CaptureDialogProps {
  * Capture station: camera, keyboard-wedge reader or typed badge code, optional quick qualification, and the
  * confirmation of who was captured. The portal remounts it (key) for every opening, so each capture starts clean.
  */
-export function CaptureDialog({ isOpen, onClose, boothId, token, locale, tagPresets, onCaptured, onQualify, onQueue, onAccessRevoked, onSessionChanged }: CaptureDialogProps) {
+export function CaptureDialog({ isOpen, onClose, boothId, token, locale, tagPresets, onCaptured, onQualify, onQueue, onAccessBlocked, onArchived, onSessionChanged }: CaptureDialogProps) {
   const t = translations[locale];
   const text = boothText(locale);
   const isRtl = locale === "fa";
@@ -138,9 +140,11 @@ export function CaptureDialog({ isOpen, onClose, boothId, token, locale, tagPres
 
       // A changed or expired session (the API client removed it) gets no feedback here.
       if (attendeeResponseState(token, response.status) !== "current") return;
-      if (isBoothAccessRevoked(response.status, err)) {
-        onAccessRevoked();
+      const block = accessBlockOf(response.status, err);
+      if (block) {
+        onAccessBlocked(block);
       } else if (err) {
+        if (isEventArchived(response.status, err)) onArchived();
         // The scan's own 404 (not a badge) and 400 (another congress) carry no code; anything coded is localized.
         const coded = apiErrorCode(err) !== undefined;
         setCaptureError(
@@ -329,6 +333,7 @@ export function CaptureDialog({ isOpen, onClose, boothId, token, locale, tagPres
               <Icon name="keyboard" size={19} className="pointer-events-none absolute start-3.5 top-1/2 -translate-y-1/2 text-text-muted" />
               <input
                 id="booth-badge-code"
+                maxLength={512}
                 ref={codeInputRef}
                 type="text"
                 required
@@ -368,6 +373,7 @@ export function CaptureDialog({ isOpen, onClose, boothId, token, locale, tagPres
               <label htmlFor="booth-capture-notes" className="ui-label">{t.notesLabel}</label>
               <textarea
                 id="booth-capture-notes"
+                maxLength={2000}
                 rows={2}
                 value={captureNotes}
                 onChange={(e) => setCaptureNotes(e.target.value)}

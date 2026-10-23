@@ -5,7 +5,7 @@ import { attendeeResponseState, sessionChangedMessage } from "../lib/attendeeSes
 import { useAttendeeSession } from "../hooks/useAttendeeSession";
 import { usePageTitle } from "../hooks/usePageTitle";
 import { useAttendeeLocale, formatLocalizedNumber } from "../lib/i18n";
-import { totalOf } from "../lib/leadList";
+import { accessBlockOf, totalOf, type AccessBlock } from "../lib/leadList";
 import { SkipLink } from "../components/ui/SkipLink";
 import { boothSignInPath } from "../lib/safeRedirect";
 import { eventAccentStyle } from "../lib/eventAccent";
@@ -50,9 +50,11 @@ function ExhibitorPortalContent() {
   const [loadFailed, setLoadFailed] = useState(false);
   const [reloadNonce, setReloadNonce] = useState(0);
   const [eventContext, setEventContext] = useState<{ name: string; slug: string } | null>(null);
-  // 403 BOOTH_STAFF_REQUIRED after the booth had loaded: this account was removed from the booth's staff.
-  // Final for this page: nothing is fetched or sent any more.
-  const [accessRevoked, setAccessRevoked] = useState(false);
+  // Final for this page, nothing is fetched or sent any more: 403 BOOTH_STAFF_REQUIRED (this account was removed
+  // from the booth's staff) or 403 BOOTH_ACCESS_SUSPENDED (the platform suspended the congress's organizer).
+  const [accessBlock, setAccessBlock] = useState<AccessBlock | null>(null);
+  // Learned from a 409 EVENT_ARCHIVED on a lead change: reads, search and export only.
+  const [archived, setArchived] = useState(false);
   const [otherBooths, setOtherBooths] = useState<BoothOut[]>([]);
   const [syncNotice, setSyncNotice] = useState<string | null>(null);
 
@@ -65,22 +67,24 @@ function ExhibitorPortalContent() {
   const { token, signOut } = useAttendeeSession();
 
   const sessionRef = useRef<string | null>(token);
-  const revoke = useCallback(() => setAccessRevoked(true), []);
+  const revoke = useCallback((block: AccessBlock) => setAccessBlock((current) => current ?? block), []);
+  const markArchived = useCallback(() => setArchived(true), []);
   // A child found the stored session changed (another tab): say so, and re-render so the session store hands over the
   // current token. Kept here, so the notice survives the reload for the new session.
   const [sessionNotice, setSessionNotice] = useState<string | null>(null);
   const noteSessionChanged = () => setSessionNotice(sessionChangedMessage(locale));
-  const live = !accessRevoked && Boolean(token);
+  const live = !accessBlock && Boolean(token);
 
-  const list = useLeadList({ boothId, token, locale, enabled: live, onAccessRevoked: revoke });
-  const counts = useLeadCounts({ boothId, token, enabled: live, onAccessRevoked: revoke });
+  const list = useLeadList({ boothId, token, locale, enabled: live, onAccessBlocked: revoke });
+  const counts = useLeadCounts({ boothId, token, enabled: live, onAccessBlocked: revoke });
   const { reload: reloadList } = list;
   const { refresh: refreshCounts } = counts;
   const queue = useLeadQueue({
     boothId,
     token,
     enabled: live,
-    onAccessRevoked: revoke,
+    onAccessBlocked: revoke,
+    onArchived: markArchived,
     onSynced: (synced) => {
       setSyncNotice(text.syncedCount(formatLocalizedNumber(synced.length, locale)));
       reloadList();
@@ -98,7 +102,8 @@ function ExhibitorPortalContent() {
       setIsCaptureOpen(false);
       setEditingLead(null);
       setAuthError(null);
-      setAccessRevoked(false);
+      setAccessBlock(null);
+      setArchived(false);
       setSyncNotice(null);
     }
     if (!boothId) return;
@@ -126,7 +131,9 @@ function ExhibitorPortalContent() {
         }
 
         if (boothRes.error) {
+          const block = accessBlockOf(boothRes.response.status, boothRes.error);
           if (boothRes.response.status >= 500) setLoadFailed(true);
+          else if (block === "suspended") setAccessBlock(block);
           else setAuthError(codedMessage(boothRes.error, locale) ?? t.unauthorizedExhibitorDesc);
         } else if (boothRes.data) {
           setBooth(boothRes.data);
@@ -148,7 +155,7 @@ function ExhibitorPortalContent() {
 
   // Removed from this booth: offer the booths this account still staffs (one request, no retry).
   useEffect(() => {
-    if (!accessRevoked || !token) return;
+    if (accessBlock !== "removed" || !token) return;
     let current = true;
     void createApiClient({ kind: "user", token })
       .GET("/api/booths/me")
@@ -159,7 +166,7 @@ function ExhibitorPortalContent() {
     return () => {
       current = false;
     };
-  }, [accessRevoked, token, boothId]);
+  }, [accessBlock, token, boothId]);
 
   const handleLogout = () => {
     signOut();
@@ -244,6 +251,34 @@ function ExhibitorPortalContent() {
     );
   }
 
+  // A suspension is shown even before the booth loads (every booth call is refused); "removed" only once the booth
+  // had loaded, so an account that never was staff keeps the "access restricted" screen below.
+  if (accessBlock === "suspended") {
+    const unsent = queue.scans.length;
+    return (
+      <BoothGate
+        locale={locale}
+        dir={dir}
+        icon="pause"
+        tone="warning"
+        eyebrow={workspaceLabel}
+        title={text.suspendedTitle}
+        actions={
+          <LinkButton to="/" variant="primary" size="lg" isFullWidth>
+            <span>{t.platformHome}</span>
+            <Icon name="arrow-right" size={16} />
+          </LinkButton>
+        }
+      >
+        <div data-testid="access-suspended" className="space-y-3">
+          <p>{text.suspendedDesc}</p>
+          {unsent > 0 && <p className="font-medium text-status-warning-text">{text.suspendedPending(formatLocalizedNumber(unsent, locale))}</p>}
+          <p>{text.suspendedAsk}</p>
+        </div>
+      </BoothGate>
+    );
+  }
+
   // Unauthorized (403 Forbidden) or Not Found view
   if (authError || !booth) {
     return (
@@ -273,7 +308,7 @@ function ExhibitorPortalContent() {
     );
   }
 
-  if (accessRevoked) {
+  if (accessBlock === "removed") {
     const unsent = queue.scans.length;
     return (
       <BoothGate
@@ -462,6 +497,7 @@ function ExhibitorPortalContent() {
                   size="xl"
                   isFullWidth
                   onClick={openCapture}
+                  disabled={archived}
                   className="mt-6"
                 >
                   <Icon name="scan" size={22} />
@@ -492,7 +528,9 @@ function ExhibitorPortalContent() {
             sessionNotice={sessionNotice}
             onQualify={setEditingLead}
             onCapture={openCapture}
-            onAccessRevoked={revoke}
+            onAccessBlocked={revoke}
+            onArchived={markArchived}
+            archived={archived}
             onSessionChanged={noteSessionChanged}
           />
         </div>
@@ -530,7 +568,8 @@ function ExhibitorPortalContent() {
           setEditingLead(lead);
         }}
         onQueue={queue.enqueue}
-        onAccessRevoked={revoke}
+        onAccessBlocked={revoke}
+        onArchived={markArchived}
         onSessionChanged={noteSessionChanged}
       />
 
@@ -546,7 +585,8 @@ function ExhibitorPortalContent() {
           list.applyLead(saved);
           refreshCounts();
         }}
-        onAccessRevoked={revoke}
+        onAccessBlocked={revoke}
+        onArchived={markArchived}
         onSessionChanged={noteSessionChanged}
       />
 
@@ -560,6 +600,7 @@ function ExhibitorPortalContent() {
             variant="light"
             size="xl"
             isFullWidth
+            disabled={archived}
             onClick={openCapture}
           >
             <Icon name="scan" size={22} className="text-aiteb-indigo" />

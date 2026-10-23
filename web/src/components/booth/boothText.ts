@@ -68,6 +68,17 @@ const fa = {
   removedPending: (n: string) => `${n} اسکن ارسال‌نشده روی این دستگاه مانده است؛ اگر دوباره به غرفه افزوده شوید، ارسال می‌شود.`,
   removedAsk: "اگر فکر می‌کنید اشتباهی رخ داده، با مدیر غرفه یا برگزارکنندهٔ همایش تماس بگیرید.",
   otherBooths: "غرفه‌های دیگر شما",
+  // Organizer suspended by the platform (403 BOOTH_ACCESS_SUSPENDED)
+  suspendedTitle: "دسترسی به این غرفه موقتاً متوقف شده است",
+  suspendedDesc: "دسترسی برگزارکنندهٔ این همایش از سوی سامانه متوقف شده است؛ تا رفع آن، پیشخوان غرفه و لیدهای آن در دسترس نیست.",
+  suspendedPending: (n: string) => `${n} اسکن ارسال‌نشده روی این دستگاه مانده است و پس از رفع توقف ارسال می‌شود.`,
+  suspendedAsk: "برای پیگیری با برگزارکنندهٔ همایش تماس بگیرید.",
+  suspendedError: "دسترسی به این غرفه موقتاً متوقف شده است. با برگزارکنندهٔ همایش تماس بگیرید.",
+  // Archived congress (409 EVENT_ARCHIVED on lead changes)
+  archivedTitle: "این همایش بسته شده است",
+  archivedNotice: "همایش بایگانی شده است. لیدها را همچنان می‌توانید ببینید، جستجو کنید و در قالب CSV دریافت کنید، اما ثبت، ویرایش، حذف یا بازگردانی لید دیگر ممکن نیست.",
+  archivedError: "این همایش بسته شده است؛ ثبت یا تغییر لید دیگر ممکن نیست.",
+  failEventArchived: "همایش بسته شده است؛ این اسکن ارسال نمی‌شود. اگر برگزارکننده همایش را دوباره باز کند، می‌توانید دوباره تلاش کنید.",
   badgeInvalid: "این کد QR کارت ورود معتبر نیست.",
   badgeOtherEvent: "این کارت ورود متعلق به همایش دیگری است.",
   scanFailed: "ثبت لید انجام نشد. دوباره تلاش کنید.",
@@ -135,6 +146,15 @@ const en: BoothText = {
   removedPending: (n) => `${n} unsent scan(s) remain on this device; they are sent if you are added to the booth again.`,
   removedAsk: "If you think this is a mistake, contact the booth manager or the congress organizer.",
   otherBooths: "Your other booths",
+  suspendedTitle: "Access to this booth is suspended",
+  suspendedDesc: "The platform has suspended this congress's organizer, so the booth workspace and its leads are unavailable until that is lifted.",
+  suspendedPending: (n) => `${n} unsent scan(s) remain on this device; they are sent once the suspension is lifted.`,
+  suspendedAsk: "Contact the congress organizer for details.",
+  suspendedError: "Access to this booth is suspended. Contact the congress organizer.",
+  archivedTitle: "This congress is closed",
+  archivedNotice: "The congress has been archived. You can still view, search and export your leads as CSV, but capturing, editing, deleting or restoring leads is no longer possible.",
+  archivedError: "This congress is closed; leads can no longer be captured or changed.",
+  failEventArchived: "The congress is closed, so this scan is not sent. You can try again if the organizer reopens the congress.",
   badgeInvalid: "That badge code is not valid.",
   badgeOtherEvent: "That badge belongs to a different congress.",
   scanFailed: "The lead could not be saved. Try again.",
@@ -152,6 +172,9 @@ export function boothText(locale: AttendeeLocale): BoothText {
 export function codedMessage(error: unknown, locale: AttendeeLocale): string | null {
   const code = apiErrorCode(error);
   if (code === NETWORK_FAILURE_CODE) return networkErrorMessage[locale];
+  // The shared wording of these two is written for organizers; exhibitors read their own.
+  if (code === "EVENT_ARCHIVED") return boothText(locale).archivedError;
+  if (code === "BOOTH_ACCESS_SUSPENDED") return boothText(locale).suspendedError;
   return code !== undefined && Object.hasOwn(errorMessages[locale], code) ? errorMessages[locale][code] : null;
 }
 
@@ -160,6 +183,7 @@ export function queueFailureText(failure: QueueFailure, locale: AttendeeLocale):
   const text = boothText(locale);
   if (failure.kind === "invalid_badge") return text.failInvalidBadge;
   if (failure.kind === "other_event") return text.failOtherEvent;
+  if (failure.kind === "event_archived") return text.failEventArchived;
   const status = formatLocalizedNumber(failure.status, locale);
   // Only a code with a localized message is shown as such; the English `detail` never reaches the reader.
   if (failure.code && Object.hasOwn(errorMessages[locale], failure.code)) return errorMessages[locale][failure.code];

@@ -9,8 +9,8 @@ import type { LeadRating } from "../components/booth/rating.ts";
 
 /** Leads per page. The API allows up to 200; a short page keeps a phone's first paint fast. */
 export const LEAD_PAGE_SIZE = 20;
-/** The API refuses longer search terms (422). */
-export const LEAD_SEARCH_MAX_LENGTH = 200;
+/** The API refuses longer search terms (422; `SEARCH_TERM_MAX` in backend/app/routes/leads.py). */
+export const LEAD_SEARCH_MAX_LENGTH = 100;
 /** Typing pause before the search is sent. */
 export const LEAD_SEARCH_DEBOUNCE_MS = 300;
 
@@ -71,6 +71,25 @@ export function withoutLead(current: readonly LeadOut[], leadId: string): LeadOu
 /** 403 `BOOTH_STAFF_REQUIRED` on a booth call: this account is not (or no longer) staff of the booth. */
 export function isBoothAccessRevoked(status: number, error: unknown): boolean {
   return status === 403 && apiErrorCode(error) === "BOOTH_STAFF_REQUIRED";
+}
+
+/**
+ * Why the booth workspace is closed to this account for good (on this page):
+ * - "removed": 403 `BOOTH_STAFF_REQUIRED`, the representative was taken off the booth's staff;
+ * - "suspended": 403 `BOOTH_ACCESS_SUSPENDED`, the platform revoked the congress's organizer, so every
+ *   representative is refused until that is lifted.
+ */
+export type AccessBlock = "removed" | "suspended";
+
+export function accessBlockOf(status: number, error: unknown): AccessBlock | null {
+  if (status !== 403) return null;
+  const code = apiErrorCode(error);
+  return code === "BOOTH_STAFF_REQUIRED" ? "removed" : code === "BOOTH_ACCESS_SUSPENDED" ? "suspended" : null;
+}
+
+/** 409 `EVENT_ARCHIVED` on a lead change: the congress is archived, its leads are read-only (reads and export stay). */
+export function isEventArchived(status: number, error: unknown): boolean {
+  return status === 409 && apiErrorCode(error) === "EVENT_ARCHIVED";
 }
 
 /** 400 `CURSOR_INVALID`: the page position is stale; the list must start again from the first page. */

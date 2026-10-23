@@ -6,11 +6,12 @@ import type { AttendeeLocale } from "../../lib/i18n";
 import {
   LEAD_SEARCH_DEBOUNCE_MS,
   appendLeadPage,
-  isBoothAccessRevoked,
+  accessBlockOf,
   isCursorInvalid,
   leadSearchParams,
   replaceLead,
   withoutLead,
+  type AccessBlock,
   type LeadQuery,
   type RatingCounts,
 } from "../../lib/leadList";
@@ -22,7 +23,7 @@ interface LeadSource {
   /** False once access was revoked: nothing is fetched any more (no retry loop against a 403). */
   enabled: boolean;
   /** 403 `BOOTH_STAFF_REQUIRED`: this account was removed from the booth's staff. */
-  onAccessRevoked: () => void;
+  onAccessBlocked: (block: AccessBlock) => void;
 }
 
 export interface LeadListState {
@@ -62,7 +63,7 @@ function client(token: string): Client {
  * rating filter, the trash view and "load more" by cursor. Responses for an older query, booth or session are
  * dropped (a generation counter), so a slow answer never overwrites a newer one.
  */
-export function useLeadList({ boothId, token, locale, enabled, onAccessRevoked }: LeadSource): LeadListState {
+export function useLeadList({ boothId, token, locale, enabled, onAccessBlocked }: LeadSource): LeadListState {
   const [query, setQuery] = useState<LeadQuery>({ q: "", rating: "", view: "active" });
   const [appliedQuery, setAppliedQuery] = useState<LeadQuery>(query);
   const [items, setItems] = useState<LeadOut[]>([]);
@@ -86,11 +87,11 @@ export function useLeadList({ boothId, token, locale, enabled, onAccessRevoked }
     setError(null);
   }
   const generation = useRef(0);
-  const revokedRef = useRef(onAccessRevoked);
+  const revokedRef = useRef(onAccessBlocked);
   // `locale` only words error messages: switching language does not refetch.
   const localeRef = useRef(locale);
   useEffect(() => {
-    revokedRef.current = onAccessRevoked;
+    revokedRef.current = onAccessBlocked;
     localeRef.current = locale;
   });
   const requestKey = `${boothId}|${token}|${appliedQuery.view}|${appliedQuery.rating}|${appliedQuery.q}|${reloadNonce}`;
@@ -125,8 +126,8 @@ export function useLeadList({ boothId, token, locale, enabled, onAccessRevoked }
           setCursor(res.data.next_cursor);
           setStatus("ready");
           setError(null);
-        } else if (isBoothAccessRevoked(res.response.status, res.error)) {
-          revokedRef.current();
+        } else if (accessBlockOf(res.response.status, res.error)) {
+          revokedRef.current(accessBlockOf(res.response.status, res.error)!);
         } else {
           // Nothing stale is shown: a failed first page empties the list behind the error.
           setItems([]);
@@ -163,8 +164,8 @@ export function useLeadList({ boothId, token, locale, enabled, onAccessRevoked }
           setItems((current) => appendLeadPage(current, res.data.items));
           setTotal(res.data.total);
           setCursor(res.data.next_cursor);
-        } else if (isBoothAccessRevoked(res.response.status, res.error)) {
-          revokedRef.current();
+        } else if (accessBlockOf(res.response.status, res.error)) {
+          revokedRef.current(accessBlockOf(res.response.status, res.error)!);
         } else if (isCursorInvalid(res.response.status, res.error)) {
           // The position no longer exists: start the list again rather than show a gap.
           setReloadNonce((n) => n + 1);
@@ -234,7 +235,7 @@ export interface LeadCounts {
  * The booth-wide totals behind the header ledger and the filter chips: one `limit=1` search per rating, plus the
  * trash. They always describe the whole booth, never the filtered view.
  */
-export function useLeadCounts({ boothId, token, enabled, onAccessRevoked }: Omit<LeadSource, "locale">): LeadCounts {
+export function useLeadCounts({ boothId, token, enabled, onAccessBlocked }: Omit<LeadSource, "locale">): LeadCounts {
   const [counts, setCounts] = useState<RatingCounts>(ZERO);
   const [deleted, setDeleted] = useState(0);
   const [known, setKnown] = useState(false);
@@ -246,9 +247,9 @@ export function useLeadCounts({ boothId, token, enabled, onAccessRevoked }: Omit
     setDeleted(0);
     setKnown(false);
   }
-  const revokedRef = useRef(onAccessRevoked);
+  const revokedRef = useRef(onAccessBlocked);
   useEffect(() => {
-    revokedRef.current = onAccessRevoked;
+    revokedRef.current = onAccessBlocked;
   });
 
   useEffect(() => {
@@ -270,8 +271,9 @@ export function useLeadCounts({ boothId, token, enabled, onAccessRevoked }: Omit
         if (!current) return;
         const all = [hot, warm, cold, trash];
         if (all.some((res) => attendeeResponseState(token, res.response.status) !== "current")) return;
-        if (all.some((res) => isBoothAccessRevoked(res.response.status, res.error))) {
-          revokedRef.current();
+        const block = all.map((res) => accessBlockOf(res.response.status, res.error)).find(Boolean);
+        if (block) {
+          revokedRef.current(block);
           return;
         }
         // A failed count keeps the last known figures; the list itself reports load errors.

@@ -38,6 +38,8 @@ export type QueueFailure =
   | { kind: "invalid_badge" }
   /** 400: a badge of another congress. */
   | { kind: "other_event" }
+  /** 409 EVENT_ARCHIVED: the congress is closed; its leads are read-only until the organizer reopens it. */
+  | { kind: "event_archived" }
   /** Any other refusal; `code` is the API's stable error code when it sent one. */
   | { kind: "refused"; status: number; code?: string; detail?: string };
 
@@ -59,7 +61,9 @@ export type SyncOutcome =
   /** 401: the session ended; everything waits for the next sign-in of the same account. */
   | { kind: "session_expired" }
   /** 403 BOOTH_STAFF_REQUIRED: this account was removed from the booth; nothing more is sent. */
-  | { kind: "access_revoked" };
+  | { kind: "access_revoked" }
+  /** 403 BOOTH_ACCESS_SUSPENDED: the platform suspended the congress's organizer; nothing more is sent. */
+  | { kind: "access_suspended" };
 
 /** Retries back off from 2 s to at most a minute. */
 export const RETRY_BASE_MS = 2_000;
@@ -138,6 +142,8 @@ export function classifySend(result: SendResult): SyncOutcome {
   if ((status === 200 || status === 201) && data) return { kind: "synced", lead: data, existed: status === 200 };
   if (status === 401) return { kind: "session_expired" };
   if (status === 403 && code === "BOOTH_STAFF_REQUIRED") return { kind: "access_revoked" };
+  if (status === 403 && code === "BOOTH_ACCESS_SUSPENDED") return { kind: "access_suspended" };
+  if (status === 409 && code === "EVENT_ARCHIVED") return { kind: "failed", failure: { kind: "event_archived" } };
   // No answer worth keeping yet: the server or a proxy is struggling, or asks to slow down.
   if (status >= 500 || status === 408 || status === 429 || status === 0) return { kind: "retry" };
   if (status === 404 && !code) return { kind: "failed", failure: { kind: "invalid_badge" } };
@@ -163,7 +169,7 @@ export interface SyncReport {
   failed: QueuedLeadScan[];
   retrying: QueuedLeadScan[];
   /** Why the run stopped before the end of the queue, if it did. */
-  stopped: "session_expired" | "access_revoked" | "offline" | "server_error" | null;
+  stopped: "session_expired" | "access_revoked" | "access_suspended" | "event_archived" | "offline" | "server_error" | null;
 }
 
 /**
@@ -180,7 +186,8 @@ export async function syncLeadQueue(options: {
 }): Promise<SyncReport> {
   const { owner, boothId, store, send, now } = options;
   const report: SyncReport = { synced: [], failed: [], retrying: [], stopped: null };
-  const due = dueScans(await store.list(owner, boothId), now());
+  const queued = await store.list(owner, boothId);
+  const due = dueScans(queued, now());
   for (const scan of due) {
     const result = await send(scan);
     const outcome = classifySend(result);
@@ -191,6 +198,18 @@ export async function syncLeadQueue(options: {
       const failed: QueuedLeadScan = { ...scan, state: "failed", failure: outcome.failure, attempts: scan.attempts + 1 };
       await store.put(failed);
       report.failed.push(failed);
+      if (outcome.failure.kind === "event_archived") {
+        // The congress is closed: every other scan would be refused the same way. They are kept, marked with the
+        // reason (the operator may retry once the organizer reopens the congress), and not sent.
+        const handled = new Set([...report.synced.map((s) => s.scan.id), ...report.failed.map((s) => s.id)]);
+        for (const rest of queued.filter((other) => !handled.has(other.id) && other.state === "pending")) {
+          const closed: QueuedLeadScan = { ...rest, state: "failed", failure: { kind: "event_archived" } };
+          await store.put(closed);
+          report.failed.push(closed);
+        }
+        report.stopped = "event_archived";
+        break;
+      }
     } else if (outcome.kind === "retry") {
       const attempts = scan.attempts + 1;
       const waiting: QueuedLeadScan = { ...scan, attempts, next_attempt_at: now() + retryDelayMs(attempts) };

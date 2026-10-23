@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { createApiClient, type LeadOut } from "../../api/client";
 import { boothText, codedMessage } from "./boothText";
-import { isBoothAccessRevoked } from "../../lib/leadList";
+import { accessBlockOf, isEventArchived, type AccessBlock } from "../../lib/leadList";
 import { attendeeResponseState, isStoredAttendeeToken, sessionChangedMessage } from "../../lib/attendeeSession";
 import { codeFontClass, formatLocalizedDate, translations, type AttendeeLocale } from "../../lib/i18n";
 import { formatMobile, telHref } from "../../lib/mobile";
@@ -24,13 +24,15 @@ interface QualifyDialogProps {
   tagPresets: string[];
   onSaved: (lead: LeadOut) => void;
   /** 403 BOOTH_STAFF_REQUIRED: this account was removed from the booth. */
-  onAccessRevoked: () => void;
+  onAccessBlocked: (block: AccessBlock) => void;
+  /** 409 EVENT_ARCHIVED: the congress is closed; its leads are read-only. */
+  onArchived: () => void;
   /** The stored session changed in another tab: the portal re-renders for the current one. */
   onSessionChanged: () => void;
 }
 
 /** Lead detail and qualification (rating, follow-up tags, notes). Closes itself a moment after a confirmed save. */
-export function QualifyDialog({ lead, onClose, boothId, token, locale, tagPresets, onSaved, onAccessRevoked, onSessionChanged }: QualifyDialogProps) {
+export function QualifyDialog({ lead, onClose, boothId, token, locale, tagPresets, onSaved, onAccessBlocked, onArchived, onSessionChanged }: QualifyDialogProps) {
   const t = translations[locale];
   const isRtl = locale === "fa";
   const [editRating, setEditRating] = useState<LeadRating>("WARM");
@@ -109,9 +111,11 @@ export function QualifyDialog({ lead, onClose, boothId, token, locale, tagPreset
 
       // A changed or expired session (the API client removed it) gets no feedback here.
       if (attendeeResponseState(token, response.status) !== "current") return;
-      if (isBoothAccessRevoked(response.status, err)) {
-        onAccessRevoked();
+      const block = accessBlockOf(response.status, err);
+      if (block) {
+        onAccessBlocked(block);
       } else if (err) {
+        if (isEventArchived(response.status, err)) onArchived();
         // LEAD_DELETED (another device moved it to the trash), LEAD_NOT_FOUND …: in the reader's language.
         setEditError(codedMessage(err, locale) ?? boothText(locale).saveFailed);
       } else if (data) {
@@ -188,6 +192,7 @@ export function QualifyDialog({ lead, onClose, boothId, token, locale, tagPreset
               <input
                 type="text"
                 value={customTagInput}
+                maxLength={40}
                 onChange={(e) => setCustomTagInput(e.target.value)}
                 onKeyDown={handleAddCustomTag}
                 enterKeyHint="enter"
@@ -202,6 +207,7 @@ export function QualifyDialog({ lead, onClose, boothId, token, locale, tagPreset
             <label htmlFor="booth-edit-notes" className="ui-label">{t.notesLabel}</label>
             <textarea
               id="booth-edit-notes"
+              maxLength={2000}
               rows={3}
               value={editNotes}
               onChange={(e) => setEditNotes(e.target.value)}

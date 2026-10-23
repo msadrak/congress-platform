@@ -2,7 +2,7 @@ import { useCallback, useState } from "react";
 import { createApiClient, type LeadOut } from "../../api/client";
 import { attendeeResponseState, isStoredAttendeeToken, sessionChangedMessage } from "../../lib/attendeeSession";
 import { formatLocalizedDate, formatLocalizedNumber, translations, type AttendeeLocale } from "../../lib/i18n";
-import { LEAD_SEARCH_MAX_LENGTH, hasLeadFilters, isBoothAccessRevoked, totalOf } from "../../lib/leadList";
+import { LEAD_SEARCH_MAX_LENGTH, accessBlockOf, hasLeadFilters, isEventArchived, totalOf, type AccessBlock } from "../../lib/leadList";
 import { Button } from "../ui/Button";
 import { Icon } from "../ui/Icon";
 import { BoothSpinner } from "./BoothSpinner";
@@ -28,7 +28,11 @@ interface LeadListProps {
   sessionNotice: string | null;
   onQualify: (lead: LeadOut) => void;
   onCapture: () => void;
-  onAccessRevoked: () => void;
+  onAccessBlocked: (block: AccessBlock) => void;
+  /** The congress is archived (learned from a 409 EVENT_ARCHIVED): reads and export only. */
+  archived: boolean;
+  /** 409 EVENT_ARCHIVED: the congress is closed; its leads are read-only. */
+  onArchived: () => void;
   /** The stored session changed in another tab: the portal re-renders for the current one. */
   onSessionChanged: () => void;
 }
@@ -39,7 +43,7 @@ type Client = ReturnType<typeof createApiClient>;
  * The booth's lead worklist and trash: server-side search and rating filter, paging by cursor, delete with undo,
  * restore, CSV export (optionally with deleted leads) and the scans still waiting on this device.
  */
-export function LeadList({ boothId, boothSlug, token, locale, list, counts, queue, syncNotice, sessionNotice, onQualify, onCapture, onAccessRevoked, onSessionChanged }: LeadListProps) {
+export function LeadList({ boothId, boothSlug, token, locale, list, counts, queue, syncNotice, sessionNotice, onQualify, onCapture, onAccessBlocked, onArchived, onSessionChanged, archived }: LeadListProps) {
   const t = translations[locale];
   const text = boothText(locale);
   const isRtl = locale === "fa";
@@ -71,8 +75,13 @@ export function LeadList({ boothId, boothSlug, token, locale, list, counts, queu
       const res = await request(createApiClient({ kind: "user", token }));
       if (attendeeResponseState(token, res.response.status) !== "current") return { ok: false };
       if (res.response.ok) return { ok: true, data: res.data };
-      if (isBoothAccessRevoked(res.response.status, res.error)) onAccessRevoked();
-      else setActionError(codedMessage(res.error, locale) ?? failure);
+      const block = accessBlockOf(res.response.status, res.error);
+      if (block) {
+        onAccessBlocked(block);
+        return { ok: false };
+      }
+      if (isEventArchived(res.response.status, res.error)) onArchived();
+      setActionError(codedMessage(res.error, locale) ?? failure);
     } catch {
       setActionError(failure);
     }
@@ -133,8 +142,9 @@ export function LeadList({ boothId, boothSlug, token, locale, list, counts, queu
       });
       // No download or completion feedback for a session that has since changed or expired.
       if (attendeeResponseState(token, response.status) !== "current") return;
-      if (isBoothAccessRevoked(response.status, error)) {
-        onAccessRevoked();
+      const block = accessBlockOf(response.status, error);
+      if (block) {
+        onAccessBlocked(block);
         return;
       }
       if (!response.ok || !blob) {
@@ -311,6 +321,16 @@ export function LeadList({ boothId, boothSlug, token, locale, list, counts, queu
         </div>
       )}
 
+      {archived && (
+        <div data-testid="archived-notice" role="status" className="flex items-start gap-2.5 rounded-xl border border-status-info-border bg-status-info-bg p-3.5 text-[13px] leading-relaxed text-status-info-text">
+          <Icon name="lock" size={18} className="shrink-0" />
+          <span>
+            <strong className="block font-semibold">{text.archivedTitle}</strong>
+            {text.archivedNotice}
+          </span>
+        </div>
+      )}
+
       <PendingSyncPanel queue={queue} locale={locale} />
 
       {/* Always mounted, so results are announced; the cards below are visual only. */}
@@ -371,7 +391,7 @@ export function LeadList({ boothId, boothSlug, token, locale, list, counts, queu
               ? (isRtl ? "فیلترها را پاک کنید یا عبارت دیگری را جستجو نمایید." : "Clear active filters or try a different search keyword.")
               : trash ? text.trashEmptyDesc : t.noLeadsDesc}
           </p>
-          {!filtersActive && !trash && (
+          {!filtersActive && !trash && !archived && (
             <Button type="button" variant="primary" size="md" onClick={onCapture} className="mt-6">
               <Icon name="scan" size={18} />
               <span>{t.captureLeadAction}</span>
@@ -389,8 +409,8 @@ export function LeadList({ boothId, boothSlug, token, locale, list, counts, queu
               deletedAt={lead.deleted_at ? formatLocalizedDate(lead.deleted_at, locale) : undefined}
               labels={labels}
               busy={busyId === lead.id}
-              actionsDisabled={!queue.online}
-              onQualify={lead.deleted_at ? undefined : () => onQualify(lead)}
+              actionsDisabled={!queue.online || archived}
+              onQualify={lead.deleted_at || archived ? undefined : () => onQualify(lead)}
               onDelete={lead.deleted_at ? undefined : () => void deleteLead(lead)}
               onRestore={lead.deleted_at ? () => void restoreLead(lead, false) : undefined}
             />

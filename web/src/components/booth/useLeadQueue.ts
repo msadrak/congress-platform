@@ -11,6 +11,7 @@ import {
   type QueuedLeadScan,
   type SendResult,
 } from "../../lib/leadQueue";
+import type { AccessBlock } from "../../lib/leadList";
 import { indexedDbLeadQueue, requestPersistentLeadStorage } from "../../lib/leadQueueStorage";
 import { getAuthenticatedUserId } from "../../lib/ticketCache";
 
@@ -34,7 +35,9 @@ interface LeadQueueOptions {
   /** False once access was revoked: nothing more is sent. */
   enabled: boolean;
   onSynced: (synced: { scan: QueuedLeadScan; lead: LeadOut; existed: boolean }[]) => void;
-  onAccessRevoked: () => void;
+  onAccessBlocked: (block: AccessBlock) => void;
+  /** 409 EVENT_ARCHIVED: the congress is closed; its leads are read-only. */
+  onArchived: () => void;
   store?: LeadQueueStore;
 }
 
@@ -58,7 +61,7 @@ export interface LeadQueueState {
  * and sent, oldest first, when the browser is back online, on load, and on a backoff timer. Only the account that
  * captured a scan ever sends or sees it. Two tabs never send at once (Web Locks, where available).
  */
-export function useLeadQueue({ boothId, token, enabled, onSynced, onAccessRevoked, store = indexedDbLeadQueue }: LeadQueueOptions): LeadQueueState {
+export function useLeadQueue({ boothId, token, enabled, onSynced, onAccessBlocked, onArchived, store = indexedDbLeadQueue }: LeadQueueOptions): LeadQueueState {
   const owner = getAuthenticatedUserId(token);
   const online = useOnline();
   // The listed queue with the owner and booth it belongs to: another session's list is never shown.
@@ -70,9 +73,9 @@ export function useLeadQueue({ boothId, token, enabled, onSynced, onAccessRevoke
   const running = useRef(false);
   const again = useRef(false);
   const timer = useRef<number | undefined>(undefined);
-  const callbacks = useRef({ onSynced, onAccessRevoked });
+  const callbacks = useRef({ onSynced, onAccessBlocked, onArchived });
   useEffect(() => {
-    callbacks.current = { onSynced, onAccessRevoked };
+    callbacks.current = { onSynced, onAccessBlocked, onArchived };
   });
   const live = useRef({ boothId, token, owner, enabled });
   useEffect(() => {
@@ -126,7 +129,9 @@ export function useLeadQueue({ boothId, token, enabled, onSynced, onAccessRevoke
     const run = async () => {
       const report = await syncLeadQueue({ owner: who, boothId: booth, store, send, now: Date.now });
       if (report.synced.length) callbacks.current.onSynced(report.synced);
-      if (report.stopped === "access_revoked") callbacks.current.onAccessRevoked();
+      if (report.stopped === "access_revoked") callbacks.current.onAccessBlocked("removed");
+      if (report.stopped === "access_suspended") callbacks.current.onAccessBlocked("suspended");
+      if (report.stopped === "event_archived") callbacks.current.onArchived();
     };
     try {
       const locks = typeof navigator !== "undefined" ? navigator.locks : undefined;
