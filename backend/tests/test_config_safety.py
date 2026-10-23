@@ -177,3 +177,38 @@ def test_a_blank_line_number_from_compose_counts_as_unset(monkeypatch: pytest.Mo
     settings = Settings(environment="staging", database_url=DB_URL, platform_admin_token=STRONG_TOKEN,
                         jwt_secret=STRONG_JWT, media_root=Path("/srv/media").resolve(), sms_provider="console")
     assert settings.smsir_line_number is None
+
+
+def test_blank_optional_variables_mean_unset(monkeypatch: pytest.MonkeyPatch) -> None:
+    # deploy/staging/compose.yaml forwards every optional setting as `${CONGRESS_X:-}`: a blank value must give the
+    # default (not a parse error for numbers, booleans and lists), whether empty or only whitespace.
+    optional = [name for name, field in Settings.model_fields.items() if not field.is_required()]
+    for i, name in enumerate(optional):
+        if name != "environment":
+            monkeypatch.setenv(f"CONGRESS_{name.upper()}", "" if i % 2 else "  ")
+    monkeypatch.setenv("CONGRESS_ENVIRONMENT", "staging")
+    monkeypatch.setenv("CONGRESS_DATABASE_URL", DB_URL)
+    monkeypatch.setenv("CONGRESS_MEDIA_ROOT", str(Path("/srv/media").resolve()))
+    monkeypatch.setenv("CONGRESS_PLATFORM_ADMIN_TOKEN", STRONG_TOKEN)
+    monkeypatch.setenv("CONGRESS_JWT_SECRET", STRONG_JWT)
+    settings = Settings()
+    defaults = Settings(
+        environment="staging", database_url=DB_URL, media_root=Path("/srv/media").resolve(),
+        platform_admin_token=STRONG_TOKEN, jwt_secret=STRONG_JWT,
+    )
+    assert settings.model_dump() == defaults.model_dump()
+    assert settings.sms_provider == "smsir" and settings.db_pool_size == 10 and settings.secret_box_key == ""
+    assert settings.cors_origins == ["http://localhost:5173"] and settings.smsir_line_number is None
+    # What compose passes for CORS is still read as JSON.
+    monkeypatch.setenv("CONGRESS_CORS_ORIGINS", '["https://congress.example.org"]')
+    assert Settings().cors_origins == ["https://congress.example.org"]
+
+
+def test_blank_required_variables_are_still_refused(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("CONGRESS_ENVIRONMENT", "production")
+    monkeypatch.setenv("CONGRESS_DATABASE_URL", " ")
+    monkeypatch.setenv("CONGRESS_MEDIA_ROOT", "")
+    monkeypatch.setenv("CONGRESS_PLATFORM_ADMIN_TOKEN", STRONG_TOKEN)
+    monkeypatch.setenv("CONGRESS_JWT_SECRET", STRONG_JWT)
+    with pytest.raises(ValidationError, match="CONGRESS_DATABASE_URL, CONGRESS_MEDIA_ROOT must be set explicitly"):
+        Settings()
