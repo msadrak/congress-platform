@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import QRCode from "react-qr-code";
 import {
   ATTENDEE_TOKEN_STORAGE,
   apiErrorCode,
@@ -7,10 +8,11 @@ import {
   localizedApiError,
   type AuthResponse,
   type PublicEvent as PublicEventType,
+  type TicketOut,
 } from "../api/client";
 import { MobileOtpForm } from "../components/auth/MobileOtpForm";
-import { isStoredAttendeeToken, rejectAttendeeToken } from "../lib/attendeeSession";
-import { isTierUnavailable, networkErrorMessage } from "../lib/errorMessages";
+import { isStoredAttendeeToken, rejectAttendeeToken, useAttendeeToken } from "../lib/attendeeSession";
+import { errorMessages, isTierUnavailable, networkErrorMessage } from "../lib/errorMessages";
 import { PublicLayout } from "../layouts/PublicLayout";
 import { normalizeDocument, standardDocument, type PageImages } from "../lib/pageDocument";
 import { usePageMeta } from "../lib/pageMeta";
@@ -20,6 +22,8 @@ import { Icon } from "../components/ui/Icon";
 import { CongressSignature } from "../components/brand/CongressSignature";
 import { contentLocale, isolateFor, publicCopy, usePublicLocale } from "../components/public/copy";
 import { Bidi } from "../components/public/Bidi";
+import { downloadCalendarFile } from "../components/public/calendarDownload";
+import { useHeldPass } from "../components/public/useHeldPass";
 import { CongressPage } from "../components/public/page/CongressPage";
 import { PassesPanel } from "../components/public/page/PassesPanel";
 
@@ -39,6 +43,8 @@ export default function PublicEvent() {
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [isSuccessModalOpen, setIsSuccessModalOpen] = useState(false);
   const [alreadyHasTicket, setAlreadyHasTicket] = useState(false);
+  /** The pass just reserved (its QR code is previewed in the success sheet). */
+  const [reserved, setReserved] = useState<TicketOut | null>(null);
 
   const [submitting, setSubmitting] = useState(false);
   const [modalError, setModalError] = useState<string | null>(null);
@@ -56,6 +62,7 @@ export default function PublicEvent() {
       setIsAuthModalOpen(false);
       setIsSuccessModalOpen(false);
       setAlreadyHasTicket(false);
+      setReserved(null);
       setModalError(null);
       setSubmitting(false);
       const client = createApiClient({ kind: "anonymous" });
@@ -105,6 +112,8 @@ export default function PublicEvent() {
   const contentDefault = !event ? undefined : doc.primary_locale !== "auto" ? doc.primary_locale : contentLocale(event.name);
   const { locale, setLocale } = usePublicLocale(contentDefault);
   const c = publicCopy[locale];
+  const token = useAttendeeToken();
+  const heldPass = useHeldPass(event?.slug, token);
   usePageMeta(event ? { doc, images, locale, eventName: event.name } : null);
   const selectedTier =
     event?.ticket_tiers.find((t) => t.id === selectedTierId) ??
@@ -178,13 +187,16 @@ export default function PublicEvent() {
       } else {
         // Edge case 3: Tier became unavailable / sold out / closed: reload the latest tier availability
         if (isTierUnavailable(code)) refreshEvent(event.slug, context);
-        setModalError(localizedApiError(err, locale));
+        // A code without Persian text (or no code) must not show the server's English to a Persian reader.
+        const known = code !== undefined && Object.hasOwn(errorMessages[locale], code);
+        setModalError(known || locale === "en" ? localizedApiError(err, locale) : c.reserveFailed);
       }
       setSubmitting(false);
     } else if (data) {
       setIsAuthModalOpen(false);
       setSubmitting(false);
       setAlreadyHasTicket(true);
+      setReserved(data);
       setIsSuccessModalOpen(true);
       refreshEvent(event.slug, context);
     }
@@ -265,6 +277,7 @@ export default function PublicEvent() {
             <div className="space-y-3">
               <h1 className="text-3xl font-bold tracking-[-0.03em] text-text-primary sm:text-4xl">{notFound ? c.notFoundTitle : c.eventLoadFailedTitle}</h1>
               <p className="text-base leading-relaxed text-text-secondary">{notFound ? c.notFoundBody : c.eventLoadFailed}</p>
+              {notFound && <p className="text-sm leading-relaxed text-text-muted">{c.notFoundHelp}</p>}
             </div>
             <div className="flex flex-wrap items-center justify-center gap-3">
               {!notFound && (
@@ -273,9 +286,9 @@ export default function PublicEvent() {
                   {c.retry}
                 </Button>
               )}
-              <LinkButton to="/" variant={notFound ? "secondary" : "ghost"} size="lg">
-                <Icon name="arrow-left" size={18} />
-                {c.returnHome}
+              <LinkButton to="/sign-in" variant={notFound ? "primary" : "ghost"} size="lg">
+                <Icon name="ticket" size={18} />
+                {c.findMyPass}
               </LinkButton>
             </div>
           </div>
@@ -306,7 +319,7 @@ export default function PublicEvent() {
             }}
             onReserve={handleStartReservation}
             submitting={submitting}
-            alreadyHasTicket={alreadyHasTicket}
+            alreadyHasTicket={alreadyHasTicket || heldPass}
             // Signed-in attendees reserve without the dialog, so its errors must show beside the dock.
             error={isAuthModalOpen ? null : modalError}
           />
@@ -357,19 +370,32 @@ export default function PublicEvent() {
         description={c.successDescription}
         size="sm"
       >
-        <div className="space-y-6">
-          <div className="relative isolate overflow-hidden rounded-2xl bg-surface-ink p-5 text-white [border-start-end-radius:var(--radius-arc)]">
+        <div className="space-y-5">
+          <div className="relative isolate flex items-center gap-4 overflow-hidden rounded-2xl bg-surface-ink p-5 text-white [border-start-end-radius:var(--radius-arc)]">
             <CongressSignature seed={event.slug} accent={doc.branding.accent} tone="ink" className="absolute inset-0 -z-10 size-full opacity-80 rtl:-scale-x-100" />
             <div aria-hidden="true" className="absolute inset-0 -z-10 bg-linear-to-t from-surface-ink via-surface-ink/80 to-surface-ink/20" />
-            <span className="grid size-11 place-items-center rounded-full bg-[#3EE0A1] text-surface-ink motion-safe:animate-pop">
-              <Icon name="check" size={22} strokeWidth={2.4} />
-            </span>
-            <h3 className="mt-6 text-lg font-semibold leading-snug"><Bidi text={event.name} /></h3>
-            <p className="mt-1 text-sm text-ink-200">
-              {c.successTier}: <span className="font-semibold text-white">{selectedTier && <Bidi text={selectedTier.name} />}</span>
+            <div className="min-w-0 flex-1">
+              <span className="grid size-10 place-items-center rounded-full bg-[#3EE0A1] text-surface-ink motion-safe:animate-pop">
+                <Icon name="check" size={20} strokeWidth={2.4} />
+              </span>
+              <h3 className="mt-4 text-base font-semibold leading-snug break-words"><Bidi text={event.name} /></h3>
+              <p className="mt-1 text-sm text-ink-200">
+                {c.successTier}: <span className="font-semibold text-white">{selectedTier && <Bidi text={reserved?.ticket_tier_name || selectedTier.name} />}</span>
+              </p>
+            </div>
+            {reserved?.qr_secret && (
+              <div role="img" aria-label={c.successQrLabel} className="shrink-0 rounded-xl bg-white p-2 shadow-lift">
+                <QRCode value={reserved.qr_secret} size={96} level="M" viewBox="0 0 256 256" fgColor="#000000" bgColor="#FFFFFF" className="size-24" />
+              </div>
+            )}
+          </div>
+          <div className="space-y-2 text-sm leading-relaxed text-text-secondary">
+            <p>{c.successBody}</p>
+            <p className="flex items-start gap-2 font-medium text-text-primary">
+              <Icon name="phone" size={16} className="mt-0.5 shrink-0 text-event-accent" />
+              {c.successSms}
             </p>
           </div>
-          <p className="text-sm leading-relaxed text-text-secondary">{c.successBody}</p>
           <div className="flex flex-col gap-2">
             <Button
               type="button"
@@ -378,10 +404,15 @@ export default function PublicEvent() {
               isFullWidth
               onClick={() => {
                 setIsSuccessModalOpen(false);
-                navigate("/my-tickets");
+                navigate(`/c/${encodeURIComponent(event.slug)}/my-ticket`);
               }}
             >
+              <Icon name="qr" size={18} />
               {c.successOpen}
+            </Button>
+            <Button type="button" variant="secondary" size="md" isFullWidth onClick={() => downloadCalendarFile(event)}>
+              <Icon name="calendar" size={18} />
+              {c.addToCalendar}
             </Button>
             <Button type="button" variant="ghost" size="md" isFullWidth onClick={() => setIsSuccessModalOpen(false)}>
               {c.successStay}

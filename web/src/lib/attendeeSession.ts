@@ -1,3 +1,4 @@
+import { useSyncExternalStore } from "react";
 import { ATTENDEE_TOKEN_STORAGE } from "../api/client";
 import type { AttendeeLocale } from "./i18n";
 
@@ -23,4 +24,18 @@ export function isStoredAttendeeToken(token: string): boolean {
  */
 export function rejectAttendeeToken(token: string): void {
   if (isStoredAttendeeToken(token)) localStorage.removeItem(ATTENDEE_TOKEN_STORAGE);
+}
+
+/** Another tab signing in or out changes the stored token; this tab only hears it as a `storage` event. */
+function subscribeToStorage(onChange: () => void): () => void {
+  window.addEventListener("storage", onChange);
+  return () => window.removeEventListener("storage", onChange);
+}
+
+/**
+ * The stored attendee token, re-read on every render and on another tab's change, so public pages
+ * never offer "my pass" to nobody or "sign in" to someone already signed in.
+ */
+export function useAttendeeToken(): string | null {
+  return useSyncExternalStore(subscribeToStorage, () => localStorage.getItem(ATTENDEE_TOKEN_STORAGE), () => null);
 }

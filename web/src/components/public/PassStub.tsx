@@ -1,5 +1,4 @@
 import type { TicketTierOut } from "../../api/client";
-import { translations } from "../../lib/i18n";
 import { Icon } from "../ui/Icon";
 import { Bidi } from "./Bidi";
 import { indexLabel, num, publicCopy, type PublicLocale } from "./copy";
@@ -19,7 +18,6 @@ interface PassStubProps {
  */
 export function PassStub({ tier, index, selected, locale, onSelect }: PassStubProps) {
   const c = publicCopy[locale];
-  const t = translations[locale];
   const state = tierState(tier);
   const available = state === "AVAILABLE";
   const reserved = tier.reserved_count ?? 0;
@@ -74,15 +72,15 @@ export function PassStub({ tier, index, selected, locale, onSelect }: PassStubPr
             <p className={`text-xs ${ink ? "text-ink-200" : "text-text-muted"}`}>
               {state === "AVAILABLE" && (
                 <>
-                  {t.tierCapacityRemaining}{" "}
+                  {c.capacityRemaining}{" "}
                   <strong className={`font-semibold tabular ${ink ? "text-white" : low ? "text-status-warning-text" : "text-text-primary"}`}>
                     {num(remaining, locale)}
                   </strong>{" "}
                   / {num(tier.quota, locale)}
                 </>
               )}
-              {state === "SOLD_OUT" && <span className="font-medium text-status-warning-text">{t.tierCapacitySoldOutNotice}</span>}
-              {state === "CLOSED" && <span className="font-medium">{t.tierClosedNotice}</span>}
+              {state === "SOLD_OUT" && <span className="font-medium text-status-warning-text">{c.tierSoldOutNotice}</span>}
+              {state === "CLOSED" && <span className="font-medium">{c.tierClosedNotice}</span>}
             </p>
           </div>
         </div>
@@ -104,7 +102,7 @@ export function PassStub({ tier, index, selected, locale, onSelect }: PassStubPr
             <>
               <Icon name={state === "SOLD_OUT" ? "users" : "lock"} size={20} />
               <span className="text-xs font-bold leading-tight">
-                {state === "SOLD_OUT" ? t.tierStatusSoldOut : t.tierStatusRegistrationClosed}
+                {state === "SOLD_OUT" ? c.tierStatusSoldOut : c.tierStatusClosed}
               </span>
             </>
           )}
