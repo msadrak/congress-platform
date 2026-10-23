@@ -17,7 +17,8 @@ export const webManifest: Partial<ManifestOptions> = {
   // below would turn every existing home-screen install into a different app.
   id: '/',
   // Only a home-screen launch opens this address; src/lib/launchTarget.ts rewrites it to the device's own
-  // scanner point (or the plain home page) before the app renders. Keep in step with HOME_SCREEN_START_URL.
+  // destination (its scanner point, the attendee's pass, the last booth or desk, else the plain home page)
+  // before the app renders. Keep in step with HOME_SCREEN_START_URL.
   start_url: '/?source=pwa',
   scope: '/',
   icons: [

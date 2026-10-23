@@ -1,6 +1,5 @@
 {
   "src/components/AppUpdatePrompt.tsx": {
-    "ternary": 3,
     "persian": 3
   },
   "src/components/attendee/attendeeCopy.ts": {
@@ -22,9 +21,6 @@
   "src/components/attendee/DigitalPassCard.tsx": {
     "ternary": 7,
     "persian": 7
-  },
-  "src/components/attendee/InstallHint.tsx": {
-    "persian": 5
   },
   "src/components/attendee/Monogram.tsx": {
     "persian": 4
