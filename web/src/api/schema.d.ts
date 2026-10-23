@@ -3106,6 +3106,8 @@ export interface components {
             created_at: string;
             /** Event Archived */
             event_archived: boolean;
+            /** Event Timezone */
+            event_timezone: string;
         };
         /**
          * BoothResolveOut
@@ -3562,6 +3564,8 @@ export interface components {
             event_name: string;
             /** Event Slug */
             event_slug: string;
+            /** Event Timezone */
+            event_timezone: string;
         };
         /** DeskMeOut */
         DeskMeOut: {
@@ -3585,6 +3589,8 @@ export interface components {
              * @default false
              */
             is_archived: boolean;
+            /** Event Timezone */
+            event_timezone: string;
         };
         /** DeskOperatorCreate */
         DeskOperatorCreate: {

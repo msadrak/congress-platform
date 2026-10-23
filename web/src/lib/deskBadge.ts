@@ -4,10 +4,12 @@ import { deskCopy } from "../copy/desk.ts";
 export type BadgePrintState = "never" | "printed" | "stale";
 
 /**
- * The congress clock the desk shows times on. The desk API does not send the congress's own zone yet
- * (`DeskMeOut` has none), and every congress so far runs on Tehran time.
+ * The congress clock the desk shows times on: the zone `/desk/me` names (`event_timezone`), else Tehran, where every
+ * congress so far runs (the event default), rather than the device's zone.
  */
-export const DESK_TIME_ZONE = "Asia/Tehran";
+export function deskTimeZone(profile: { event_timezone?: string | null } | null | undefined): string {
+  return profile?.event_timezone || "Asia/Tehran";
+}
 
 /** `never` printed, `printed` and still current, or `stale`: the registration or QR changed since the last print. */
 export function badgePrintState(card: { print_count: number; needs_reprint: boolean }): BadgePrintState {

@@ -97,6 +97,8 @@ class BoothOut(BaseModel):
     created_at: datetime
     # The booth's congress is archived: its leads stay readable and exportable but no new capture is taken.
     event_archived: bool
+    # The congress's IANA zone (`events.timezone`): lead times are shown in it, not in the device's zone.
+    event_timezone: str
 
 
 class BoothStaffAssign(BaseModel):
@@ -214,6 +216,7 @@ async def create_booth(
         qr_secret=secret,
         created_at=booth.created_at,
         event_archived=event.archived_at is not None,
+        event_timezone=event.timezone,
     )
 
 
@@ -247,6 +250,7 @@ async def list_event_booths(
             qr_secret=qr.secret,
             created_at=b.created_at,
             event_archived=event.archived_at is not None,
+            event_timezone=event.timezone,
         )
         for b, qr in rows
     ]
@@ -380,6 +384,7 @@ async def update_booth(
         qr_secret=secret or "",
         created_at=booth.created_at,
         event_archived=event.archived_at is not None,
+        event_timezone=event.timezone,
     )
 
 
@@ -558,7 +563,7 @@ async def get_my_assigned_booths(
     session: SessionDep,
 ) -> list[BoothOut]:
     query = (
-        select(Booth, EntityQR, Event.archived_at)
+        select(Booth, EntityQR, Event.archived_at, Event.timezone)
         .join(BoothStaff, BoothStaff.booth_id == Booth.id)
         .join(
             EntityQR,
@@ -586,8 +591,9 @@ async def get_my_assigned_booths(
             qr_secret=qr.secret,
             created_at=b.created_at,
             event_archived=archived_at is not None,
+            event_timezone=event_timezone,
         )
-        for b, qr, archived_at in rows
+        for b, qr, archived_at, event_timezone in rows
     ]
 
 
@@ -623,6 +629,7 @@ async def get_booth_portal(
         qr_secret=qr.secret,
         created_at=booth.created_at,
         event_archived=event.archived_at is not None,
+        event_timezone=event.timezone,
     )
 
 

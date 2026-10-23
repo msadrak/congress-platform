@@ -24,6 +24,8 @@ interface LeadListProps {
   boothId: string;
   token: string;
   locale: AttendeeLocale;
+  /** The congress's IANA zone: lead and queue times are shown on its clock. */
+  timeZone: string;
   list: LeadListState;
   counts: LeadCounts;
   queue: LeadQueueState;
@@ -54,6 +56,7 @@ export function LeadList({
   boothId,
   token,
   locale,
+  timeZone,
   list,
   counts,
   queue,
@@ -193,7 +196,7 @@ export function LeadList({
       </div>
 
       <div className="space-y-3 pt-3">
-        <PendingSyncPanel queue={queue} locale={locale} />
+        <PendingSyncPanel queue={queue} locale={locale} timeZone={timeZone} />
         {!queue.online && (
           <Notice tone="warning" icon="wifi-off">
             <span data-testid="offline-banner">{text.offlineNotice}</span>
@@ -243,6 +246,7 @@ export function LeadList({
                 key={lead.id}
                 lead={lead}
                 locale={locale}
+                timeZone={timeZone}
                 busy={busyId === lead.id}
                 actionsDisabled={!queue.online || archived}
                 onQualify={lead.deleted_at || archived ? undefined : () => onQualify(lead)}

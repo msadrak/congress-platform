@@ -113,7 +113,7 @@ async function fixture(page: Page, options: Options = {}) {
       operators[0] = { ...operators[0], is_revoked: true };
       return json(200, operators[0]);
     }
-    if (rest === '/desk/me') return json(200, { operator_id: null, operator_name: 'Organizer Admin', event_id: id, event_name: events[id].name, event_slug: id, is_organizer_admin: true });
+    if (rest === '/desk/me') return json(200, { operator_id: null, operator_name: 'Organizer Admin', event_id: id, event_name: events[id].name, event_slug: id, is_organizer_admin: true, event_timezone: 'Asia/Tehran' });
     if (rest === '/desk/tiers') return json(200, tiers[id]);
     if (rest === '/attendees') return json(200, []);
     if (rest === '/analytics/attendance') return json(200, { event_id: id, timezone: 'Asia/Tehran', days: ['2099-05-10', '2099-05-11', '2099-05-12'], total_tickets: 60, tickets_by_status: [{ status: 'active', count: 60 }], tier_registrations: [], unique_admitted: 30, checkin_rate: 50, total_scans: 44, total_admitted: 40, total_rejected: 4, hourly_scans: [], catering_metrics: [], gate_breakdown: [] });
