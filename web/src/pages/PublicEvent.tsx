@@ -19,6 +19,7 @@ import { CongressSignature } from "../components/brand/CongressSignature";
 import { contentLocale, isolateFor, publicCopy, usePublicLocale } from "../components/public/copy";
 import { Bidi } from "../components/public/Bidi";
 import { CongressPage } from "../components/public/page/CongressPage";
+import { programFilesOf } from "../api/lifecycleTypes";
 import { PassesPanel } from "../components/public/page/PassesPanel";
 
 export default function PublicEvent() {
@@ -294,6 +295,7 @@ export default function PublicEvent() {
         doc={doc}
         images={images}
         locale={locale}
+        programFiles={programFilesOf(event)}
         passes={
           <PassesPanel
             slug={event.slug}

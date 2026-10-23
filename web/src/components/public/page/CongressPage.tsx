@@ -1,5 +1,6 @@
 import { Fragment, type ReactNode } from "react";
 import type { PublicBoothSummary } from "../../../api/client";
+import type { PublicProgramFile } from "../../../api/lifecycleTypes";
 import {
   isSectionVisible,
   localized,
@@ -26,6 +27,7 @@ import {
   SpeakersBlock,
 } from "./PageSections";
 import { RichText } from "./RichText";
+import { ScheduleFiles } from "./ScheduleFiles";
 
 export interface CongressPageEvent extends HeroEvent {
   description: string;
@@ -42,6 +44,8 @@ interface CongressPageProps {
   booths?: PublicBoothSummary[];
   /** "preview" shows empty blocks as placeholders so the organizer can see where they sit. */
   mode?: "public" | "preview";
+  /** Visible schedule files (PDFs and images), shown after the sections. */
+  programFiles?: readonly PublicProgramFile[];
 }
 
 function hasContent(section: PageSection, locale: PublicLocale): boolean {
@@ -68,7 +72,7 @@ function hasContent(section: PageSection, locale: PublicLocale): boolean {
  * sections in their saved order, each drawn by a curated AIteb component. The same component renders
  * `/e/:slug` and the Page Studio preview, so the preview is the page.
  */
-export function CongressPage({ event, doc, images, locale, passes, booths, mode = "public" }: CongressPageProps) {
+export function CongressPage({ event, doc, images, locale, passes, booths, mode = "public", programFiles = [] }: CongressPageProps) {
   const c = publicCopy[locale];
   const preview = mode === "preview";
   const logo = doc.branding.logo_asset_id ? images[doc.branding.logo_asset_id] ?? null : null;
@@ -251,6 +255,11 @@ export function CongressPage({ event, doc, images, locale, passes, booths, mode 
             .map((section) => (
               <Fragment key={section.id}>{render(section)}</Fragment>
             ))}
+          {programFiles.length > 0 && (
+            <section id="schedule-files" aria-label={c.sectionAgenda} className="reveal scroll-mt-24">
+              <ScheduleFiles files={programFiles} locale={locale} />
+            </section>
+          )}
         </div>
       </div>
     </>

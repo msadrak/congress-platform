@@ -1,7 +1,9 @@
 import type { PublicEvent, PublicVenuePlace } from "../../api/client";
+import { programFilesOf } from "../../api/lifecycleTypes";
 import { formatLocalizedNumber, type AttendeeLocale, type TranslationDictionary } from "../../lib/i18n";
 import { CongressSignature } from "../brand/CongressSignature";
 import { PageImg } from "../public/page/PageImg";
+import { ScheduleFiles } from "../public/page/ScheduleFiles";
 import { RichText } from "../public/page/RichText";
 import { LinkButton } from "../ui/Button";
 import { Icon, type IconName } from "../ui/Icon";
@@ -67,6 +69,7 @@ export function CongressDetailsView({ event, page, labels, locale, t }: Congress
   const aboutText = labels.aboutBody ?? (event.description || null);
   const showAbout = labels.showAbout && aboutText !== null;
   const showVenue = event.venue.length > 0;
+  const scheduleFiles = programFilesOf(event);
   let index = 0;
 
   return (
@@ -137,7 +140,9 @@ export function CongressDetailsView({ event, page, labels, locale, t }: Congress
           title={<bdi>{labels.scheduleTitle}</bdi>}
           description={labels.scheduleLead ? <bdi>{labels.scheduleLead}</bdi> : undefined}
         />
-        <FullSchedule sessions={event.sessions} locale={locale} />
+        <ScheduleFiles files={scheduleFiles} locale={locale} />
+        {/* With schedule files but no sessions, the files are the program: no "no sessions yet" note. */}
+        {(event.sessions.length > 0 || scheduleFiles.length === 0) && <FullSchedule sessions={event.sessions} locale={locale} />}
       </section>
 
       <LinkButton to={`/e/${event.slug}`} variant="secondary" size="lg">
