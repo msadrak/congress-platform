@@ -8,8 +8,11 @@ import {
   evaluateOfflineAuthorization,
   formatRemainingWindow,
   getJwtExpiryIso,
+  isServerReachable,
   type OfflineAuthVerdict,
 } from "../lib/scannerAuthPolicy";
+import { hidCharacter, normalizeScannedCode, qrHash } from "../lib/scannerInput";
+import { MANIFEST_POLL_MS, mergeManifest, upgradeLegacyManifest } from "../lib/scannerManifest";
 import {
   clearPersistedToken,
   getPersistedScannerCredential,
@@ -26,15 +29,24 @@ import {
 } from "../lib/scannerEngine";
 import {
   acknowledgeConflict,
+  clientVerdictFor,
+  discardUnsyncedScans,
   getAllScansForPoint,
   getCachedManifestMeta,
   getConflictsForPoint,
+  getRecentScans,
   getUnsyncedScans,
+  purgeExpiredScans,
   reconcileBatchOutcomes,
+  requestPersistentStorage,
   saveCachedManifest,
   saveQueuedScan,
+  ScannerStorageBlockedError,
+  wipePointData,
   type QueuedScan,
+  type ServerScanResult,
 } from "../lib/scannerStorage";
+import { DiscardUnsynced } from "../components/scanner/DiscardUnsynced";
 import { Icon } from "../components/ui/Icon";
 import { scannerCopy, clockTime, takeoverKind, type ScannerCopy } from "../components/scanner/copy";
 import { BiHeading, BiLabel, ScannerScreen, SetupFrame, SetupPanel, SystemReadout } from "../components/scanner/ScannerChrome";
@@ -54,6 +66,15 @@ interface BarcodeDetectorInstance {
 interface WindowWithBarcodeDetector extends Window {
   BarcodeDetector?: new (options?: { formats: string[] }) => BarcodeDetectorInstance;
 }
+
+/** How long an online scan waits for the server's verdict before deciding locally (provisionally). */
+const SERVER_SCAN_TIMEOUT_MS = 2000;
+/** Largest batch the server accepts; longer queues upload in chunks. */
+const SYNC_CHUNK = 200;
+/** Scans shown in the log. */
+const LOG_SIZE = 10;
+/** A sync refreshes the manifest afterwards unless it was fetched this recently. */
+const MANIFEST_AFTER_SYNC_MIN_MS = 5000;
 
 export default function GateScanner() {
   const { pointId } = useParams<{ pointId: string }>();

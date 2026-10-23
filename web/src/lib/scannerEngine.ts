@@ -1,5 +1,6 @@
+/** One manifest ticket, keyed by `qr_hash` (sha256 of "<event_id>:<secret>"); raw secrets are never cached. */
 export interface LocalTicket {
-  qr_secret: string;
+  qr_hash: string;
   ticket_id: string;
   attendee_name: string;
   ticket_tier_id: string;
@@ -27,13 +28,13 @@ export interface LocalScanResult {
   current_admitted_count: number;
 }
 
+/** Evaluates one scan against the local manifest; `qrHashKey` is the scanned code's manifest hash. */
 export function evaluateLocalScan(
   tickets: Record<string, LocalTicket>,
   policy: LocalPolicyConfig,
-  rawSecret: string
+  qrHashKey: string
 ): LocalScanResult {
-  const secret = rawSecret.trim().toLowerCase();
-  const ticket = tickets[secret];
+  const ticket = tickets[qrHashKey.trim().toLowerCase()];
   const isOffline = Boolean(policy.is_offline);
   const provisionalOutcome: AdmissionOutcome = isOffline ? "PROVISIONAL" : "ADMITTED";
 
@@ -73,8 +74,9 @@ export function evaluateLocalScan(
   }
 
   if (policy.policy_type === "TIER_RESTRICTED") {
+    // No allowed tiers admits nobody (the server refuses to save such a point and rejects these scans).
     const allowed = policy.allowed_tier_ids || [];
-    if (allowed.length > 0 && !allowed.includes(ticket.ticket_tier_id)) {
+    if (!allowed.includes(ticket.ticket_tier_id)) {
       return {
         status: "REJECTED",
         outcome: "REJECTED",
@@ -150,17 +152,24 @@ export function evaluateLocalScan(
   };
 }
 
+export interface ReplayedScan {
+  qr_hash?: string;
+  scanned_at?: string;
+  status: "ADMITTED" | "REJECTED";
+  sync_state?: string;
+  rejection_reason?: string | null;
+}
+
 /**
- * Reconstructs local ticket state and calculates current admitted count
- * from a manifest snapshot and local historical/pending scan records.
+ * Rebuilds the admission state scans are evaluated against: the manifest (the server's admitted state)
+ * is the base, and this device's scans are replayed over it in scanned_at order. Replay only ever adds
+ * admissions: a server conflict means this device's provisional admission did not count, never that the
+ * server's own admission of that ticket went away (a conflict rejected as ALREADY_ADMITTED even proves
+ * the server holds one). Scans without a `qr_hash` (none of this manifest's tickets) are skipped.
  */
 export function reconstructLocalState(
   manifestTickets: LocalTicket[],
-  localScans: Array<{
-    qr_secret: string;
-    status: "ADMITTED" | "REJECTED";
-    sync_state?: string;
-  }>
+  localScans: ReplayedScan[]
 ): {
   ticketMap: Record<string, LocalTicket>;
   currentAdmittedCount: number;
@@ -169,10 +178,10 @@ export function reconstructLocalState(
   let admittedCount = 0;
 
   for (const t of manifestTickets) {
-    const key = t.qr_secret.trim().toLowerCase();
+    const key = t.qr_hash.trim().toLowerCase();
     ticketMap[key] = {
       ...t,
-      qr_secret: key,
+      qr_hash: key,
       admission_count: t.admission_count || (t.is_admitted ? 1 : 0),
       is_admitted: t.is_admitted || false,
     };
@@ -181,25 +190,18 @@ export function reconstructLocalState(
     }
   }
 
-  // Replay local scan records
-  for (const s of localScans) {
-    const key = s.qr_secret.trim().toLowerCase();
-    const ticket = ticketMap[key];
+  const ordered = [...localScans].sort((a, b) => (a.scanned_at ?? "").localeCompare(b.scanned_at ?? ""));
+  for (const s of ordered) {
+    const ticket = s.qr_hash ? ticketMap[s.qr_hash] : undefined;
     if (!ticket) continue;
-
-    // If locally admitted and not flagged as server conflict:
-    if (s.status === "ADMITTED" && s.sync_state !== "CONFLICT") {
-      if (!ticket.is_admitted) {
-        ticket.is_admitted = true;
-        admittedCount += 1;
-      }
-      ticket.admission_count += 1;
-    } else if (s.status === "REJECTED" && s.sync_state === "CONFLICT") {
-      // A provisional admission that was rejected by server:
-      // If ticket was only admitted provisionally, revert is_admitted
-      // (server authority wins)
-      ticket.is_admitted = false;
+    const admittedHere = s.status === "ADMITTED" && s.sync_state !== "CONFLICT";
+    const admittedElsewhere = s.status === "REJECTED" && s.rejection_reason === "ALREADY_ADMITTED";
+    if (!admittedHere && !admittedElsewhere) continue;
+    if (!ticket.is_admitted) {
+      ticket.is_admitted = true;
+      admittedCount += 1;
     }
+    if (admittedHere) ticket.admission_count += 1;
   }
 
   return { ticketMap, currentAdmittedCount: admittedCount };
