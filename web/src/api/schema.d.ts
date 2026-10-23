@@ -641,8 +641,32 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Export Attendance Csv */
+        /**
+         * Export Attendance Csv
+         * @description Every scan matching the dashboard's filters, newest first.
+         */
         get: operations["export_attendance_csv_api_events__event_id__analytics_export_csv_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/events/{event_id}/analytics/registrations-csv": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export Registrations Csv
+         * @description One row per ticket in any status, oldest registration first. The tier filter picks the tickets; the
+         *     point and date filters scope the admission columns.
+         */
+        get: operations["export_registrations_csv_api_events__event_id__analytics_registrations_csv_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1617,8 +1641,25 @@ export interface components {
              * Format: uuid
              */
             event_id: string;
-            /** Total Tickets */
+            /**
+             * Timezone
+             * @description IANA zone of every local date and time in this response.
+             */
+            timezone: string;
+            /**
+             * Days
+             * @description Local dates of the event and of any scans, for a day picker.
+             */
+            days: string[];
+            /**
+             * Total Tickets
+             * @description Active tickets (tier filter applies).
+             */
             total_tickets: number;
+            /** Tickets By Status */
+            tickets_by_status: components["schemas"]["TicketStatusCount"][];
+            /** Tier Registrations */
+            tier_registrations: components["schemas"]["TierRegistration"][];
             /** Unique Admitted */
             unique_admitted: number;
             /** Checkin Rate */
@@ -1629,6 +1670,11 @@ export interface components {
             total_admitted: number;
             /** Total Rejected */
             total_rejected: number;
+            /**
+             * Hourly Scans
+             * @description Scans of every listed point per local hour.
+             */
+            hourly_scans: components["schemas"]["HourlyScanCount"][];
             /** Catering Metrics */
             catering_metrics: components["schemas"]["CateringMetric"][];
             /** Gate Breakdown */
@@ -2530,7 +2576,16 @@ export interface components {
             total_admitted: number;
             /** Total Rejected */
             total_rejected: number;
-            /** Current Occupancy */
+            /**
+             * Admissions
+             * @description Cumulative admissions at this point; exits are not tracked.
+             */
+            admissions: number;
+            /**
+             * Current Occupancy
+             * @deprecated
+             * @description Deprecated: the cumulative admissions (same as `admissions`), not who is inside now.
+             */
             current_occupancy: number;
             /** Hourly Scans */
             hourly_scans: components["schemas"]["HourlyScanCount"][];
@@ -2603,12 +2658,33 @@ export interface components {
             /** Items */
             items?: components["schemas"]["HighlightItem"][];
         };
-        /** HourlyScanCount */
+        /**
+         * HourlyScanCount
+         * @description Scans in one hour of the event's wall clock (`starts_at` to one hour later).
+         */
         HourlyScanCount: {
-            /** Hour */
+            /**
+             * Day
+             * Format: date
+             * @description Local date in the event's timezone.
+             */
+            day: string;
+            /**
+             * Hour
+             * @description Local hour, "HH:00".
+             */
             hour: string;
+            /**
+             * Starts At
+             * @description Start of the hour as an ISO 8601 local time with the event's UTC offset.
+             */
+            starts_at: string;
             /** Count */
             count: number;
+            /** Admitted */
+            admitted: number;
+            /** Rejected */
+            rejected: number;
         };
         /** ImageTextSection */
         ImageTextSection: {
@@ -3756,6 +3832,13 @@ export interface components {
              */
             ticket_tier_id: string;
         };
+        /** TicketStatusCount */
+        TicketStatusCount: {
+            /** Status */
+            status: string;
+            /** Count */
+            count: number;
+        };
         /** TicketTierCreate */
         TicketTierCreate: {
             /** Name */
@@ -3804,6 +3887,28 @@ export interface components {
             quota?: number | null;
             /** Is Open */
             is_open?: boolean | null;
+        };
+        /** TierRegistration */
+        TierRegistration: {
+            /**
+             * Tier Id
+             * Format: uuid
+             */
+            tier_id: string;
+            /** Tier Name */
+            tier_name: string;
+            /** Quota */
+            quota: number;
+            /**
+             * Active
+             * @description Tickets with status active.
+             */
+            active: number;
+            /**
+             * Total
+             * @description Tickets in any status (active, cancelled, ...).
+             */
+            total: number;
         };
         /** UserOut */
         UserOut: {
@@ -5193,8 +5298,12 @@ export interface operations {
             query?: {
                 point_id?: string | null;
                 ticket_tier_id?: string | null;
+                /** @description Inclusive; naive means the event's local time. */
                 from_time?: string | null;
+                /** @description Inclusive; naive means the event's local time. */
                 to_time?: string | null;
+                /** @description One local day of the event's clock. */
+                day?: string | null;
             };
             header?: never;
             path: {
@@ -5213,6 +5322,15 @@ export interface operations {
                     "application/json": components["schemas"]["AttendanceAnalyticsResponse"];
                 };
             };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description Validation Error */
             422: {
                 headers: {
@@ -5226,7 +5344,16 @@ export interface operations {
     };
     export_attendance_csv_api_events__event_id__analytics_export_csv_get: {
         parameters: {
-            query?: never;
+            query?: {
+                point_id?: string | null;
+                ticket_tier_id?: string | null;
+                /** @description Inclusive; naive means the event's local time. */
+                from_time?: string | null;
+                /** @description Inclusive; naive means the event's local time. */
+                to_time?: string | null;
+                /** @description One local day of the event's clock. */
+                day?: string | null;
+            };
             header?: never;
             path: {
                 event_id: string;
@@ -5240,8 +5367,62 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
+                content?: never;
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    export_registrations_csv_api_events__event_id__analytics_registrations_csv_get: {
+        parameters: {
+            query?: {
+                point_id?: string | null;
+                ticket_tier_id?: string | null;
+                /** @description Inclusive; naive means the event's local time. */
+                from_time?: string | null;
+                /** @description Inclusive; naive means the event's local time. */
+                to_time?: string | null;
+                /** @description One local day of the event's clock. */
+                day?: string | null;
+            };
+            header?: never;
+            path: {
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
             /** @description Validation Error */
