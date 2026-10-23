@@ -1,5 +1,7 @@
 import type { PublicProgramFile } from "../../../api/client";
-import { formatLocalizedNumber, type AttendeeLocale } from "../../../lib/i18n";
+import type { AttendeeLocale } from "../../../lib/i18n";
+import { formatNumber } from "../../../lib/format";
+import { publicCopy } from "../../../copy/public";
 import { Icon } from "../../ui/Icon";
 
 interface ScheduleFilesProps {
@@ -14,7 +16,7 @@ interface ScheduleFilesProps {
  */
 export function ScheduleFiles({ files, locale, className = "" }: ScheduleFilesProps) {
   if (files.length === 0) return null;
-  const isRtl = locale === "fa";
+  const c = publicCopy[locale];
   const pdfs = files.filter((f) => f.kind === "pdf");
   const images = files.filter((f) => f.kind === "image");
   return (
@@ -27,14 +29,16 @@ export function ScheduleFiles({ files, locale, className = "" }: ScheduleFilesPr
                 href={file.url}
                 target="_blank"
                 rel="noopener"
-                className="inline-flex min-h-[44px] items-center gap-2 rounded-xl border border-border-default bg-surface-panel px-4 py-2 text-sm font-semibold text-text-primary shadow-soft transition-colors hover:border-event-accent focus-visible:outline-2 focus-visible:outline-focus-ring"
+                className="inline-flex min-h-11 items-center gap-2 rounded-control border border-border-default bg-surface-panel px-4 py-2 text-sm font-semibold text-text-primary shadow-soft transition-colors hover:border-event-accent focus-visible:outline-2 focus-visible:outline-focus-ring"
               >
                 <Icon name="file" size={18} className="shrink-0 text-event-accent" />
                 <span className="flex flex-col">
-                  <span>{isRtl ? "مشاهدهٔ برنامه (PDF)" : "View the program (PDF)"}</span>
-                  <span className="text-xs font-normal text-text-muted">
+                  <span>
+                    {c.programPdf} <bdi dir="ltr">(PDF)</bdi>
+                  </span>
+                  <span className="text-caption font-normal text-text-muted">
                     <bdi>{file.label}</bdi>
-                    {file.page_count ? (isRtl ? ` · ${formatLocalizedNumber(file.page_count, locale)} صفحه` : ` · ${file.page_count} page${file.page_count === 1 ? "" : "s"}`) : ""}
+                    {file.page_count ? ` · ${c.pageCount(formatNumber(file.page_count, locale), file.page_count)}` : ""}
                   </span>
                 </span>
               </a>
@@ -51,8 +55,8 @@ export function ScheduleFiles({ files, locale, className = "" }: ScheduleFilesPr
                   href={file.url}
                   target="_blank"
                   rel="noopener"
-                  className="block overflow-hidden rounded-2xl border border-border-default bg-surface-panel shadow-soft focus-visible:outline-2 focus-visible:outline-focus-ring"
-                  aria-label={isRtl ? `${file.label} — نمایش در اندازهٔ کامل` : `${file.label} — open full size`}
+                  className="block overflow-hidden rounded-card border border-border-default bg-surface-panel shadow-soft focus-visible:outline-2 focus-visible:outline-focus-ring"
+                  aria-label={c.openFullSize(file.label)}
                 >
                   <img
                     src={file.url}
@@ -65,7 +69,7 @@ export function ScheduleFiles({ files, locale, className = "" }: ScheduleFilesPr
                     className="block h-auto w-full"
                   />
                 </a>
-                <figcaption className="text-sm text-text-secondary">
+                <figcaption className="text-body-sm text-text-secondary">
                   <bdi>{file.label}</bdi>
                 </figcaption>
               </figure>

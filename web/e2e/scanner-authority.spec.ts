@@ -43,7 +43,8 @@ async function fixture(page: Page, options: Options = {}) {
 }
 
 async function seedHumanSessions(page: Page) {
-  await page.goto('/');
+  // A same-origin static file, not the app: the home page would load its public congress list (an API request) mid-seed.
+  await page.goto('/favicon.png');
   await page.evaluate(({ userToken, organizerKey, deskToken }) => {
     localStorage.setItem('congress_attendee_token', userToken);
     sessionStorage.setItem('congress_organizer_api_key', organizerKey);

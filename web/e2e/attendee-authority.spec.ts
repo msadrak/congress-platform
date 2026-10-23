@@ -473,8 +473,8 @@ test('ticket reservation sends only the User token and shows success', async ({ 
   await seed(page, tokenA);
   requests.length = 0;
   await page.goto('/e/t06-fixture');
-  await page.getByRole('button', { name: /Reserve Free Pass/ }).click();
-  await expect(page.getByRole('heading', { name: 'Pass Reserved Successfully' })).toBeVisible();
+  await page.getByRole('button', { name: /Reserve free pass/ }).click();
+  await expect(page.getByRole('heading', { name: 'Your pass is ready' })).toBeVisible();
   const reserve = requests.filter(r => r.path.endsWith('/tickets/reserve'));
   expect(reserve).toHaveLength(1);
   expect(reserve[0].auth).toBe(bearer(tokenA));
@@ -487,7 +487,7 @@ test('reservation 401 clears exactly the sent token and reopens sign-in', async 
   await seed(page, tokenA);
   requests.length = 0;
   await page.goto('/e/t06-fixture');
-  await page.getByRole('button', { name: /Reserve Free Pass/ }).click();
+  await page.getByRole('button', { name: /Reserve free pass/ }).click();
   await expect(page.getByRole('dialog')).toContainText('Your session has expired');
   expect(await storedUser(page)).toBeNull();
   expect(requests.filter(r => r.path.endsWith('/tickets/reserve')).map(r => r.auth)).toEqual([bearer(tokenA)]);
@@ -496,18 +496,18 @@ test('reservation 401 clears exactly the sent token and reopens sign-in', async 
 
 test('R2 a reservation answered after the session changed shows no success for the new session', async ({ page }) => {
   await fixture(page, { noTickets: true });
-  await watchText(page, ['Pass Reserved Successfully']);
+  await watchText(page, ['Your pass is ready']);
   const held = await hold(page, '/tickets/reserve', bearer(tokenA), 201, { id: 'ticket-new', event_id: 'event-1', ticket_tier_id: 'tier-1', ticket_tier_name: 'General', attendee_name: 'x', attendee_mobile: '09121239999', status: 'ACTIVE', qr_secret: 'synthetic-qr-new', created_at: '2027-01-01T00:00:00Z' }, 'POST');
   await seed(page, tokenA);
   await page.goto('/e/t06-fixture');
-  await page.getByRole('button', { name: /Reserve Free Pass/ }).click();
+  await page.getByRole('button', { name: /Reserve free pass/ }).click();
   await held.started;
   await switchUser(page, tokenB);
   const late = page.waitForResponse(response => response.url().endsWith('/tickets/reserve'));
   held.release();
   await late;
   await page.waitForTimeout(500);
-  expect(await sawText(page, 'Pass Reserved Successfully')).toBe(false);
+  expect(await sawText(page, 'Your pass is ready')).toBe(false);
   expect(await storedUser(page)).toBe(tokenB);
 });
 

@@ -25,7 +25,7 @@ function PlaceList({ title, icon, places, sessions, locale }: {
             <li
               key={place.id}
               id={`venue-${place.id}`}
-              className="scroll-mt-24 rounded-2xl border border-border-default bg-surface-panel p-4 shadow-soft target:border-event-accent target:ring-2 target:ring-event-accent/30 sm:p-5"
+              className="scroll-mt-24 rounded-card border border-border-default bg-surface-panel p-4 shadow-soft target:border-event-accent target:ring-2 target:ring-event-accent/30 sm:p-5"
             >
               <p dir="auto" className="text-base font-semibold leading-snug tracking-[-0.01em] text-text-primary break-words">{place.name}</p>
               {place.location && (
@@ -64,9 +64,9 @@ export function PublicVenue({ address, venue, sessions, locale }: {
   return (
     <div className="space-y-8">
       {address.trim() && (
-        <div className="flex flex-col gap-4 rounded-2xl bg-surface-panel-subtle p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
+        <div className="flex flex-col gap-4 rounded-card bg-surface-panel-subtle p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
           <div className="min-w-0 space-y-1">
-            <p className="text-xs font-semibold text-text-muted">{c.venueOpenIn}</p>
+            <p className="text-xs font-semibold text-text-muted">{c.venueAddress}</p>
             <p dir="auto" className="text-base font-semibold text-text-primary break-words">{address}</p>
           </div>
           <MapLinks query={address} locale={locale} />

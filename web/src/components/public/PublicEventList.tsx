@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { createApiClient, localizedApiError, type PublicEventSummary } from "../../api/client";
-import { CongressSignature } from "../brand/CongressSignature";
 import { Button } from "../ui/Button";
 import { Icon } from "../ui/Icon";
+import { Notice } from "../ui/Notice";
 import { Bidi } from "./Bidi";
 import { num, publicCopy, type PublicLocale } from "./copy";
 import { congressTiming, formatDateRange } from "./format";
@@ -23,10 +23,12 @@ interface PublicEventListProps {
   variant?: "section" | "panel";
   /** Heading id (several lists never share a page). */
   headingId?: string;
-  /** Load only when the list scrolls into view (below the fold). */
+  /** Load only once the list scrolls into view (a visit that never reaches it asks nothing). */
   lazy?: boolean;
   /** Extra classes for the rendered section (e.g. its spacing); nothing is rendered while there is no list. */
   className?: string;
+  /** Shown under the heading when nothing is listed; without it an empty list renders nothing. */
+  emptyText?: string;
 }
 
 /** The API lists upcoming and running congresses first, then past ones: a page ending in a past one is the last page. */
@@ -53,16 +55,16 @@ function EventCard({ event, locale, now }: { event: PublicEventSummary; locale: 
       to={`/e/${encodeURIComponent(event.slug)}`}
       aria-label={c.listOpen(event.name)}
       data-testid="public-event-card"
-      className="press group flex h-full items-center gap-4 rounded-2xl border border-border-default bg-surface-panel p-4 shadow-soft transition-[border-color,box-shadow] hover:border-border-strong hover:shadow-lift focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
+      className="group flex h-full items-center gap-4 rounded-card border border-border-default bg-surface-panel p-4 shadow-soft transition-[border-color,box-shadow] hover:border-border-strong hover:shadow-lift"
     >
-      <span aria-hidden="true" className="size-14 shrink-0 overflow-hidden rounded-xl [border-start-end-radius:22px]">
-        <CongressSignature seed={event.slug} tone="ink" className="size-full" />
+      <span aria-hidden="true" className="grid size-12 shrink-0 place-items-center rounded-control bg-aiteb-lavender text-aiteb-indigo">
+        <Icon name="congress" size={24} />
       </span>
       <span className="min-w-0 flex-1 space-y-1.5">
-        <span className="block text-base font-semibold leading-snug tracking-[-0.01em] text-text-primary break-words">
+        <span className="block text-body font-semibold leading-snug text-text-primary break-words">
           <Bidi text={event.name} />
         </span>
-        <span className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-text-muted">
+        <span className="flex flex-wrap items-center gap-x-3 gap-y-1 text-caption text-text-muted">
           <span className="inline-flex items-center gap-1.5">
             <Icon name="calendar" size={14} className="text-ink-400" />
             {formatDateRange(event.starts_at, event.ends_at, locale, event.timezone)}
@@ -77,7 +79,7 @@ function EventCard({ event, locale, now }: { event: PublicEventSummary; locale: 
           )}
         </span>
         <span
-          className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ${
+          className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-caption font-semibold ${
             live ? "bg-status-success-bg text-status-success-text" : "bg-action-subtle text-action-primary"
           }`}
         >
@@ -85,7 +87,7 @@ function EventCard({ event, locale, now }: { event: PublicEventSummary; locale: 
           {timingLabel(event, locale, now)}
         </span>
       </span>
-      <Icon name="arrow-right" size={18} className="shrink-0 text-ink-400 transition-transform group-hover:translate-x-0.5 rtl:group-hover:-translate-x-0.5" />
+      <Icon name="chevron-right" size={18} className="shrink-0 text-ink-400" />
     </Link>
   );
 }
@@ -95,7 +97,7 @@ function EventCard({ event, locale, now }: { event: PublicEventSummary; locale: 
  * published, not archived), upcoming and running ones only, soonest first, a page at a time. Renders nothing
  * when there is none, so the page never shows an empty band.
  */
-export function PublicEventList({ locale, variant = "section", headingId = "public-events-heading", lazy = false, className = "" }: PublicEventListProps) {
+export function PublicEventList({ locale, variant = "section", headingId = "public-events-heading", lazy = false, className = "", emptyText }: PublicEventListProps) {
   const c = publicCopy[locale];
   const [state, setState] = useState<ListState>({ status: "loading" });
   const [attempt, setAttempt] = useState(0);
@@ -159,48 +161,40 @@ export function PublicEventList({ locale, variant = "section", headingId = "publ
   };
 
   if (!wanted) return <div ref={sentinel} aria-hidden="true" data-testid="public-event-list-sentinel" className="h-px" />;
-  if (state.status === "ready" && state.items.length === 0) return null;
+  const empty = state.status === "ready" && state.items.length === 0;
+  if (empty && !emptyText) return null;
 
   const panel = variant === "panel";
   const heading = (
-    <div className={panel ? "space-y-1" : "max-w-3xl space-y-4"}>
-      {!panel && <p className="text-xs font-semibold text-text-muted">{c.listEyebrow}</p>}
-      <h2
-        id={headingId}
-        className={
-          panel
-            ? "text-lg font-semibold tracking-[-0.02em] text-text-primary"
-            : "text-4xl font-bold leading-[1.05] tracking-[-0.03em] text-text-primary sm:text-5xl rtl:leading-[1.3]"
-        }
-      >
-        {c.listTitle}
-      </h2>
-      <p className={panel ? "text-sm text-text-secondary" : "text-base leading-relaxed text-text-secondary sm:text-lg"}>{c.listLead}</p>
-    </div>
+    <h2 id={headingId} className={`${panel ? "text-title-sm" : "text-title"} font-bold text-text-primary`}>
+      {c.listTitle}
+    </h2>
   );
 
   let body;
   if (state.status === "loading") {
     body = (
       <div role="status" aria-label={c.listLoading} className="grid gap-3 sm:grid-cols-2">
-        <div className="skeleton h-24 rounded-2xl" />
-        <div className="skeleton h-24 rounded-2xl" />
+        <div className="skeleton h-24 rounded-card" />
+        <div className="skeleton h-24 rounded-card" />
       </div>
     );
   } else if (state.status === "error") {
     body = (
-      <div role="alert" className="flex flex-col gap-3 rounded-2xl border border-status-danger-border bg-status-danger-bg p-5 text-sm text-status-danger-text">
-        <p className="flex items-start gap-2.5 font-semibold">
-          <Icon name="alert" size={18} className="mt-0.5 shrink-0" />
-          {c.listFailed}
-        </p>
-        {state.error !== null && <p className="text-xs leading-relaxed">{localizedApiError(state.error, locale)}</p>}
-        <Button type="button" variant="secondary" size="md" className="self-start" onClick={() => setAttempt((n) => n + 1)}>
-          <Icon name="sync" size={16} />
-          {c.retry}
-        </Button>
-      </div>
+      <Notice
+        tone="danger"
+        title={c.listFailed}
+        action={
+          <Button type="button" variant="secondary" size="sm" icon="sync" onClick={() => setAttempt((n) => n + 1)}>
+            {c.retry}
+          </Button>
+        }
+      >
+        {state.error !== null && <p>{localizedApiError(state.error, locale)}</p>}
+      </Notice>
     );
+  } else if (empty) {
+    body = <p className="text-body-sm text-text-secondary">{emptyText}</p>;
   } else {
     body = (
       <div className="space-y-4">
@@ -212,13 +206,12 @@ export function PublicEventList({ locale, variant = "section", headingId = "publ
           ))}
         </ul>
         {state.moreError !== undefined && (
-          <p role="alert" className="text-sm text-status-danger-text">
+          <p role="alert" className="text-body-sm text-status-danger-text">
             {state.moreError === null ? c.listFailed : localizedApiError(state.moreError, locale)}
           </p>
         )}
         {state.more && (
-          <Button type="button" variant="secondary" size="md" disabled={state.loadingMore} aria-busy={state.loadingMore} onClick={() => void loadMore()}>
-            <Icon name="plus" size={16} />
+          <Button type="button" variant="secondary" icon="plus" loading={state.loadingMore} onClick={() => void loadMore()}>
             {c.listMore}
           </Button>
         )}
@@ -227,7 +220,7 @@ export function PublicEventList({ locale, variant = "section", headingId = "publ
   }
 
   return (
-    <section aria-labelledby={headingId} data-testid="public-event-list" className={`${panel ? "space-y-4" : "space-y-10"} ${className}`.trim()}>
+    <section aria-labelledby={headingId} data-testid="public-event-list" className={`${panel ? "space-y-4" : "space-y-6"} ${className}`.trim()}>
       {heading}
       {body}
     </section>

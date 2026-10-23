@@ -18,16 +18,17 @@ test('attendee: public page, SMS-code sign-up, reserve, pass with QR, short link
 
   await test.step('reserve: SMS code from the outbox, profile step for a new number', async () => {
     await page.getByRole('button', { name: 'رزرو رایگان کارت ورود' }).click();
-    const dialog = page.getByRole('dialog', { name: 'تأیید شماره موبایل' });
+    // The dialog's title follows the step («دریافت کارت ورود …», then «نام شما روی کارت ورود»).
+    const dialog = page.getByRole('dialog');
     await signInWithCode(dialog, mobile, fullName);
   });
 
   await test.step('success sheet shows the pass QR', async () => {
-    const sheet = page.getByRole('dialog', { name: 'کارت ورود با موفقیت رزرو شد' });
+    const sheet = page.getByRole('dialog', { name: 'کارت ورود شما آماده است' });
     await expect(sheet).toBeVisible();
     await expect(sheet.getByText(`نوع کارت ورود: ${tier.name}`)).toBeVisible();
     await expect(sheet.getByRole('img', { name: 'کد QR کارت ورود شما' })).toBeVisible();
-    await sheet.getByRole('button', { name: 'مشاهدهٔ کارت ورود' }).click();
+    await sheet.getByRole('button', { name: 'نمایش کارت ورود' }).click();
   });
 
   await test.step('pass page shows the QR, holder and tier', async () => {

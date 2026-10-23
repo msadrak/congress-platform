@@ -167,7 +167,8 @@ async function fixture(page: Page, options: Options = {}) {
 }
 
 async function seed(page: Page, options: { desk?: boolean; locale?: string } = {}) {
-  await page.goto('/');
+  // A same-origin static file, not the app: the home page would load its public congress list (an API request) mid-seed.
+  await page.goto('/favicon.png');
   await page.evaluate(({ desk, locale }) => {
     sessionStorage.setItem('congress_organizer_api_key', 'synthetic-ms03-organizer');
     if (desk) sessionStorage.setItem('congress_desk_token_event-a', 'synthetic-ms03-desk-event-a');
@@ -498,9 +499,10 @@ test('reception shows which authority is acting when both credentials exist', as
   await fixture(page);
   await seed(page, { desk: true });
   await page.goto('/organizer/events/event-a/desk');
-  await page.getByRole('button', { name: 'Menu' }).click();
+  const deskMenu = page.locator('#organizer-main-content').getByRole('button', { name: 'Menu' });
+  await deskMenu.click();
   await page.getByRole('menuitem', { name: 'Organizer mode' }).click();
-  await page.getByRole('button', { name: 'Menu' }).click();
+  await deskMenu.click();
   await expect(page.getByRole('menuitem', { name: 'Operator mode' })).toBeVisible();
   await expect(workspaceNav(page).getByRole('link', { name: /Reception desk/ })).toHaveAttribute('aria-current', 'page');
 });

@@ -12,12 +12,12 @@ import { usePageTitle } from "../hooks/usePageTitle";
 import { PublicLayout } from "../layouts/PublicLayout";
 import { Button, LinkButton } from "../components/ui/Button";
 import { Icon } from "../components/ui/Icon";
-import { CongressSignature } from "../components/brand/CongressSignature";
-import { contentLocale, indexLabel, proseDir, publicCopy, usePublicLocale } from "../components/public/copy";
+import { Notice } from "../components/ui/Notice";
+import { StateBlock } from "../components/ui/StateBlock";
+import { contentLocale, proseDir, publicCopy, usePublicLocale } from "../components/public/copy";
 import { Bidi } from "../components/public/Bidi";
 import { signInPath } from "../lib/safeRedirect";
 import { networkErrorMessage } from "../lib/errorMessages";
-import { boothCopy } from "../components/attendee/attendeeCopy";
 
 /** Bookmark feedback, always rendered in the page language. */
 type FeedbackKey = "fbSessionChanged" | "fbSessionExpired" | "fbSaved" | "fbRemoved" | "fbUpdateFailed" | "fbLoadFailed";
@@ -160,10 +160,9 @@ export default function PublicBooth() {
 
   const { locale, setLocale } = usePublicLocale(booth ? contentLocale(booth.event_name) : undefined);
   const c = publicCopy[locale];
-  const bc = boothCopy[locale];
 
   function codedFeedbackFor(error: unknown): CodedFeedback {
-    return apiErrorCode(error) === "ACTIVE_TICKET_REQUIRED" ? { text: bc.needsPass, register: true } : { text: localizedApiError(error, locale) };
+    return apiErrorCode(error) === "ACTIVE_TICKET_REQUIRED" ? { text: c.needsPass, register: true } : { text: localizedApiError(error, locale) };
   }
 
   // One tap on the standee card: the code is the booth's secret, checked by the server.
@@ -187,6 +186,7 @@ export default function PublicBooth() {
       if (data) {
         setIsBookmarked(true);
         setStandee({ status: "saved", already: response.status === 200 });
+        setBookmarkFeedback("fbSaved");
         // The secret has done its job: keep it out of the history and of a shared link.
         setSearchParams((current) => {
           const next = new URLSearchParams(current);
@@ -211,15 +211,11 @@ export default function PublicBooth() {
     return (
       <PublicLayout locale={locale} onLocaleChange={setLocale}>
         {/* Fills the viewport so the footer never sits in view and jumps when content arrives (CLS). */}
-        <section aria-busy="true" className="relative min-h-[100svh] overflow-hidden bg-surface-ink">
-          <div aria-hidden="true" className="absolute inset-0 bg-meridian-ink opacity-70" />
-          <div className="relative mx-auto grid max-w-7xl grid-cols-1 gap-10 px-4 pt-10 pb-32 sm:px-6 lg:grid-cols-12 lg:items-end lg:px-10 motion-safe:animate-pulse">
-            <div className="space-y-5 lg:col-span-8">
-              <div className="h-4 w-40 rounded-full bg-white/10" />
-              <div className="h-3 w-28 rounded-full bg-white/10" />
-              <div className="h-14 w-3/4 rounded-2xl bg-white/10 sm:h-20" />
-            </div>
-            <div className="h-48 bg-white/10 shape-arc-lg lg:col-span-4" />
+        <section aria-busy="true" aria-label={c.loadingBooth} className="min-h-[100svh] bg-surface-ink">
+          <div className="mx-auto max-w-7xl space-y-5 px-4 pt-10 pb-32 sm:px-6 lg:px-10 motion-safe:animate-pulse">
+            <div className="h-4 w-40 rounded-full bg-white/10" />
+            <div className="h-12 w-3/4 rounded-card bg-white/10" />
+            <div className="h-5 w-1/3 rounded-full bg-white/10" />
           </div>
         </section>
       </PublicLayout>
@@ -231,291 +227,171 @@ export default function PublicBooth() {
     const notFound = loadError !== "failed";
     return (
       <PublicLayout locale={locale} onLocaleChange={setLocale} congressName="">
-        <section className="relative isolate overflow-hidden">
-          <CongressSignature seed={slug ?? "booth"} tone="light" className="absolute inset-0 -z-10 size-full opacity-70" />
-          <div aria-hidden="true" className="absolute inset-0 -z-10 bg-linear-to-b from-surface-page/30 via-surface-page/85 to-surface-page" />
-          <div className="mx-auto max-w-xl space-y-7 px-4 py-24 text-center sm:py-36">
-            <span className="mx-auto grid size-16 place-items-center bg-surface-panel text-aiteb-indigo shadow-lift shape-arc">
-              <Icon name={notFound ? "booth" : "alert"} size={28} />
-            </span>
-            <div className="space-y-3">
-              <h1 className="text-3xl font-bold tracking-[-0.03em] text-text-primary sm:text-4xl">{notFound ? c.boothNotFound : c.boothLoadFailedTitle}</h1>
-              <p className="text-base leading-relaxed text-text-secondary">{notFound ? c.boothNotFoundBody : c.boothLoadFailed}</p>
-            </div>
-            <div className="flex flex-wrap items-center justify-center gap-3">
-              {!notFound && (
-                <Button type="button" variant="secondary" size="lg" onClick={() => setReloadKey((k) => k + 1)}>
-                  <Icon name="sync" size={18} />
-                  {c.retry}
-                </Button>
-              )}
-              <LinkButton to={slug ? `/e/${slug}` : "/"} variant={notFound ? "secondary" : "ghost"} size="lg">
-                <Icon name="arrow-left" size={18} />
-                {slug ? c.backToEvent : c.platformHome}
-              </LinkButton>
-            </div>
-          </div>
-        </section>
+        <div className="mx-auto max-w-xl px-4 py-16 sm:py-24">
+          <StateBlock
+            kind={notFound ? "empty" : "error"}
+            icon={notFound ? "booth" : undefined}
+            title={notFound ? c.boothNotFound : c.boothLoadFailedTitle}
+            body={notFound ? c.boothNotFoundBody : c.boothLoadFailed}
+            action={
+              <div className="flex flex-wrap justify-center gap-3">
+                {!notFound && (
+                  <Button type="button" variant="secondary" icon="sync" onClick={() => setReloadKey((k) => k + 1)}>
+                    {c.retry}
+                  </Button>
+                )}
+                <LinkButton to={slug ? `/e/${slug}` : "/"} variant={notFound ? "secondary" : "ghost"} icon="arrow-left">
+                  {slug ? c.backToEvent : c.platformHome}
+                </LinkButton>
+              </div>
+            }
+          />
+        </div>
       </PublicLayout>
     );
   }
 
   const brochureUrl = booth.brochure_url && /^https?:\/\//i.test(booth.brochure_url) ? booth.brochure_url : null;
   const websiteUrl = booth.website_url && /^https?:\/\//i.test(booth.website_url) ? booth.website_url : null;
-  const code = booth.location || c.mainFloor;
+  // A short Latin stand code ("A12") reads as a placard; anything else is a line of text under the name.
   const latinCode = Boolean(booth.location) && LATIN_CODE.test(booth.location) && booth.location.length <= 8;
-  const feedbackText = expired ? c.fbSessionExpired : bookmarkFeedback ? c[bookmarkFeedback] : null;
-  const feedbackOk = bookmarkFeedback === "fbSaved" || bookmarkFeedback === "fbRemoved";
+  const feedbackKey: FeedbackKey | null = expired ? "fbSessionExpired" : bookmarkFeedback;
+  // Saved / removed show in the button itself; screen readers still hear them.
+  const quietFeedback = feedbackKey === "fbSaved" || feedbackKey === "fbRemoved";
+  // A standee code saves through the booth's secret (one tap from the stand); otherwise the plain toggle.
+  const useStandee = Boolean(token && standeeCode && !isBookmarked);
+  const busy = bookmarking || standee.status === "saving";
+  const linkCard = "flex min-h-14 items-center gap-3 rounded-card border border-border-default bg-surface-panel px-4 py-3 shadow-soft transition-colors hover:border-border-strong";
 
   return (
     <PublicLayout locale={locale} onLocaleChange={setLocale} congressName={booth.event_name}>
-      {/* Booth hero: exhibitor name + stand placard over the congress signature */}
-      <section aria-labelledby="booth-title" className="relative isolate overflow-hidden bg-surface-ink text-white">
-        <CongressSignature seed={slug ?? booth.event_slug} tone="ink" className="absolute inset-0 -z-20 size-full opacity-80 rtl:-scale-x-100" />
-        <div aria-hidden="true" className="pub-hero-grid absolute inset-0 -z-10 bg-meridian-ink" />
-        <div aria-hidden="true" className="pub-hero-scrim absolute inset-0 -z-10" />
-
-        <div className="mx-auto max-w-7xl px-4 pt-6 pb-24 sm:px-6 sm:pt-10 sm:pb-32 lg:px-10">
+      <section aria-labelledby="booth-title" className="surface-ink bg-surface-ink text-white">
+        <div className="mx-auto max-w-7xl space-y-6 px-4 pt-6 pb-10 sm:px-6 sm:pt-10 sm:pb-14 lg:px-10">
           <nav aria-label={c.breadcrumb}>
-            <Link
-              to={`/e/${slug}`}
-              className="inline-flex min-h-[44px] max-w-full items-center gap-2 rounded-lg text-sm font-semibold text-ink-200 transition-colors hover:text-white focus-visible:outline-aiteb-orchid"
-            >
+            <Link to={`/e/${slug}`} className="inline-flex min-h-11 max-w-full items-center gap-2 rounded-control text-body-sm font-semibold text-ink-200 transition-colors hover:text-white">
               <Icon name="arrow-left" size={18} />
-              <span className="truncate">{c.backTo("")}<Bidi text={booth.event_name} /></span>
+              <span className="truncate">
+                {c.backTo("")}
+                <Bidi text={booth.event_name} />
+              </span>
             </Link>
           </nav>
-
-          <div className="mt-8 grid grid-cols-1 gap-10 sm:mt-12 lg:grid-cols-12 lg:items-end lg:gap-12">
-            <div className="space-y-5 lg:col-span-7 motion-safe:animate-rise">
-              <p className="eyebrow text-ink-300">{c.exhibitorBooth}</p>
-              <h1 id="booth-title" className="pub-display text-[clamp(2.4rem,7vw,5.5rem)] text-white break-words">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+            <div className="min-w-0 space-y-2">
+              <h1 id="booth-title" className="text-title-lg font-bold text-white break-words sm:text-display">
                 <Bidi text={booth.name} />
               </h1>
-              <p className="flex items-center gap-2 text-base text-ink-200">
-                <Icon name="congress" size={18} className="text-aiteb-orchid" />
-                <Bidi text={booth.event_name} />
+              {booth.location && !latinCode && (
+                <p className="text-title-sm font-semibold text-ink-100 break-words">
+                  <Bidi text={booth.location} />
+                </p>
+              )}
+            </div>
+            {latinCode && (
+              <p className="shrink-0 rounded-card bg-white px-5 py-3 text-surface-ink">
+                <span className="block text-caption font-semibold text-text-muted">{c.stand}</span>
+                <span dir="ltr" className="block font-mono text-display font-medium leading-none text-event-accent">
+                  {booth.location}
+                </span>
               </p>
-            </div>
-
-            {/* Stand placard */}
-            <div className="lg:col-span-5 motion-safe:animate-pop [animation-delay:160ms]">
-              <div className="relative overflow-hidden bg-surface-panel p-6 text-text-primary shadow-glow shape-arc-lg sm:p-8">
-                <div aria-hidden="true" className="absolute -end-20 -top-20 size-64 overflow-hidden rounded-full opacity-45">
-                  <CongressSignature seed={`${slug}-${booth.slug}`} tone="light" className="size-full" />
-                </div>
-                <div className="relative">
-                  <p className="eyebrow">{c.stand}</p>
-                  <p
-                    className={`mt-3 break-words text-event-accent ${
-                      latinCode ? "pub-placard-code text-[clamp(3.5rem,13vw,6.5rem)]" : "text-[clamp(2rem,7vw,3.25rem)] font-bold leading-tight tracking-[-0.02em]"
-                    }`}
-                  >
-                    {code}
-                  </p>
-                  <div className="mt-6 border-t border-border-default pt-4 text-xs text-text-muted">
-                    <span className="block truncate"><Bidi text={booth.event_name} /></span>
-                  </div>
-                </div>
-              </div>
-            </div>
+            )}
           </div>
         </div>
       </section>
 
-      <div className="pub-sheet">
-        <div className="mx-auto grid max-w-7xl grid-cols-1 gap-12 px-4 pt-12 pb-20 sm:px-6 sm:pt-16 sm:pb-28 lg:grid-cols-12 lg:gap-16 lg:px-10">
-          {/* Actions: bookmark, brochure, website */}
-          <aside className="space-y-4 lg:order-last lg:col-span-5">
-            {(standeeCode || standee.status === "saved") && (
-              <div className="relative space-y-4 overflow-hidden rounded-2xl border-2 border-event-accent/40 bg-surface-panel p-5 shadow-lift sm:p-6">
-                {standee.status === "saved" || (token && isBookmarked && !bookmarkLoading) ? (
-                  <p role="status" className="flex items-start gap-3 text-base font-semibold leading-relaxed text-status-success-text">
-                    <Icon name="check-circle" size={22} className="mt-0.5 shrink-0" />
-                    <span>
-                      {standee.status === "saved" && !standee.already ? bc.standeeSaved(booth.name) : bc.standeeAlready(booth.name)}
-                    </span>
-                  </p>
-                ) : token ? (
-                  <>
-                    <div className="flex items-start gap-3">
-                      <span className="grid size-11 shrink-0 place-items-center rounded-xl bg-event-accent text-white">
-                        <Icon name="qr" size={20} />
-                      </span>
-                      <div className="space-y-1">
-                        <p className="text-base font-semibold text-text-primary">{bc.standeeTitle}</p>
-                        <p className="text-sm leading-relaxed text-text-secondary">{bc.standeeBody}</p>
-                      </div>
-                    </div>
-                    <Button
-                      type="button"
-                      variant="primary"
-                      size="xl"
-                      isFullWidth
-                      disabled={standee.status === "saving" || bookmarkLoading}
-                      aria-busy={standee.status === "saving"}
-                      onClick={() => void saveFromStandee()}
-                    >
-                      <Icon name="bookmark" size={20} />
-                      {standee.status === "saving" ? bc.standeeSaving : bc.standeeSave}
-                    </Button>
-                  </>
-                ) : (
-                  <>
-                    <div className="space-y-1">
-                      <p className="text-base font-semibold text-text-primary">{bc.standeeSignIn}</p>
-                      <p className="text-sm leading-relaxed text-text-secondary">{bc.standeeSignInBody}</p>
-                    </div>
-                    <LinkButton to={signInPath(slug, `${location.pathname}${location.search}`)} variant="primary" size="xl" isFullWidth>
-                      <Icon name="user" size={20} />
-                      {bc.signInAction}
-                    </LinkButton>
-                  </>
-                )}
-              </div>
-            )}
-            <div className="space-y-4 rounded-2xl border border-border-default bg-surface-panel p-5 shadow-soft sm:p-6">
-              <div className="flex items-start gap-3">
-                <span
-                  className={`grid size-11 shrink-0 place-items-center rounded-xl transition-colors ${
-                    isBookmarked ? "bg-event-accent text-white" : "bg-event-accent-soft text-event-accent"
-                  }`}
-                >
-                  <Icon name="bookmark" size={20} fill={isBookmarked ? "currentColor" : "none"} />
-                </span>
-                <p className="pt-0.5 text-sm leading-relaxed text-text-secondary">{isBookmarked ? c.bookmarkedHint : c.bookmarkHint}</p>
-              </div>
-              {token ? (
-                <Button
-                  type="button"
-                  variant={isBookmarked ? "secondary" : "primary"}
-                  size="lg"
-                  isFullWidth
-                  aria-pressed={isBookmarked}
-                  disabled={bookmarking || bookmarkLoading}
-                  onClick={handleToggleBookmark}
-                >
-                  <Icon name="bookmark" size={18} fill={isBookmarked ? "currentColor" : "none"} className={isBookmarked ? "text-event-accent" : ""} />
-                  <span>{c.bookmark}</span>
-                </Button>
-              ) : (
-                <LinkButton to={signInPath(slug, `/e/${slug}/booths/${boothId}${location.search}`)} variant="primary" size="lg" isFullWidth>
-                  <Icon name="bookmark" size={18} />
-                  <span>{c.bookmark}</span>
+      <div className="mx-auto grid max-w-7xl grid-cols-1 gap-10 px-4 pt-8 pb-16 sm:px-6 sm:pt-12 lg:grid-cols-12 lg:gap-16 lg:px-10">
+        {/* Save, brochure, website */}
+        <aside className="space-y-3 lg:order-last lg:col-span-5">
+          <div className="space-y-4 rounded-card border border-border-default bg-surface-panel p-5 shadow-soft sm:p-6">
+            {token ? (
+              <Button
+                type="button"
+                variant={isBookmarked ? "secondary" : "primary"}
+                size="lg"
+                isFullWidth
+                aria-pressed={isBookmarked}
+                disabled={bookmarkLoading}
+                loading={busy}
+                onClick={() => void (useStandee ? saveFromStandee() : handleToggleBookmark())}
+              >
+                <Icon name="bookmark" size={18} fill={isBookmarked ? "currentColor" : "none"} />
+                {isBookmarked ? c.saved : c.save}
+              </Button>
+            ) : (
+              <>
+                <p className="text-body font-semibold text-text-primary">{c.signInToSave}</p>
+                <LinkButton to={signInPath(slug, `${location.pathname}${location.search}`)} variant="primary" size="lg" isFullWidth icon="user">
+                  {c.signInAndSave}
                 </LinkButton>
-              )}
+              </>
+            )}
 
-              {codedFeedback && (
-                <div role="alert" className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border border-status-warning-border bg-status-warning-bg p-3 text-sm leading-relaxed text-status-warning-text">
-                  <p className="flex items-start gap-2.5">
-                    <Icon name="info" size={18} className="mt-0.5 shrink-0" />
-                    <span>{codedFeedback.text}</span>
-                  </p>
-                  {codedFeedback.register && (
+            {codedFeedback && (
+              <Notice
+                tone="danger"
+                action={
+                  codedFeedback.register ? (
                     <Link to={`/e/${slug}`} className="inline-flex min-h-11 items-center gap-1 font-semibold underline underline-offset-4">
-                      {bc.getPass}
+                      {c.getPass}
                       <Icon name="arrow-right" size={14} />
                     </Link>
-                  )}
-                </div>
-              )}
-
-              {/* Bookmark Feedback Message */}
-              {feedbackText && (
-                <div
-                  role="status"
-                  className={`flex items-start gap-2.5 rounded-xl border p-3 text-sm leading-relaxed motion-safe:animate-fade ${
-                    feedbackOk
-                      ? "border-status-success-border bg-status-success-bg text-status-success-text"
-                      : "border-status-warning-border bg-status-warning-bg text-status-warning-text"
-                  }`}
-                >
-                  <Icon name={feedbackOk ? "check-circle" : "info"} size={18} className="mt-0.5" />
-                  <span>{feedbackText}</span>
-                </div>
-              )}
-            </div>
-
-            {brochureUrl ? (
-              <a
-                href={brochureUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="press group flex items-center gap-4 bg-event-accent p-5 text-white shadow-lift transition-[filter] hover:brightness-110 shape-arc sm:p-6"
+                  ) : undefined
+                }
               >
-                <span className="grid size-12 shrink-0 place-items-center rounded-xl bg-white/15">
-                  <Icon name="download" size={22} />
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block text-base font-semibold leading-snug">{c.brochureDownload}</span>
-                  <span className="block truncate text-xs text-white/90">
-                    <span className="ltr-isolate">{hostOf(brochureUrl)}</span> · {c.opensNewTab}
-                  </span>
-                </span>
-                <Icon name="arrow-up-right" size={20} className="shrink-0 transition-transform group-hover:-translate-y-0.5" />
-              </a>
-            ) : (
-              <div className="flex items-center gap-4 rounded-2xl border border-dashed border-border-strong p-5 text-sm text-text-muted sm:p-6">
-                <span className="grid size-12 shrink-0 place-items-center rounded-xl bg-surface-panel-subtle">
-                  <Icon name="file" size={22} />
-                </span>
-                {c.brochureMissing}
-              </div>
+                {codedFeedback.text}
+              </Notice>
             )}
-
-            {websiteUrl && (
-              <a
-                href={websiteUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="group flex items-center gap-4 rounded-2xl border border-border-default bg-surface-panel p-5 shadow-soft transition-colors hover:border-border-strong sm:p-6"
-              >
-                <span className="grid size-12 shrink-0 place-items-center rounded-xl bg-surface-panel-subtle text-text-secondary">
-                  <Icon name="globe" size={22} />
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block text-base font-semibold text-text-primary">{c.website}</span>
-                  <span className="block truncate text-xs text-text-muted">
-                    <span className="ltr-isolate">{hostOf(websiteUrl)}</span> · {c.opensNewTab}
-                  </span>
-                </span>
-                <Icon name="arrow-up-right" size={20} className="shrink-0 text-text-muted transition-transform group-hover:-translate-y-0.5" />
-              </a>
-            )}
-          </aside>
-
-          {/* Company profile */}
-          <div className="space-y-12 lg:col-span-7">
-            <section aria-labelledby="exhibitor-about" className="space-y-5">
-              <p className="flex items-center gap-3">
-                <span className="pub-index">{indexLabel(1, locale)}</span>
-                <span className="text-xs font-semibold text-text-muted">{c.sectionAboutEyebrow}</span>
+            {feedbackKey && !quietFeedback && <Notice tone="warning">{c[feedbackKey]}</Notice>}
+            {feedbackKey && quietFeedback && (
+              <p role="status" className="sr-only">
+                {c[feedbackKey]}
               </p>
-              <h2 id="exhibitor-about" className="text-3xl font-bold tracking-[-0.03em] text-text-primary sm:text-4xl rtl:leading-[1.4]">
+            )}
+          </div>
+
+          {brochureUrl && (
+            <a href={brochureUrl} target="_blank" rel="noopener noreferrer" className={linkCard}>
+              <Icon name="download" size={20} className="shrink-0 text-event-accent" />
+              <span className="min-w-0 flex-1">
+                <span className="block text-body font-semibold text-text-primary">{c.brochure}</span>
+                <span className="block truncate text-caption text-text-muted">
+                  <bdi dir="ltr">{hostOf(brochureUrl)}</bdi>
+                </span>
+              </span>
+              <span className="sr-only">{c.opensNewTab}</span>
+              <Icon name="arrow-up-right" size={18} className="shrink-0 text-text-muted" />
+            </a>
+          )}
+          {websiteUrl && (
+            <a href={websiteUrl} target="_blank" rel="noopener noreferrer" className={linkCard}>
+              <Icon name="globe" size={20} className="shrink-0 text-text-secondary" />
+              <span className="min-w-0 flex-1">
+                <span className="block text-body font-semibold text-text-primary">{c.website}</span>
+                <span className="block truncate text-caption text-text-muted">
+                  <bdi dir="ltr">{hostOf(websiteUrl)}</bdi>
+                </span>
+              </span>
+              <span className="sr-only">{c.opensNewTab}</span>
+              <Icon name="arrow-up-right" size={18} className="shrink-0 text-text-muted" />
+            </a>
+          )}
+        </aside>
+
+        <div className="space-y-8 lg:col-span-7">
+          {booth.description && (
+            <section aria-labelledby="exhibitor-about" className="space-y-3">
+              <h2 id="exhibitor-about" className="text-title font-bold text-text-primary">
                 {c.aboutExhibitor}
               </h2>
-              {booth.description ? (
-                <p {...proseDir(booth.description)} className="whitespace-pre-line text-xl leading-[1.6] text-text-primary sm:text-2xl sm:leading-[1.55] rtl:leading-[1.95]">
-                  {booth.description}
-                </p>
-              ) : (
-                <p className="text-lg leading-relaxed text-text-secondary">
-                  {c.defaultBoothDescription(booth.location || c.exhibitionArea)}
-                </p>
-              )}
+              <p {...proseDir(booth.description)} className="whitespace-pre-line text-body leading-relaxed text-text-primary sm:text-title-sm">
+                {booth.description}
+              </p>
             </section>
-
-            {/* Standee QR information note */}
-            <div className="flex gap-4 border-t border-border-default pt-8">
-              <span className="grid size-11 shrink-0 place-items-center rounded-xl bg-aiteb-lavender text-aiteb-indigo [border-start-end-radius:18px]">
-                <Icon name="qr" size={22} />
-              </span>
-              <div className="space-y-1">
-                <p className="text-base font-semibold text-text-primary">{c.onSiteTitle}</p>
-                <p className="text-sm leading-relaxed text-text-secondary">{c.onSiteBody}</p>
-              </div>
-            </div>
-          </div>
+          )}
+          <p className="flex items-center gap-3 text-body-sm text-text-secondary">
+            <Icon name="qr" size={20} className="shrink-0 text-aiteb-indigo" />
+            {c.onSite}
+          </p>
         </div>
       </div>
     </PublicLayout>

@@ -11,7 +11,7 @@ import type {
   SpeakersSection,
 } from "../../../lib/pageDocument";
 import { localized } from "../../../lib/pageDocument";
-import { CongressSignature } from "../../brand/CongressSignature";
+import { codeFontClass } from "../../../lib/format";
 import { buttonClassName } from "../../ui/buttonStyles";
 import { Icon, type IconName } from "../../ui/Icon";
 import { Bidi } from "../Bidi";
@@ -28,7 +28,7 @@ export function L({ value, locale }: { value: LocalizedText; locale: PublicLocal
 /** Shown only in the Page Studio preview where a visitor would see nothing. */
 export function EmptyBlock({ locale }: { locale: PublicLocale }) {
   return (
-    <div className="flex items-center gap-3 rounded-2xl border border-dashed border-border-strong bg-surface-panel px-5 py-6 text-sm text-text-muted">
+    <div className="flex items-center gap-3 rounded-card border border-dashed border-border-strong bg-surface-panel px-5 py-6 text-body-sm text-text-muted">
       <Icon name="note" size={18} />
       {publicCopy[locale].previewEmptyBlock}
     </div>
@@ -43,16 +43,15 @@ export function HighlightsBlock({ section, locale }: { section: HighlightsSectio
         {items.map((item, i) => (
           <li
             key={i}
-            className="group relative overflow-hidden rounded-3xl border border-border-default bg-surface-panel p-6 shadow-soft transition-shadow hover:shadow-lift [border-start-end-radius:40px] sm:p-7"
+            className="rounded-card border border-border-default bg-surface-panel p-6 shadow-soft sm:p-7"
           >
-            <div aria-hidden="true" className="absolute -end-10 -top-10 size-32 rounded-full bg-event-accent-soft transition-transform duration-500 group-hover:scale-110" />
-            <span className="relative grid size-12 place-items-center rounded-2xl bg-surface-ink text-white [border-start-end-radius:20px]">
+            <span className="grid size-12 place-items-center rounded-control bg-event-accent-soft text-event-accent">
               <Icon name={item.icon as IconName} size={22} />
             </span>
-            <h3 className="relative mt-6 text-lg font-semibold tracking-[-0.01em] text-text-primary">
+            <h3 className="mt-5 text-title-sm font-semibold text-text-primary">
               <L value={item.title} locale={locale} />
             </h3>
-            <p className="relative mt-2 text-sm leading-relaxed text-text-secondary">
+            <p className="mt-2 text-body-sm leading-relaxed text-text-secondary">
               <L value={item.body} locale={locale} />
             </p>
           </li>
@@ -64,7 +63,7 @@ export function HighlightsBlock({ section, locale }: { section: HighlightsSectio
     <ul className="grid border-t border-border-default sm:grid-cols-2">
       {items.map((item, i) => (
         <li key={i} className={`flex gap-4 border-b border-border-default py-6 sm:py-8 ${i % 2 === 0 ? "sm:pe-8" : "sm:border-s sm:ps-8"}`}>
-          <span className="grid size-11 shrink-0 place-items-center rounded-xl bg-event-accent-soft text-event-accent [border-start-end-radius:18px]">
+          <span className="grid size-11 shrink-0 place-items-center rounded-control bg-event-accent-soft text-event-accent">
             <Icon name={item.icon as IconName} size={22} />
           </span>
           <div className="space-y-1.5">
@@ -105,9 +104,8 @@ export function ImageTextBlock({
   return (
     <div className="grid grid-cols-1 items-center gap-10 lg:grid-cols-12 lg:gap-16">
       {image && (
-        <figure className={`relative lg:col-span-6 ${imageEnd ? "lg:order-2" : ""}`}>
-          <div aria-hidden="true" className="absolute -inset-3 -z-10 rounded-[32px] bg-event-accent-soft [border-start-end-radius:88px]" />
-          <PageImg image={image} alt={alt} className="w-full rounded-3xl object-cover shadow-lift [border-start-end-radius:80px]" />
+        <figure className={`lg:col-span-6 ${imageEnd ? "lg:order-2" : ""}`}>
+          <PageImg image={image} alt={alt} className="w-full rounded-card object-cover shadow-soft" />
         </figure>
       )}
       <div className={`space-y-6 ${image ? "lg:col-span-6" : "lg:col-span-12 max-w-3xl"} ${imageEnd ? "lg:order-1" : ""}`}>
@@ -158,16 +156,13 @@ export function SpeakersBlock({ section, locale, images }: { section: SpeakersSe
         const photo = speaker.photo_asset_id ? images[speaker.photo_asset_id] : undefined;
         return (
           <li key={i} className="space-y-4">
-            <div className="relative aspect-[4/5] overflow-hidden rounded-2xl bg-surface-ink [border-start-end-radius:48px]">
+            <div className="relative aspect-[4/5] overflow-hidden rounded-card bg-surface-ink">
               {photo ? (
                 <PageImg image={photo} alt="" className="absolute inset-0 size-full object-cover" />
               ) : (
-                <>
-                  <CongressSignature seed={`${name}-${i}`} tone="ink" className="absolute inset-0 size-full opacity-70" />
-                  <span {...proseDir(name)} aria-hidden="true" className="absolute inset-0 grid place-items-center text-4xl font-bold text-white">
-                    {initials(name)}
-                  </span>
-                </>
+                <span {...proseDir(name)} aria-hidden="true" className="absolute inset-0 grid place-items-center text-display font-bold text-white">
+                  {initials(name)}
+                </span>
               )}
             </div>
             <div className="space-y-1">
@@ -199,7 +194,7 @@ export function AgendaBlock({ section, locale }: { section: AgendaSection; local
       {items.map((item, i) => (
         <li key={i} className="relative grid gap-1 py-5 ps-8 sm:grid-cols-[9rem_1fr] sm:gap-8 sm:py-6">
           <span aria-hidden="true" className="absolute -start-[5px] top-7 size-2.5 rounded-full bg-event-accent ring-4 ring-surface-page sm:top-8" />
-          <p className="font-mono text-sm font-medium text-event-accent tabular">
+          <p className={`${codeFontClass(item.time)} text-body-sm font-medium text-event-accent`}>
             <Bidi text={item.time} />
           </p>
           <div className="space-y-1.5">
@@ -221,15 +216,11 @@ export function AgendaBlock({ section, locale }: { section: AgendaSection; local
 export function CtaBlock({
   section,
   locale,
-  slug,
-  accent,
   targetAnchor,
 }: {
   section: CtaSection;
   locale: PublicLocale;
-  slug: string;
-  accent: Parameters<typeof CongressSignature>[0]["accent"];
-  /** In-page anchor of the target section, or null when that section is hidden. */
+  /** In-page anchor of the target section, or null when that section is hidden or has nothing to act on. */
   targetAnchor: string | null;
 }) {
   const c = publicCopy[locale];
@@ -241,21 +232,15 @@ export function CtaBlock({
     <section
       id={`section-${section.id}`}
       aria-label={title}
-      className={`reveal relative isolate overflow-hidden shape-arc px-6 py-12 sm:px-12 sm:py-16 ${ink ? "bg-surface-ink text-white" : "bg-event-accent-soft text-text-primary"}`}
+      className={`rounded-card px-6 py-10 sm:px-12 sm:py-14 ${ink ? "surface-ink bg-surface-ink text-white" : "bg-event-accent-soft text-text-primary"}`}
     >
-      {ink && (
-        <>
-          <CongressSignature seed={`${slug}-cta`} accent={accent} tone="ink" className="absolute inset-0 -z-10 size-full opacity-80 rtl:-scale-x-100" />
-          <div aria-hidden="true" className="pub-hero-scrim absolute inset-0 -z-10" />
-        </>
-      )}
-      <div className="flex flex-col gap-8 lg:flex-row lg:items-end lg:justify-between">
-        <div className="max-w-2xl space-y-4">
-          <h2 className={`text-3xl font-bold leading-[1.1] tracking-[-0.03em] sm:text-4xl rtl:leading-[1.45] ${ink ? "text-white" : "text-text-primary"}`}>
+      <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+        <div className="max-w-2xl space-y-3">
+          <h2 className={`text-title font-bold sm:text-title-lg ${ink ? "text-white" : "text-text-primary"}`}>
             <Bidi text={title} />
           </h2>
           {body && (
-            <p {...proseDir(body)} className={`text-base leading-relaxed sm:text-lg ${ink ? "text-ink-200" : "text-text-secondary"}`}>
+            <p {...proseDir(body)} className={`text-body leading-relaxed ${ink ? "text-ink-200" : "text-text-secondary"}`}>
               {body}
             </p>
           )}
@@ -263,11 +248,7 @@ export function CtaBlock({
         {targetAnchor && (
           <a
             href={`#${targetAnchor}`}
-            className={buttonClassName({
-              variant: ink ? "light" : "primary",
-              size: "xl",
-              className: `press shrink-0 sm:min-w-[15rem] ${ink ? "focus-visible:outline-aiteb-orchid" : ""}`,
-            })}
+            className={buttonClassName({ variant: "primary", tone: ink ? "ink" : "default", size: "lg", className: "shrink-0" })}
           >
             <Bidi text={label} />
             <Icon name="arrow-right" size={20} />

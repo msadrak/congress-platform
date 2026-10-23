@@ -21,14 +21,6 @@
   "src/components/attendee/ProgramExplorer.tsx": {
     "ternary": 2
   },
-  "src/components/auth/MobileOtpForm.tsx": {
-    "persian": 33,
-    "ternary": 1
-  },
-  "src/components/BoothDirectory.tsx": {
-    "persian": 19,
-    "ternary": 20
-  },
   "src/components/brand/Aiteb.tsx": {
     "persian": 2,
     "ternary": 1
@@ -88,16 +80,6 @@
     "persian": 43,
     "ternary": 36
   },
-  "src/components/public/copy.ts": {
-    "ternary": 1
-  },
-  "src/components/public/homeCopy.ts": {
-    "devTerm": 2
-  },
-  "src/components/public/page/ScheduleFiles.tsx": {
-    "ternary": 3,
-    "persian": 3
-  },
   "src/components/QrCameraInput.tsx": {
     "ternary": 7,
     "persian": 7,
@@ -106,10 +88,6 @@
   "src/layouts/AttendeeLayout.tsx": {
     "persian": 17,
     "ternary": 2
-  },
-  "src/layouts/PublicLayout.tsx": {
-    "ternary": 3,
-    "persian": 1
   },
   "src/lib/attendeeSession.ts": {
     "ternary": 1
@@ -138,10 +116,6 @@
   "src/pages/CongressDetails.tsx": {
     "ternary": 4,
     "persian": 4
-  },
-  "src/pages/Home.tsx": {
-    "ternary": 1,
-    "persian": 1
   },
   "src/pages/Me.tsx": {
     "persian": 29
