@@ -22,7 +22,7 @@ from sqlalchemy.orm import QueryableAttribute
 from app.db import SessionDep
 from app.errors import ApiError, error_responses
 from app.models import CheckIn, CheckInPoint, DeskOperator, EntityQR, Event, Lead, Ticket, TicketTier, User
-from app.routes.events import OwnedEventDep
+from app.routes.events import OwnedEventDep, WritableEventDep
 from app.security import sanitize_csv_cell
 from app.sms.outbox import link_origin
 from app.sms.phone import IranMobile, ascii_digits, search_digits
@@ -354,9 +354,9 @@ async def get_participant(event: OwnedEventDep, ticket_id: uuid.UUID, session: S
     return await _detail(session, event, ticket_id)
 
 
-@router.patch("/{ticket_id}", responses=NOT_FOUND)
+@router.patch("/{ticket_id}", responses=NOT_FOUND_OR_CONFLICT)
 async def update_participant(
-    event: OwnedEventDep, ticket_id: uuid.UUID, body: ParticipantUpdate, session: SessionDep
+    event: WritableEventDep, ticket_id: uuid.UUID, body: ParticipantUpdate, session: SessionDep
 ) -> ParticipantDetail:
     """Correct the registration's name, organization or title for this congress only."""
     ticket = await _owned_ticket(session, event, ticket_id)
@@ -372,7 +372,7 @@ async def update_participant(
 
 @router.post("/{ticket_id}/cancel", responses=NOT_FOUND_OR_CONFLICT)
 async def cancel_participant(
-    event: OwnedEventDep, ticket_id: uuid.UUID, body: ParticipantCancel, request: Request, session: SessionDep
+    event: WritableEventDep, ticket_id: uuid.UUID, body: ParticipantCancel, request: Request, session: SessionDep
 ) -> ParticipantDetail:
     """Cancel the ticket: its place returns to the tier and its pass stops working."""
     ticket = await _owned_ticket(session, event, ticket_id)
@@ -389,7 +389,7 @@ async def cancel_participant(
 
 @router.post("/{ticket_id}/reissue", responses=NOT_FOUND_OR_CONFLICT)
 async def reissue_participant(
-    event: OwnedEventDep, ticket_id: uuid.UUID, body: ParticipantReissue, request: Request, session: SessionDep
+    event: WritableEventDep, ticket_id: uuid.UUID, body: ParticipantReissue, request: Request, session: SessionDep
 ) -> ParticipantDetail:
     """Issue a new pass (new QR code); the old one stops working."""
     ticket = await _owned_ticket(session, event, ticket_id)
@@ -403,7 +403,7 @@ async def reissue_participant(
 
 @router.post("/{ticket_id}/transfer", responses=NOT_FOUND_OR_CONFLICT)
 async def transfer_participant(
-    event: OwnedEventDep, ticket_id: uuid.UUID, body: ParticipantTransfer, request: Request, session: SessionDep
+    event: WritableEventDep, ticket_id: uuid.UUID, body: ParticipantTransfer, request: Request, session: SessionDep
 ) -> ParticipantDetail:
     """Give the ticket's place to another person (by mobile). Returns the new holder's registration."""
     ticket = await _owned_ticket(session, event, ticket_id)
@@ -442,7 +442,7 @@ async def transfer_participant(
 
 
 @router.delete("/{ticket_id}", status_code=status.HTTP_204_NO_CONTENT, responses=NOT_FOUND_OR_CONFLICT)
-async def delete_participant(event: OwnedEventDep, ticket_id: uuid.UUID, session: SessionDep) -> Response:
+async def delete_participant(event: WritableEventDep, ticket_id: uuid.UUID, session: SessionDep) -> Response:
     """Remove a registration made by mistake. A ticket that was scanned or captured as a lead is part of the
     congress's history: cancel it instead (409)."""
     ticket = await _owned_ticket(session, event, ticket_id)

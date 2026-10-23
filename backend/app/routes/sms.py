@@ -21,7 +21,7 @@ from app.links import SAMPLE_CODE
 from app.models import Booth, BoothStaff, DeskOperator, ShortLink, SmsMessage, Ticket, TicketTier, User
 from app.platform_config import platform_config
 from app.rate_limit import DAY_SECONDS, LONGEST_WINDOW_SECONDS, Budget, limiter
-from app.routes.events import OwnedEventDep
+from app.routes.events import OwnedEventDep, WritableEventDep
 from app.sms import SmsGateway, sms_provider
 from app.sms.outbox import confirmation_values, link_origin
 from app.sms.phone import IranMobile, mask_mobile
@@ -182,9 +182,9 @@ async def get_sms_panel(event: OwnedEventDep, request: Request, session: Session
     )
 
 
-@router.put("/api/events/{event_id}/sms/templates/{kind}", responses=error_responses(422))
+@router.put("/api/events/{event_id}/sms/templates/{kind}", responses=error_responses(409, 422))
 async def update_event_template(
-    event: OwnedEventDep, kind: EventKind, body: SmsTemplateUpdate, session: SessionDep
+    event: WritableEventDep, kind: EventKind, body: SmsTemplateUpdate, session: SessionDep
 ) -> SmsTemplateOut:
     try:
         text = validate_body(kind, body.body)
@@ -195,17 +195,17 @@ async def update_event_template(
     return await _event_template(session, kind, event.id)
 
 
-@router.delete("/api/events/{event_id}/sms/templates/{kind}")
-async def reset_event_template(event: OwnedEventDep, kind: EventKind, session: SessionDep) -> SmsTemplateOut:
+@router.delete("/api/events/{event_id}/sms/templates/{kind}", responses=error_responses(409))
+async def reset_event_template(event: WritableEventDep, kind: EventKind, session: SessionDep) -> SmsTemplateOut:
     """Back to the platform wording."""
     await delete_body(session, kind, event.id)
     await session.commit()
     return await _event_template(session, kind, event.id)
 
 
-@router.post("/api/events/{event_id}/sms/test", responses=error_responses(403, 422, 429))
+@router.post("/api/events/{event_id}/sms/test", responses=error_responses(403, 409, 422, 429))
 async def send_test_sms(
-    event: OwnedEventDep,
+    event: WritableEventDep,
     body: SmsTestRequest,
     request: Request,
     session: SessionDep,
@@ -296,7 +296,7 @@ async def _opened_at(session: AsyncSession, message: SmsMessage) -> datetime | N
 
 @router.post("/api/events/{event_id}/sms/messages/{message_id}/retry", responses=error_responses(404, 409))
 async def retry_event_sms(
-    event: OwnedEventDep, message_id: uuid.UUID, body: SmsRetryRequest, session: SessionDep
+    event: WritableEventDep, message_id: uuid.UUID, body: SmsRetryRequest, session: SessionDep
 ) -> SmsMessageOut:
     """Queue a failed (or, confirmed, an unknown) notice again; the outbox sends it with a fresh set of attempts."""
     message = await _event_message(session, event.id, message_id)
@@ -321,7 +321,7 @@ async def retry_event_sms(
 
 
 @router.post("/api/events/{event_id}/sms/messages/{message_id}/resolve", responses=error_responses(404, 409))
-async def resolve_event_sms(event: OwnedEventDep, message_id: uuid.UUID, session: SessionDep) -> SmsMessageOut:
+async def resolve_event_sms(event: WritableEventDep, message_id: uuid.UUID, session: SessionDep) -> SmsMessageOut:
     """Settle a message whose delivery is unknown (e.g. the attendee confirmed it arrived); it is never resent."""
     message = await _event_message(session, event.id, message_id)
     if message.status != "unknown":

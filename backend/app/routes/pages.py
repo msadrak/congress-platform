@@ -177,7 +177,7 @@ async def publish_page(body: PageRevision, event: WritableEventDep, session: Ses
 
 
 @router.post("/api/events/{event_id}/page/unpublish")
-async def unpublish_page(event: OwnedEventDep, session: SessionDep) -> PageStateOut:
+async def unpublish_page(event: WritableEventDep, session: SessionDep) -> PageStateOut:
     """Takes the public page (and the event's public booth pages) offline. The draft is kept; issued tickets,
     check-in and reception are unaffected, but attendees cannot reserve until the page is published again."""
     page = await _page(session, event, for_update=True)
@@ -350,7 +350,7 @@ async def organizer_media_content(
 
 
 @router.delete("/api/events/{event_id}/media/{asset_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_media(asset_id: uuid.UUID, request: Request, event: OwnedEventDep, session: SessionDep) -> Response:
+async def delete_media(asset_id: uuid.UUID, request: Request, event: WritableEventDep, session: SessionDep) -> Response:
     page = await _page(session, event, for_update=True)
     asset = await _own_asset(session, event, asset_id)
     in_draft = asset.id in PageDocument.model_validate(page.draft).asset_ids()
