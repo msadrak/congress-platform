@@ -45,6 +45,9 @@ test('desk: operator added by the organizer signs in by SMS code, searches, issu
   });
 
   await test.step('resend the pass link to the attendee', async () => {
+    // The reservation's own confirmation leaves through the SMS outbox (polled every 0.5 s by live-e2e.mjs, every
+    // 5 s on a staging stack, scripts/staging/verify.mjs): it must be counted before the resend, not after.
+    await waitForSms(attendeeMobile, 'ticket_confirmation');
     const before = (await outbox(attendeeMobile)).length;
     await desk.getByRole('button', { name: `بررسی ${attendeeName}` }).click();
     await desk.getByRole('button', { name: `گزینه‌های بیشتر برای ${attendeeName}` }).click();

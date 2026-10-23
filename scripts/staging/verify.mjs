@@ -12,25 +12,29 @@
  *
  * The Compose project is CONGRESS_STACK_PROJECT (default congress-staging), the same variable stack.mjs reads.
  * Uses only synthetic records created here. Steps: empty-database check (--fresh), HTTPS with the local CA,
- * proxy/cache/security headers, every portal through Caddy, the full congress journey (organizer, Page
- * Studio publish, registration, reception, scanner incl. offline, exhibitor leads, analytics/CSV,
- * cross-tenant), the real-API scanner spec, server-rendered metadata without JavaScript, media surviving an
- * API image rebuild and data surviving stop/start (--rebuild), and backup + restore into a separate disposable
- * project.
+ * proxy/cache/security headers, every portal through Caddy (its page title from the UI's copy modules,
+ * web/src/copy), the live-suite journeys (web/e2e-live: organizer + Page Studio publish, attendee registration and
+ * pass, reception desk, exhibitor leads, member roles), the live scanner spec (pairing, hashed manifest, admission,
+ * offline queue, unpairing), server-rendered metadata without JavaScript, media surviving an API image rebuild and
+ * data surviving stop/start (--rebuild), and backup + restore into a separate disposable project.
+ *
+ * The browser is Edge unless CONGRESS_BROWSER_CHANNEL says otherwise (`chrome`, or `chromium` after
+ * `npx playwright install chromium`), here and in the live specs. Needs `npm ci` in web/ and
+ * CONGRESS_SMS_PROVIDER=console (sign-in codes are read back from the console outbox).
  */
 import { createHash, randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import https from 'node:https';
 import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
-import { runJourney } from '../integration/journey.mjs';
 import { run } from '../lib/process.mjs';
 import { backup, compose, persistentPaths, psql, readEnv, restoreVerify, smsCode } from './stack.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
-const require = createRequire(resolve(root, 'web/package.json'));
+const WEB = resolve(root, 'web');
+const require = createRequire(resolve(WEB, 'package.json'));
 const { chromium } = require('playwright');
 const { values: args } = parseArgs({
   options: {
@@ -84,13 +88,23 @@ const api = async (method, path, { key, admin, body, raw, type } = {}) => {
   const r = await fetch(HTTP_BASE + path, { method, headers, body: raw ?? (body !== undefined ? JSON.stringify(body) : undefined) });
   const text = await r.text();
   let json = null; try { json = JSON.parse(text); } catch { /* not json */ }
-  return { status: r.status, json, text };
+  return { status: r.status, json, text, headers: r.headers };
 };
 
 // SMS sign-in on the staging stack: requires CONGRESS_SMS_PROVIDER=console (nothing is sent; the code is read
 // inside the API container by `stack.mjs sms-code`).
 const otpSignIn = async (number, full_name) => {
-  eq((await api('POST', '/api/auth/otp/request', { body: { mobile: number } })).status, 202, 'otp request');
+  const request = () => api('POST', '/api/auth/otp/request', { body: { mobile: number } });
+  let sent = await request();
+  // The same number again within the resend cooldown (60 s by default; step 12 signs in soon after step 08): wait
+  // out its Retry-After (the limiter counts in buckets, so it may take one more round). A longer block, such as an
+  // hourly budget, fails here.
+  const retryAfter = () => Number(sent.headers.get('retry-after'));
+  for (let round = 0; round < 4 && sent.status === 429 && retryAfter() > 0 && retryAfter() <= 120; round++) {
+    await new Promise((ok) => setTimeout(ok, retryAfter() * 1000 + 1000));
+    sent = await request();
+  }
+  eq(sent.status, 202, `otp request${sent.json?.code ? ` (${sent.json.code}, Retry-After ${retryAfter()} s)` : ''}`);
   const verified = (await api('POST', '/api/auth/otp/verify', { body: { mobile: number, code: smsCode(number) } })).json;
   if (verified.status === 'signed_in') return verified;
   return (await api('POST', '/api/auth/otp/complete', { body: { signup_token: verified.signup_token, full_name, organization: '', title: '' } })).json;
@@ -115,6 +129,48 @@ function alembicHead(dir = join(root, 'backend/migrations/versions')) {
   const heads = Object.keys(chain).filter((r) => !parents.has(r));
   if (heads.length !== 1) throw new Error(`expected one Alembic head in ${dir}, found ${heads.join(', ') || 'none'}`);
   return heads[0];
+}
+
+/**
+ * The UI's own words (web/src/copy/<name>.ts, loaded through Vite's module runner), so the portal checks follow a
+ * change of wording instead of going stale. Returns { <name>: <module exports> }.
+ */
+async function loadCopy(names) {
+  const { runnerImport } = await import(pathToFileURL(require.resolve('vite')).href);
+  const load = async (name) => [name, (await runnerImport(join(WEB, `src/copy/${name}.ts`), { configFile: false, root: WEB, logLevel: 'silent' })).module];
+  return Object.fromEntries(await Promise.all(names.map(load)));
+}
+
+const LIVE_SPECS = join(WEB, 'e2e-live');
+const SCANNER_SPEC = 'scanner.spec.ts';
+/**
+ * Runs web/e2e-live specs (the per-persona journeys CI runs on a disposable stack, scripts/integration/live-e2e.mjs)
+ * against this stack. The browser uses the localhost HTTP listener, a secure context for the service worker and
+ * the offline steps (the test browser does not trust the local CA). Every spec provisions its own organizer with
+ * the platform admin token and reads sign-in codes from the console SMS outbox. Playwright's JSON report goes to
+ * <evidence>/<report>.json; returns "N passed".
+ */
+function liveSpecs(report, specs) {
+  const file = join(SHOTS, `${report}.json`);
+  const r = run('npx', ['playwright', 'test', '-c', 'playwright.live.config.ts', '--retries=0', '--reporter=list,json', ...specs.map((s) => `e2e-live/${s}`)], {
+    cwd: WEB, allowFail: true,
+    env: { LIVE_E2E_BASE_URL: HTTP_BASE, LIVE_E2E_API_URL: HTTP_BASE, LIVE_E2E_ADMIN_TOKEN: env.CONGRESS_PLATFORM_ADMIN_TOKEN, PLAYWRIGHT_JSON_OUTPUT_FILE: file, CONGRESS_BROWSER_CHANNEL: process.env.CONGRESS_BROWSER_CHANNEL ?? 'msedge', CI: '', FORCE_COLOR: '0', NO_COLOR: '1' },
+  });
+  writeFileSync(join(SHOTS, `${report}.log`), `${r.stdout ?? ''}${r.stderr ?? ''}`);
+  let json = null;
+  try { json = JSON.parse(readFileSync(file, 'utf8')); } catch { /* no report: the run did not start */ }
+  const failed = [];
+  const walk = (suite) => {
+    for (const spec of suite.specs ?? []) if (!spec.ok) failed.push(spec.title);
+    for (const child of suite.suites ?? []) walk(child);
+  };
+  for (const suite of json?.suites ?? []) walk(suite);
+  const { expected = 0, unexpected = 0, flaky = 0, skipped = 0 } = json?.stats ?? {};
+  if (r.status !== 0 || !json || unexpected || flaky || failed.length || !expected) {
+    const why = failed.length ? `failed: ${failed.join(' | ')}` : (r.stdout || r.stderr || '').trim().split('\n').slice(-6).join(' ');
+    throw new Error(`${why.slice(0, 400)} (log: ${join(SHOTS, `${report}.log`)})`);
+  }
+  return `${expected} passed${skipped ? `, ${skipped} skipped` : ''} (${specs.join(', ')})`;
 }
 
 const S = {};
@@ -180,16 +236,36 @@ try {
 
   browser = await chromium.launch({ channel: process.env.CONGRESS_BROWSER_CHANNEL ?? 'msedge' });
   await check('05 every portal renders through the proxy (HTTPS), scanner runs in a secure context', async () => {
+    const copy = await loadCopy(['public', 'organizer', 'platform', 'desk', 'signIn', 'attendee', 'booth', 'operator']);
+    const fa = (module, name) => copy[module][name].fa;
+    const zero = '00000000-0000-0000-0000-000000000000';
+    const otpForm = (page) => page.getByTestId('otp-mobile-step');
+    // [path, path after client redirects, page title (the one h1), a second landmark or null]. Signed out and unpaired.
+    const routes = [
+      ['/', '/', fa('public', 'homeCopy').title, (page) => page.getByTestId('public-event-list')],
+      ['/organizer', '/organizer', fa('organizer', 'organizerCopy').signIn.title, otpForm],
+      ['/platform', '/platform', fa('platform', 'platformCopy').portal, (page) => page.locator('main form')],
+      ['/reception', '/reception', fa('desk', 'deskCopy').title, (page) => page.locator('main form')],
+      ['/sign-in', '/sign-in', fa('signIn', 'signInCopy').title, otpForm],
+      ['/my-tickets', '/me', fa('attendee', 'attendeeCopy').me.title, otpForm],
+      [`/booth/${zero}`, `/booth/${zero}`, fa('booth', 'boothCopy').signInTitle, null],
+      [`/scan/${zero}`, `/scan/${zero}`, fa('operator', 'operatorCopy').gate.unpaired.title, null],
+    ];
     const ctx = await browser.newContext({ ignoreHTTPSErrors: true, viewport: { width: 1280, height: 900 }, reducedMotion: 'reduce' });
-    await ctx.addInitScript(() => localStorage.setItem('congress_attendee_locale', 'en'));
     const page = await ctx.newPage();
     const errors = [];
     page.on('pageerror', (e) => errors.push(e.message));
     page.on('console', (m) => { if (m.type() === 'error' && /Content Security Policy/.test(m.text())) errors.push(m.text()); });
-    const routes = [['/', /Congress Platform/], ['/organizer', /Organizer Authentication/], ['/reception', /reception|Reception/], ['/sign-in', /Sign in/i], ['/my-tickets', /pass|Sign in/i], ['/booth/00000000-0000-0000-0000-000000000000', /booth|Sign in/i], ['/scan/00000000-0000-0000-0000-000000000000', /scanner|Scanner|pair/i]];
-    for (const [path, text] of routes) {
+    for (const [path, landed, title, landmark] of routes) {
       await page.goto(HTTPS_BASE + path);
-      await page.getByText(text).first().waitFor({ timeout: 15000 });
+      try {
+        await page.getByRole('heading', { level: 1, name: title, exact: true }).waitFor({ timeout: 15000 });
+        if (landmark) await landmark(page).first().waitFor({ timeout: 15000 });
+      } catch {
+        const h1 = await page.locator('h1').allInnerTexts().catch(() => []);
+        throw new Error(`${path}: expected the page title «${title}»${landmark ? ' and its landmark' : ''}, found h1 ${JSON.stringify(h1)}`);
+      }
+      eq(new URL(page.url()).pathname, landed, `${path} lands on`);
     }
     const secure = await page.evaluate(() => ({ secure: window.isSecureContext, sw: 'serviceWorker' in navigator, media: Boolean(navigator.mediaDevices?.getUserMedia) }));
     eq(secure, { secure: true, sw: true, media: true }, 'scanner secure context');
@@ -199,24 +275,13 @@ try {
     return `${routes.length} routes; isSecureContext, serviceWorker and getUserMedia available on HTTPS`;
   });
 
-  // The full congress journey (UI in a real browser) against the staging stack. Browsers use the
-  // localhost HTTP listener (a secure context) because the test browser does not trust the local CA;
-  // service-worker/offline steps need a trusted origin.
-  let journey = { failed: 1 };
-  await check('06 full congress journey on staging (organizer, Page Studio, registration, reception, scanner + offline, leads, analytics, isolation)', async () => {
-    journey = await runJourney({ root, BASE: HTTP_BASE, API_URL: HTTP_BASE, ADMIN_TOKEN: env.CONGRESS_PLATFORM_ADMIN_TOKEN, JWT_SECRET: env.CONGRESS_JWT_SECRET, SHOT_DIR: SHOTS, psql: (sql) => q(sql) });
-    writeFileSync(join(SHOTS, 'journey-last-run.json'), JSON.stringify(journey, null, 2));
-    assert(journey.failed === 0, `${journey.failed} journey checks failed`);
-    return `${journey.total - journey.failed}/${journey.total}`;
+  await check('06 live-suite journeys on staging (organizer + Page Studio publish, attendee registration and pass, reception desk, exhibitor leads, member roles)', async () => {
+    const specs = readdirSync(LIVE_SPECS).filter((n) => n.endsWith('.spec.ts') && n !== SCANNER_SPEC).sort();
+    return liveSpecs('live-journeys', specs);
   });
 
-  await check('07 real-API scanner spec (pairing, manifest, self-revocation) on staging', async () => {
-    const r = run('npx', ['playwright', 'test', 'e2e/scanner-real-api.spec.ts', '--retries=0'], {
-      cwd: resolve(root, 'web'), allowFail: true,
-      env: { PLAYWRIGHT_BASE_URL: HTTP_BASE, CONGRESS_API_BASE_URL: HTTP_BASE, CONGRESS_PLATFORM_ADMIN_TOKEN: env.CONGRESS_PLATFORM_ADMIN_TOKEN, CI: '', FORCE_COLOR: '0' },
-    });
-    assert(r.status === 0, (r.stdout || r.stderr).split('\n').slice(-8).join(' '));
-    return (r.stdout.match(/\d+ passed/) ?? ['?'])[0];
+  await check('07 live scanner spec on staging (pairing link, hashed manifest, admission, single-use, offline queue, unpairing)', async () => {
+    return liveSpecs('live-scanner', [SCANNER_SPEC]);
   });
 
   await check('08 Page Studio on staging: new organizer publishes a branded page; attendee gets a ticket', async () => {

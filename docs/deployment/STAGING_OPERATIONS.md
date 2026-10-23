@@ -36,7 +36,7 @@ Nothing else needs editing. Compose gives every new setting its default. `CONGRE
 ## Prerequisites
 
 - Docker Desktop (Windows/macOS) or Docker Engine + Compose v2 (Linux).
-- Node.js 22+ for the operations tool. Playwright/Edge are needed only for `verify.mjs`.
+- Node.js 22+ for the operations tool. Only `verify.mjs` needs `npm ci` in `web/` and a browser: Edge, or `CONGRESS_BROWSER_CHANNEL=chrome` (`chromium` after `npx playwright install chromium`). It checks every portal through Caddy, runs the live specs (`web/e2e-live`) against the stack, and needs `stack.mjs ca` first and `CONGRESS_SMS_PROVIDER=console`.
 - About 3 GB of disk for images, plus room for the last 5 releases' images kept for rollback. Persistent data grows under `CONGRESS_PERSISTENT_DATA_ROOT` (default `~/congress-persistent-data`, DrGibi-style). Run `scripts/staging/fix-persistent-permissions.sh` before the first start.
 
 ## First start (PowerShell; identical on bash)
