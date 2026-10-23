@@ -64,6 +64,8 @@ class SmsConfig:
     hourly_cap: int = 0
     daily_cap: int = 0
     caps_source: dict[str, Source] | None = None
+    # Share of each cap (percent) only sign-in codes may use (CONGRESS_SMS_OTP_RESERVE_PERCENT; environment only).
+    otp_reserve_percent: int = 0
 
 
 @dataclass(frozen=True)
@@ -140,6 +142,7 @@ def _build(stored: dict[str, Any], settings: Settings) -> PlatformConfig:
         mode=mode, mode_source=mode_source, api_key=api_key, api_key_source=api_key_source,
         api_key_unreadable=unreadable, line_number=line, line_number_source=line_source, effective=effective,
         hourly_cap=caps["hourly_cap"], daily_cap=caps["daily_cap"], caps_source=caps_source,
+        otp_reserve_percent=settings.sms_otp_reserve_percent,
     )
 
     values: dict[str, int] = {}

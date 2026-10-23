@@ -12,7 +12,15 @@ One Docker Compose project (`congress-staging`, file `deploy/staging/compose.yam
 - **Start order:** `db` healthy (checked over TCP, so the image's temporary init-only server never counts) → `migrate` exits 0 → `api` healthy → `web`.
 - **Schema guard:** in `staging`/`production` the API refuses to start unless the database is at the Alembic head of its own build, or ahead of it **only** by migrations marked `backward_compatible = True` (see [Releases and rollback](#releases-and-rollback) and `docs/CODING_STANDARDS.md` §2.D).
 - **Migration lock:** migrations take a PostgreSQL advisory lock, so concurrent runs serialise.
-- **One API process.** Do not add uvicorn `--workers` or a second `api` replica: the failed-login and SMS rate limits (`app/rate_limit.py`) are kept in process memory, so each extra process multiplies every budget and a restart resets them.
+- **One API process.** The image runs one uvicorn process and the stack one `api` replica; that is the only configuration that has been run and load-tested. Rate limits and the platform SMS caps no longer depend on it: they are counted in PostgreSQL (`rate_limit_counters`, `app/rate_limit.py`), shared by every process and kept across restarts. What is still per process, to know before adding `--workers` or replicas:
+  - the HTTP counters of `/api/metrics` (each scrape reaches one process; database-derived metrics are global);
+  - the limit on concurrent sms.ir calls (`CONGRESS_SMS_MAX_CONCURRENT_SENDS`, 8 per process);
+  - the platform settings cache (another process's console change is picked up within `CONGRESS_PLATFORM_SETTINGS_REFRESH_SECONDS`, 3 s);
+  - the rate limiter's two shortcuts: a key found over budget is refused locally until its Retry-After, and when the database cannot be reached the limiter falls back to process memory (looser across several processes);
+  - the database pool: `(CONGRESS_DB_POOL_SIZE + CONGRESS_DB_MAX_OVERFLOW)` (10 + 10) per process must stay below PostgreSQL's `max_connections`;
+  - the media directory on the host disk (a replica on another host needs the same files);
+  - the console SMS provider (development, tests and automated staging checks only) keeps "sent" messages in the memory of the process that sent them, so `stack.mjs sms-code` sees only that process's.
+  The SMS outbox and the retention job run in every process and are safe to overlap (`FOR UPDATE SKIP LOCKED`, claims, idempotent deletes).
 
 ## Prerequisites
 
@@ -57,11 +65,12 @@ Invoke-RestMethod -Method Post -Uri http://localhost:18080/api/organizers/<organ
 
 | Portal | URL (`https://localhost:8443` or `http://localhost:18080`) |
 |---|---|
-| Platform home | `/` |
-| Organizer console | `/organizer` (members sign in by SMS code; the API key stays available) → events → **Program** (sessions, CSV timetable upload), **Venue** (entrances, halls), Booths, **Public page** (Page Studio), **Attendee panel** (preview), Analytics, Front Desk; `/organizer/members` and `/organizer/activity` (audit log) for managers and owners |
+| Platform home | `/` (B2B home page, with a "find my pass" entry for attendees) |
+| Platform console | `/platform` (platform admin token; SMS gateway, caps and outbox health), `/platform/sign-in` (sign-in rules, venue networks), `/platform/organizers`. Reachable only from `CONGRESS_ADMIN_ALLOW` networks (ADR 0013) |
+| Organizer console | `/organizer` (members sign in by SMS code; the API key stays available) → events → overview, **Program** (sessions, CSV timetable upload, schedule files), **Venue** (entrances, halls), Tiers, Check-in (points, scanner pairing), Booths, Operators (desk), **Public page** (Page Studio), **Attendee panel** (preview), Front Desk, SMS, **Participants** (edit, cancel, reissue, transfer, export; ADR 0017), Analytics; `/organizer/members` (**Members**) and `/organizer/activity` (**Activity**, the audit log) for managers and owners (ADR 0016) |
 | Public congress | `/e/<slug>` (after Publish) and `/e/<slug>/booths/<id>` |
-| Attendee | `/sign-in`, `/my-tickets`, `/my-network`, `/c/<slug>/my-congress`; `/t/<code>` (SMS pass link, opens the pass without sign-in) |
-| Reception | `/reception` (congress code) or `/reception/<event-id>` |
+| Attendee | `/sign-in`; `/me` (every congress, passes, network, profile; `/my-tickets` and `/my-network` redirect here); `/c/<slug>/my-congress`, `/c/<slug>/my-ticket`, `/c/<slug>/my-network`, `/c/<slug>/my-profile`, `/c/<slug>/details`; `/t/<code>` (SMS pass link, opens the pass without sign-in, ADR 0015) |
+| Reception | `/reception` (congress code), `/reception/e/<slug>` or `/reception/<event-id>` |
 | Exhibitor | `/booth/<booth-id>` |
 | Gate scanner | `/scan/<point-id>` (pair with a device token) |
 
@@ -85,6 +94,12 @@ With `BACKUP_WAL=on`, always go through `stack.mjs` (or add `-f deploy/staging/c
 - Every response carries `X-Request-ID`: a well-formed incoming id (8–128 characters of `A-Za-z0-9._:-`) is kept, anything else replaced. Ask users or clients for that header value and search the API log for it.
 - The access log leaves out `/api/health` and `/api/ready` and never records query strings. The API never logs credentials.
 - Caddy access logs drop `Authorization`, `X-Admin-Token` and the scanner `?token=` query, and log SMS pass links as `/t/-` (logger `short_links`), never with their code.
+
+**SMS budgets** (shared by every API process through PostgreSQL; defaults in `backend/app/config.py`):
+- Platform caps per hour/day (`CONGRESS_SMS_HOURLY_CAP` 2000, `CONGRESS_SMS_DAILY_CAP` 20000, or the console). `CONGRESS_SMS_OTP_RESERVE_PERCENT` (20) of each cap is kept for sign-in codes: ticket notices, invites, desk resends and test sends stop at the rest (queued notices wait and go out later), so a burst of notices never stops people signing in.
+- An attendee's own changes (self-cancel, registering again after a cancellation) may text them `CONGRESS_SMS_NOTICES_PER_ATTENDEE_PER_HOUR` (6) times per hour and `CONGRESS_SMS_NOTICES_PER_TICKET_PER_DAY` (6) times per ticket per day. Above that a cancellation still goes ahead without its text and registering again answers 429 `TICKET_CHANGES_RATE_LIMITED`.
+- Organizer cancel/reissue/transfer with a notice: `CONGRESS_SMS_NOTICES_PER_ORGANIZER_PER_HOUR` (300) per organizer; above it the change is refused with 429 `SMS_NOTICE_LIMIT_REACHED` (the same change without a notice still works).
+- Credential throttles count only failures: a valid organizer key or session is never refused because others behind the same NAT failed, an expired session answers 401 `TOKEN_EXPIRED` without counting, and the venue networks (`CONGRESS_OTP_TRUSTED_NETWORKS`) are exempt from the API-key budget. IPv6 clients count per /64.
 
 **Restart policy.** Every long-running service is `unless-stopped`, so the stack returns after a host reboot once Docker starts.
 
@@ -181,6 +196,81 @@ node scripts/staging/stack.mjs rollback <sha>      # to a given kept release (un
 - A release whose migrations are **not** marked (a drop, rename or type change) cannot be rolled back this way. The recovery is a restore of the backup taken before the upgrade, or a point-in-time restore to just before it.
 
 Drill results (ws/a3-ops): rollback was refused for an unmarked migration (previous images restarted) and worked after a marked one.
+
+### Migration rollback compatibility
+
+Migrations since `main` (`0018`), in the order they run. The chain order differs from the numbers because branches
+landed in a different order than they were numbered; each file's `down_revision` is the truth. "Rollback OK" means the
+module sets `backward_compatible = True` (checked in `backend/migrations/versions/*` on 2026-10-23, head `0029`):
+
+| Order | Rev | Purpose | Rollback OK |
+|---|---|---|---|
+| 1 | 0019 | SMS short links (backfills one per existing ticket), ADR 0015 | no |
+| 2 | 0020 | scanner device verdicts, clock-skew columns, index for manifest deltas | no |
+| 3 | 0023 | ticket registration snapshot (backfilled, then NOT NULL), cancellation, `tickets.status` CHECK, exhibitor consent, account deletion (ADR 0017) | no |
+| 4 | 0024 | event time zone, registration window, archive; tier sales windows; program files | yes |
+| 5 | 0021 | integrity rules: CHECKs, same-event composite foreign keys, delete rules, indexes, `leads.event_id` (backfilled, NOT NULL), desk idempotency keys (ADR 0018). **Stops with an error naming the table and up to five ids if existing rows break a rule** | no |
+| 6 | 0022 | shared rate-limit counters, SMS outbox lease (ADR 0019) | no |
+| 7 | 0027 | lead soft delete | yes |
+| 8 | 0028 | audit log | yes |
+| 9 | 0029 | organizer members | yes |
+
+How to read it: `rollback` to an older release works only when **every** migration after that release's schema is
+marked. From head `0029`, a release built for `0022` can be rolled back to (0027–0029 are marked); a release built for
+`0024` or earlier cannot (0021 and 0022 are not), and neither can `main`. Going further back is a restore of the
+backup taken before the upgrade, or a point-in-time restore to just before it. Later migrations (for example from the
+C1/C2 workstreams) extend this table; check their flags before deploying.
+
+### First upgrade from `main`
+
+`main` is at schema `0018` and predates the release tooling. The first upgrade to this line is special:
+
+- **One way.** `0018 → 0029` crosses five migrations that are not rollback-compatible, and `main`'s images require the
+  exact schema they were built for. After a successful upgrade the only way back to `main` is the pre-upgrade backup
+  (or PITR, if WAL archiving was already on).
+- **No `rollback` the first time.** `main`'s `stack.mjs` records no releases, so the first `up` on this line records the
+  first one and `rollback` has nothing to go back to. If the upgrade fails, check out the previous commit and run
+  `stack.mjs up` again (its images are rebuilt; the next point explains why the database still fits them).
+- **All or nothing.** `alembic upgrade head` runs every pending migration in **one transaction** (`migrations/env.py`).
+  If any step fails, notably `0021` finding rows that break an integrity rule, the whole upgrade is rolled back and the
+  database stays at `0018`; the new API does not start (the schema guard needs `0029`).
+- **0021 needs clean data.** It never repairs rows silently. When it stops, the migrate log names the table and up to
+  five offending ids; correct them on the live system (with the organizer: the right fix depends on what was meant),
+  then rehearse again.
+- **Backups change format on the way.** `main`'s off-host copies are plain files; this line encrypts every off-host copy
+  (`BACKUP_ENCRYPTION_KEY` is required once `BACKUP_S3_*` is set) and its `--from-offsite` reads only encrypted copies.
+  Rehearse with a local copy of `main`'s backup (below), and consider a new `BACKUP_S3_PREFIX` for the encrypted copies
+  so the old plain ones are left alone.
+- Also on the first upgrade: the user-visible behaviour changes listed in `docs/handover/UPGRADE_HANDOVER.md` §7
+  (scanner apps must be updated together with the backend, offline capacity gates fail closed, reserving needs a
+  published page and an open registration window, exhibitors see mobiles only with consent, `/docs` is off in
+  production).
+
+### Upgrade dry run (rehearse on production data first)
+
+Run the new release's migrations against a copy of production data before touching production. Use a separate machine
+or staging server with Docker and this checkout at the commit you will deploy. Never build new images on the
+production host ahead of time: they replace the image alias the running services use, and the next restart would
+migrate.
+
+1. On production, take a backup with the tooling it runs today: `stack.mjs scheduled-backup`.
+2. On the rehearsal machine: `stack.mjs init`, then `stack.mjs up` to build the new images (an empty stack is fine).
+   For an encrypted off-host backup, give it read access to the bucket and the same `BACKUP_ENCRYPTION_KEY`
+   (`/etc/congress/backup.env` or the environment).
+3. Restore the production backup into a disposable project and let the **new** `migrate` upgrade it:
+   - an encrypted off-host copy: `stack.mjs restore-verify <name> --from-offsite --keep`;
+   - a `main`-era backup (plain files): copy the backup folder into `.staging/backups/<name>/` and run
+     `stack.mjs restore-verify <name> --keep`.
+4. Read the result. `restore-verify` expects the backup's own revision, so on an upgrade the check "migrate service
+   accepted the restored schema" fails by design (the database is now at the new head) and the command exits non-zero.
+   Everything else must pass: every row count, every image checksum, every published page and image through the new
+   API. If `migrate` itself failed (for example `0021` on bad rows), the API does not come up; read the error with
+   `docker compose -p congress-restore-<id> -f deploy/staging/compose.yaml --env-file .staging/staging.env logs migrate`.
+5. Inspect the kept project if needed, then remove it (`docker compose -p congress-restore-<id> … down`) and delete
+   `.staging/restores/congress-restore-<id>`.
+6. Note how long the migration took on real data: the API is down for at least that long during `up`.
+7. Only then, outside any event: backup on production, update the checkout to the rehearsed commit, `stack.mjs up`,
+   `check`, and update every scanner device (`docs/release/07-CONGRESS-DAY-RUNBOOK.md` §3).
 
 ## Migrations
 
@@ -387,7 +477,7 @@ The full hosted procedure is in [`HOSTED_STAGING_READINESS.md`](HOSTED_STAGING_R
 ## Known release blockers / limitations
 
 - **Organizer access** is an API key per organizer (rotation and revocation exist: `organizer rotate|revoke`) plus organizer members with roles who sign in by SMS code (ADR 0016); there is no `stack.mjs` command for members yet (use the admin API above).
-- **One API process.** Rate limits are in-process; do not run multiple uvicorn workers or replicas until they are shared (for example in PostgreSQL or Redis).
+- **One API process** is the only tested configuration. Rate limits are shared in PostgreSQL; the remaining per-process parts are listed at the top of this guide. A load test with several processes has not been run.
 - **Untested for real:** ACME issuance on the real domain, a real S3 provider (drills used a stand-in), systemd timers on Linux, a Sentry/GlitchTip endpoint, Telegram delivery (or a relay) from Iran.
 - **Caddy runs as root** inside its container (official image); the API runs as uid 10001.
 - **CSP** allows `'unsafe-inline'` styles (React style attributes); scripts are `'self'` only.

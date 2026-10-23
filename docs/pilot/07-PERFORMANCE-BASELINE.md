@@ -2,7 +2,7 @@
 
 > **SUPERSEDED (2026-10-23) for sizing and deployment.** The measurements below come from a local run on 2026-10-11 and predate SMS sign-in, the program and venue features and the Compose deployment. Current sizing (measured memory, disk and the VPS recommendation) is in [`docs/deployment/HOSTED_STAGING_READINESS.md`](../deployment/HOSTED_STAGING_READINESS.md) §4; operations and monitoring (`/api/metrics` latency histograms per route) are in [`docs/deployment/STAGING_OPERATIONS.md`](../deployment/STAGING_OPERATIONS.md). A load test at congress concurrency is still outstanding.
 >
-> **Do not run multiple uvicorn workers** (`--workers N`) or several API replicas. The failed-login, admin-token, organizer-key and SMS rate limits (`backend/app/rate_limit.py`) live in process memory: each extra process multiplies every budget and a restart resets them. Keep one API process until those limits are shared (for example in PostgreSQL or Redis); scale the VM instead.
+> **One API process is the only tested configuration** (no `--workers N`, one API replica); scale the VM. Since ws/b1-sms-otp the rate limits and SMS caps are counted in PostgreSQL (`backend/app/rate_limit.py`, table `rate_limit_counters`) and shared by every process, so extra processes no longer multiply budgets. The parts that are still per process (metrics counters, SMS concurrency limit, settings cache, database pool, media on the host disk) are listed at the top of [`docs/deployment/STAGING_OPERATIONS.md`](../deployment/STAGING_OPERATIONS.md); several processes have not been load-tested.
 
 **Evaluation Date:** 2026-10-11  
 **Target Pilot Workload:** 1,000 Attendees / 10 Check-In Gates / 50 Exhibition Booths  

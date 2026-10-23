@@ -90,6 +90,9 @@ export const errorMessages: Record<AttendeeLocale, Record<string, string>> = {
     BADGE_OWN: "نمی‌توانید کارت ورود خودتان را اسکن کنید.",
     CONNECTION_NOT_FOUND: "این ارتباط یافت نشد. فهرست را به‌روز کنید.",
     CONNECTION_SCAN_RATE_LIMITED: "اسکن‌های زیادی انجام شد. کمی بعد دوباره تلاش کنید.",
+    // Booth access and archived congresses (backend/app/routes/booths.py, leads.py, network.py)
+    BOOTH_ACCESS_SUSPENDED: "دسترسی غرفه‌ها در این همایش موقتاً متوقف شده است. با برگزارکننده تماس بگیرید.",
+    NETWORKING_CLOSED: "این همایش بایگانی شده است؛ افزودن ارتباط یا نشان‌کردن غرفه دیگر ممکن نیست.",
     // Organizer members and roles (backend/app/routes/organizer_console.py, app/auth.py)
     ROLE_FORBIDDEN: "نقش شما در این سازمان اجازهٔ این کار را نمی‌دهد. از مالک یا مدیر سازمان بخواهید.",
     NOT_A_MEMBER: "این شماره عضو هیچ سازمان برگزارکننده‌ای نیست. از مالک سازمان بخواهید شما را اضافه کند.",
@@ -97,6 +100,10 @@ export const errorMessages: Record<AttendeeLocale, Record<string, string>> = {
     MEMBER_EXISTS: "این شماره هم‌اکنون عضو این سازمان است.",
     MEMBER_REVOKED: "این عضو حذف شده است؛ برای بازگرداندن، دوباره او را دعوت کنید.",
     LAST_OWNER: "پیش از حذف یا تغییر نقش آخرین مالک، مالک دیگری اضافه کنید.",
+    // Expired sessions and SMS notice limits (backend/app/auth.py, app/sms/budgets.py)
+    TOKEN_EXPIRED: "نشست شما به پایان رسیده است. دوباره وارد شوید.",
+    TICKET_CHANGES_RATE_LIMITED: "تغییرات این ثبت‌نام بیش از حد مجاز بود. کمی بعد دوباره تلاش کنید.",
+    SMS_NOTICE_LIMIT_REACHED: "سهمیهٔ ساعتی پیامک‌های اطلاع‌رسانی شما تمام شده است. کمی بعد دوباره تلاش کنید یا این تغییر را بدون ارسال پیامک انجام دهید.",
   },
   en: {
     EVENT_NOT_FOUND: "This congress could not be found.",
@@ -182,6 +189,9 @@ export const errorMessages: Record<AttendeeLocale, Record<string, string>> = {
     BADGE_OWN: "You cannot scan your own pass.",
     CONNECTION_NOT_FOUND: "This connection could not be found. Refresh the list.",
     CONNECTION_SCAN_RATE_LIMITED: "Too many scans. Try again in a little while.",
+    // Booth access and archived congresses (backend/app/routes/booths.py, leads.py, network.py)
+    BOOTH_ACCESS_SUSPENDED: "Booth access for this congress is suspended. Contact the organizer.",
+    NETWORKING_CLOSED: "This congress is archived; new connections and booth bookmarks are closed.",
     // Organizer members and roles (backend/app/routes/organizer_console.py, app/auth.py)
     ROLE_FORBIDDEN: "Your role in this organization does not allow this. Ask an owner or manager.",
     NOT_A_MEMBER: "This number is not a member of any organizer. Ask the organization's owner to add you.",
@@ -189,6 +199,10 @@ export const errorMessages: Record<AttendeeLocale, Record<string, string>> = {
     MEMBER_EXISTS: "This number is already a member of this organization.",
     MEMBER_REVOKED: "This member was removed; invite them again to restore access.",
     LAST_OWNER: "Add another owner before removing or demoting the last one.",
+    // Expired sessions and SMS notice limits (backend/app/auth.py, app/sms/budgets.py)
+    TOKEN_EXPIRED: "Your session has expired. Sign in again.",
+    TICKET_CHANGES_RATE_LIMITED: "Too many changes to this registration. Try again in a little while.",
+    SMS_NOTICE_LIMIT_REACHED: "Your hourly allowance of SMS notices is used up. Try again later, or make the change without notifying the attendee.",
   },
 };
 

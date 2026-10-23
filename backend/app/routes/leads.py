@@ -1,36 +1,54 @@
 import csv
-import io
 import uuid
+from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import Select, and_, func, or_, select
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.audit import Actor, record
 from app.db import SessionDep, add_or_existing
 from app.errors import ApiError, error_responses
-from app.models import Booth, BoothStaff, EntityQR, Event, Lead, Ticket, TicketTier, User
+from app.models import Booth, EntityQR, Event, Lead, Ticket, TicketTier, User
 from app.routes.auth import CurrentUserDep
+from app.routes.booths import booth_for_staff, refuse_archived_lead_change
 from app.search import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, before_cursor, encode_cursor, text_matches
 from app.security import sanitize_csv_cell
 from app.sms.phone import search_digits
 
 router = APIRouter(prefix="/api/booths/{booth_id}/leads", tags=["leads"])
 
+# Request size limits (422 beyond them): a QR secret, a follow-up note, and up to 20 short tags.
+QR_SECRET_MAX = 512
+NOTES_MAX = 2000
+TAGS_MAX = 20
+TAG_MAX = 40
+# Search terms (`q`) on the lead and network lists.
+SEARCH_TERM_MAX = 100
+# The unpaginated legacy lists answer at most this many rows (newest first); `/search` pages through all.
+LEGACY_LIST_MAX = 1000
+CSV_BATCH_ROWS = 500
+
+QrSecret = Annotated[str, Field(max_length=QR_SECRET_MAX)]
+Notes = Annotated[str, Field(max_length=NOTES_MAX)]
+LeadTags = Annotated[list[Annotated[str, Field(max_length=TAG_MAX)]], Field(max_length=TAGS_MAX)]
+
 
 class LeadScanRequest(BaseModel):
-    qr_secret: str
-    rating: str = Field(default="WARM", description="HOT, WARM, COLD")
-    tags: list[str] = Field(default_factory=list)
-    notes: str = ""
+    qr_secret: QrSecret
+    rating: str = Field(default="WARM", max_length=16, description="HOT, WARM, COLD")
+    tags: LeadTags = Field(default_factory=list)
+    notes: Notes = ""
 
 
 class LeadUpdate(BaseModel):
     rating: Literal["HOT", "WARM", "COLD"] | None = None
-    tags: list[str] | None = None
-    notes: str | None = None
+    tags: LeadTags | None = None
+    notes: Notes | None = None
 
 
 class LeadOut(BaseModel):
@@ -64,33 +82,35 @@ class LeadPage(BaseModel):
 LeadState = Literal["active", "deleted", "all"]
 
 
+NOT_BOOTH_STAFF = "You are not authorized to access this booth portal"
+
+
 async def authorized_booth_staff(
     booth_id: uuid.UUID,
     user: CurrentUserDep,
     session: SessionDep,
 ) -> Booth:
-    """The booth, for its current staff only: a removed representative is refused from the next request on."""
-    booth = await session.get(Booth, booth_id)
-    if booth is None:
-        raise ApiError(status.HTTP_404_NOT_FOUND, "BOOTH_NOT_FOUND", "Booth not found")
+    """The booth, for its current staff only: a removed representative is refused from the next request on, and
+    every representative while the congress's organizer is revoked. Reads stay open on an archived congress."""
+    booth, _ = await booth_for_staff(session, booth_id, user, not_staff=NOT_BOOTH_STAFF)
+    return booth
 
-    is_staff = await session.scalar(
-        select(BoothStaff.id).where(
-            BoothStaff.booth_id == booth.id, BoothStaff.user_id == user.id
-        )
-    )
-    if not is_staff:
-        raise ApiError(
-            status.HTTP_403_FORBIDDEN,
-            "BOOTH_STAFF_REQUIRED",
-            "You are not authorized to access this booth portal",
-        )
 
+async def writable_booth_staff(
+    booth_id: uuid.UUID,
+    user: CurrentUserDep,
+    session: SessionDep,
+) -> Booth:
+    """As `authorized_booth_staff`, for lead changes: refused with 409 EVENT_ARCHIVED on an archived congress."""
+    booth, event = await booth_for_staff(session, booth_id, user, not_staff=NOT_BOOTH_STAFF)
+    refuse_archived_lead_change(event)
     return booth
 
 
 AuthorizedBoothDep = Annotated[Booth, Depends(authorized_booth_staff)]
+WritableBoothDep = Annotated[Booth, Depends(writable_booth_staff)]
 BOOTH_ERRORS = error_responses(status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND)
+WRITE_ERRORS = error_responses(status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND, status.HTTP_409_CONFLICT)
 
 
 def _lead_out(lead: Lead, ticket: Ticket, tier: TicketTier, attendee: User) -> LeadOut:
@@ -161,9 +181,9 @@ async def _lead_out_by_id(session: SessionDep, lead_id: uuid.UUID) -> LeadOut:
     return _lead_out(*row)
 
 
-@router.post("/scan", responses=BOOTH_ERRORS)
+@router.post("/scan", responses=WRITE_ERRORS)
 async def scan_attendee_lead(
-    booth: AuthorizedBoothDep,
+    booth: WritableBoothDep,
     body: LeadScanRequest,
     user: CurrentUserDep,
     session: SessionDep,
@@ -288,15 +308,24 @@ async def scan_attendee_lead(
     )
 
 
-@router.get("", responses=BOOTH_ERRORS)
+@router.get("", responses=BOOTH_ERRORS, deprecated=True)
 async def list_booth_leads(
     booth: AuthorizedBoothDep,
     session: SessionDep,
-    q: Annotated[str, Query()] = "",
+    q: Annotated[str, Query(max_length=SEARCH_TERM_MAX)] = "",
     rating: Annotated[Literal["HOT", "WARM", "COLD"] | None, Query()] = None,
+    limit: Annotated[int, Query(ge=1, le=LEGACY_LIST_MAX)] = LEGACY_LIST_MAX,
 ) -> list[LeadOut]:
-    """Every lead of the booth that is not deleted, newest first. `/search` is the paginated form."""
-    query = _lead_rows().where(*_lead_filters(booth, q, rating)).order_by(Lead.created_at.desc(), Lead.id.desc())
+    """The booth's leads that are not deleted, newest first: at most `limit` (1,000 by default and at most).
+
+    Deprecated: use `/search`, which pages through every lead and reports the total.
+    """
+    query = (
+        _lead_rows()
+        .where(*_lead_filters(booth, q, rating))
+        .order_by(Lead.created_at.desc(), Lead.id.desc())
+        .limit(limit)
+    )
     return [_lead_out(*row) for row in (await session.execute(query)).all()]
 
 
@@ -304,7 +333,7 @@ async def list_booth_leads(
 async def search_booth_leads(
     booth: AuthorizedBoothDep,
     session: SessionDep,
-    q: Annotated[str, Query(max_length=200)] = "",
+    q: Annotated[str, Query(max_length=SEARCH_TERM_MAX)] = "",
     rating: Annotated[Literal["HOT", "WARM", "COLD"] | None, Query()] = None,
     state: Annotated[LeadState, Query(description="active (default), deleted (the trash) or all")] = "active",
     limit: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = DEFAULT_PAGE_SIZE,
@@ -330,58 +359,77 @@ async def search_booth_leads(
     )
 
 
-@router.get("/export-csv", responses=BOOTH_ERRORS)
+class _Echo:
+    """A file whose `write` returns the text, so `csv.writer(...).writerow` returns one line."""
+
+    def write(self, value: str) -> str:
+        return value
+
+
+LEAD_CSV_HEADER = [
+    "Lead ID",
+    "Attendee Name",
+    "Attendee Mobile",
+    "Organization",
+    "Title",
+    "Ticket Tier",
+    "Interest Rating",
+    "Follow-Up Tags",
+    "Notes",
+    "Captured At (UTC)",
+    "Last Updated (UTC)",
+]
+
+
+def _lead_csv_cells(lead: Lead, tier: TicketTier, attendee: User, include_deleted: bool) -> list[str]:
+    cells = [
+        str(lead.id),
+        sanitize_csv_cell(attendee.full_name),
+        sanitize_csv_cell(attendee.mobile if attendee.share_contact_with_exhibitors else ""),
+        sanitize_csv_cell(attendee.organization),
+        sanitize_csv_cell(attendee.title),
+        sanitize_csv_cell(tier.name),
+        sanitize_csv_cell(lead.rating),
+        sanitize_csv_cell("; ".join(lead.tags or [])),
+        sanitize_csv_cell(lead.notes),
+        _utc(lead.created_at),
+        _utc(lead.updated_at),
+    ]
+    if include_deleted:
+        cells.append(_utc(lead.deleted_at) if lead.deleted_at else "")
+    return cells
+
+
+async def _lead_csv(
+    sessionmaker: async_sessionmaker[AsyncSession],
+    statement: Select[Lead, Ticket, TicketTier, User],
+    include_deleted: bool,
+) -> AsyncIterator[bytes]:
+    writer = csv.writer(_Echo())
+    header = [*LEAD_CSV_HEADER, "Deleted At (UTC)"] if include_deleted else LEAD_CSV_HEADER
+    yield ("\ufeff" + writer.writerow(header)).encode()
+    # Its own session: the request's may be closed while the body is still streaming.
+    async with sessionmaker() as session:
+        result = await session.stream(statement.execution_options(yield_per=CSV_BATCH_ROWS))
+        async for rows in result.partitions():
+            yield "".join(
+                writer.writerow(_lead_csv_cells(lead, tier, attendee, include_deleted))
+                for lead, _, tier, attendee in rows
+            ).encode()
+
+
+@router.get("/export-csv", response_class=StreamingResponse, responses=BOOTH_ERRORS)
 async def export_booth_leads_csv(
     booth: AuthorizedBoothDep,
     user: CurrentUserDep,
     request: Request,
     session: SessionDep,
     include_deleted: Annotated[bool, Query(description="Also export deleted leads, with a Deleted At column")] = False,
-) -> Response:
-    """The booth's leads as CSV. Each download is written to the congress organizer's audit log (ADR 0016):
-    it carries attendees' personal data out of the platform."""
-    query = (
-        _lead_rows()
-        .where(*_lead_filters(booth, state="all" if include_deleted else "active"))
-        .order_by(Lead.created_at.desc(), Lead.id.desc())
-    )
-    rows = (await session.execute(query)).all()
-
-    output = io.StringIO()
-    writer = csv.writer(output)
-
-    header = [
-        "Lead ID",
-        "Attendee Name",
-        "Attendee Mobile",
-        "Organization",
-        "Title",
-        "Ticket Tier",
-        "Interest Rating",
-        "Follow-Up Tags",
-        "Notes",
-        "Captured At (UTC)",
-        "Last Updated (UTC)",
-    ]
-    writer.writerow([*header, "Deleted At (UTC)"] if include_deleted else header)
-
-    for lead, ticket, tier, attendee in rows:
-        cells = [
-            str(lead.id),
-            sanitize_csv_cell(attendee.full_name),
-            sanitize_csv_cell(attendee.mobile if attendee.share_contact_with_exhibitors else ""),
-            sanitize_csv_cell(attendee.organization),
-            sanitize_csv_cell(attendee.title),
-            sanitize_csv_cell(tier.name),
-            sanitize_csv_cell(lead.rating),
-            sanitize_csv_cell("; ".join(lead.tags or [])),
-            sanitize_csv_cell(lead.notes),
-            _utc(lead.created_at),
-            _utc(lead.updated_at),
-        ]
-        if include_deleted:
-            cells.append(_utc(lead.deleted_at) if lead.deleted_at else "")
-        writer.writerow(cells)
+) -> StreamingResponse:
+    """The booth's leads as CSV, streamed from a server-side cursor. Each download is written to the congress
+    organizer's audit log (ADR 0016): it carries attendees' personal data out of the platform."""
+    filters = _lead_filters(booth, state="all" if include_deleted else "active")
+    row_count = await session.scalar(select(func.count(Lead.id)).where(*filters)) or 0
 
     organizer_id = await session.scalar(select(Event.organizer_id).where(Event.id == booth.event_id))
     record(
@@ -390,17 +438,16 @@ async def export_booth_leads_csv(
         event_id=booth.event_id, entity_type="booth", entity_id=booth.id,
         summary={
             "method": "GET", "route": "/api/booths/{booth_id}/leads/export-csv",
-            "include_deleted": include_deleted, "rows": len(rows),
+            "include_deleted": include_deleted, "rows": row_count,
         },
     )
     await session.commit()
 
-    content = "\ufeff" + output.getvalue()
-    filename = f"{booth.slug}-leads.csv"
-    return Response(
-        content=content,
+    statement = _lead_rows().where(*filters).order_by(Lead.created_at.desc(), Lead.id.desc())
+    return StreamingResponse(
+        _lead_csv(request.app.state.sessionmaker, statement, include_deleted),
         media_type="text/csv; charset=utf-8",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={"Content-Disposition": f'attachment; filename="{booth.slug}-leads.csv"'},
     )
 
 
@@ -409,9 +456,9 @@ def _utc(moment: datetime) -> str:
     return moment.astimezone(UTC).isoformat()
 
 
-@router.patch("/{lead_id}", responses=error_responses(403, 404, 409))
+@router.patch("/{lead_id}", responses=WRITE_ERRORS)
 async def update_lead_qualification(
-    booth: AuthorizedBoothDep,
+    booth: WritableBoothDep,
     lead_id: uuid.UUID,
     body: LeadUpdate,
     session: SessionDep,
@@ -432,9 +479,9 @@ async def update_lead_qualification(
     return await _lead_out_by_id(session, lead.id)
 
 
-@router.delete("/{lead_id}", status_code=status.HTTP_204_NO_CONTENT, responses=BOOTH_ERRORS)
+@router.delete("/{lead_id}", status_code=status.HTTP_204_NO_CONTENT, responses=WRITE_ERRORS)
 async def delete_lead(
-    booth: AuthorizedBoothDep,
+    booth: WritableBoothDep,
     lead_id: uuid.UUID,
     session: SessionDep,
 ) -> Response:
@@ -446,9 +493,9 @@ async def delete_lead(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-@router.post("/{lead_id}/restore", responses=BOOTH_ERRORS)
+@router.post("/{lead_id}/restore", responses=WRITE_ERRORS)
 async def restore_lead(
-    booth: AuthorizedBoothDep,
+    booth: WritableBoothDep,
     lead_id: uuid.UUID,
     session: SessionDep,
 ) -> LeadOut:

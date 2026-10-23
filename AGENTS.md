@@ -15,6 +15,7 @@
   - Run lint: `npm run lint` (warnings fail)
   - Run typecheck & build: `npm run build`
   - Run browser specs (`web/e2e`, Playwright): `npx playwright test` against a server on `127.0.0.1:4174`; `CONGRESS_E2E_PREVIEW=1` serves the production build itself (run `npm run build` first). The browser is Edge unless `CONGRESS_BROWSER_CHANNEL=chromium` (Playwright's own, as in CI; `npx playwright install chromium`) or `chrome`; the same variable applies to `scripts/integration/*.mjs`
+  - Run the live journeys (`web/e2e-live`, real API + PostgreSQL on disposable Docker containers): `node scripts/integration/live-e2e.mjs` (`--keep` to debug; `docs/CODING_STANDARDS.md` §4.D)
   - The gate scanner is this PWA at `/scan/:pointId`
 - **`mobile/`**: **Parked** (see `mobile/README.md`). A pure-Dart package holding the scanner's offline policy engine, sync client and in-memory storage, with tests. It is not a Flutter app: no Flutter SDK, camera, ML Kit, SQLite or platform projects, and `lib/main.dart` / `lib/screens/` do not compile.
   - Run tests: `dart test`

@@ -7,7 +7,7 @@
 >
 > In particular, the `--workers 4` unit and the `alembic downgrade -1` rollback below are wrong today: rollback is `stack.mjs rollback` (images only, never a downgrade; see `docs/CODING_STANDARDS.md` §2.D).
 >
-> **Do not run multiple uvicorn workers** (`--workers N`) or several API replicas. The failed-login, admin-token, organizer-key and SMS rate limits (`backend/app/rate_limit.py`) live in process memory: each extra process multiplies every budget and a restart resets them. Keep one API process until those limits are shared (for example in PostgreSQL or Redis); scale the VM instead.
+> **One API process is the only tested configuration** (no `--workers N`, one API replica); scale the VM. Since ws/b1-sms-otp the rate limits and SMS caps are counted in PostgreSQL (`backend/app/rate_limit.py`, table `rate_limit_counters`) and shared by every process, so extra processes no longer multiply budgets. The parts that are still per process (metrics counters, SMS concurrency limit, settings cache, database pool, media on the host disk) are listed at the top of [`docs/deployment/STAGING_OPERATIONS.md`](../deployment/STAGING_OPERATIONS.md); several processes have not been load-tested.
 
 **Evaluation Date:** 2026-10-10  
 **Target Release:** Browser-Based SaaS & Web Scanner Station (Pilot Tier)  

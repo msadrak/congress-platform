@@ -10,10 +10,11 @@ from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth import organizer_is_active
 from app.db import SessionDep, add_or_existing
 from app.errors import ApiError, error_responses
-from app.models import Booth, BoothBookmark, BoothStaff, EntityQR, Event, EventPage, Lead, Ticket, User
-from app.rate_limit import Budget, client_ip, limiter
+from app.models import Booth, BoothBookmark, BoothStaff, EntityQR, Event, EventPage, Lead, Organizer, Ticket, User
+from app.rate_limit import Budget, client_ip, ip_group, limiter
 from app.routes.auth import CurrentUserDep
 from app.routes.events import OwnedEventDep
 from app.security import generate_entity_qr_secret
@@ -28,6 +29,10 @@ public_router = APIRouter(prefix="/api/public/booths", tags=["public"])
 BOOTH_QR_FAILURES_PER_IP = Budget(20)
 BOOTH_QR_FAILURES_PER_USER = Budget(20)
 THROTTLED = "Too many attempts. Try again later."
+# Attendee-side writes (networking scans, booth bookmarks) on an archived congress.
+NETWORKING_CLOSED = "This congress is archived: networking and booth bookmarks are closed"
+# Booth staff writes (lead capture, edits, delete, restore) on an archived congress; reads and exports stay open.
+LEADS_READ_ONLY = "This congress is archived: its leads can be read and exported but no longer changed"
 _BOOTH_CODE = re.compile(r"^[a-z0-9]{8,64}$")
 
 SlugStr = Annotated[
@@ -275,6 +280,44 @@ async def booth_by_code(session: AsyncSession, raw: str) -> tuple[Booth, Event] 
     return (row[0], row[1]) if row else None
 
 
+async def booth_for_staff(
+    session: AsyncSession, booth_id: uuid.UUID, user: User, *, not_staff: str
+) -> tuple[Booth, Event]:
+    """The booth and its event, for the booth's current staff only: a removed representative is refused from the
+    next request on (403 BOOTH_STAFF_REQUIRED, `not_staff` as detail), and so is every representative while the
+    platform admin has revoked the congress's organizer (403 BOOTH_ACCESS_SUSPENDED)."""
+    booth = await session.get(Booth, booth_id)
+    if booth is None:
+        raise ApiError(status.HTTP_404_NOT_FOUND, "BOOTH_NOT_FOUND", "Booth not found")
+    is_staff = await session.scalar(
+        select(BoothStaff.id).where(BoothStaff.booth_id == booth.id, BoothStaff.user_id == user.id)
+    )
+    if not is_staff:
+        raise ApiError(status.HTTP_403_FORBIDDEN, "BOOTH_STAFF_REQUIRED", not_staff)
+    event = await session.get(Event, booth.event_id)
+    if event is None or not await organizer_is_active(session, event.organizer_id):
+        raise ApiError(
+            status.HTTP_403_FORBIDDEN, "BOOTH_ACCESS_SUSPENDED", "Booth access for this congress is suspended"
+        )
+    return booth, event
+
+
+def refuse_archived_lead_change(event: Event) -> None:
+    """409 EVENT_ARCHIVED for a booth staff write (capture, edit, delete, restore) on an archived congress. Its
+    leads become a closed record: staff keep reading, searching and exporting them, as exhibitors follow up on
+    leads after the congress, and the organizer unarchiving the congress reopens the writes."""
+    if event.archived_at is not None:
+        raise ApiError(status.HTTP_409_CONFLICT, "EVENT_ARCHIVED", LEADS_READ_ONLY)
+
+
+async def require_networking_open(session: AsyncSession, event_id: uuid.UUID) -> None:
+    """409 NETWORKING_CLOSED once the congress is archived: no new connections or booth bookmarks. Reading,
+    annotating and removing what the attendee already saved stays possible."""
+    archived_at = await session.scalar(select(Event.archived_at).where(Event.id == event_id))
+    if archived_at is not None:
+        raise ApiError(status.HTTP_409_CONFLICT, "NETWORKING_CLOSED", NETWORKING_CLOSED)
+
+
 async def require_active_ticket(session: AsyncSession, user_id: uuid.UUID, event_id: uuid.UUID) -> None:
     """403 unless the user holds an active ticket for the event (booth bookmarks, networking scans)."""
     ticket = await session.scalar(
@@ -513,7 +556,10 @@ async def get_my_assigned_booths(
             EntityQR,
             (EntityQR.entity_id == Booth.id) & (EntityQR.entity_type == "booth"),
         )
-        .where(BoothStaff.user_id == user.id)
+        .join(Event, Event.id == Booth.event_id)
+        .join(Organizer, Organizer.id == Event.organizer_id)
+        # A revoked organizer's booths are suspended (the portal refuses them), so they are not offered.
+        .where(BoothStaff.user_id == user.id, Organizer.revoked_at.is_(None))
         .order_by(Booth.created_at)
     )
     res = await session.execute(query)
@@ -542,22 +588,11 @@ async def get_booth_portal(
     user: CurrentUserDep,
     session: SessionDep,
 ) -> BoothOut:
-    booth = await session.get(Booth, booth_id)
-    if booth is None:
-        raise ApiError(status.HTTP_404_NOT_FOUND, "BOOTH_NOT_FOUND", "Booth not found")
-
+    """The booth portal, for the booth's current staff (an archived congress's portal stays readable)."""
     # Commercial isolation: only the booth's current staff (a removed representative is refused at once).
-    is_staff = await session.scalar(
-        select(BoothStaff.id).where(
-            BoothStaff.booth_id == booth.id, BoothStaff.user_id == user.id
-        )
+    booth, _ = await booth_for_staff(
+        session, booth_id, user, not_staff="Access to this booth portal is restricted to authorized staff"
     )
-    if not is_staff:
-        raise ApiError(
-            status.HTTP_403_FORBIDDEN,
-            "BOOTH_STAFF_REQUIRED",
-            "Access to this booth portal is restricted to authorized staff",
-        )
 
     qr = await session.scalar(
         select(EntityQR).where(
@@ -585,10 +620,11 @@ async def _require_bookmarkable(
     session: AsyncSession, user_id: uuid.UUID, booth: Booth, event_id: uuid.UUID | None
 ) -> None:
     """A bookmark belongs to a congress the attendee takes part in: an active ticket for the booth's event,
-    and, for a congress-scoped caller, a booth of that congress."""
+    and, for a congress-scoped caller, a booth of that congress. An archived congress takes no new bookmarks."""
     if event_id is not None and booth.event_id != event_id:
         raise ApiError(status.HTTP_409_CONFLICT, "BOOTH_OTHER_EVENT", "This booth belongs to a different congress")
     await require_active_ticket(session, user_id, booth.event_id)
+    await require_networking_open(session, booth.event_id)
 
 
 async def _add_bookmark(session: AsyncSession, user_id: uuid.UUID, booth: Booth) -> bool:
@@ -715,7 +751,7 @@ async def resolve_booth_qr(body: BoothCodeIn, request: Request, session: Session
     throttled per client IP so secrets cannot be guessed.
     """
     throttle = limiter(request)
-    failures = f"boothqr:fail:ip:{client_ip(request)}"
+    failures = f"boothqr:fail:ip:{ip_group(client_ip(request))}"
     await throttle.check((failures, BOOTH_QR_FAILURES_PER_IP), detail=THROTTLED, code="BOOTH_QR_RATE_LIMITED")
     found = await booth_by_code(session, body.code)
     published = found is not None and await session.scalar(

@@ -63,3 +63,12 @@ see every pass QR.
   app on that domain, so it is optional and off by default.
 - Ticket cancel/reissue, when added, must revoke the ticket's links in the same transaction and mint a new one for the
   replacement ticket.
+
+## Status / Implementation notes (2026-10-23)
+
+- **Cancel, reissue, transfer and delete exist now** (ADR 0017) and all go through `ticket_invalidated`
+  (`backend/app/ticket_lifecycle.py`), which deactivates the ticket's QR and calls `revoke_ticket_links` in the same
+  transaction; a reissued, transferred or reactivated ticket gets a new QR secret and a new short link. The "no
+  cancel/reissue endpoint yet" remark in the security trade-off above no longer applies.
+- The per-IP budgets of point 4 are counted in PostgreSQL and shared by every API process (ADR 0019). Unlike sign-in
+  codes, they have no venue-network exception: 600 opens and 20 failed codes per address per 15 minutes.

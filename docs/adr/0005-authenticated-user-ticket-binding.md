@@ -25,5 +25,6 @@ The core of the decision holds; the claim flow it assumed was not built.
   registered (the mobile number is optional there; without one the person cannot sign in later).
 - **Exception for viewing:** the short link of ADR 0015 opens a ticket's pass read-only without a sign-in code (Link
   pass). It grants no profile, network or write access, so the binding rule above still governs everything else.
-- Profile details (name, organization, title) live on the User. A registration-level copy of them is being added by
-  another workstream and is not done at the time of writing.
+- Profile details (name, organization, title) live on the User, and each ticket keeps its own copy of them
+  (`tickets.attendee_*`, migration `0023`): that copy is what the congress shows, prints and exports and what its
+  organizer edits, without touching the account (ADR 0017).

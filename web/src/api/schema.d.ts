@@ -1399,7 +1399,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Booth Portal */
+        /**
+         * Get Booth Portal
+         * @description The booth portal, for the booth's current staff (an archived congress's portal stays readable).
+         */
         get: operations["get_booth_portal_api_booths__booth_id__get"];
         put?: never;
         post?: never;
@@ -1516,7 +1519,10 @@ export interface paths {
         };
         /**
          * List Booth Leads
-         * @description Every lead of the booth that is not deleted, newest first. `/search` is the paginated form.
+         * @deprecated
+         * @description The booth's leads that are not deleted, newest first: at most `limit` (1,000 by default and at most).
+         *
+         *     Deprecated: use `/search`, which pages through every lead and reports the total.
          */
         get: operations["list_booth_leads_api_booths__booth_id__leads_get"];
         put?: never;
@@ -1559,8 +1565,8 @@ export interface paths {
         };
         /**
          * Export Booth Leads Csv
-         * @description The booth's leads as CSV. Each download is written to the congress organizer's audit log (ADR 0016):
-         *     it carries attendees' personal data out of the platform.
+         * @description The booth's leads as CSV, streamed from a server-side cursor. Each download is written to the congress
+         *     organizer's audit log (ADR 0016): it carries attendees' personal data out of the platform.
          */
         get: operations["export_booth_leads_csv_api_booths__booth_id__leads_export_csv_get"];
         put?: never;
@@ -1621,7 +1627,8 @@ export interface paths {
         /**
          * Scan Peer Badge
          * @description Adds the person whose pass QR was scanned to the caller's network in that congress (201; 200 when
-         *     already connected). Only someone with an active ticket for the congress may scan there.
+         *     already connected, also when two scans race). Only someone with an active ticket for the congress may scan
+         *     there, and not once the congress is archived (409 NETWORKING_CLOSED).
          */
         post: operations["scan_peer_badge_api_attendees_me_network_scan_post"];
         delete?: never;
@@ -1639,7 +1646,10 @@ export interface paths {
         };
         /**
          * List My Connections
-         * @description Every connection, newest first. `/search` is the paginated, searchable form.
+         * @deprecated
+         * @description The caller's connections, newest first: at most `limit` (1,000 by default and at most).
+         *
+         *     Deprecated: use `/search`, which pages through every connection, filters by congress and reports the total.
          */
         get: operations["list_my_connections_api_attendees_me_network_get"];
         put?: never;
@@ -1886,7 +1896,8 @@ export interface paths {
         };
         /**
          * Public Media
-         * @description Anonymous image access: only images the event's published page references.
+         * @description Anonymous image access: only images the published page of an unarchived event references (an archived
+         *     event's public page is gone, like its schedule files).
          */
         get: operations["public_media_api_public_media__asset_id__get"];
         put?: never;
@@ -7343,6 +7354,15 @@ export interface operations {
                     "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
         };
     };
     cancel_my_ticket_api_attendees_me_tickets__ticket_id__cancel_post: {
@@ -7737,6 +7757,15 @@ export interface operations {
                     "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
         };
     };
     reissue_participant_api_events__event_id__participants__ticket_id__reissue_post: {
@@ -7800,6 +7829,15 @@ export interface operations {
                     "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
         };
     };
     transfer_participant_api_events__event_id__participants__ticket_id__transfer_post: {
@@ -7861,6 +7899,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
         };
@@ -10180,6 +10227,15 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description Validation Error */
             422: {
                 headers: {
@@ -10196,6 +10252,7 @@ export interface operations {
             query?: {
                 q?: string;
                 rating?: ("HOT" | "WARM" | "COLD") | null;
+                limit?: number;
             };
             header?: never;
             path: {
@@ -10327,9 +10384,7 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content: {
-                    "application/json": unknown;
-                };
+                content?: never;
             };
             /** @description Forbidden */
             403: {
@@ -10390,6 +10445,15 @@ export interface operations {
             };
             /** @description Not Found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -10510,6 +10574,15 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description Validation Error */
             422: {
                 headers: {
@@ -10601,7 +10674,9 @@ export interface operations {
     };
     list_my_connections_api_attendees_me_network_get: {
         parameters: {
-            query?: never;
+            query?: {
+                limit?: number;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -10615,6 +10690,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ConnectionOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

@@ -1,8 +1,9 @@
 import base64
 import secrets
+import time
 import uuid
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import Any, Literal
 
 import jwt
 
@@ -61,6 +62,35 @@ def decode_access_token(token: str, secret: str) -> dict[str, Any] | None:
         return data if isinstance(data, dict) else None
     except Exception:
         return None
+
+
+# What a bearer credential is: "valid" (one of our tokens, usable now), "expired" (ours, past its `exp`), "unusable"
+# (ours, refused for another reason, e.g. issued in the future by a skewed clock) or "foreign" (not signed by us: an
+# organizer API key, or a guess).
+TokenState = Literal["valid", "expired", "unusable", "foreign"]
+
+
+def inspect_token(token: str, secret: str) -> tuple[TokenState, dict[str, Any] | None]:
+    """Classify a bearer credential and return its claims (None for a foreign one).
+
+    Only a foreign credential can be a guess: nobody can forge our signature, so a validly signed token that is
+    merely expired or refused must never count toward a per-IP failure budget (a venue NAT would lock itself
+    out with its own stale sessions)."""
+    try:
+        claims = jwt.decode(
+            token, secret, algorithms=["HS256"], options={"verify_exp": False, "verify_iat": False, "verify_nbf": False}
+        )
+    except Exception:
+        return "foreign", None
+    if not isinstance(claims, dict):
+        return "foreign", None
+    payload = decode_access_token(token, secret)
+    if payload is not None:
+        return "valid", payload
+    exp = claims.get("exp")
+    if isinstance(exp, (int, float)) and exp <= time.time():
+        return "expired", claims
+    return "unusable", claims
 
 
 def create_scanner_token(
