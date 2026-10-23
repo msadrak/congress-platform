@@ -1006,9 +1006,31 @@ export interface paths {
         put?: never;
         /**
          * Add Desk Operator
-         * @description Authorize a person (by mobile) for this event's front desk; they sign in with an SMS code.
+         * @description Authorize a person (by mobile) for this event's front desk and text them the reception link
+         *     (`operator_invite`); they sign in there with an SMS code to this number.
          */
         post: operations["add_desk_operator_api_events__event_id__desk_operators_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/events/{event_id}/desk/operators/{operator_id}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Restore Desk Operator
+         * @description Give a revoked operator their access back and text them the reception link again. Sessions from before
+         *     the revocation stay invalid: the operator signs in afresh.
+         */
+        post: operations["restore_desk_operator_api_events__event_id__desk_operators__operator_id__restore_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1073,8 +1095,55 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Search Event Attendees */
+        /**
+         * Search Event Attendees
+         * @description Newest first. Names, organizations and titles match Persian-folded and literally (app.search: ي/ك typed on
+         *     an Arabic keyboard find ی/ک, `%` and `_` are not wildcards); a run of digits also matches the mobile.
+         */
         get: operations["search_event_attendees_api_events__event_id__attendees_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/events/{event_id}/attendees/qr-lookup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Lookup Attendee By Qr
+         * @description The ticket whose badge was scanned into the desk search (camera or barcode gun). The code is normalized
+         *     exactly as the gate scanner does (`normalize_qr_secret`). A cancelled ticket's badge is found and shown as
+         *     cancelled; a replaced (reissued) badge, or another congress's, is not found. Sent in the body: a QR secret is
+         *     a credential and never appears in a URL.
+         */
+        post: operations["lookup_attendee_by_qr_api_events__event_id__attendees_qr_lookup_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/events/{event_id}/desk/checkin-points": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Desk Checkin Points
+         * @description Where the desk can admit an attendee ("admit at point X").
+         */
+        get: operations["list_desk_checkin_points_api_events__event_id__desk_checkin_points_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1097,6 +1166,114 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
+        /**
+         * Update Attendee Registration
+         * @description Correct the registration's name, organization or title for this congress (the person's account is not
+         *     changed). A badge printed before the change is then flagged `needs_reprint`.
+         */
+        patch: operations["update_attendee_registration_api_events__event_id__attendees__ticket_id__patch"];
+        trace?: never;
+    };
+    "/api/events/{event_id}/attendees/{ticket_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cancel Attendee Ticket
+         * @description Cancel the ticket: its place returns to the tier and its pass stops working (app.ticket_lifecycle).
+         */
+        post: operations["cancel_attendee_ticket_api_events__event_id__attendees__ticket_id__cancel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/events/{event_id}/attendees/{ticket_id}/reissue": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reissue Attendee Ticket
+         * @description Issue a new pass (new QR code) for a lost or leaked one; the old one stops working at once.
+         */
+        post: operations["reissue_attendee_ticket_api_events__event_id__attendees__ticket_id__reissue_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/events/{event_id}/attendees/{ticket_id}/transfer": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Transfer Attendee Ticket
+         * @description Give the ticket's place to another person (by mobile). Returns the new holder's card.
+         */
+        post: operations["transfer_attendee_ticket_api_events__event_id__attendees__ticket_id__transfer_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/events/{event_id}/attendees/{ticket_id}/admit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Admit Attendee
+         * @description Admit the attendee at one of this congress's check-in points, as if their badge were scanned there: the
+         *     gate's own evaluator decides (single use, tier, capacity; app.routes.checkin), and the verdict is recorded
+         *     as a check-in attributed to the desk operator. A retry with the same `scan_id` returns the first verdict.
+         */
+        post: operations["admit_attendee_api_events__event_id__attendees__ticket_id__admit_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/events/{event_id}/attendees/{ticket_id}/prints": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Record Badge Print
+         * @description Record that the badge is being printed (sent just before the browser's print dialog): the first print
+         *     or a reprint, by whom, and what it shows, so a later change to the registration flags it for reprinting.
+         */
+        post: operations["record_badge_print_api_events__event_id__attendees__ticket_id__prints_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
         patch?: never;
         trace?: never;
     };
@@ -1112,6 +1289,10 @@ export interface paths {
         /**
          * Resend Pass Sms
          * @description Send the ticket confirmation (with the pass link) again, now, for an attendee who did not get it.
+         *
+         *     Everything is read (and a missing link minted and committed) first; the database connection is released
+         *     before sms.ir is called, so a slow provider never holds connections check-in needs. The outcome is logged
+         *     in a new short transaction.
          */
         post: operations["resend_pass_sms_api_events__event_id__attendees__ticket_id__resend_sms_post"];
         delete?: never;
@@ -2620,6 +2801,11 @@ export interface components {
             organization: string;
             /** Title */
             title: string;
+            /**
+             * Ticket Tier Id
+             * Format: uuid
+             */
+            ticket_tier_id: string;
             /** Ticket Tier Name */
             ticket_tier_name: string;
             /** Qr Secret */
@@ -2633,8 +2819,24 @@ export interface components {
             created_at: string;
             /** Issued By */
             issued_by?: string | null;
+            /** Cancelled At */
+            cancelled_at?: string | null;
+            /** Cancelled Reason */
+            cancelled_reason?: string | null;
             /** Scan History */
             scan_history: components["schemas"]["ScanHistoryItem"][];
+            /**
+             * Print Count
+             * @default 0
+             */
+            print_count: number;
+            /** Last Printed At */
+            last_printed_at?: string | null;
+            /**
+             * Needs Reprint
+             * @default false
+             */
+            needs_reprint: boolean;
         };
         /** AttendeeSearchItem */
         AttendeeSearchItem: {
@@ -2764,6 +2966,28 @@ export interface components {
              */
             token_type: string;
             user: components["schemas"]["UserOut"];
+        };
+        /** BadgePrintOut */
+        BadgePrintOut: {
+            /**
+             * Print Id
+             * Format: uuid
+             */
+            print_id: string;
+            /**
+             * Reason
+             * @enum {string}
+             */
+            reason: "first" | "reprint";
+            /**
+             * Printed At
+             * Format: date-time
+             */
+            printed_at: string;
+            /** Printed By */
+            printed_by: string;
+            /** Print Count */
+            print_count: number;
         };
         /** BatchScanRequest */
         BatchScanRequest: {
@@ -3268,6 +3492,42 @@ export interface components {
              */
             target: "passes" | "exhibitors";
         };
+        /** DeskAdmitOut */
+        DeskAdmitOut: {
+            /**
+             * Scan Id
+             * Format: uuid
+             */
+            scan_id: string;
+            /** Status */
+            status: string;
+            /** Rejection Reason */
+            rejection_reason: string | null;
+            /**
+             * Checkin Point Id
+             * Format: uuid
+             */
+            checkin_point_id: string;
+            /** Checkin Point Name */
+            checkin_point_name: string;
+            /** Attendee Name */
+            attendee_name: string | null;
+            /** Ticket Tier Name */
+            ticket_tier_name: string | null;
+        };
+        /** DeskAdmitRequest */
+        DeskAdmitRequest: {
+            /**
+             * Checkin Point Id
+             * Format: uuid
+             */
+            checkin_point_id: string;
+            /**
+             * Scan Id
+             * @description Client-generated id of this admission, sent again on a retry: the first verdict is returned.
+             */
+            scan_id?: string | null;
+        };
         /**
          * DeskLoginRequest
          * @description Sign-in code requested with POST /api/auth/otp/request (purpose "desk").
@@ -3315,6 +3575,11 @@ export interface components {
             event_slug: string;
             /** Is Organizer Admin */
             is_organizer_admin: boolean;
+            /**
+             * Is Archived
+             * @default false
+             */
+            is_archived: boolean;
         };
         /** DeskOperatorCreate */
         DeskOperatorCreate: {
@@ -3402,6 +3667,11 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+            /**
+             * Reactivated
+             * @default false
+             */
+            reactivated: boolean;
         };
         /** DeviceHeartbeat */
         DeviceHeartbeat: {
@@ -5010,7 +5280,7 @@ export interface components {
              * @default otp
              * @enum {string}
              */
-            kind: "otp" | "ticket_confirmation" | "ticket_cancelled" | "ticket_reissued" | "staff_invite" | "member_invite";
+            kind: "otp" | "ticket_confirmation" | "ticket_cancelled" | "ticket_reissued" | "staff_invite" | "member_invite" | "operator_invite";
             /** Body */
             body?: string | null;
         };
@@ -5313,6 +5583,14 @@ export interface components {
             /** Location */
             location: string;
         };
+        /** QrLookupRequest */
+        QrLookupRequest: {
+            /**
+             * Qr
+             * @description The scanned badge code, as the camera or gun read it
+             */
+            qr: string;
+        };
         /** RecordedSmsOut */
         RecordedSmsOut: {
             /** Mobile */
@@ -5366,6 +5644,8 @@ export interface components {
              * Format: date-time
              */
             scanned_at: string;
+            /** Recorded By */
+            recorded_by?: string | null;
         };
         /** ScanOut */
         ScanOut: {
@@ -5843,7 +6123,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "otp" | "ticket_confirmation" | "ticket_cancelled" | "ticket_reissued" | "staff_invite" | "member_invite";
+            kind: "otp" | "ticket_confirmation" | "ticket_cancelled" | "ticket_reissued" | "staff_invite" | "member_invite" | "operator_invite";
             /** Body */
             body: string;
             /** Is Custom */
@@ -9083,6 +9363,65 @@ export interface operations {
             };
         };
     };
+    restore_desk_operator_api_events__event_id__desk_operators__operator_id__restore_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                operator_id: string;
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeskOperatorOut"];
+                };
+            };
+            /** @description ROLE_FORBIDDEN: needs the manager role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     revoke_desk_operator_api_events__event_id__desk_operators__operator_id__delete: {
         parameters: {
             query?: never;
@@ -9192,6 +9531,15 @@ export interface operations {
                     "application/json": components["schemas"]["DeskRegistrationOut"];
                 };
             };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description ROLE_FORBIDDEN: needs the staff role */
             403: {
                 headers: {
@@ -9201,8 +9549,26 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description Conflict */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Gone */
+            410: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -9242,6 +9608,99 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AttendeeSearchItem"][];
+                };
+            };
+            /** @description ROLE_FORBIDDEN: needs the staff role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    lookup_attendee_by_qr_api_events__event_id__attendees_qr_lookup_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["QrLookupRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AttendeeSearchItem"];
+                };
+            };
+            /** @description ROLE_FORBIDDEN: needs the staff role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_desk_checkin_points_api_events__event_id__desk_checkin_points_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CheckInPointOut"][];
                 };
             };
             /** @description ROLE_FORBIDDEN: needs the staff role */
@@ -9305,6 +9764,398 @@ export interface operations {
             };
         };
     };
+    update_attendee_registration_api_events__event_id__attendees__ticket_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ticket_id: string;
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ParticipantUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AttendeeDetailCard"];
+                };
+            };
+            /** @description ROLE_FORBIDDEN: needs the staff role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    cancel_attendee_ticket_api_events__event_id__attendees__ticket_id__cancel_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ticket_id: string;
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ParticipantCancel"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AttendeeDetailCard"];
+                };
+            };
+            /** @description ROLE_FORBIDDEN: needs the staff role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    reissue_attendee_ticket_api_events__event_id__attendees__ticket_id__reissue_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ticket_id: string;
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ParticipantReissue"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AttendeeDetailCard"];
+                };
+            };
+            /** @description ROLE_FORBIDDEN: needs the staff role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    transfer_attendee_ticket_api_events__event_id__attendees__ticket_id__transfer_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ticket_id: string;
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ParticipantTransfer"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AttendeeDetailCard"];
+                };
+            };
+            /** @description ROLE_FORBIDDEN: needs the staff role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    admit_attendee_api_events__event_id__attendees__ticket_id__admit_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ticket_id: string;
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeskAdmitRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeskAdmitOut"];
+                };
+            };
+            /** @description ROLE_FORBIDDEN: needs the staff role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    record_badge_print_api_events__event_id__attendees__ticket_id__prints_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ticket_id: string;
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BadgePrintOut"];
+                };
+            };
+            /** @description ROLE_FORBIDDEN: needs the staff role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     resend_pass_sms_api_events__event_id__attendees__ticket_id__resend_sms_post: {
         parameters: {
             query?: never;
@@ -9335,6 +10186,24 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description Validation Error */
             422: {
                 headers: {
@@ -9342,6 +10211,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
         };
@@ -12858,7 +13736,7 @@ export interface operations {
                 "x-admin-token"?: string | null;
             };
             path: {
-                kind: "otp" | "ticket_confirmation" | "ticket_cancelled" | "ticket_reissued" | "staff_invite" | "member_invite";
+                kind: "otp" | "ticket_confirmation" | "ticket_cancelled" | "ticket_reissued" | "staff_invite" | "member_invite" | "operator_invite";
             };
             cookie?: never;
         };
@@ -12895,7 +13773,7 @@ export interface operations {
                 "x-admin-token"?: string | null;
             };
             path: {
-                kind: "otp" | "ticket_confirmation" | "ticket_cancelled" | "ticket_reissued" | "staff_invite" | "member_invite";
+                kind: "otp" | "ticket_confirmation" | "ticket_cancelled" | "ticket_reissued" | "staff_invite" | "member_invite" | "operator_invite";
             };
             cookie?: never;
         };

@@ -17,7 +17,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db import add_or_existing
 from app.models import SmsTemplate
 
-SmsKind = Literal["otp", "ticket_confirmation", "ticket_cancelled", "ticket_reissued", "staff_invite", "member_invite"]
+SmsKind = Literal[
+    "otp", "ticket_confirmation", "ticket_cancelled", "ticket_reissued", "staff_invite", "member_invite",
+    "operator_invite",
+]
 # Kinds an organizer may override for one event (sign-in codes are platform-wide: they belong to no event).
 EVENT_KINDS: tuple[SmsKind, ...] = ("ticket_confirmation", "ticket_cancelled", "ticket_reissued")
 MAX_BODY_LENGTH = 1000
@@ -71,6 +74,13 @@ KINDS: dict[SmsKind, KindSpec] = {
         placeholders=("name", "role", "organizer", "link"),
         required=("link",),
         default="{name} عزیز، شما با نقش «{role}» به کنسول «{organizer}» اضافه شدید.\nورود با همین شماره: {link}",
+    ),
+    # Reception desk operator invitation (app/routes/desk.py), platform-wide: {link} opens the congress's
+    # reception station (/reception/<event id>), where the operator signs in with this number.
+    "operator_invite": KindSpec(
+        placeholders=("name", "event", "link"),
+        required=("link",),
+        default="{name} عزیز، شما اپراتور میز پذیرش «{event}» شدید.\nورود با همین شماره: {link}",
     ),
 }
 

@@ -16,6 +16,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, StringConstraints
 from sqlalchemy import ColumnElement, Select, delete, exists, func, or_, select
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import QueryableAttribute
 
 from app.csv_export import csv_response, csv_stream
@@ -152,6 +153,46 @@ class ParticipantTransfer(BaseModel):
     full_name: NameStr | None = None
     organization: OrganizationStr | None = None
     title: TitleStr | None = None
+
+
+def apply_registration_update(ticket: Ticket, body: ParticipantUpdate) -> list[str]:
+    """Copy the given fields onto the registration; returns the names of the fields that changed."""
+    changed: list[str] = []
+    for field in ("attendee_full_name", "attendee_organization", "attendee_title"):
+        value = getattr(body, field)
+        if value is not None and value != getattr(ticket, field):
+            setattr(ticket, field, value)
+            changed.append(field)
+    return changed
+
+
+async def transfer_target(session: AsyncSession, body: ParticipantTransfer) -> tuple[User, dict[str, str]]:
+    """The new holder's account (created for a number without one) and their registration details."""
+    target = await session.scalar(select(User).where(User.mobile == body.mobile))
+    if target is None:
+        if body.full_name is None:
+            raise ApiError(
+                status.HTTP_422_UNPROCESSABLE_CONTENT, "FULL_NAME_REQUIRED",
+                "This number has no account yet: enter the person's full name."
+            )
+        target = User(
+            mobile=body.mobile, full_name=body.full_name,
+            organization=body.organization or "", title=body.title or "",
+        )
+        session.add(target)
+        try:
+            async with session.begin_nested():
+                await session.flush()
+        except IntegrityError:
+            target = await session.scalar(select(User).where(User.mobile == body.mobile))
+            if target is None:
+                raise ApiError(status.HTTP_409_CONFLICT, "ACCOUNT_CONFLICT", "The account could not be created") from None
+    snapshot = {
+        "attendee_full_name": body.full_name or target.full_name,
+        "attendee_organization": body.organization if body.organization is not None else target.organization,
+        "attendee_title": body.title if body.title is not None else target.title,
+    }
+    return target, snapshot
 
 
 def _checkin_count() -> Any:
@@ -345,12 +386,7 @@ async def update_participant(
 ) -> ParticipantDetail:
     """Correct the registration's name, organization or title for this congress only."""
     ticket = await _owned_ticket(session, event, ticket_id)
-    if body.attendee_full_name is not None:
-        ticket.attendee_full_name = body.attendee_full_name
-    if body.attendee_organization is not None:
-        ticket.attendee_organization = body.attendee_organization
-    if body.attendee_title is not None:
-        ticket.attendee_title = body.attendee_title
+    apply_registration_update(ticket, body)
     await session.commit()
     return await _detail(session, event, ticket_id)
 
@@ -396,30 +432,7 @@ async def transfer_participant(
 ) -> ParticipantDetail:
     """Give the ticket's place to another person (by mobile). Returns the new holder's registration."""
     ticket = await _owned_ticket(session, event, ticket_id)
-    target = await session.scalar(select(User).where(User.mobile == body.mobile))
-    if target is None:
-        if body.full_name is None:
-            raise ApiError(
-                status.HTTP_422_UNPROCESSABLE_CONTENT, "FULL_NAME_REQUIRED",
-                "This number has no account yet: enter the person's full name."
-            )
-        target = User(
-            mobile=body.mobile, full_name=body.full_name,
-            organization=body.organization or "", title=body.title or "",
-        )
-        session.add(target)
-        try:
-            async with session.begin_nested():
-                await session.flush()
-        except IntegrityError:
-            target = await session.scalar(select(User).where(User.mobile == body.mobile))
-            if target is None:
-                raise ApiError(status.HTTP_409_CONFLICT, "ACCOUNT_CONFLICT", "The account could not be created") from None
-    snapshot = {
-        "attendee_full_name": body.full_name or target.full_name,
-        "attendee_organization": body.organization if body.organization is not None else target.organization,
-        "attendee_title": body.title if body.title is not None else target.title,
-    }
+    target, snapshot = await transfer_target(session, body)
     try:
         new_ticket = await transfer_ticket(
             session, ticket, target, snapshot=snapshot, origin=_origin(request), event=event

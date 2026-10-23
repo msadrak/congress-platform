@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { formatApiError, type DeskOperatorOut } from "../../api/client";
+import { localizedApiError, type DeskOperatorOut } from "../../api/client";
 import { normalizeIranMobile } from "../../lib/mobile";
 import { Button } from "../ui/Button";
 import { Dialog } from "../ui/Dialog";
@@ -18,7 +18,7 @@ interface OperatorFormDialogProps {
 
 /** Authorize a Front Desk operator by name and mobile number. */
 export function OperatorFormDialog({ isOpen, onClose, onSaved }: OperatorFormDialogProps) {
-  const { eventId, apiKey, client, onKeyRejected, t, isRtl } = useEventWorkspace();
+  const { eventId, apiKey, client, onKeyRejected, locale, t, isRtl } = useEventWorkspace();
   const [operatorName, setOperatorName] = useState("");
   const [operatorMobile, setOperatorMobile] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -61,7 +61,7 @@ export function OperatorFormDialog({ isOpen, onClose, onSaved }: OperatorFormDia
     if (response.status === 401) onKeyRejected(apiKey);
     setSubmitting(false);
     if (err) {
-      setFormError(formatApiError(err));
+      setFormError(localizedApiError(err, locale));
     } else if (data) {
       setOperatorName("");
       setOperatorMobile("");

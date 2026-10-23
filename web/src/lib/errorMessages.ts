@@ -44,6 +44,12 @@ export const errorMessages: Record<AttendeeLocale, Record<string, string>> = {
     OPERATOR_ALREADY_ASSIGNED: "این شماره پیش‌تر اپراتور پذیرش این همایش است.",
     IDEMPOTENCY_KEY_REUSED: "این ثبت با اطلاعات دیگری فرستاده شده بود. اطلاعات را بررسی و دوباره ثبت کنید.",
     IDEMPOTENCY_KEY_IN_PROGRESS: "ثبت قبلی هنوز در حال انجام است. چند لحظه بعد دوباره تلاش کنید.",
+    // Reception desk (backend/app/routes/desk.py)
+    ATTENDEE_QR_NOT_FOUND: "این کد QR متعلق به هیچ کارت ورودی در این همایش نیست؛ ممکن است کارت ورود دوباره صادر شده باشد.",
+    CHECKIN_POINT_NOT_FOUND: "این نقطه ورود دیگر وجود ندارد؛ صفحه را تازه کنید.",
+    OPERATOR_NOT_FOUND: "این اپراتور در این همایش یافت نشد. فهرست را به‌روز کنید.",
+    OPERATOR_NOT_REVOKED: "دسترسی این اپراتور لغو نشده است.",
+    PASS_SMS_RATE_LIMITED: "لینک کارت ورود همین الان فرستاده شد. کمی بعد دوباره تلاش کنید.",
     // Sign-in codes and SMS (backend/app/routes/auth.py, sms.py, platform.py)
     OTP_RATE_LIMITED: "درخواست کد بیش از حد مجاز بود. کمی بعد دوباره تلاش کنید.",
     OTP_VERIFY_RATE_LIMITED: "تعداد تلاش‌ها بیش از حد مجاز بود. کمی بعد دوباره تلاش کنید.",
@@ -164,6 +170,12 @@ export const errorMessages: Record<AttendeeLocale, Record<string, string>> = {
     OPERATOR_ALREADY_ASSIGNED: "This number is already a reception operator for this congress.",
     IDEMPOTENCY_KEY_REUSED: "This submission was already sent with different details. Check the entry and submit again.",
     IDEMPOTENCY_KEY_IN_PROGRESS: "The previous submission is still being processed. Try again in a moment.",
+    // Reception desk (backend/app/routes/desk.py)
+    ATTENDEE_QR_NOT_FOUND: "This QR code belongs to no ticket of this congress; the pass may have been reissued.",
+    CHECKIN_POINT_NOT_FOUND: "This check-in point no longer exists; reload the page.",
+    OPERATOR_NOT_FOUND: "This operator was not found for this congress. Refresh the list.",
+    OPERATOR_NOT_REVOKED: "This operator's access is not revoked.",
+    PASS_SMS_RATE_LIMITED: "The pass link was sent moments ago. Try again shortly.",
     // Sign-in codes and SMS (backend/app/routes/auth.py, sms.py, platform.py)
     OTP_RATE_LIMITED: "Too many codes requested. Try again in a little while.",
     OTP_VERIFY_RATE_LIMITED: "Too many attempts. Try again in a little while.",

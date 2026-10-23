@@ -180,3 +180,42 @@
     max-block-size: none !important;
   }
 }
+
+/* ── Printed badge (components/reception/PrintableBadge.tsx) ───────────────────
+   Never shown on screen. Printed alone on an A6 card (named page) and narrow enough for an 80 mm thermal
+   roll: black on white, no backgrounds or shadows, a large name and a QR code the gates read easily. */
+.rx-badge { display: none; }
+
+@page badge {
+  size: A6 portrait;
+  margin: 6mm;
+}
+
+@media print {
+  .rx-badge.print-pass {
+    display: flex;
+    page: badge;
+    flex-direction: column;
+    align-items: center;
+    gap: 2.5mm;
+    inline-size: min(100%, 76mm);
+    padding: 4mm 3mm;
+    background: #fff !important;
+    color: #000 !important;
+    text-align: center;
+    break-inside: avoid;
+  }
+  .rx-badge.print-pass * { color: #000 !important; }
+  .rx-badge-event { font-size: 9pt; font-weight: 600; letter-spacing: 0.02em; }
+  .rx-badge-name { font-size: 20pt; font-weight: 800; line-height: 1.15; overflow-wrap: anywhere; }
+  .rx-badge-affiliation { font-size: 11pt; font-weight: 500; line-height: 1.3; overflow-wrap: anywhere; }
+  .rx-badge-qr { padding: 2mm; background: #fff; }
+  .rx-badge-qr svg { inline-size: 42mm; block-size: 42mm; }
+  .rx-badge-tier {
+    padding: 1mm 4mm;
+    border: 0.4mm solid #000;
+    border-radius: 2mm;
+    font-size: 12pt;
+    font-weight: 700;
+  }
+}

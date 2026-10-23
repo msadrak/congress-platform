@@ -81,10 +81,21 @@ ROUTE_ROLES: dict[tuple[str, str], Role] = {
     ("GET", f"{E}/attendees"): STAFF,
     ("GET", f"{E}/attendees/{{ticket_id}}"): STAFF,
     ("POST", f"{E}/attendees/{{ticket_id}}/resend-sms"): STAFF,
+    ("POST", f"{E}/attendees/qr-lookup"): STAFF,
+    ("GET", f"{E}/desk/checkin-points"): STAFF,
+    ("POST", f"{E}/attendees/{{ticket_id}}/admit"): STAFF,
+    ("POST", f"{E}/attendees/{{ticket_id}}/prints"): STAFF,
+    # Registration changes at the desk: what an operator the managers appointed may do, a staff member may do
+    # too (the participants register's own routes stay manager-only).
+    ("PATCH", f"{E}/attendees/{{ticket_id}}"): STAFF,
+    ("POST", f"{E}/attendees/{{ticket_id}}/cancel"): STAFF,
+    ("POST", f"{E}/attendees/{{ticket_id}}/reissue"): STAFF,
+    ("POST", f"{E}/attendees/{{ticket_id}}/transfer"): STAFF,
     ("GET", f"{E}/desk/operators"): MANAGER,
     ("POST", f"{E}/desk/operators"): MANAGER,
     ("DELETE", f"{E}/desk/operators/{{operator_id}}"): MANAGER,
     ("POST", f"{E}/desk/operators/{{operator_id}}/revoke"): MANAGER,
+    ("POST", f"{E}/desk/operators/{{operator_id}}/restore"): MANAGER,
     # Analytics: aggregates for everyone, row-level exports for managers.
     ("GET", f"{E}/analytics/attendance"): VIEWER,
     ("GET", f"{E}/analytics/export-csv"): MANAGER,

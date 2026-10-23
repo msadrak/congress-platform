@@ -161,6 +161,7 @@ function OrganizerSmsContent() {
         ticket_cancelled: "لغو بلیت",
         ticket_reissued: "صدور دوبارهٔ کارت ورود",
         staff_invite: "دعوت نمایندهٔ غرفه",
+        operator_invite: "دعوت اپراتور پذیرش",
         test: "آزمایشی",
       }
     : {
@@ -169,6 +170,7 @@ function OrganizerSmsContent() {
         ticket_cancelled: "Ticket cancelled",
         ticket_reissued: "Pass reissued",
         staff_invite: "Booth representative invitation",
+        operator_invite: "Reception operator invitation",
         test: "Test",
       };
   const kindLabel = (kind: string) => kindLabels[kind] ?? kind;

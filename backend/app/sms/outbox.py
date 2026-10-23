@@ -134,6 +134,31 @@ async def queue_staff_invite(
     )
 
 
+def reception_url(settings: Settings, origin: str, event_id: object) -> str:
+    """The congress's reception station (`/reception/<event id>`), on the public origin."""
+    return f"{(settings.public_origin or origin).rstrip('/')}/reception/{event_id}"
+
+
+async def queue_operator_invite(
+    session: AsyncSession, settings: Settings, origin: str, *, mobile: str | None, name: str, event: Event
+) -> None:
+    """Queue "you run this congress's reception desk" with a link to the reception station, where the operator
+    signs in with an SMS code to this number; a no-op without a mobile. Platform-wide wording (`operator_invite`)."""
+    if not mobile:
+        return
+    values = {"name": name, "event": event.name, "link": reception_url(settings, origin, event.id)}
+    session.add(
+        SmsMessage(
+            kind="operator_invite",
+            mobile=mobile,
+            body=render(await effective_body(session, "operator_invite", None), values),
+            event_id=event.id,
+            status="pending",
+            send_after=datetime.now(timezone.utc),
+        )
+    )
+
+
 def unconfigured_delay(waited: timedelta) -> timedelta:
     """Backoff for a message that could not be attempted at all (gateway unconfigured, cap reached, busy): about
     half the time it has waited so far, between 30 s and 15 min, without using up an attempt."""

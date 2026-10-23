@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { formatApiError, type DeskOperatorOut } from "../../api/client";
+import QRCode from "react-qr-code";
+import { localizedApiError, type DeskOperatorOut } from "../../api/client";
 import { formatLocalizedDate } from "../../lib/i18n";
 import { formatMobile } from "../../lib/mobile";
 import { eventSectionNumber } from "../../lib/organizerWorkspace";
@@ -22,6 +23,8 @@ export default function EventOperators() {
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [revokeTarget, setRevokeTarget] = useState<DeskOperatorOut | null>(null);
   const [revokingOperatorId, setRevokingOperatorId] = useState<string | null>(null);
+  const [restoringOperatorId, setRestoringOperatorId] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
 
   if (!event || error || !lists.loaded) return <EventSectionGate listsLoaded={lists.loaded} />;
 
@@ -35,10 +38,43 @@ export default function EventOperators() {
     if (response.status === 401) onKeyRejected(apiKey);
     setRevokingOperatorId(null);
     if (err) {
-      setNotice({ tone: "error", text: isRtl ? "لغو دسترسی انجام نشد؛ دوباره تلاش کنید." : `Could not revoke access: ${formatApiError(err)}` });
+      setNotice({ tone: "error", text: isRtl ? "لغو دسترسی انجام نشد؛ دوباره تلاش کنید." : `Could not revoke access: ${localizedApiError(err, locale)}` });
     } else if (data) {
       operators.setItems((prev) => prev.map((o) => (o.id === data.id ? data : o)));
       setNotice({ tone: "ok", text: isRtl ? `دسترسی ${data.operator_name} لغو شد.` : `Access revoked for ${data.operator_name}.` });
+    }
+  };
+
+  const handleRestoreOperator = async (operatorId: string) => {
+    if (!eventId || !apiKey || !client) return;
+    setRestoringOperatorId(operatorId);
+    const { data, error: err, response } = await client.POST("/api/events/{event_id}/desk/operators/{operator_id}/restore", {
+      params: { path: { event_id: eventId, operator_id: operatorId } },
+    });
+    if (response.status === 401) onKeyRejected(apiKey);
+    setRestoringOperatorId(null);
+    if (err) {
+      setNotice({ tone: "error", text: localizedApiError(err, locale) });
+    } else if (data) {
+      operators.setItems((prev) => prev.map((o) => (o.id === data.id ? data : o)));
+      setNotice({
+        tone: "ok",
+        text: isRtl
+          ? `دسترسی ${data.operator_name} بازگردانده شد و پیامک دعوت دوباره فرستاده شد.`
+          : `Access restored for ${data.operator_name}; the invitation SMS was sent again.`,
+      });
+    }
+  };
+
+  // The independent reception station for this congress: operators open it and sign in with an SMS code.
+  const receptionUrl = `${window.location.origin}/reception/${eventId}`;
+  const copyReceptionUrl = async () => {
+    try {
+      await navigator.clipboard.writeText(receptionUrl);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2500);
+    } catch {
+      setNotice({ tone: "error", text: isRtl ? "کپی ممکن نشد؛ نشانی را دستی انتخاب کنید." : "Could not copy; select the address by hand." });
     }
   };
 
@@ -50,6 +86,28 @@ export default function EventOperators() {
       <SectionHeader index={eventSectionNumber("operators")} eyebrow={<bdi>{event.name}</bdi>} title={t.operatorsHeading} description={t.operatorsDesc} action={addOperator} />
 
       <SectionNotice notice={notice} onDismiss={() => setNotice(null)} />
+
+      <section aria-labelledby="reception-link-heading" data-testid="reception-link" className="flex flex-col gap-5 rounded-2xl border border-border-default bg-surface-panel p-5 shadow-soft sm:flex-row sm:items-center">
+        <div className="shrink-0 self-center rounded-xl bg-white p-2.5 ring-1 ring-border-default">
+          <QRCode value={receptionUrl} size={112} level="M" viewBox="0 0 256 256" fgColor="#000000" bgColor="#FFFFFF" className="size-28" aria-label={isRtl ? "کد QR نشانی میز پذیرش" : "Reception address QR code"} />
+        </div>
+        <div className="min-w-0 flex-1 space-y-2.5">
+          <h2 id="reception-link-heading" className="text-sm font-semibold text-text-primary">{isRtl ? "نشانی میز پذیرش این همایش" : "This congress's reception address"}</h2>
+          <p className="text-xs leading-relaxed text-text-secondary">
+            {isRtl
+              ? "اپراتورها این نشانی را باز می‌کنند (یا کد QR را اسکن می‌کنند) و با کد پیامکی به شمارهٔ خود وارد می‌شوند. هنگام افزودن اپراتور، همین نشانی برایش پیامک می‌شود."
+              : "Operators open this address (or scan the QR code) and sign in with an SMS code to their number. Adding an operator texts them this address."}
+          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <code className="min-w-0 break-all rounded-lg bg-surface-panel-subtle px-2.5 py-1.5 font-mono text-xs text-text-primary"><bdi dir="ltr">{receptionUrl}</bdi></code>
+            <Button type="button" variant="secondary" size="sm" onClick={() => void copyReceptionUrl()}>
+              <Icon name={copied ? "check" : "copy"} size={15} />
+              <span>{copied ? (isRtl ? "کپی شد" : "Copied") : isRtl ? "کپی نشانی" : "Copy link"}</span>
+            </Button>
+          </div>
+          <p className="sr-only" role="status">{copied ? (isRtl ? "نشانی میز پذیرش کپی شد." : "Reception address copied.") : ""}</p>
+        </div>
+      </section>
       <SectionLoadError error={lists.error} loading={lists.loading} onRetry={lists.reload} />
 
       {operators.error ? (
@@ -118,7 +176,17 @@ export default function EventOperators() {
                         <span>{revokingOperatorId === op.id ? t.revokingAction : t.revokeOperatorAction}</span>
                       </Button>
                     ) : (
-                      <span className="text-xs font-medium text-text-muted">{isRtl ? "لغو شده" : "Revoked"}</span>
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        size="sm"
+                        disabled={restoringOperatorId === op.id}
+                        aria-busy={restoringOperatorId === op.id}
+                        onClick={() => void handleRestoreOperator(op.id)}
+                      >
+                        <Icon name="sync" size={16} />
+                        <span>{isRtl ? "بازگرداندن دسترسی" : "Restore access"}</span>
+                      </Button>
                     )}
                   </td>
                 </tr>
@@ -146,8 +214,8 @@ export default function EventOperators() {
           setNotice({
             tone: "ok",
             text: isRtl
-              ? `${saved.operator_name} مجاز شد و با کد پیامکی به شماره خود وارد میز پذیرش می‌شود.`
-              : `${saved.operator_name} is authorized and signs in to the Front Desk with an SMS code sent to their number.`,
+              ? `${saved.operator_name} مجاز شد؛ نشانی میز پذیرش برایش پیامک شد و با کد پیامکی به شماره خود وارد می‌شود.`
+              : `${saved.operator_name} is authorized: the reception address was texted to them, and they sign in with an SMS code sent to their number.`,
           });
         }}
       />

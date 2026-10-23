@@ -152,6 +152,7 @@ export default function PlatformSms() {
     // Invitations link to pages on the public origin, not to short links.
     staff_invite: { name: "نام نماینده", booth: "غرفهٔ نمونه", event: "همایش نمونه", link: `${consoleOrigin}/booth/sample` },
     member_invite: { name: "نام عضو", role: "مدیر", organizer: "برگزارکنندهٔ نمونه", link: `${consoleOrigin}/organizer` },
+    operator_invite: { name: "نام اپراتور", event: "همایش نمونه", link: `${consoleOrigin}/reception/sample` },
   };
   const titles: Record<string, string> = isRtl
     ? {
@@ -161,6 +162,7 @@ export default function PlatformSms() {
         ticket_reissued: "پیامک پیش‌فرض صدور دوبارهٔ کارت ورود",
         staff_invite: "پیامک دعوت نمایندهٔ غرفه",
         member_invite: "پیامک دعوت عضو برگزارکننده",
+        operator_invite: "پیامک دعوت اپراتور میز پذیرش",
       }
     : {
         otp: "Sign-in code SMS (every congress)",
@@ -169,17 +171,20 @@ export default function PlatformSms() {
         ticket_reissued: "Default pass reissue SMS",
         staff_invite: "Booth representative invitation SMS",
         member_invite: "Organizer member invitation SMS",
+        operator_invite: "Reception desk operator invitation SMS",
       };
   const notes: Record<string, string> = isRtl
     ? {
         otp: "{code} لازم است. این متن برای ورود همه شرکت‌کنندگان، نمایندگان غرفه، اپراتورها و اعضای برگزارکننده ارسال می‌شود.",
         staff_invite: "{link} لازم است: نشانی پنل غرفه. وقتی برگزارکننده نماینده‌ای به غرفه اضافه می‌کند ارسال می‌شود.",
         member_invite: "{link} لازم است: نشانی کنسول برگزارکننده. وقتی عضوی به سازمان برگزارکننده اضافه می‌شود ارسال می‌شود.",
+        operator_invite: "{link} لازم است: نشانی میز پذیرش همایش. وقتی برگزارکننده اپراتوری اضافه می‌کند یا دسترسی او را بازمی‌گرداند ارسال می‌شود.",
       }
     : {
         otp: "{code} is required. Sent to every attendee, booth representative, desk operator and organizer member who signs in.",
         staff_invite: "{link} is required: the booth portal address. Sent when an organizer adds a representative to a booth.",
         member_invite: "{link} is required: the organizer console address. Sent when a member is added to an organizer.",
+        operator_invite: "{link} is required: the congress's reception station address. Sent when an organizer adds a desk operator or restores their access.",
       };
   const eventDefaultNote = isRtl ? "برای همایش‌هایی که برگزارکننده متن اختصاصی تعیین نکرده است." : "Used for congresses whose organizer has not set their own text.";
 
