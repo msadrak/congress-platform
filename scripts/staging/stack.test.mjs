@@ -4,10 +4,10 @@ import test from 'node:test';
 
 import {
   alertDecision, alertFingerprint, alertText, buildProxyArgs, CDN_IPS_VENDORED, cdnProblems, certFinding, certTarget, chooseBackupType,
-  dataDirWarnings, DRILL_API_ENV, encryptionProblems, EVENT_MODE_CONF, fillTemplate, freshSecrets, loadParsPackCdnIpListText,
+  completeEnvForUp, dataDirWarnings, DRILL_API_ENV, encryptionProblems, EVENT_MODE_CONF, fillTemplate, freshSecrets, loadParsPackCdnIpListText,
   missingMediaKeys, missingSecrets, nextReleases, offsiteConfigured, parseAddressRanges, parseEnvText, pgbackrestTime, prefixOf,
   appBuildEnv, rcloneEnv, releaseId, rollbackTarget, selectExpired, smsFindings, SNAPSHOT_BACKUP_SCRIPT, SNAPSHOT_FACTS_SQL, timerPlan,
-  walComposeEnv, walEnabled, walProblems, writeVendoredCdnIpList,
+  upgradeWarnings, walComposeEnv, walEnabled, walProblems, writeVendoredCdnIpList,
 } from './stack.mjs';
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -257,6 +257,30 @@ test('init --add-missing adds only the secret-box key and never generates secret
   const broken = missingSecrets({ CONGRESS_JWT_SECRET: 'j'.repeat(64), CONGRESS_SECRET_BOX_KEY: 'j'.repeat(64) });
   assert.deepEqual(broken.add, {});
   assert.match(broken.problems.join('\n'), /POSTGRES_PASSWORD is not set.*\n.*ADMIN_TOKEN is not set.*\n.*equals CONGRESS_JWT_SECRET/);
+});
+
+test('up completes an older env file itself (secret-box key only) and stops on what needs a person', () => {
+  const existing = { POSTGRES_PASSWORD: 'p'.repeat(48), CONGRESS_PLATFORM_ADMIN_TOKEN: 'a'.repeat(43), CONGRESS_JWT_SECRET: 'j'.repeat(64) };
+  const writes = [];
+  const quiet = { write: (v) => writes.push(v), log: () => {} };
+  assert.deepEqual(completeEnvForUp(existing, quiet), ['CONGRESS_SECRET_BOX_KEY']);
+  assert.deepEqual(Object.keys(writes[0]), ['CONGRESS_SECRET_BOX_KEY']);
+  assert.notEqual(writes[0].CONGRESS_SECRET_BOX_KEY, existing.CONGRESS_JWT_SECRET);
+  // A complete file is left alone; nothing set is replaced.
+  assert.deepEqual(completeEnvForUp({ ...existing, CONGRESS_SECRET_BOX_KEY: 'b'.repeat(64) }, quiet), []);
+  assert.equal(writes.length, 1);
+  // A missing database password or JWT secret is never generated: up stops before building.
+  assert.throws(() => completeEnvForUp({ CONGRESS_JWT_SECRET: 'j'.repeat(64) }, quiet), /POSTGRES_PASSWORD is not set/);
+  // A hand-copied hosted template with a placeholder left in stops `up` too.
+  assert.throws(() => completeEnvForUp({ ...existing, CONGRESS_SECRET_BOX_KEY: 'b'.repeat(64), CONGRESS_PUBLIC_ORIGIN: 'https://<congress.example.org>' }, quiet), /placeholder: CONGRESS_PUBLIC_ORIGIN/);
+  assert.equal(writes.length, 1);
+});
+
+test('up warns when off-host copies are configured without the encryption key an older release did not need', () => {
+  assert.deepEqual(upgradeWarnings({}), []);
+  const s3 = { BACKUP_S3_ENDPOINT: 'https://s3.example', BACKUP_S3_BUCKET: 'b' };
+  assert.match(upgradeWarnings(s3).join('\n'), /BACKUP_ENCRYPTION_KEY is not set.*scheduled-backup fails/);
+  assert.deepEqual(upgradeWarnings({ ...s3, BACKUP_ENCRYPTION_KEY: 'k'.repeat(64) }), []);
 });
 
 test('init warns when the data folder already holds a database or other containers use it', () => {

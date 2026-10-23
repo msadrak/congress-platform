@@ -142,8 +142,25 @@ choice (SMS-2), merging `integration/upgrade` into `main`.
 
 ## 7. Deploy notes (cumulative, for the product owner)
 
-**Before deploying:** take a backup (`node scripts/staging/stack.mjs backup`). Migrations 0019, 0020,
-0021, 0022 and 0023 are not rollback-compatible — going back needs restore/PITR.
+**Upgrading the installed `main` (rehearsed 2026-10-23 on real data, OLD `main` → this branch; the same list is in
+`docs/deployment/STAGING_OPERATIONS.md` → *Upgrading an existing install*):**
+
+1. Pick a time outside any congress, when no scanner holds offline scans that have not synced.
+2. `node scripts/staging/stack.mjs scheduled-backup` (or `backup`) with the current checkout; copy it off the machine.
+3. `git status`: if `deploy/staging/Caddyfile` was edited by hand (the old "delete the http://localhost block" step),
+   `git checkout -- deploy/staging/Caddyfile` (`CONGRESS_LOCAL_HTTP=off` does the same).
+4. Only with off-host copies (`BACKUP_S3_*`): add `BACKUP_ENCRYPTION_KEY` (`openssl rand -base64 48`) to
+   `/etc/congress/backup.env` and the password manager, ideally with a new `BACKUP_S3_PREFIX`.
+5. `git pull`, then `node scripts/staging/stack.mjs up`. It adds `CONGRESS_SECRET_BOX_KEY` to `.staging/staging.env`
+   itself, runs 0019–0030 in one transaction (under a minute on the rehearsal data) and records the first release.
+6. `node scripts/staging/stack.mjs check`. Then save the updated `.staging/staging.env` with the server's secrets.
+7. Linux timers: `sudo node scripts/staging/stack.mjs install-timers --user <operating user>` once.
+8. Reload the scanner devices. Tell organizers and operators about the new screens.
+
+Nothing else needs a manual edit. Every new variable defaults when it is absent. A console OTP length below 6 is
+raised to 6. There is no `rollback` to `main`: the way back after a successful upgrade is the backup from step 2. If
+`up` stops at `migrate`, the database is still at 0018 and the previous commit's `up` brings the old release back.
+Migrations 0019, 0020, 0021, 0022 and 0023 are not rollback-compatible, so going back needs restore/PITR.
 
 **Migrations** (run by the migrate service, `python -m app.schema_guard migrate`):
 
@@ -162,7 +179,7 @@ choice (SMS-2), merging `integration/upgrade` into `main`.
 | 0026 | badge prints, desk check-ins | yes |
 
 **New environment variables (all optional unless noted):**
-`CONGRESS_SHORT_LINK_ORIGIN`, `CONGRESS_SECRET_BOX_KEY` (recommended; check compose passes it),
+`CONGRESS_SHORT_LINK_ORIGIN`, `CONGRESS_SECRET_BOX_KEY` (recommended; added by `up`),
 `CONGRESS_METRICS_TOKEN` + `CONGRESS_METRICS_ALLOW`, `CONGRESS_LOG_FORMAT`, `CONGRESS_SENTRY_DSN`,
 `BACKUP_*` (encryption key required once S3 is set; WAL/PITR settings), `ALERT_TELEGRAM_*`,
 `CONGRESS_OTP_TRUSTED_NETWORKS` (set to venue Wi-Fi), `CONGRESS_OTP_SENDS_PER_TRUSTED_IP_PER_HOUR`,
@@ -173,7 +190,8 @@ the API image now starts with `python -m app.serve`), `ALERT_HEARTBEAT_URL`, `AL
 `ALERT_SMS_LAG_MINUTES` / `ALERT_SMS_LAG_CRITICAL_MINUTES`, `ALERT_CERT_WARN_DAYS`,
 `CONGRESS_AUDIT_RETENTION_DAYS`, `CONGRESS_SHORT_LINK_GRACE_DAYS`, `CONGRESS_SMS_NOTICES_PER_*`,
 `CONGRESS_SMS_OTP_RESERVE_PERCENT` (compose now passes every setting through). **Staging/production refuse to start if
-`CONGRESS_OTP_LENGTH` < 6.**
+`CONGRESS_OTP_LENGTH` < 6** (older env files never set it; a shorter length saved in the platform console is raised to 6).
+`CONGRESS_SECRET_BOX_KEY` is passed by compose and added by `stack.mjs up` when missing.
 
 **Caddy:** separate `short_links` logger (codes never logged); `/api/metrics` edge block.
 
