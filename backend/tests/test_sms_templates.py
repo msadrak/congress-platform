@@ -159,7 +159,8 @@ async def test_platform_wording_is_the_default_and_an_event_override_wins(app: F
 
     listed = (await client.get("/api/platform/sms-templates", headers=ADMIN)).json()
     assert {t["kind"] for t in listed} == {
-        "otp", "ticket_confirmation", "ticket_cancelled", "ticket_reissued", "staff_invite", "member_invite"
+        "otp", "ticket_confirmation", "ticket_cancelled", "ticket_reissued", "staff_invite", "member_invite",
+        "operator_invite",
     }
 
 
@@ -225,7 +226,10 @@ async def test_a_test_send_uses_sample_values_is_logged_and_rate_limited(app: Fa
     assert invalid.status_code == 422 and invalid.json()["code"] == "SMS_TEMPLATE_INVALID"
 
     await reserve(client, event_id, tier_id)
-    messages = (await client.get(f"/api/events/{event_id}/sms/messages", headers=bearer(organizer))).json()
+    logged = (await client.get(f"/api/events/{event_id}/sms/messages", headers=bearer(organizer))).json()
+    # The operators' invitations are in the event's log too.
+    assert [m["kind"] for m in logged].count("operator_invite") == 2
+    messages = [m for m in logged if m["kind"] != "operator_invite"]
     assert [(m["kind"], m["mobile"], m["status"]) for m in messages] == [
         ("ticket_confirmation", "0912***2233", "pending"),
         ("test", "0935***4567", "sent"),
