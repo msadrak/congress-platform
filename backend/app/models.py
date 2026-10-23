@@ -9,6 +9,7 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     ForeignKey,
+    ForeignKeyConstraint,
     Index,
     Integer,
     String,
@@ -117,9 +118,18 @@ class TicketTier(Base):
     """A free admission category with a capacity quota."""
 
     __tablename__ = "ticket_tiers"
+    __table_args__ = (
+        CheckConstraint(
+            "reserved_count >= 0 AND reserved_count <= quota", name="ck_ticket_tiers_reserved_count"
+        ),
+        # Target of the same-event foreign key from tickets.
+        UniqueConstraint("id", "event_id", name="uq_ticket_tiers_id_event"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
-    event_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("events.id"), index=True)
+    # Delete rules (migration 0021): configuration CASCADEs with its event, attendance and registration data is
+    # RESTRICT. An event can only be deleted while it has no tickets.
+    event_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("events.id", ondelete="CASCADE"), index=True)
     name: Mapped[str] = mapped_column(String(100))
     description: Mapped[str] = mapped_column(Text, default="")
     quota: Mapped[int] = mapped_column(Integer)
@@ -158,7 +168,7 @@ class DeskOperator(Base):
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
-    event_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("events.id"), index=True)
+    event_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("events.id", ondelete="CASCADE"), index=True)
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), index=True)
     operator_name: Mapped[str] = mapped_column(String(200))
     is_revoked: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", index=True)
@@ -179,13 +189,21 @@ class Ticket(Base):
     __tablename__ = "tickets"
     __table_args__ = (
         UniqueConstraint("event_id", "user_id", name="uq_tickets_event_user"),
+        # The tier must be one of the ticket's own event's tiers.
+        ForeignKeyConstraint(
+            ["ticket_tier_id", "event_id"],
+            ["ticket_tiers.id", "ticket_tiers.event_id"],
+            name="fk_tickets_tier_same_event",
+            ondelete="RESTRICT",
+        ),
+        # Target of the same-event foreign key from leads.
+        UniqueConstraint("id", "event_id", name="uq_tickets_id_event"),
+        Index("ix_tickets_event_status", "event_id", "status"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
-    event_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("events.id"), index=True)
-    ticket_tier_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("ticket_tiers.id"), index=True
-    )
+    event_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("events.id", ondelete="RESTRICT"), index=True)
+    ticket_tier_id: Mapped[uuid.UUID] = mapped_column(index=True)
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), index=True)
     status: Mapped[str] = mapped_column(String(32), default="active")
     created_at: Mapped[datetime] = mapped_column(
@@ -194,6 +212,29 @@ class Ticket(Base):
     issued_by_operator_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("desk_operators.id"), nullable=True, index=True
     )
+
+
+class DeskIdempotencyKey(Base):
+    """The `Idempotency-Key` of a walk-in registration: a retried submission returns the ticket it already created.
+
+    Scoped to the event and the desk actor ("operator:<id>" or "organizer"); kept until `expires_at`.
+    """
+
+    __tablename__ = "desk_idempotency_keys"
+    __table_args__ = (UniqueConstraint("event_id", "actor", "key", name="uq_desk_idempotency_keys_scope"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    event_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("events.id", ondelete="CASCADE"))
+    actor: Mapped[str] = mapped_column(String(64))
+    key: Mapped[str] = mapped_column(String(128))
+    # SHA-256 of the request body: the same key with a different registration is refused, not replayed.
+    request_hash: Mapped[str] = mapped_column(String(64))
+    # Set in the same transaction that creates the ticket; NULL only while that transaction is in flight.
+    ticket_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("tickets.id", ondelete="CASCADE"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
 
 
 class ShortLink(Base):
@@ -220,6 +261,7 @@ class EntityQR(Base):
     """Universal polymorphic QR registry (attendee_ticket, booth, hall, session)."""
 
     __tablename__ = "entity_qrs"
+    __table_args__ = (Index("ix_entity_qrs_entity", "entity_type", "entity_id"),)
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     secret: Mapped[str] = mapped_column(String(64), unique=True, index=True)
@@ -235,9 +277,16 @@ class CheckInPoint(Base):
     """A physical or logical admission station (e.g. Entrance, Dining Hall, Hall A)."""
 
     __tablename__ = "checkin_points"
+    __table_args__ = (
+        CheckConstraint(
+            "policy_type IN ('MULTI_ENTRY', 'SINGLE_USE', 'TIER_RESTRICTED', 'CAPACITY_CAPPED')",
+            name="ck_checkin_points_policy_type",
+        ),
+        CheckConstraint("max_capacity IS NULL OR max_capacity > 0", name="ck_checkin_points_max_capacity"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
-    event_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("events.id"), index=True)
+    event_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("events.id", ondelete="CASCADE"), index=True)
     name: Mapped[str] = mapped_column(String(100))
     location: Mapped[str] = mapped_column(String(200), default="")
     policy_type: Mapped[str] = mapped_column(String(32), default="MULTI_ENTRY")
@@ -260,6 +309,13 @@ class CheckIn(Base):
             "ticket_id",
             unique=True,
             postgresql_where=text("status = 'ADMITTED' AND policy_type = 'SINGLE_USE' AND ticket_id IS NOT NULL"),
+        ),
+        # Capacity checks and manifests count a point's admissions (migration 0021).
+        Index("ix_checkins_point_status", "checkin_point_id", "status"),
+        CheckConstraint("status IN ('ADMITTED', 'REJECTED')", name="ck_checkins_status"),
+        CheckConstraint(
+            "policy_type IN ('MULTI_ENTRY', 'SINGLE_USE', 'TIER_RESTRICTED', 'CAPACITY_CAPPED')",
+            name="ck_checkins_policy_type",
         ),
     )
 
@@ -286,9 +342,9 @@ class ScannerDevice(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     checkin_point_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("checkin_points.id"), index=True
+        ForeignKey("checkin_points.id", ondelete="CASCADE"), index=True
     )
-    event_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("events.id"), index=True)
+    event_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("events.id", ondelete="CASCADE"), index=True)
     device_name: Mapped[str] = mapped_column(String(100), default="Scanner Client", server_default="Scanner Client")
     is_revoked: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", index=True)
     revoked_at: Mapped[datetime | None] = mapped_column(
@@ -307,10 +363,12 @@ class Booth(Base):
     __tablename__ = "booths"
     __table_args__ = (
         UniqueConstraint("event_id", "slug", name="uq_booths_event_slug"),
+        # Target of the same-event foreign key from leads.
+        UniqueConstraint("id", "event_id", name="uq_booths_id_event"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
-    event_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("events.id"), index=True)
+    event_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("events.id", ondelete="CASCADE"), index=True)
     name: Mapped[str] = mapped_column(String(200))
     slug: Mapped[str] = mapped_column(String(100), index=True)
     location: Mapped[str] = mapped_column(String(100), default="")
@@ -331,7 +389,7 @@ class BoothStaff(Base):
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
-    booth_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("booths.id"), index=True)
+    booth_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("booths.id", ondelete="CASCADE"), index=True)
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), index=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
@@ -353,7 +411,7 @@ class Connection(Base):
     connected_user_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("users.id"), index=True
     )
-    event_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("events.id"), index=True)
+    event_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("events.id", ondelete="RESTRICT"), index=True)
     private_notes: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
@@ -373,7 +431,7 @@ class BoothBookmark(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), index=True)
-    booth_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("booths.id"), index=True)
+    booth_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("booths.id", ondelete="CASCADE"), index=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
@@ -385,11 +443,22 @@ class Lead(Base):
     __tablename__ = "leads"
     __table_args__ = (
         UniqueConstraint("booth_id", "ticket_id", name="uq_booth_ticket_lead"),
+        # The booth and the attendee's ticket belong to the lead's event (migration 0021).
+        ForeignKeyConstraint(
+            ["booth_id", "event_id"], ["booths.id", "booths.event_id"],
+            name="fk_leads_booth_same_event", ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["ticket_id", "event_id"], ["tickets.id", "tickets.event_id"],
+            name="fk_leads_ticket_same_event", ondelete="RESTRICT",
+        ),
+        CheckConstraint("rating IN ('HOT', 'WARM', 'COLD')", name="ck_leads_rating"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
-    booth_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("booths.id"), index=True)
-    ticket_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tickets.id"), index=True)
+    event_id: Mapped[uuid.UUID] = mapped_column(index=True)
+    booth_id: Mapped[uuid.UUID] = mapped_column(index=True)
+    ticket_id: Mapped[uuid.UUID] = mapped_column(index=True)
     captured_by_user_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("users.id"), index=True
     )

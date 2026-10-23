@@ -1,19 +1,24 @@
+import hashlib
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import func, or_, select, update
+from sqlalchemy import delete, func, or_, select, update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import organizer_is_active, resolve_organizer_key
-from app.db import SessionDep
+from app.db import SessionDep, add_or_existing
+from app.errors import ApiError, error_responses
 from app.links import active_ticket_link, mint_ticket_link
 from app.models import (
     CheckIn,
     CheckInPoint,
+    DeskIdempotencyKey,
     DeskOperator,
     EntityQR,
     Event,
@@ -42,6 +47,19 @@ router = APIRouter(tags=["desk"])
 PASS_SMS_COOLDOWN = Budget(1, 60)
 PASS_SMS_PER_TICKET = Budget(5, LONGEST_WINDOW_SECONDS)
 PASS_SMS_PER_EVENT = Budget(300, LONGEST_WINDOW_SECONDS)
+
+# A walk-in submission retried with the same Idempotency-Key within this time returns the ticket it created.
+WALK_IN_KEY_LIFETIME = timedelta(hours=24)
+WalkInIdempotencyKey = Annotated[
+    str | None,
+    Header(
+        alias="Idempotency-Key",
+        min_length=1,
+        max_length=128,
+        pattern=r"^[!-~]+$",
+        description="Client-generated id of this walk-in submission (e.g. a UUID), sent again on every retry.",
+    ),
+]
 
 
 class DeskOperatorCreate(BaseModel):
@@ -399,6 +417,7 @@ async def list_desk_operators(
 @router.post(
     "/api/events/{event_id}/desk/operators",
     status_code=status.HTTP_201_CREATED,
+    responses=error_responses(status.HTTP_409_CONFLICT),
 )
 async def add_desk_operator(
     event: OwnedEventDep,
@@ -408,9 +427,11 @@ async def add_desk_operator(
     """Authorize a person (by mobile) for this event's front desk; they sign in with an SMS code."""
     user = await session.scalar(select(User).where(User.mobile == body.mobile))
     if user is None:
-        user = User(mobile=body.mobile, full_name=body.operator_name.strip())
-        session.add(user)
-        await session.flush()
+        # A concurrent request may create the account for this number first; then that account is used.
+        user, _ = await add_or_existing(
+            session, User(mobile=body.mobile, full_name=body.operator_name.strip()),
+            select(User).where(User.mobile == body.mobile),
+        )
 
     existing_op = await session.scalar(
         select(DeskOperator).where(
@@ -435,18 +456,15 @@ async def add_desk_operator(
                 revoked_at=existing_op.revoked_at,
                 created_at=existing_op.created_at,
             )
-        raise HTTPException(
-            status.HTTP_409_CONFLICT,
-            "Operator is already assigned to this event",
-        )
+        raise ApiError(status.HTTP_409_CONFLICT, "OPERATOR_ALREADY_ASSIGNED", "Operator is already assigned to this event")
 
-    operator = DeskOperator(
-        event_id=event.id,
-        user_id=user.id,
-        operator_name=body.operator_name.strip(),
-        is_revoked=False,
+    operator, created = await add_or_existing(
+        session,
+        DeskOperator(event_id=event.id, user_id=user.id, operator_name=body.operator_name.strip(), is_revoked=False),
+        select(DeskOperator).where(DeskOperator.event_id == event.id, DeskOperator.user_id == user.id),
     )
-    session.add(operator)
+    if not created:  # assigned by a concurrent request a moment ago
+        raise ApiError(status.HTTP_409_CONFLICT, "OPERATOR_ALREADY_ASSIGNED", "Operator is already assigned to this event")
     await session.commit()
     await session.refresh(operator)
 
@@ -502,17 +520,89 @@ async def revoke_desk_operator(
 # Protected Reception Operations (AuthorizedDeskDep)
 # -----------------------------------------------------------------------------
 
+async def _claim_walk_in_key(
+    session: AsyncSession, desk_ctx: AuthorizedDeskContext, key: str, body: DeskRegistrationCreate
+) -> tuple[uuid.UUID | None, DeskRegistrationOut | None]:
+    """Claim the key for this request (returns its row id) or, when a committed request already used it, the
+    registration that request created. A concurrent request holding the key is waited for by the INSERT."""
+    event = desk_ctx.event
+    actor = f"operator:{desk_ctx.operator.id}" if desk_ctx.operator else "organizer"
+    request_hash = hashlib.sha256(body.model_dump_json().encode()).hexdigest()
+    now = datetime.now(timezone.utc)
+    await session.execute(
+        delete(DeskIdempotencyKey).where(DeskIdempotencyKey.event_id == event.id, DeskIdempotencyKey.expires_at <= now)
+    )
+    claimed = await session.scalar(
+        pg_insert(DeskIdempotencyKey)
+        .values(
+            id=uuid.uuid4(), event_id=event.id, actor=actor, key=key, request_hash=request_hash,
+            expires_at=now + WALK_IN_KEY_LIFETIME,
+        )
+        .on_conflict_do_nothing(constraint="uq_desk_idempotency_keys_scope")
+        .returning(DeskIdempotencyKey.id)
+    )
+    if claimed is not None:
+        return claimed, None
+
+    stored = await session.scalar(
+        select(DeskIdempotencyKey).where(
+            DeskIdempotencyKey.event_id == event.id, DeskIdempotencyKey.actor == actor, DeskIdempotencyKey.key == key
+        )
+    )
+    if stored is None or stored.ticket_id is None:
+        raise ApiError(
+            status.HTTP_409_CONFLICT, "IDEMPOTENCY_KEY_IN_PROGRESS",
+            "A registration with this Idempotency-Key is still being processed. Try again.",
+        )
+    if stored.request_hash != request_hash:
+        raise ApiError(
+            status.HTTP_409_CONFLICT, "IDEMPOTENCY_KEY_REUSED",
+            "This Idempotency-Key was already used for a different registration",
+        )
+    ticket, tier_name, secret = (
+        await session.execute(
+            select(Ticket, TicketTier.name, EntityQR.secret)
+            .join(TicketTier, Ticket.ticket_tier_id == TicketTier.id)
+            .join(EntityQR, (EntityQR.entity_id == Ticket.id) & (EntityQR.entity_type == "attendee_ticket"))
+            .where(Ticket.id == stored.ticket_id)
+        )
+    ).one()
+    # The same answer as the original request, which echoed the submitted details.
+    return None, DeskRegistrationOut(
+        ticket_id=ticket.id,
+        attendee_name=body.full_name.strip(),
+        attendee_mobile=body.mobile,
+        organization=body.organization.strip(),
+        title=body.title.strip(),
+        ticket_tier_name=tier_name,
+        qr_secret=secret,
+        issued_by=desk_ctx.operator_name,
+        created_at=ticket.created_at,
+    )
+
+
 @router.post(
     "/api/events/{event_id}/desk-registrations",
     status_code=status.HTTP_201_CREATED,
+    responses=error_responses(status.HTTP_409_CONFLICT),
 )
 async def create_desk_registration(
     desk_ctx: AuthorizedDeskDep,
     body: DeskRegistrationCreate,
     request: Request,
+    response: Response,
     session: SessionDep,
+    idempotency_key: WalkInIdempotencyKey = None,
 ) -> DeskRegistrationOut:
     event = desk_ctx.event
+
+    # 0. A retried submission (same Idempotency-Key) returns the ticket the first attempt created.
+    key_id: uuid.UUID | None = None
+    if idempotency_key is not None:
+        key_id, replay = await _claim_walk_in_key(session, desk_ctx, idempotency_key, body)
+        if replay is not None:
+            response.headers["Idempotent-Replayed"] = "true"
+            return replay
 
     # 1. Resolve User: an existing account with this mobile, or a new one (no mobile = cannot sign in later)
     user = None
@@ -544,9 +634,8 @@ async def create_desk_registration(
         )
     )
     if existing_ticket is not None:
-        raise HTTPException(
-            status.HTTP_409_CONFLICT,
-            "Attendee already has an active ticket for this congress",
+        raise ApiError(
+            status.HTTP_409_CONFLICT, "ALREADY_REGISTERED", "Attendee already has an active ticket for this congress"
         )
 
     # 3. Atomic inventory decrement on TicketTier
@@ -588,7 +677,17 @@ async def create_desk_registration(
         issued_by_operator_id=operator_id,
     )
     session.add(ticket)
-    await session.flush()
+    try:
+        await session.flush()
+    except IntegrityError:
+        # A concurrent registration gave this attendee a ticket a moment ago; raising also returns the seat.
+        raise ApiError(
+            status.HTTP_409_CONFLICT, "ALREADY_REGISTERED", "Attendee already has an active ticket for this congress"
+        ) from None
+    if key_id is not None:
+        await session.execute(
+            update(DeskIdempotencyKey).where(DeskIdempotencyKey.id == key_id).values(ticket_id=ticket.id)
+        )
 
     # 5. Mint polymorphic EntityQR
     secret = generate_entity_qr_secret()
@@ -631,17 +730,6 @@ async def search_event_attendees(
     event = desk_ctx.event
     term = q.strip()
 
-    # Count check-ins per ticket
-    counts_stmt = (
-        select(CheckIn.ticket_id, func.count(CheckIn.id))
-        .where(CheckIn.status == "ADMITTED", CheckIn.ticket_id.is_not(None))
-        .group_by(CheckIn.ticket_id)
-    )
-    counts_res = await session.execute(counts_stmt)
-    scan_counts: dict[uuid.UUID, int] = {
-        row[0]: row[1] for row in counts_res.all() if row[0] is not None
-    }
-
     # Query tickets joined with user, tier, qr, and operator attribution
     query = (
         select(Ticket, User, TicketTier, EntityQR, DeskOperator.operator_name)
@@ -670,6 +758,21 @@ async def search_event_attendees(
     query = query.order_by(Ticket.created_at.desc()).limit(limit)
     res = await session.execute(query)
     rows = res.all()
+
+    # Admissions of the listed tickets at this event's check-in points (ix_checkins_ticket_id).
+    scan_counts: dict[uuid.UUID, int] = {}
+    if rows:
+        counts = await session.execute(
+            select(CheckIn.ticket_id, func.count(CheckIn.id))
+            .join(CheckInPoint, CheckIn.checkin_point_id == CheckInPoint.id)
+            .where(
+                CheckIn.ticket_id.in_([row[0].id for row in rows]),
+                CheckIn.status == "ADMITTED",
+                CheckInPoint.event_id == event.id,
+            )
+            .group_by(CheckIn.ticket_id)
+        )
+        scan_counts = {ticket_id: count for ticket_id, count in counts.tuples() if ticket_id is not None}
 
     return [
         AttendeeSearchItem(

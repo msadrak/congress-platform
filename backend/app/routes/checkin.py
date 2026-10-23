@@ -37,7 +37,7 @@ class CheckInPointCreate(BaseModel):
         description="MULTI_ENTRY, SINGLE_USE, TIER_RESTRICTED, CAPACITY_CAPPED",
     )
     allowed_tier_ids: list[str] = Field(default_factory=list)
-    max_capacity: int | None = None
+    max_capacity: int | None = Field(default=None, gt=0)  # ck_checkin_points_max_capacity
 
 
 class CheckInPointUpdate(BaseModel):
@@ -48,7 +48,7 @@ class CheckInPointUpdate(BaseModel):
         description="MULTI_ENTRY, SINGLE_USE, TIER_RESTRICTED, CAPACITY_CAPPED",
     )
     allowed_tier_ids: list[str] | None = None
-    max_capacity: int | None = None
+    max_capacity: int | None = Field(default=None, gt=0)  # ck_checkin_points_max_capacity
 
 
 class CheckInPointOut(BaseModel):

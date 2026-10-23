@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import or_, select
 
-from app.db import SessionDep
+from app.db import SessionDep, add_or_existing
 from app.models import Booth, BoothStaff, EntityQR, Event, Lead, Ticket, TicketTier, User
 from app.routes.auth import CurrentUserDep
 from app.security import sanitize_csv_cell
@@ -133,6 +133,28 @@ async def scan_attendee_lead(
         else "WARM"
     )
 
+    if existing is None:
+        # 5. Create the lead. Two staff members scanning the same badge at once: the first insert wins and the
+        # other scan re-qualifies that lead below, like any re-scan.
+        now = datetime.now()
+        lead, created = await add_or_existing(
+            session,
+            Lead(
+                event_id=booth.event_id,
+                booth_id=booth.id,
+                ticket_id=ticket.id,
+                captured_by_user_id=user.id,
+                rating=clean_rating,
+                tags=body.tags,
+                notes=body.notes.strip(),
+                created_at=now,
+                updated_at=now,
+            ),
+            select(Lead).where(Lead.booth_id == booth.id, Lead.ticket_id == ticket.id),
+        )
+        if not created:
+            existing = lead
+
     if existing is not None:
         # Re-scanning an attendee updates only the qualification the caller actually sent, so an
         # accidental or deliberate re-scan with just the badge never resets rating/tags.
@@ -163,19 +185,6 @@ async def scan_attendee_lead(
             updated_at=existing.updated_at,
         )
 
-    # 5. Create new Lead
-    now = datetime.now()
-    lead = Lead(
-        booth_id=booth.id,
-        ticket_id=ticket.id,
-        captured_by_user_id=user.id,
-        rating=clean_rating,
-        tags=body.tags,
-        notes=body.notes.strip(),
-        created_at=now,
-        updated_at=now,
-    )
-    session.add(lead)
     await session.commit()
     response.status_code = status.HTTP_201_CREATED
 

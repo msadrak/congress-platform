@@ -62,6 +62,17 @@ class Settings(BaseSettings):
     short_link_origin: str | None = None
     media_max_bytes: int = Field(default=5 * 1024 * 1024, gt=0, le=20 * 1024 * 1024)
 
+    # Database connections, per API process (app/db.py). Up to pool_size + max_overflow connections are open at
+    # once; a request waits at most pool_timeout seconds for one, then fails instead of queueing forever. Keep
+    # (pool_size + max_overflow) x API processes below PostgreSQL's max_connections.
+    db_pool_size: int = Field(default=10, ge=1, le=100)
+    db_max_overflow: int = Field(default=10, ge=0, le=100)
+    db_pool_timeout_seconds: float = Field(default=10.0, gt=0, le=120)
+    # Test each pooled connection before use, so a restarted database does not fail the next requests.
+    db_pool_pre_ping: bool = True
+    # PostgreSQL cancels any statement of the API running longer than this (statement_timeout); 0 = no limit.
+    db_statement_timeout_ms: int = Field(default=15_000, ge=0, le=600_000)
+
     # SMS (sign-in codes and ticket confirmations). Defaults to smsir in staging/production, console elsewhere.
     sms_provider: SmsProviderName = "console"
     smsir_api_key: str = ""
