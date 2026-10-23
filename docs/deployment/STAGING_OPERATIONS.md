@@ -95,6 +95,12 @@ With `BACKUP_WAL=on`, always go through `stack.mjs` (or add `-f deploy/staging/c
 - The access log leaves out `/api/health` and `/api/ready` and never records query strings. The API never logs credentials.
 - Caddy access logs drop `Authorization`, `X-Admin-Token` and the scanner `?token=` query, and log SMS pass links as `/t/-` (logger `short_links`), never with their code.
 
+**SMS budgets** (shared by every API process through PostgreSQL; defaults in `backend/app/config.py`):
+- Platform caps per hour/day (`CONGRESS_SMS_HOURLY_CAP` 2000, `CONGRESS_SMS_DAILY_CAP` 20000, or the console). `CONGRESS_SMS_OTP_RESERVE_PERCENT` (20) of each cap is kept for sign-in codes: ticket notices, invites, desk resends and test sends stop at the rest (queued notices wait and go out later), so a burst of notices never stops people signing in.
+- An attendee's own changes (self-cancel, registering again after a cancellation) may text them `CONGRESS_SMS_NOTICES_PER_ATTENDEE_PER_HOUR` (6) times per hour and `CONGRESS_SMS_NOTICES_PER_TICKET_PER_DAY` (6) times per ticket per day. Above that a cancellation still goes ahead without its text and registering again answers 429 `TICKET_CHANGES_RATE_LIMITED`.
+- Organizer cancel/reissue/transfer with a notice: `CONGRESS_SMS_NOTICES_PER_ORGANIZER_PER_HOUR` (300) per organizer; above it the change is refused with 429 `SMS_NOTICE_LIMIT_REACHED` (the same change without a notice still works).
+- Credential throttles count only failures: a valid organizer key or session is never refused because others behind the same NAT failed, an expired session answers 401 `TOKEN_EXPIRED` without counting, and the venue networks (`CONGRESS_OTP_TRUSTED_NETWORKS`) are exempt from the API-key budget. IPv6 clients count per /64.
+
 **Restart policy.** Every long-running service is `unless-stopped`, so the stack returns after a host reboot once Docker starts.
 
 Data is on the **host** under `CONGRESS_PERSISTENT_DATA_ROOT`, not in Docker named volumes. `docker compose down` (without `-v`) stops containers and **keeps** your data. `stack.mjs` still refuses `-v` on the main project.

@@ -190,9 +190,11 @@ async def test_wrong_keys_on_scanner_and_desk_routes_count_toward_the_api_key_th
     ] + [(await client.get(f"/api/events/{event_id}/attendees", headers=guess)).status_code for _ in range(25)]
 
     assert statuses == [401] * 50
-    assert (await client.get(f"/api/checkin-points/{point_id}/manifest", headers=bearer(organizer))).status_code == 429
-    assert (await client.get(f"/api/events/{event_id}/attendees", headers=bearer(organizer))).status_code == 429
-    assert (await client.get("/api/events", headers=bearer(organizer))).status_code == 429
+    assert (await client.get(f"/api/checkin-points/{point_id}/manifest", headers=guess)).status_code == 429
+    assert (await client.get(f"/api/events/{event_id}/attendees", headers=guess)).status_code == 429
+    assert (await client.get("/api/events", headers=guess)).status_code == 429
+    # The real key is never refused for its neighbours' guesses (a venue NAT shares one address).
+    assert (await client.get(f"/api/checkin-points/{point_id}/manifest", headers=bearer(organizer))).status_code == 200
 
 
 async def test_scanner_tokens_without_a_registered_device_are_refused(client: AsyncClient) -> None:

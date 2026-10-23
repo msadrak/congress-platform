@@ -24,6 +24,7 @@ from app.errors import ApiError, error_responses
 from app.models import CheckIn, CheckInPoint, DeskOperator, EntityQR, Event, Lead, Ticket, TicketTier, User
 from app.routes.events import OwnedEventDep
 from app.security import sanitize_csv_cell
+from app.sms.budgets import charge_organizer_notice
 from app.sms.outbox import link_origin
 from app.sms.phone import IranMobile, ascii_digits, search_digits
 from app.ticket_lifecycle import (
@@ -278,6 +279,8 @@ def _conflict(exc: TicketStateError) -> ApiError:
 
 NOT_FOUND = error_responses(status.HTTP_404_NOT_FOUND)
 NOT_FOUND_OR_CONFLICT = error_responses(status.HTTP_404_NOT_FOUND, status.HTTP_409_CONFLICT)
+# Changes that may text the attendee are also limited per organizer per hour (app/sms/budgets.py).
+NOTICE_RESPONSES = error_responses(status.HTTP_404_NOT_FOUND, status.HTTP_409_CONFLICT, status.HTTP_429_TOO_MANY_REQUESTS)
 
 
 @router.get("")
@@ -370,7 +373,7 @@ async def update_participant(
     return await _detail(session, event, ticket_id)
 
 
-@router.post("/{ticket_id}/cancel", responses=NOT_FOUND_OR_CONFLICT)
+@router.post("/{ticket_id}/cancel", responses=NOTICE_RESPONSES)
 async def cancel_participant(
     event: OwnedEventDep, ticket_id: uuid.UUID, body: ParticipantCancel, request: Request, session: SessionDep
 ) -> ParticipantDetail:
@@ -383,11 +386,13 @@ async def cancel_participant(
         )
     except TicketStateError as exc:
         raise _conflict(exc) from None
+    if body.notify:
+        await charge_organizer_notice(request, event.organizer_id)  # refused: nothing is committed
     await session.commit()
     return await _detail(session, event, ticket_id)
 
 
-@router.post("/{ticket_id}/reissue", responses=NOT_FOUND_OR_CONFLICT)
+@router.post("/{ticket_id}/reissue", responses=NOTICE_RESPONSES)
 async def reissue_participant(
     event: OwnedEventDep, ticket_id: uuid.UUID, body: ParticipantReissue, request: Request, session: SessionDep
 ) -> ParticipantDetail:
@@ -397,11 +402,13 @@ async def reissue_participant(
         await reissue_ticket(session, ticket, event, notify_origin=_origin(request) if body.notify else None)
     except TicketStateError as exc:
         raise _conflict(exc) from None
+    if body.notify:
+        await charge_organizer_notice(request, event.organizer_id)  # refused: nothing is committed
     await session.commit()
     return await _detail(session, event, ticket_id)
 
 
-@router.post("/{ticket_id}/transfer", responses=NOT_FOUND_OR_CONFLICT)
+@router.post("/{ticket_id}/transfer", responses=NOTICE_RESPONSES)
 async def transfer_participant(
     event: OwnedEventDep, ticket_id: uuid.UUID, body: ParticipantTransfer, request: Request, session: SessionDep
 ) -> ParticipantDetail:
@@ -437,6 +444,7 @@ async def transfer_participant(
         )
     except TicketStateError as exc:
         raise _conflict(exc) from None
+    await charge_organizer_notice(request, event.organizer_id)  # a transfer always texts both holders
     await session.commit()
     return await _detail(session, event, new_ticket.id)
 
