@@ -373,11 +373,18 @@ async def delete_media(asset_id: uuid.UUID, request: Request, event: OwnedEventD
     tags=["public"],
 )
 async def public_media(asset_id: uuid.UUID, request: Request, session: SessionDep) -> FileResponse:
-    """Anonymous image access: only images the event's published page references."""
+    """Anonymous image access: only images the published page of an unarchived event references (an archived
+    event's public page is gone, like its schedule files)."""
     asset = await session.get(MediaAsset, asset_id)
     if asset is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Image not found")
     page = await session.get(EventPage, asset.event_id)
-    if page is None or page.published is None or str(asset.id) not in page.published_asset_ids:
+    archived_at = await session.scalar(select(Event.archived_at).where(Event.id == asset.event_id))
+    if (
+        page is None
+        or page.published is None
+        or archived_at is not None
+        or str(asset.id) not in page.published_asset_ids
+    ):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Image not found")
     return _file_response(request, asset, "public, max-age=3600")
