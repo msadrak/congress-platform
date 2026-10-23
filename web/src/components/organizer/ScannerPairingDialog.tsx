@@ -1,132 +1,121 @@
 import React, { useEffect, useState } from "react";
 import QRCode from "react-qr-code";
-import {
-  createApiClient,
-  formatApiError,
-  type CheckInPointOut,
-  type ScannerDeviceOut,
-  type ScannerTokenOut,
-} from "../../api/client";
+import { localizedApiError, type CheckInPointOut, type ScannerDeviceOut, type ScannerTokenOut } from "../../api/client";
+import { commonCopy } from "../../copy/common";
+import { organizerSetupCopy } from "../../copy/organizerSetup";
 import { SCANNER_APP_VERSION } from "../../lib/appBuild";
-import { formatLocalizedNumber } from "../../lib/i18n";
+import { formatDate, formatNumber } from "../../lib/format";
 import { isLoopbackHost, scannerPairingUrl } from "../../lib/scannerPairing";
 import { Badge } from "../ui/Badge";
 import { Button } from "../ui/Button";
-import { ConfirmDialog } from "../ui/ConfirmDialog";
 import { Dialog } from "../ui/Dialog";
 import { Icon } from "../ui/Icon";
+import { TextInput } from "../ui/Input";
+import { RowActions } from "../ui/RowActions";
+import { StatusChip } from "../ui/StatusChip";
 import { DialogActions, Field, FormAlert } from "./WorkspaceUi";
+import { useEventWorkspace } from "./eventWorkspaceContext";
+import { eventTimeZone } from "./sessionTime";
 
 interface ScannerPairingDialogProps {
-  /** The check-in point being paired; null keeps the dialog closed. */
+  /** The check-in point whose devices are shown; null keeps the dialog closed. */
   point: CheckInPointOut | null;
-  apiKey: string;
-  locale: "fa" | "en";
-  isRtl: boolean;
-  /**
-   * @deprecated Unused: the API client reports a 401 to the organizer layout itself
-   * (registerUnauthorizedHandler). Kept until OrganizerEventDetail stops passing it.
-   */
-  onKeyRejected?: (sentKey: string) => void;
   onClose: () => void;
+  /** The point's device list after it was loaded, a device was paired or one lost access. */
+  onDevicesChange?: (pointId: string, devices: ScannerDeviceOut[]) => void;
 }
 
-const formatDateTime = (iso: string, locale: "fa" | "en") => {
-  const d = new Date(iso);
-  if (isNaN(d.getTime())) return iso;
-  return new Intl.DateTimeFormat(locale === "fa" ? "fa-IR-u-ca-persian" : "en-US", { dateStyle: "medium", timeStyle: "short" }).format(d);
-};
+/** An active device that runs another scanner build than this console (it updates when reloaded). */
+const needsUpdate = (device: ScannerDeviceOut) => !device.is_revoked && Boolean(device.app_version) && device.app_version !== SCANNER_APP_VERSION;
 
 /**
- * Pair a phone or tablet with one check-in point: issue a point-scoped device token, hand it over as a
- * QR pairing link (shown once; the API never returns it again), and list or revoke the point's devices.
+ * The devices of one check-in point: the list first (last seen, scans not sent yet, offline, update needed,
+ * remove access), then pairing a new device. Pairing issues a point-scoped device credential and hands it over
+ * as a QR pairing link, shown once (the API never returns it again). Staff and up; the server decides.
  */
-export function ScannerPairingDialog({ point, apiKey, locale, isRtl, onClose }: ScannerPairingDialogProps) {
+export function ScannerPairingDialog({ point, onClose, onDevicesChange }: ScannerPairingDialogProps) {
+  const { client, locale, event } = useEventWorkspace();
+  const copy = organizerSetupCopy[locale].devices;
+  const common = commonCopy[locale];
+  const zone = event ? eventTimeZone(event) : undefined;
   const [deviceName, setDeviceName] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [issued, setIssued] = useState<ScannerTokenOut | null>(null);
   const [copied, setCopied] = useState(false);
-  const [devices, setDevices] = useState<ScannerDeviceOut[]>([]);
-  const [devicesLoading, setDevicesLoading] = useState(false);
+  const [devices, setDevices] = useState<ScannerDeviceOut[] | null>(null);
   const [devicesError, setDevicesError] = useState<string | null>(null);
-  const [revokeTarget, setRevokeTarget] = useState<ScannerDeviceOut | null>(null);
   const [revokingId, setRevokingId] = useState<string | null>(null);
 
   const pointId = point?.id ?? null;
 
-  // Every opening starts clean: no token from a previous point or a previous pairing stays on screen.
+  // Every opening starts clean: no pairing link from a previous point or a previous pairing stays on screen.
   useEffect(() => {
     setDeviceName("");
     setFormError(null);
     setIssued(null);
     setCopied(false);
-    setDevices([]);
+    setDevices(null);
     setDevicesError(null);
-    setRevokeTarget(null);
-    if (!pointId || !apiKey) return;
+    if (!pointId || !client) return;
     let active = true;
-    setDevicesLoading(true);
-    const client = createApiClient({ kind: "organizer", token: apiKey });
-    client
-      .GET("/api/checkin-points/{point_id}/devices", { params: { path: { point_id: pointId } } })
-      .then(({ data, error }) => {
-        if (!active) return;
-        if (error) setDevicesError(formatApiError(error));
-        else setDevices(data ?? []);
-      })
-      .catch(() => {
-        if (active) setDevicesError(isRtl ? "فهرست دستگاه‌ها بارگذاری نشد." : "Could not load the device list.");
-      })
-      .finally(() => {
-        if (active) setDevicesLoading(false);
-      });
+    // The workspace client answers a network failure as a result, so this always ends in a list or an error.
+    void client.GET("/api/checkin-points/{point_id}/devices", { params: { path: { point_id: pointId } } }).then(({ data, error, response }) => {
+      if (!active) return;
+      if (data) {
+        setDevices(data);
+        onDevicesChange?.(pointId, data);
+      } else {
+        setDevices([]);
+        setDevicesError(localizedApiError(error, locale, response.status));
+      }
+    });
     return () => {
       active = false;
     };
     // Reload only when the dialog opens for another point; locale or callback identity changes must not refetch.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pointId, apiKey]);
+  }, [pointId, client]);
 
   if (!point) return null;
 
   const origin = typeof window === "undefined" ? "" : window.location.origin;
-  const loopback = typeof window !== "undefined" && isLoopbackHost(window.location.hostname);
+  const loopback = import.meta.env.DEV && typeof window !== "undefined" && isLoopbackHost(window.location.hostname);
   const pairingUrl = issued ? scannerPairingUrl(origin, point.id, issued.scanner_token) : "";
-  const activeCount = devices.filter((d) => !d.is_revoked).length;
+  const at = (iso: string) => formatDate(iso, "dayTime", locale, zone);
+
+  const updateDevices = (next: ScannerDeviceOut[]) => {
+    setDevices(next);
+    onDevicesChange?.(point.id, next);
+  };
 
   const handleIssue = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormError(null);
     const name = deviceName.trim();
     if (!name) {
-      setFormError(isRtl ? "یک نام برای دستگاه وارد کنید تا بعداً بتوانید آن را بشناسید." : "Give the device a name so you can recognise it later.");
+      setFormError(copy.nameRequired);
       return;
     }
+    if (!client) return;
     setSubmitting(true);
-    const client = createApiClient({ kind: "organizer", token: apiKey });
-    try {
-      const { data, error } = await client.POST("/api/checkin-points/{point_id}/token", {
-        params: { path: { point_id: point.id } },
-        body: { device_name: name },
-      });
-      if (error) {
-        setFormError(formatApiError(error));
-      } else if (data) {
-        setIssued(data);
-        setCopied(false);
-        setDeviceName("");
-        const now = new Date().toISOString();
-        setDevices((prev) => [
-          { id: data.device_id, checkin_point_id: data.point_id, event_id: data.event_id, device_name: name, is_revoked: false, revoked_at: null, created_at: now, last_seen_at: null, stale: false },
-          ...prev.filter((d) => d.id !== data.device_id),
-        ]);
-      }
-    } catch {
-      setFormError(isRtl ? "ارتباط با سرور برقرار نشد؛ دوباره تلاش کنید." : "Could not reach the server; try again.");
-    } finally {
-      setSubmitting(false);
+    const { data, error, response } = await client.POST("/api/checkin-points/{point_id}/token", {
+      params: { path: { point_id: point.id } },
+      body: { device_name: name },
+    });
+    setSubmitting(false);
+    if (!data) {
+      setFormError(localizedApiError(error, locale, response.status));
+      return;
     }
+    setIssued(data);
+    setCopied(false);
+    setDeviceName("");
+    const now = new Date().toISOString();
+    updateDevices([
+      { id: data.device_id, checkin_point_id: data.point_id, event_id: data.event_id, device_name: name, is_revoked: false, revoked_at: null, created_at: now, last_seen_at: null, stale: false },
+      ...(devices ?? []).filter((d) => d.id !== data.device_id),
+    ]);
   };
 
   const handleCopy = async () => {
@@ -140,242 +129,150 @@ export function ScannerPairingDialog({ point, apiKey, locale, isRtl, onClose }: 
   };
 
   const handleRevoke = async (device: ScannerDeviceOut) => {
+    if (!client) return;
     setRevokingId(device.id);
-    const client = createApiClient({ kind: "organizer", token: apiKey });
-    try {
-      const { data, error } = await client.POST("/api/checkin-points/{point_id}/devices/{device_id}/revoke", {
-        params: { path: { point_id: point.id, device_id: device.id } },
-      });
-      if (error) {
-        setDevicesError(isRtl ? `لغو دستگاه انجام نشد: ${formatApiError(error)}` : `Could not revoke the device: ${formatApiError(error)}`);
-      } else if (data) {
-        setDevicesError(null);
-        setDevices((prev) => prev.map((d) => (d.id === data.id ? data : d)));
-        // A token still on screen for the revoked device no longer works; do not keep offering it.
-        if (issued?.device_id === data.id) setIssued(null);
-      }
-    } catch {
-      setDevicesError(isRtl ? "ارتباط با سرور برقرار نشد؛ دوباره تلاش کنید." : "Could not reach the server; try again.");
-    } finally {
-      setRevokingId(null);
+    const { data, error, response } = await client.POST("/api/checkin-points/{point_id}/devices/{device_id}/revoke", {
+      params: { path: { point_id: point.id, device_id: device.id } },
+    });
+    setRevokingId(null);
+    if (!data) {
+      setDevicesError(localizedApiError(error, locale, response.status));
+      return;
     }
+    setDevicesError(null);
+    updateDevices((devices ?? []).map((d) => (d.id === data.id ? data : d)));
+    // A pairing link still on screen for the removed device no longer works; do not keep offering it.
+    if (issued?.device_id === data.id) setIssued(null);
   };
 
-  return (
-    <>
-      <Dialog
-        isOpen
-        onClose={() => {
-          // The confirmation shares the window Escape listener; closing it must not also close this dialog.
-          if (!submitting && !revokeTarget) onClose();
-        }}
-        title={isRtl ? "اتصال دستگاه اسکنر" : "Pair a scanner device"}
-        description={
-          isRtl
-            ? `یک تلفن یا تبلت را به نقطه ورود «${point.name}» متصل کنید. هر دستگاه کلید جداگانه‌ای دارد که می‌توانید هر زمان لغو کنید.`
-            : `Connect a phone or tablet to “${point.name}”. Each device gets its own key, which you can revoke at any time.`
-        }
-        size="lg"
-      >
-        <div className="space-y-6">
-          {loopback && (
-            <p role="note" className="flex items-start gap-2 rounded-xl border border-status-warning-border bg-status-warning-bg px-3.5 py-3 text-xs leading-relaxed text-status-warning-text">
-              <Icon name="alert" size={16} className="mt-0.5 shrink-0" />
-              {isRtl
-                ? "این کنسول از آدرس localhost باز شده است؛ لینک اتصال در تلفن کار نمی‌کند. کنسول را با آدرس شبکه این رایانه (مثلاً https://192.168.x.x:8443) باز کنید."
-                : "This console is open on localhost, so the pairing link will not work on a phone. Open the console through this computer's network address (e.g. https://192.168.x.x:8443)."}
-            </p>
-          )}
+  const num = (n: number) => formatNumber(n, locale);
 
-          {issued ? (
-            <section aria-labelledby="pairing-ready-title" className="space-y-4">
-              <div className="overflow-hidden shape-arc border border-status-success-border bg-status-success-bg">
-                <div className="space-y-2 p-5 text-status-success-text">
-                  <p id="pairing-ready-title" className="flex items-center gap-2 text-sm font-bold">
-                    <Icon name="check-circle" size={20} />
-                    {isRtl ? "دستگاه آماده اتصال است." : "Device ready to pair."}
-                  </p>
-                  <p className="text-xs leading-relaxed">
-                    {isRtl
-                      ? "با دوربین تلفن این کد QR را اسکن کنید یا لینک را برای آن بفرستید. این لینک فقط یک‌بار نمایش داده می‌شود؛ مانند رمز عبور با آن رفتار کنید."
-                      : "Scan this QR code with the phone's camera, or send it the link. It is shown only once; treat it like a password."}
-                  </p>
-                </div>
-                <div className="space-y-4 border-t border-status-success-border bg-white px-5 py-5 text-center">
-                  <div className="org-plate mx-auto inline-block rounded-xl p-4 ring-1 ring-border-default">
-                    <QRCode
-                      value={pairingUrl}
-                      size={208}
-                      level="M"
-                      viewBox="0 0 256 256"
-                      fgColor="#0F172A"
-                      bgColor="#FFFFFF"
-                      className="h-52 w-52 select-none"
-                      aria-label={isRtl ? "کد QR لینک اتصال اسکنر" : "Scanner pairing link QR code"}
-                      role="img"
-                    />
+  return (
+    <Dialog isOpen onClose={() => !submitting && onClose()} title={copy.title(point.name)} size="lg">
+      <div className="space-y-6">
+        <section aria-labelledby="paired-devices-title" className="space-y-3">
+          <h3 id="paired-devices-title" className="text-body-sm font-bold text-text-primary">
+            {copy.listTitle}
+          </h3>
+          {devicesError && <FormAlert>{devicesError}</FormAlert>}
+          {devices === null ? (
+            <p className="text-caption text-text-muted">{common.loading}</p>
+          ) : devices.length === 0 ? (
+            !devicesError && <p className="text-caption text-text-muted">{copy.none}</p>
+          ) : (
+            <ul className="divide-y divide-border-subtle rounded-control border border-border-default" data-testid="device-list">
+              {devices.map((d) => (
+                <li key={d.id} className="flex items-center justify-between gap-3 px-4 py-3" data-testid="device-row">
+                  <div className="min-w-0 space-y-1">
+                    <p className="flex flex-wrap items-center gap-2 text-body-sm font-semibold text-text-primary">
+                      <Icon name="smartphone" size={16} className="shrink-0 text-text-muted" />
+                      <bdi className="min-w-0 break-words">{d.device_name}</bdi>
+                      {d.is_revoked && <StatusChip status="accessRemoved" size="sm" />}
+                      {!d.is_revoked && d.stale && (
+                        <Badge variant="warning" size="sm" icon={<Icon name="alert" size={12} />} title={copy.staleHint} data-testid="device-stale">
+                          {copy.stale}
+                        </Badge>
+                      )}
+                      {needsUpdate(d) && (
+                        <Badge variant="warning" size="sm" title={copy.updateHint} data-testid="device-version-mismatch">
+                          {copy.updateNeeded}
+                        </Badge>
+                      )}
+                    </p>
+                    <p className="text-caption text-text-muted" data-testid="device-report">
+                      {d.last_seen_at ? copy.lastSeen(at(d.last_seen_at)) : copy.neverSeen}
+                      {!d.is_revoked && d.unsynced_count ? ` · ${copy.unsynced(num(d.unsynced_count))}` : ""}
+                    </p>
+                    {!d.is_revoked && d.stale && <p className="text-caption text-status-warning-text">{copy.staleHint}</p>}
                   </div>
-                  <p data-testid="pairing-link" dir="ltr" className="select-all break-all text-start font-mono text-[0.6875rem] leading-relaxed text-text-secondary">
-                    {pairingUrl}
-                  </p>
-                  <p className="text-xs text-text-muted">
-                    {isRtl ? "اعتبار تا " : "Valid until "}
-                    <time dateTime={issued.expires_at}>{formatDateTime(issued.expires_at, locale)}</time>
-                  </p>
+                  {!d.is_revoked && (
+                    <RowActions
+                      visible={0}
+                      menuLabel={copy.moreActions(d.device_name)}
+                      actions={[
+                        {
+                          label: copy.revoke,
+                          icon: "x-circle",
+                          disabled: revokingId === d.id,
+                          onSelect: () => void handleRevoke(d),
+                          destructive: { title: copy.revokeTitle(d.device_name), description: copy.revokeBody, confirmLabel: copy.revoke },
+                        },
+                      ]}
+                    />
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+
+        <section aria-labelledby="pair-device-title" className="space-y-4 border-t border-border-subtle pt-5">
+          <h3 id="pair-device-title" className="text-body-sm font-bold text-text-primary">
+            {copy.pairTitle}
+          </h3>
+          {loopback && <FormAlert>{copy.loopback}</FormAlert>}
+          {issued ? (
+            <div className="space-y-4" data-testid="pairing-ready">
+              <div className="space-y-1">
+                <p className="flex items-center gap-2 text-body-sm font-bold text-status-success-text">
+                  <Icon name="check-circle" size={20} />
+                  {copy.ready}
+                </p>
+                <p className="text-caption text-text-secondary">{copy.readyBody}</p>
+              </div>
+              <div className="space-y-3 text-center">
+                <div className="mx-auto inline-block rounded-control bg-white p-4 ring-1 ring-border-default">
+                  <QRCode
+                    value={pairingUrl}
+                    size={208}
+                    level="M"
+                    viewBox="0 0 256 256"
+                    fgColor="#0F172A"
+                    bgColor="#FFFFFF"
+                    className="h-52 w-52 select-none"
+                    aria-label={copy.qrLabel}
+                    role="img"
+                  />
                 </div>
+                <p data-testid="pairing-link" dir="ltr" className="select-all break-all text-start font-mono text-caption leading-relaxed text-text-secondary">
+                  {pairingUrl}
+                </p>
+                <p className="text-start text-caption text-text-secondary" data-testid="pairing-install-hint">
+                  {copy.installHint}
+                </p>
+                <p className="text-start text-caption text-text-muted">
+                  <time dateTime={issued.expires_at}>{copy.validUntil(at(issued.expires_at))}</time>
+                </p>
               </div>
               <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
-                <Button type="button" variant="secondary" size="md" onClick={() => setIssued(null)}>
-                  <Icon name="plus" size={16} />
-                  {isRtl ? "اتصال دستگاه دیگر" : "Pair another device"}
+                <Button type="button" variant="ghost" icon="plus" onClick={() => setIssued(null)}>
+                  {copy.pairAnother}
                 </Button>
-                <Button type="button" variant="ink" size="md" onClick={() => void handleCopy()}>
-                  <Icon name={copied ? "check" : "copy"} size={16} />
-                  {copied ? (isRtl ? "کپی شد" : "Copied") : isRtl ? "کپی لینک" : "Copy link"}
+                <Button type="button" variant="primary" icon={copied ? "check" : "copy"} onClick={() => void handleCopy()}>
+                  {copied ? common.copied : copy.copyLink}
                 </Button>
               </div>
               <span role="status" className="sr-only">
-                {copied ? (isRtl ? "لینک اتصال کپی شد." : "Pairing link copied.") : ""}
+                {copied ? copy.copiedStatus : ""}
               </span>
-            </section>
+            </div>
           ) : (
             <form onSubmit={handleIssue} className="space-y-4" noValidate>
-              <Field
-                label={isRtl ? "نام دستگاه" : "Device name"}
-                required
-                hint={isRtl ? "کلید ۷ روز معتبر است. پس از آن یک کلید تازه صادر کنید." : "The key is valid for 7 days; issue a new one after that."}
-              >
-                <input
-                  type="text"
-                  required
-                  maxLength={120}
-                  value={deviceName}
-                  onChange={(e) => setDeviceName(e.target.value)}
-                  aria-invalid={(formError !== null && !deviceName.trim()) || undefined}
-                  placeholder={isRtl ? "مثال: نقطه ورود اصلی - تلفن ۱" : "e.g. Main gate - phone 1"}
-                  className="ui-input"
-                />
+              <Field label={copy.nameLabel} required hint={copy.nameHint} error={formError}>
+                <TextInput required maxLength={120} value={deviceName} onChange={(e) => setDeviceName(e.target.value)} placeholder={copy.namePlaceholder} />
               </Field>
-              {formError && <FormAlert>{formError}</FormAlert>}
               <DialogActions>
-                <Button type="button" variant="ghost" size="md" disabled={submitting} onClick={onClose}>
-                  {isRtl ? "انصراف" : "Cancel"}
+                <Button type="button" variant="ghost" disabled={submitting} onClick={onClose}>
+                  {common.close}
                 </Button>
-                <Button type="submit" variant="primary" size="md" disabled={submitting} aria-busy={submitting}>
-                  <Icon name="qr" size={16} />
-                  {submitting ? (isRtl ? "در حال ایجاد…" : "Creating…") : isRtl ? "صدور لینک اتصال" : "Create pairing link"}
+                <Button type="submit" variant="primary" icon="qr" loading={submitting}>
+                  {copy.create}
                 </Button>
               </DialogActions>
             </form>
           )}
-
-          <section aria-labelledby="paired-devices-title" className="space-y-3 border-t border-border-subtle pt-5">
-            <div className="flex items-center justify-between gap-3">
-              <h3 id="paired-devices-title" className="text-sm font-bold text-text-primary">
-                {isRtl ? "دستگاه‌های متصل" : "Paired devices"}
-              </h3>
-              <Badge variant={activeCount > 0 ? "success" : "neutral"} size="sm">
-                {isRtl ? `${formatLocalizedNumber(activeCount, locale)} فعال` : `${activeCount} active`}
-              </Badge>
-            </div>
-            <p className="text-[0.6875rem] text-text-muted">
-              {isRtl ? "نسخهٔ فعلی: " : "Current build: "}
-              <bdi dir="ltr" className="font-mono" data-testid="console-app-version">
-                {SCANNER_APP_VERSION}
-              </bdi>
-            </p>
-            {devicesError && <FormAlert>{devicesError}</FormAlert>}
-            {devicesLoading ? (
-              <p className="text-xs text-text-muted">{isRtl ? "در حال بارگذاری…" : "Loading…"}</p>
-            ) : devices.length === 0 ? (
-              <p className="text-xs text-text-muted">{isRtl ? "هنوز دستگاهی به این نقطه ورود متصل نشده است." : "No device has been paired with this gate yet."}</p>
-            ) : (
-              <ul className="divide-y divide-border-subtle rounded-xl border border-border-default">
-                {devices.map((d) => (
-                  <li key={d.id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
-                    <div className="min-w-0 space-y-0.5">
-                      <p className="flex items-center gap-2 text-sm font-semibold text-text-primary">
-                        <Icon name="smartphone" size={16} className="shrink-0 text-text-muted" />
-                        <bdi className="min-w-0 break-words">{d.device_name}</bdi>
-                      </p>
-                      <p className="text-[0.6875rem] text-text-muted">
-                        {isRtl ? "صدور: " : "Issued "}
-                        {formatDateTime(d.created_at, locale)}
-                        {d.last_seen_at ? ` · ${isRtl ? "آخرین فعالیت: " : "last seen "}${formatDateTime(d.last_seen_at, locale)}` : ""}
-                      </p>
-                      {(d.unsynced_count !== null && d.unsynced_count !== undefined) || d.app_version ? (
-                        <p className="text-[0.6875rem] text-text-muted" data-testid="device-report">
-                          {d.unsynced_count !== null && d.unsynced_count !== undefined
-                            ? isRtl
-                              ? `${formatLocalizedNumber(d.unsynced_count, locale)} اسکن همگام‌نشده`
-                              : `${d.unsynced_count} unsynced scan(s)`
-                            : ""}
-                          {d.app_version ? <> · <bdi dir="ltr">{d.app_version}</bdi></> : null}
-                        </p>
-                      ) : null}
-                      {!d.is_revoked && d.app_version && d.app_version !== SCANNER_APP_VERSION && (
-                        <p className="flex items-center gap-1 text-[0.6875rem] font-semibold text-status-warning-text" role="status" data-testid="device-version-mismatch">
-                          <Icon name="alert" size={13} />
-                          {isRtl
-                            ? "نسخهٔ این دستگاه با نسخهٔ فعلی فرق دارد؛ صفحهٔ اسکنر را روی دستگاه تازه کنید تا به‌روز شود."
-                            : "This device runs a different build: reload the scanner on it to update."}
-                        </p>
-                      )}
-                      {d.stale && (
-                        <p className="flex items-center gap-1 text-[0.6875rem] font-semibold text-status-warning-text" role="status">
-                          <Icon name="alert" size={13} />
-                          {isRtl
-                            ? "بیش از ۱۰ دقیقه است که به سرور وصل نشده؛ اتصال اینترنت دستگاه را بررسی کنید."
-                            : "Not in touch for over 10 minutes: check the device's connection."}
-                        </p>
-                      )}
-                    </div>
-                    {d.is_revoked ? (
-                      <Badge variant="neutral" size="sm">
-                        {isRtl ? "لغو شده" : "Revoked"}
-                      </Badge>
-                    ) : (
-                      <Button
-                        type="button"
-                        variant="danger"
-                        size="sm"
-                        disabled={revokingId === d.id}
-                        aria-busy={revokingId === d.id}
-                        onClick={() => setRevokeTarget(d)}
-                        aria-label={isRtl ? `لغو ${d.device_name}` : `Revoke ${d.device_name}`}
-                      >
-                        <Icon name="x-circle" size={15} />
-                        {revokingId === d.id ? (isRtl ? "در حال لغو…" : "Revoking…") : isRtl ? "لغو" : "Revoke"}
-                      </Button>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
-        </div>
-      </Dialog>
-
-      <ConfirmDialog
-        isOpen={revokeTarget !== null}
-        tone="danger"
-        title={isRtl ? "لغو دسترسی دستگاه؟" : "Revoke this device?"}
-        description={
-          revokeTarget
-            ? isRtl
-              ? `${revokeTarget.device_name} دیگر نمی‌تواند فهرست شرکت‌کنندگان را دریافت کند یا اسکن ثبت کند.`
-              : `${revokeTarget.device_name} will no longer be able to load attendees or record scans.`
-            : ""
-        }
-        confirmLabel={isRtl ? "لغو دستگاه" : "Revoke device"}
-        cancelLabel={isRtl ? "انصراف" : "Cancel"}
-        onCancel={() => setRevokeTarget(null)}
-        onConfirm={() => {
-          const target = revokeTarget;
-          setRevokeTarget(null);
-          if (target) void handleRevoke(target);
-        }}
-      />
-    </>
+        </section>
+      </div>
+    </Dialog>
   );
 }
