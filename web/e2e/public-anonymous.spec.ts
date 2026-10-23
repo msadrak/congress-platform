@@ -166,8 +166,8 @@ for (const loginStatus of [200, 401]) test(`User SMS sign-in ${loginStatus} is a
   expect(requests.filter(r => r.path.startsWith('/api/auth/otp/')).every(r => r.anonymous)).toBe(true);
   await unchangedAlternatives(page);
   if (loginStatus === 200) {
-    await page.getByRole('button', { name: 'Open My Tickets & QR Pass →' }).click();
-    await expect(page).toHaveURL(/\/my-tickets$/);
+    await page.getByRole('button', { name: 'View my pass' }).click();
+    await expect(page).toHaveURL(/\/c\/t04-fixture\/my-ticket$/);
   }
 });
 
@@ -185,8 +185,8 @@ test('a new number signs up anonymously with non-User sessions stored and stores
   expect(requests.filter(r => r.path.startsWith('/api/auth/otp/')).every(r => r.anonymous)).toBe(true);
   expect(requests.filter(r => r.path.endsWith('/tickets/reserve')).every(r => r.userOnly)).toBe(true);
   await unchangedAlternatives(page);
-  await page.getByRole('button', { name: 'Open My Tickets & QR Pass →' }).click();
-  await expect(page).toHaveURL(/\/my-tickets$/);
+  await page.getByRole('button', { name: 'View my pass' }).click();
+  await expect(page).toHaveURL(/\/c\/t04-fixture\/my-ticket$/);
 });
 
 test('desk entry 401 is anonymous with credentials populated after form mount', async ({ page }) => {

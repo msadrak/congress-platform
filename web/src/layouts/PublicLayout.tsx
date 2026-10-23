@@ -5,6 +5,7 @@ import { LinkButton } from "../components/ui/Button";
 import { Icon } from "../components/ui/Icon";
 import { AitebAttribution, AitebLogo } from "../components/brand/Aiteb";
 import { CongressSignature } from "../components/brand/CongressSignature";
+import { useAttendeeToken } from "../lib/attendeeSession";
 import { eventAccentStyle } from "../lib/eventAccent";
 import { signInPath } from "../lib/safeRedirect";
 import { publicCopy, type PublicLocale } from "../components/public/copy";
@@ -55,6 +56,10 @@ export function PublicLayout({ children, locale, onLocaleChange, congressName, c
   // Event pages (/e/:slug…) sign in straight back to that congress's portal.
   const eventSlug = congressSlug ?? /^\/e\/([A-Za-z0-9_-]+)/.exec(location.pathname)?.[1];
   const signInTarget = eventSlug ? signInPath(eventSlug, `/c/${eventSlug}/my-congress`) : "/sign-in";
+  const signedIn = useAttendeeToken() !== null;
+  // Inside a congress the attendee links open that congress's own pass and network.
+  const passPath = eventSlug ? `/c/${eventSlug}/my-ticket` : "/my-tickets";
+  const networkPath = eventSlug ? `/c/${eventSlug}/my-network` : "/my-network";
   const [prevPath, setPrevPath] = useState(location.pathname);
   if (prevPath !== location.pathname) {
     setPrevPath(location.pathname);
@@ -120,27 +125,35 @@ export function PublicLayout({ children, locale, onLocaleChange, congressName, c
             </Link>
 
             <div className="flex shrink-0 items-center gap-1">
-              <nav aria-label={c.mainNav} className="hidden md:flex items-center gap-1">
-                <Link to="/my-tickets" className={navLinkInk}>
-                  {c.myTickets}
-                </Link>
-                <Link to="/my-network" className={navLinkInk}>
-                  {c.myNetwork}
-                </Link>
-              </nav>
-              <span aria-hidden="true" className="hidden md:block mx-2 h-5 w-px bg-white/15" />
+              {signedIn && (
+                <>
+                  <nav aria-label={c.mainNav} className="hidden md:flex items-center gap-1">
+                    <Link to={networkPath} className={navLinkInk}>
+                      {c.myNetwork}
+                    </Link>
+                  </nav>
+                  <span aria-hidden="true" className="hidden md:block mx-2 h-5 w-px bg-white/15" />
+                </>
+              )}
               {languageButton("ink", "max-sm:px-2.5 [&>span]:max-sm:hidden")}
-              <LinkButton
-                to={signInTarget}
-                variant="light"
-                size="sm"
-                aria-label={c.attendeeSignIn}
-                className="max-sm:px-3"
-              >
-                <Icon name="user" size={16} />
-                <span className="sm:hidden">{c.signInShort}</span>
-                <span className="max-sm:hidden">{c.attendeeSignIn}</span>
-              </LinkButton>
+              {signedIn ? (
+                <LinkButton to={passPath} variant="light" size="sm" className="max-sm:px-3">
+                  <Icon name="ticket" size={16} />
+                  {c.myPass}
+                </LinkButton>
+              ) : (
+                <LinkButton
+                  to={signInTarget}
+                  variant="light"
+                  size="sm"
+                  aria-label={c.attendeeSignIn}
+                  className="max-sm:px-3"
+                >
+                  <Icon name="user" size={16} />
+                  <span className="sm:hidden">{c.signInShort}</span>
+                  <span className="max-sm:hidden">{c.attendeeSignIn}</span>
+                </LinkButton>
+              )}
               <button
                 type="button"
                 onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
@@ -162,8 +175,10 @@ export function PublicLayout({ children, locale, onLocaleChange, congressName, c
             >
               <ul className="divide-y divide-white/8">
                 {[
-                  { to: "/my-tickets", label: c.myTickets, icon: "ticket" as const },
-                  { to: "/my-network", label: c.myNetwork, icon: "users" as const },
+                  signedIn
+                    ? { to: passPath, label: c.myPass, icon: "ticket" as const }
+                    : { to: signInTarget, label: c.attendeeSignIn, icon: "user" as const },
+                  { to: networkPath, label: c.myNetwork, icon: "users" as const },
                 ].map((item) => (
                   <li key={item.label}>
                     <Link
@@ -178,14 +193,6 @@ export function PublicLayout({ children, locale, onLocaleChange, congressName, c
                   </li>
                 ))}
               </ul>
-              <Link
-                to="/organizer"
-                onClick={closeMenu}
-                className="mt-4 flex min-h-[48px] items-center justify-center gap-2 rounded-xl border border-white/12 text-sm font-semibold text-ink-200 hover:bg-white/8 hover:text-white focus-visible:outline-aiteb-orchid"
-              >
-                {c.organizerConsole}
-                <Icon name="arrow-right" size={16} />
-              </Link>
             </nav>
           )}
         </header>
@@ -310,7 +317,7 @@ export function PublicLayout({ children, locale, onLocaleChange, congressName, c
                   <p className="text-lg font-semibold tracking-[-0.01em] text-white">{c.platformName}</p>
                   <p className="max-w-md text-sm leading-relaxed">{c.platformFooterBody}</p>
                   <p className="max-w-md text-xs leading-relaxed text-ink-400">
-                    {c.platformFooterPrivateLead} (<span className="font-mono text-ink-300 ltr-isolate">/e/:event-slug</span>)
+                    {c.platformFooterPrivateLead}
                     {c.platformFooterPrivateTail}
                   </p>
                 </>
@@ -321,26 +328,34 @@ export function PublicLayout({ children, locale, onLocaleChange, congressName, c
               <div className="space-y-3">
                 <p className="text-xs font-semibold text-white">{c.footerAttendees}</p>
                 <ul className="space-y-1">
-                  <li><Link to="/my-tickets" className={footerLink}>{c.footerPasses}</Link></li>
-                  <li><Link to="/my-network" className={footerLink}>{c.footerNetwork}</Link></li>
+                  {congress ? (
+                    <li><Link to={signedIn ? passPath : signInTarget} className={footerLink}>{signedIn ? c.myPass : c.findMyPass}</Link></li>
+                  ) : (
+                    <li><Link to="/my-tickets" className={footerLink}>{c.footerPasses}</Link></li>
+                  )}
+                  <li><Link to={networkPath} className={footerLink}>{c.footerNetwork}</Link></li>
                 </ul>
               </div>
-              <div className="space-y-3">
-                <p className="text-xs font-semibold text-white">{c.footerStaff}</p>
-                <ul className="space-y-1">
-                  <li><Link to="/organizer" className={footerLink}>{c.organizerConsole}</Link></li>
-                  <li><Link to="/reception" className={footerLink}>{c.footerReception}</Link></li>
-                </ul>
-              </div>
-              <div className="space-y-3 col-span-2 sm:col-span-1">
-                <p className="text-xs font-semibold text-white">{c.footerPlatform}</p>
-                <ul className="space-y-1">
-                  {congress && <li><Link to="/" className={footerLink}>{c.footerPlatformHome}</Link></li>}
-                  <li><a href={congress ? "/#capabilities" : "#capabilities"} className={footerLink}>{c.footerCapabilities}</a></li>
-                  <li><a href={congress ? "/#roles" : "#roles"} className={footerLink}>{c.footerRoles}</a></li>
-                  <li><a href={congress ? "/#architecture" : "#architecture"} className={footerLink}>{c.footerArchitecture}</a></li>
-                </ul>
-              </div>
+              {/* Staff and platform entries stay on the platform home; attendee pages never show them. */}
+              {!congress && (
+                <>
+                <div className="space-y-3">
+                  <p className="text-xs font-semibold text-white">{c.footerStaff}</p>
+                  <ul className="space-y-1">
+                    <li><Link to="/organizer" className={footerLink}>{c.organizerConsole}</Link></li>
+                    <li><Link to="/reception" className={footerLink}>{c.footerReception}</Link></li>
+                  </ul>
+                </div>
+                <div className="space-y-3 col-span-2 sm:col-span-1">
+                  <p className="text-xs font-semibold text-white">{c.footerPlatform}</p>
+                  <ul className="space-y-1">
+                    <li><a href="#capabilities" className={footerLink}>{c.footerCapabilities}</a></li>
+                    <li><a href="#roles" className={footerLink}>{c.footerRoles}</a></li>
+                    <li><a href="#architecture" className={footerLink}>{c.footerArchitecture}</a></li>
+                  </ul>
+                </div>
+                </>
+              )}
             </div>
           </div>
 

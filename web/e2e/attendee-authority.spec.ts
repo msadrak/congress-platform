@@ -21,7 +21,7 @@ const leadOf = (id: string, name = 'Lead One') => ({ id, booth_id: 'booth-1', ti
 const publicEvent = { id: 'event-1', name: 'T06 Fixture Congress', slug: 't06-fixture', starts_at: '2027-04-10T08:00:00Z', ends_at: '2027-04-10T18:00:00Z', location: 'Fixture Hall', description: 'Synthetic', ticket_tiers: [{ id: 'tier-1', event_id: 'event-1', name: 'General', quota: 100, reserved_count: 0, is_open: true, created_at: '2027-01-01T00:00:00Z' }], venue: [], sessions: [] };
 
 type Recorded = { method: string; path: string; auth: string | undefined };
-type Options = { ticketsStatus?: number; networkStatus?: number; vcardStatus?: number; boothStatus?: number; reserveStatus?: number };
+type Options = { ticketsStatus?: number; noTickets?: boolean; networkStatus?: number; vcardStatus?: number; boothStatus?: number; reserveStatus?: number };
 
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem('congress_attendee_locale', 'en'));
@@ -39,7 +39,7 @@ async function fixture(page: Page, options: Options = {}) {
     const json = (status: number, body: unknown) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
     const denied = (status: number) => json(status, { detail: status === 401 ? 'Invalid authorization token' : status === 403 ? 'You are not authorized to access this booth portal' : status === 404 ? 'Not found' : 'Server error' });
     if (path === '/api/public/events/t06-fixture') return json(200, publicEvent);
-    if (path === '/api/attendees/me/tickets') return options.ticketsStatus ? denied(options.ticketsStatus) : json(200, [ticketOf(owner)]);
+    if (path === '/api/attendees/me/tickets') return options.ticketsStatus ? denied(options.ticketsStatus) : json(200, options.noTickets ? [] : [ticketOf(owner)]);
     if (path === '/api/attendees/me/bookmarks/booths') return json(200, [savedBooth(owner)]);
     if (path.startsWith('/api/attendees/me/bookmarks/booths/')) return json(200, { bookmarked: false, booth_id: path.split('/').pop() });
     if (path === '/api/attendees/me/network') return options.networkStatus ? denied(options.networkStatus) : json(200, [connectionOf(owner)]);
@@ -454,7 +454,8 @@ test('account switch: user B never sees user A leads, and B is denied without a 
 });
 
 test('ticket reservation sends only the User token and shows success', async ({ page }) => {
-  const requests = await fixture(page);
+  // Users without a pass for this congress yet: a held pass turns the dock into "View My Pass".
+  const requests = await fixture(page, { noTickets: true });
   await seed(page, tokenA);
   requests.length = 0;
   await page.goto('/e/t06-fixture');
@@ -468,7 +469,7 @@ test('ticket reservation sends only the User token and shows success', async ({ 
 });
 
 test('reservation 401 clears exactly the sent token and reopens sign-in', async ({ page }) => {
-  const requests = await fixture(page, { reserveStatus: 401 });
+  const requests = await fixture(page, { reserveStatus: 401, noTickets: true });
   await seed(page, tokenA);
   requests.length = 0;
   await page.goto('/e/t06-fixture');
@@ -480,7 +481,7 @@ test('reservation 401 clears exactly the sent token and reopens sign-in', async 
 });
 
 test('R2 a reservation answered after the session changed shows no success for the new session', async ({ page }) => {
-  await fixture(page);
+  await fixture(page, { noTickets: true });
   await watchText(page, ['Pass Reserved Successfully']);
   const held = await hold(page, '/tickets/reserve', bearer(tokenA), 201, { id: 'ticket-new', event_id: 'event-1', ticket_tier_id: 'tier-1', ticket_tier_name: 'General', attendee_name: 'x', attendee_mobile: '09121239999', status: 'ACTIVE', qr_secret: 'synthetic-qr-new', created_at: '2027-01-01T00:00:00Z' }, 'POST');
   await seed(page, tokenA);

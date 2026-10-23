@@ -9,8 +9,8 @@ export const errorMessages: Record<AttendeeLocale, Record<string, string>> = {
   fa: {
     EVENT_NOT_FOUND: "این همایش یافت نشد.",
     TIER_NOT_FOUND: "این کارت ورود دیگر ارائه نمی‌شود. لطفاً کارت دیگری انتخاب کنید.",
-    TIER_CLOSED: "ثبت‌نام این رده توسط برگزارکننده بسته شده است.",
-    TIER_SOLD_OUT: "ظرفیت این رده تکمیل شده است.",
+    TIER_CLOSED: "ثبت‌نام این نوع کارت ورود را برگزارکننده بسته است.",
+    TIER_SOLD_OUT: "ظرفیت این نوع کارت ورود تکمیل شده است.",
     ALREADY_REGISTERED: "شما پیش‌تر برای این همایش کارت ورود دریافت کرده‌اید.",
   },
   en: {

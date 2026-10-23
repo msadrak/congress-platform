@@ -244,9 +244,8 @@ export default function PublicBooth() {
                   >
                     {code}
                   </p>
-                  <div className="mt-6 flex flex-wrap items-center justify-between gap-2 border-t border-border-default pt-4 text-xs text-text-muted">
-                    <span className="font-mono ltr-isolate">/{booth.slug}</span>
-                    <span className="truncate"><Bidi text={booth.event_name} /></span>
+                  <div className="mt-6 border-t border-border-default pt-4 text-xs text-text-muted">
+                    <span className="block truncate"><Bidi text={booth.event_name} /></span>
                   </div>
                 </div>
               </div>
