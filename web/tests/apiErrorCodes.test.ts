@@ -23,13 +23,19 @@ test("a known code is shown in the reader's language, never the English detail",
   assert.equal(localizedApiError(new ApiResponseError(410, soldOut), "fa"), errorMessages.fa.TIER_SOLD_OUT);
 });
 
-test("unknown or missing codes fall back to the existing error text", () => {
-  assert.equal(localizedApiError({ detail: "Slug already in use" }, "fa"), "Slug already in use");
+test("unknown or missing codes: English readers keep the server's text, Persian readers never see it", () => {
+  // en: unchanged.
+  assert.equal(localizedApiError({ detail: "Slug already in use" }, "en"), "Slug already in use");
   assert.equal(localizedApiError({ detail: "Future failure", code: "SOMETHING_NEW" }, "en"), "Future failure");
   assert.equal(localizedApiError({ detail: "x", code: "constructor" }, "en"), "x");
   const validation = { detail: [{ loc: ["body", "ticket_tier_id"], msg: "Input should be a valid UUID" }] };
-  assert.equal(localizedApiError(validation, "fa"), formatApiError(validation));
-  assert.equal(localizedApiError(undefined, "fa"), formatApiError(undefined));
+  assert.equal(localizedApiError(validation, "en"), formatApiError(validation));
+  // fa: a localized generic sentence instead (apiErrorFallback.test.ts pins the sentences by status).
+  for (const body of [{ detail: "Slug already in use" }, { detail: "Future failure", code: "SOMETHING_NEW" }, validation, undefined]) {
+    const shown = localizedApiError(body, "fa");
+    assert.doesNotMatch(shown, /[A-Za-z]/, JSON.stringify(body));
+    assert.match(shown, /[\u0600-\u06FF]/, JSON.stringify(body));
+  }
 });
 
 test("every code has a Persian and an English message", () => {
