@@ -23,6 +23,7 @@ import { ConfirmDialog } from "../components/ui/ConfirmDialog";
 import { MetaList } from "../components/ui/MetaList";
 import { SkipLink } from "../components/ui/SkipLink";
 import { LoadingState } from "../components/ui/StateBlock";
+import { BoothProfileDialog } from "../components/booth/BoothProfileDialog";
 import { CaptureDialog } from "../components/booth/CaptureDialog";
 import { LeadList } from "../components/booth/LeadList";
 import { boothTimeZone } from "../components/booth/leadTime";
@@ -63,6 +64,7 @@ function ExhibitorPortalContent() {
   const [pageError, setPageError] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
   const [confirmSignOut, setConfirmSignOut] = useState(false);
+  const [pageOpen, setPageOpen] = useState(false);
 
   // Capture sheet: remounted for every opening (session), so each capture starts clean; `code` is a gun scan.
   const [capture, setCapture] = useState<{ open: boolean; session: number; code?: string }>({ open: false, session: 0 });
@@ -108,6 +110,7 @@ function ExhibitorPortalContent() {
       setEventContext(null);
       setCapture((current) => ({ ...current, open: false }));
       setEditingLead(null);
+      setPageOpen(false);
       setAuthError(null);
       setAccessBlock(null);
       setArchivedLater(false);
@@ -361,6 +364,15 @@ function ExhibitorPortalContent() {
           },
         ]
       : []),
+    {
+      id: "booth-page",
+      label: text.editPage,
+      icon: "note",
+      divider: true,
+      disabled: archived || !queue.online,
+      hint: archived ? text.editPageArchived : !queue.online ? text.editPageOffline : undefined,
+      onSelect: () => setPageOpen(true),
+    },
     { id: "export", label: text.exportCsv, icon: "download", divider: true, disabled: !canExport || activeTotal === 0, onSelect: () => void exportCsv(false) },
     {
       id: "export-deleted",
@@ -479,6 +491,29 @@ function ExhibitorPortalContent() {
           refreshCounts();
         }}
         onAccessBlocked={revoke}
+        onArchived={markArchived}
+        onSessionChanged={noteSessionChanged}
+      />
+
+      <BoothProfileDialog
+        isOpen={pageOpen}
+        onClose={() => setPageOpen(false)}
+        booth={booth}
+        token={token}
+        locale={locale}
+        online={queue.online}
+        archived={archived}
+        onSaved={(saved, closed) => {
+          setBooth(saved);
+          if (closed) {
+            setPageOpen(false);
+            setNotice(text.pageSaved);
+          }
+        }}
+        onAccessBlocked={(block) => {
+          setPageOpen(false);
+          revoke(block);
+        }}
         onArchived={markArchived}
         onSessionChanged={noteSessionChanged}
       />
