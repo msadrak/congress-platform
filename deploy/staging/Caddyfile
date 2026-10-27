@@ -29,7 +29,8 @@
 		X-Content-Type-Options nosniff
 		Permissions-Policy "camera=(self), microphone=(), geolocation=(), payment=()"
 		?X-Frame-Options SAMEORIGIN
-		?Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; worker-src 'self'; manifest-src 'self'; frame-src 'self'; frame-ancestors 'self'; base-uri 'self'; form-action 'self'; object-src 'none'"
+		# frame-src: the congress page's video players (Page Studio video section; loaded only on play).
+		?Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; worker-src 'self'; manifest-src 'self'; frame-src 'self' https://www.youtube-nocookie.com https://www.aparat.com; frame-ancestors 'self'; base-uri 'self'; form-action 'self'; object-src 'none'"
 		-Server
 	}
 	import /etc/caddy/options/hsts-{$CONGRESS_HSTS:off}.caddy

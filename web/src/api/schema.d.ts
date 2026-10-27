@@ -2684,6 +2684,7 @@ export interface components {
             visible: boolean;
             eyebrow?: components["schemas"]["LocalizedLabel"];
             title?: components["schemas"]["LocalizedLabel"];
+            style?: components["schemas"]["SectionStyle"];
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
@@ -2778,6 +2779,7 @@ export interface components {
             visible: boolean;
             eyebrow?: components["schemas"]["LocalizedLabel"];
             title?: components["schemas"]["LocalizedLabel"];
+            style?: components["schemas"]["SectionStyle"];
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
@@ -3292,7 +3294,9 @@ export interface components {
              * @default auto
              * @enum {string}
              */
-            accent: "auto" | "indigo" | "magenta" | "azure" | "violet" | "orchid";
+            accent: "auto" | "indigo" | "magenta" | "azure" | "violet" | "orchid" | "custom";
+            /** Accent Color */
+            accent_color?: string | null;
             /** Logo Asset Id */
             logo_asset_id?: string | null;
         };
@@ -3481,6 +3485,57 @@ export interface components {
             /** Session Id */
             session_id?: string | null;
         };
+        /** ColumnItem */
+        ColumnItem: {
+            /** Icon */
+            icon?: ("qr" | "booth" | "users" | "wifi-off" | "calendar" | "clock" | "pin" | "ticket" | "shield" | "activity" | "globe" | "layers" | "note" | "chart" | "device" | "mail" | "bookmark" | "congress" | "id-card" | "utensils" | "check-circle" | "info") | null;
+            /** Image Asset Id */
+            image_asset_id?: string | null;
+            image_alt?: components["schemas"]["LocalizedLabel"];
+            title?: components["schemas"]["LocalizedLabel"];
+            body?: components["schemas"]["LocalizedProse"];
+            button_label?: components["schemas"]["LocalizedLabel"];
+            /**
+             * Button Url
+             * @default
+             */
+            button_url: string;
+        };
+        /**
+         * ColumnsSection
+         * @description Two to four texts side by side (stacked on phones).
+         */
+        ColumnsSection: {
+            /** Id */
+            id: string;
+            /**
+             * Visible
+             * @default true
+             */
+            visible: boolean;
+            eyebrow?: components["schemas"]["LocalizedLabel"];
+            title?: components["schemas"]["LocalizedLabel"];
+            style?: components["schemas"]["SectionStyle"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "columns";
+            /**
+             * Layout
+             * @default equal
+             * @enum {string}
+             */
+            layout: "equal" | "wide_start" | "wide_end";
+            /**
+             * Surface
+             * @default plain
+             * @enum {string}
+             */
+            surface: "plain" | "cards";
+            /** Items */
+            items?: components["schemas"]["ColumnItem"][];
+        };
         /** ConnectionOut */
         ConnectionOut: {
             /**
@@ -3551,6 +3606,7 @@ export interface components {
             visible: boolean;
             eyebrow?: components["schemas"]["LocalizedLabel"];
             title?: components["schemas"]["LocalizedLabel"];
+            style?: components["schemas"]["SectionStyle"];
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
@@ -3569,7 +3625,12 @@ export interface components {
              * @default passes
              * @enum {string}
              */
-            target: "passes" | "exhibitors";
+            target: "passes" | "exhibitors" | "url";
+            /**
+             * Url
+             * @default
+             */
+            url: string;
         };
         /** DeskAdmitOut */
         DeskAdmitOut: {
@@ -4050,6 +4111,7 @@ export interface components {
             visible: boolean;
             eyebrow?: components["schemas"]["LocalizedLabel"];
             title?: components["schemas"]["LocalizedLabel"];
+            style?: components["schemas"]["SectionStyle"];
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
@@ -4294,6 +4356,7 @@ export interface components {
             visible: boolean;
             eyebrow?: components["schemas"]["LocalizedLabel"];
             title?: components["schemas"]["LocalizedLabel"];
+            style?: components["schemas"]["SectionStyle"];
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
@@ -4301,6 +4364,53 @@ export interface components {
             type: "faq";
             /** Items */
             items?: components["schemas"]["FaqItem"][];
+        };
+        /** GalleryItem */
+        GalleryItem: {
+            /** Image Asset Id */
+            image_asset_id?: string | null;
+            alt?: components["schemas"]["LocalizedLabel"];
+            caption?: components["schemas"]["LocalizedLabel"];
+            /**
+             * Url
+             * @default
+             */
+            url: string;
+        };
+        /**
+         * GallerySection
+         * @description Photos (grid) or a sponsor and partner wall (logos), each optionally linked.
+         */
+        GallerySection: {
+            /** Id */
+            id: string;
+            /**
+             * Visible
+             * @default true
+             */
+            visible: boolean;
+            eyebrow?: components["schemas"]["LocalizedLabel"];
+            title?: components["schemas"]["LocalizedLabel"];
+            style?: components["schemas"]["SectionStyle"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "gallery";
+            /**
+             * Layout
+             * @default grid
+             * @enum {string}
+             */
+            layout: "grid" | "logos";
+            /**
+             * Columns
+             * @default 3
+             * @enum {integer}
+             */
+            columns: 2 | 3 | 4;
+            /** Items */
+            items?: components["schemas"]["GalleryItem"][];
         };
         /** GateMetric */
         GateMetric: {
@@ -4392,6 +4502,7 @@ export interface components {
             visible: boolean;
             eyebrow?: components["schemas"]["LocalizedLabel"];
             title?: components["schemas"]["LocalizedLabel"];
+            style?: components["schemas"]["SectionStyle"];
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
@@ -4451,6 +4562,7 @@ export interface components {
             visible: boolean;
             eyebrow?: components["schemas"]["LocalizedLabel"];
             title?: components["schemas"]["LocalizedLabel"];
+            style?: components["schemas"]["SectionStyle"];
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
@@ -4561,6 +4673,21 @@ export interface components {
             /** Event Slug */
             event_slug?: string | null;
         };
+        /** LinkItem */
+        LinkItem: {
+            /**
+             * Kind
+             * @default website
+             * @enum {string}
+             */
+            kind: "website" | "telegram" | "instagram" | "whatsapp" | "eitaa" | "bale" | "rubika" | "linkedin" | "x" | "youtube" | "aparat" | "email" | "phone";
+            /**
+             * Url
+             * @default
+             */
+            url: string;
+            label?: components["schemas"]["LocalizedLabel"];
+        };
         /** LinkPassAttendee */
         LinkPassAttendee: {
             /** Full Name */
@@ -4624,6 +4751,36 @@ export interface components {
             attendee: components["schemas"]["LinkPassAttendee"];
             /** Event Timezone */
             event_timezone: string;
+        };
+        /**
+         * LinksSection
+         * @description Community, channel and contact links.
+         */
+        LinksSection: {
+            /** Id */
+            id: string;
+            /**
+             * Visible
+             * @default true
+             */
+            visible: boolean;
+            eyebrow?: components["schemas"]["LocalizedLabel"];
+            title?: components["schemas"]["LocalizedLabel"];
+            style?: components["schemas"]["SectionStyle"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "links";
+            /**
+             * Layout
+             * @default buttons
+             * @enum {string}
+             */
+            layout: "buttons" | "cards";
+            lead?: components["schemas"]["LocalizedLine"];
+            /** Items */
+            items?: components["schemas"]["LinkItem"][];
         };
         /**
          * LocalizedLabel
@@ -5019,7 +5176,7 @@ export interface components {
             hero?: components["schemas"]["Hero"];
             seo?: components["schemas"]["Seo"];
             /** Sections */
-            sections: (components["schemas"]["AboutSection"] | components["schemas"]["HighlightsSection"] | components["schemas"]["PassesSection"] | components["schemas"]["ExhibitorsSection"] | components["schemas"]["RichTextSection"] | components["schemas"]["ImageTextSection"] | components["schemas"]["FaqSection"] | components["schemas"]["CtaSection"] | components["schemas"]["SpeakersSection"] | components["schemas"]["AgendaSection"])[];
+            sections: (components["schemas"]["AboutSection"] | components["schemas"]["HighlightsSection"] | components["schemas"]["PassesSection"] | components["schemas"]["ExhibitorsSection"] | components["schemas"]["RichTextSection"] | components["schemas"]["ImageTextSection"] | components["schemas"]["FaqSection"] | components["schemas"]["CtaSection"] | components["schemas"]["SpeakersSection"] | components["schemas"]["AgendaSection"] | components["schemas"]["ColumnsSection"] | components["schemas"]["VideoSection"] | components["schemas"]["GallerySection"] | components["schemas"]["LinksSection"])[];
         };
         /** PageDraftUpdate */
         PageDraftUpdate: {
@@ -5332,6 +5489,7 @@ export interface components {
             visible: boolean;
             eyebrow?: components["schemas"]["LocalizedLabel"];
             title?: components["schemas"]["LocalizedLabel"];
+            style?: components["schemas"]["SectionStyle"];
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
@@ -5707,6 +5865,7 @@ export interface components {
             visible: boolean;
             eyebrow?: components["schemas"]["LocalizedLabel"];
             title?: components["schemas"]["LocalizedLabel"];
+            style?: components["schemas"]["SectionStyle"];
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
@@ -5717,7 +5876,7 @@ export interface components {
              * @default split
              * @enum {string}
              */
-            layout: "split" | "centered";
+            layout: "split" | "centered" | "columns";
             body?: components["schemas"]["LocalizedProse"];
         };
         /** ScanHistoryItem */
@@ -5894,6 +6053,42 @@ export interface components {
              * Format: date-time
              */
             expires_at: string;
+        };
+        /**
+         * SectionStyle
+         * @description Curated presentation of one section: tokens, never CSS, so every combination stays legible.
+         */
+        SectionStyle: {
+            /**
+             * Background
+             * @default none
+             * @enum {string}
+             */
+            background: "none" | "subtle" | "accent" | "ink";
+            /**
+             * Width
+             * @default normal
+             * @enum {string}
+             */
+            width: "normal" | "narrow";
+            /**
+             * Align
+             * @default start
+             * @enum {string}
+             */
+            align: "start" | "center";
+            /**
+             * Text Size
+             * @default md
+             * @enum {string}
+             */
+            text_size: "sm" | "md" | "lg";
+            /**
+             * Direction
+             * @default auto
+             * @enum {string}
+             */
+            direction: "auto" | "rtl" | "ltr";
         };
         /** Seo */
         Seo: {
@@ -6278,6 +6473,7 @@ export interface components {
             visible: boolean;
             eyebrow?: components["schemas"]["LocalizedLabel"];
             title?: components["schemas"]["LocalizedLabel"];
+            style?: components["schemas"]["SectionStyle"];
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
@@ -6515,6 +6711,49 @@ export interface components {
             location?: string | null;
             /** Position */
             position?: number | null;
+        };
+        /**
+         * VideoSection
+         * @description An embedded YouTube or Aparat video. Only the id is stored; the page builds the embed address itself
+         *     and loads the player when the visitor presses play.
+         */
+        VideoSection: {
+            /** Id */
+            id: string;
+            /**
+             * Visible
+             * @default true
+             */
+            visible: boolean;
+            eyebrow?: components["schemas"]["LocalizedLabel"];
+            title?: components["schemas"]["LocalizedLabel"];
+            style?: components["schemas"]["SectionStyle"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "video";
+            /**
+             * Layout
+             * @default full
+             * @enum {string}
+             */
+            layout: "full" | "video_start" | "video_end";
+            /**
+             * Provider
+             * @default aparat
+             * @enum {string}
+             */
+            provider: "youtube" | "aparat";
+            /**
+             * Video Id
+             * @default
+             */
+            video_id: string;
+            /** Poster Asset Id */
+            poster_asset_id?: string | null;
+            caption?: components["schemas"]["LocalizedLine"];
+            body?: components["schemas"]["LocalizedProse"];
         };
     };
     responses: never;

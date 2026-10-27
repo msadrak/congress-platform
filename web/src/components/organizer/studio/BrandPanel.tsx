@@ -1,4 +1,5 @@
-import { EVENT_ACCENTS } from "../../../lib/eventAccent";
+import { useState } from "react";
+import { EVENT_ACCENTS, legibleAccent } from "../../../lib/eventAccent";
 import { layoutForImage } from "../../../lib/heroImage";
 import type { AccentChoice, HeroLayout, PageDoc } from "../../../lib/pageDocument";
 import { CongressSignature } from "../../brand/CongressSignature";
@@ -36,6 +37,15 @@ export function BrandPanel({ doc, onChange, eventName }: { doc: PageDoc; onChang
     { value: "split", label: b.split, hint: b.splitHint },
   ];
   const cover = hero.cover_asset_id ? images[hero.cover_asset_id] : undefined;
+  const custom = doc.branding.accent === "custom";
+  // What the organizer picked, when it had to be darkened to stay legible (the stored colour is the darker one).
+  const [picked, setPicked] = useState<string | null>(null);
+  const pickColour = (raw: string) => {
+    const colour = legibleAccent(raw);
+    if (!colour) return;
+    setPicked(colour === raw.toUpperCase() ? null : raw);
+    onChange({ ...doc, branding: { ...doc.branding, accent: "custom", accent_color: colour } });
+  };
 
   return (
     <div className="space-y-8">
@@ -67,7 +77,55 @@ export function BrandPanel({ doc, onChange, eventName }: { doc: PageDoc; onChang
               )}
             </label>
           ))}
+          <label
+            title={b.custom}
+            className={`relative grid size-11 cursor-pointer place-items-center rounded-full border-2 transition-transform has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-focus-ring ${
+              custom ? "scale-105 border-text-primary" : "border-transparent hover:scale-105"
+            }`}
+          >
+            <input
+              type="radio"
+              name="page-accent"
+              className="sr-only"
+              checked={custom}
+              onChange={() => pickColour(doc.branding.accent_color ?? "#0B6E4F")}
+              aria-label={b.custom}
+            />
+            {custom && doc.branding.accent_color ? (
+              <span className="size-8 rounded-full shadow-soft" style={{ background: doc.branding.accent_color }} />
+            ) : (
+              <span className="grid size-8 place-items-center rounded-full border-2 border-dashed border-border-strong text-text-muted">
+                <Icon name="palette" size={14} />
+              </span>
+            )}
+          </label>
         </div>
+        {custom && (
+          <div className="space-y-1.5 pt-1">
+            <div className="flex items-center gap-3">
+              <input
+                type="color"
+                aria-label={b.custom}
+                value={(picked ?? doc.branding.accent_color ?? "#0B6E4F").toLowerCase()}
+                onChange={(e) => pickColour(e.target.value)}
+                className="h-11 w-16 cursor-pointer rounded-lg border border-border-default bg-surface-panel p-1"
+              />
+              <input
+                type="text"
+                dir="ltr"
+                aria-label={`${b.custom} (HEX)`}
+                maxLength={7}
+                defaultValue={doc.branding.accent_color ?? ""}
+                key={doc.branding.accent_color ?? ""}
+                onBlur={(e) => pickColour(e.target.value.startsWith("#") ? e.target.value : `#${e.target.value}`)}
+                className="ui-input w-32 font-mono uppercase"
+              />
+            </div>
+            <p className="text-xs leading-relaxed text-text-muted">
+              {picked && doc.branding.accent_color ? b.customAdjusted(doc.branding.accent_color) : b.customHint}
+            </p>
+          </div>
+        )}
       </fieldset>
 
       <ImageField

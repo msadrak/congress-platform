@@ -230,3 +230,54 @@
   transform: scaleY(1);
 }
 }
+
+/*
+ * Page Studio section bands (SectionStyle.background). Tailwind resolves the --color-* tokens at the root, so
+ * the dark band re-declares them for its own subtree: every block inside (cards, accordions, timelines) keeps
+ * working on ink without knowing it is there.
+ */
+.pub-band {
+  border-radius: var(--radius-card, 1.5rem);
+  padding: 2.5rem 1.25rem;
+}
+@media (min-width: 40rem) {
+  .pub-band {
+    padding: 3.5rem 2.5rem;
+  }
+}
+.pub-band-subtle {
+  background: var(--surface-panel-subtle);
+}
+.pub-band-accent {
+  background: var(--event-accent-soft);
+}
+.pub-band-ink {
+  --color-text-primary: #FFFFFF;
+  --color-text-secondary: var(--color-ink-200);
+  --color-text-muted: #B9B5D6;
+  --color-border-default: rgb(255 255 255 / 0.14);
+  --color-border-strong: rgb(255 255 255 / 0.3);
+  --color-surface-page: var(--surface-ink);
+  --color-surface-panel: var(--surface-ink-raised);
+  --color-surface-panel-subtle: rgb(255 255 255 / 0.06);
+  --color-event-accent: var(--event-accent-glow, #8770FF);
+  --color-event-accent-soft: rgb(255 255 255 / 0.1);
+  background: var(--surface-ink);
+  color: #FFFFFF;
+}
+
+/* A video section without a poster image: the accent's glow on ink behind the play button. */
+.pub-video-poster {
+  background:
+    radial-gradient(circle at 28% 22%, var(--event-accent-glow, #8770FF) 0%, transparent 55%),
+    radial-gradient(circle at 80% 85%, var(--event-accent, #2000CD) 0%, transparent 50%);
+  opacity: 0.7;
+}
+
+/* SectionStyle.align = center: text centred, and the blocks' measure-limited columns centred with it. */
+.pub-align-center {
+  text-align: center;
+}
+.pub-align-center :where(.max-w-2xl, .max-w-3xl, .max-w-4xl) {
+  margin-inline: auto;
+}

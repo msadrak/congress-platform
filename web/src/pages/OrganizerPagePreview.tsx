@@ -7,7 +7,7 @@ import { publicCopy } from "../components/public/copy";
 import { organizerProgramCopy } from "../copy/organizerProgram";
 import { PublicLayout } from "../layouts/PublicLayout";
 import { usePageTitle } from "../hooks/usePageTitle";
-import { normalizeDocument, type PageDoc, type PageLocale } from "../lib/pageDocument";
+import { accentOf, normalizeDocument, type PageDoc, type PageLocale } from "../lib/pageDocument";
 import { useOrganizerImages } from "../lib/pageMedia";
 import { readStudioMessage, type PreviewAsset, type PreviewToStudio } from "../lib/studioPreview";
 
@@ -104,7 +104,7 @@ export default function OrganizerPagePreview() {
         onLocaleChange={changeLocale}
         congressName={preview.name}
         congressSlug={preview.slug}
-        brand={{ accent: doc.branding.accent, logo }}
+        brand={{ accent: accentOf(doc.branding), logo }}
       >
         <CongressPage
           event={preview}

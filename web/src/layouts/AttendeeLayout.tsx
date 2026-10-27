@@ -12,8 +12,8 @@ import { TabNav } from "../components/ui/TabNav";
 import { AitebAttribution } from "../components/brand/Aiteb";
 import { CongressSignature } from "../components/brand/CongressSignature";
 import { ArcStroke } from "../components/attendee/ArcStroke";
-import { eventAccentStyle } from "../lib/eventAccent";
-import type { AccentName } from "../lib/pageDocument";
+import { eventAccentStyle, type AccentSpec } from "../lib/eventAccent";
+import { accentOf } from "../lib/pageDocument";
 import { useAttendeeSession } from "../hooks/useAttendeeSession";
 import { usePageTitle } from "../hooks/usePageTitle";
 import { signInPath } from "../lib/safeRedirect";
@@ -121,7 +121,7 @@ function SwitcherEntry({ to, icon, label, kicker }: { to: string; icon: IconName
 function CongressSwitcher({ slug, name, accent, kicker, loadOthers, copy, token, locale, onLocaleChange }: {
   slug: string;
   name: React.ReactNode;
-  accent?: AccentName | "auto";
+  accent?: AccentSpec;
   kicker: string;
   /** Read when the menu opens, so passes saved since the page opened are listed. */
   loadOthers: () => CongressCard[];
@@ -276,7 +276,7 @@ export function AttendeeLayout({ children, localeProps, eventSlug, destination }
   const pageLabel = destination ? (destination === "my-profile" ? copy.profile : copy.tabs[destination]) : copy.myCongresses;
   usePageTitle(pageLabel, congressName);
   // The accent chosen in Page Studio (published) colours the whole panel; "auto" derives it from the slug.
-  const accent = congress.status === "ready" ? congress.event.page?.document.branding?.accent : undefined;
+  const accent = congress.status === "ready" ? accentOf(congress.event.page?.document.branding) : undefined;
   const profileActive = destination === "my-profile";
   // Inside a congress the header holds the switcher and the avatar; the language switch and log out sit in the
   // switcher menu and the profile on a phone. Outside one (`/me`) there is nowhere else, so they stay in the header.

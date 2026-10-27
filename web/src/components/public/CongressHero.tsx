@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import type { PublicEvent } from "../../api/client";
+import type { AccentSpec } from "../../lib/eventAccent";
 import type { PageDoc, PageImage, PageImages } from "../../lib/pageDocument";
 import { localized } from "../../lib/pageDocument";
 import { bannerWidth, heroPresentation } from "../../lib/heroImage";
@@ -44,7 +45,7 @@ interface CongressHeroProps {
   now?: number;
   /** Page Studio hero; the default (signature layout, no overrides) is the original hero. */
   hero: PageDoc["hero"];
-  accent: PageDoc["branding"]["accent"];
+  accent: AccentSpec;
   images: PageImages;
   logo: PageImage | null;
   /** In-page targets that are actually on the page (hidden sections get no button). */

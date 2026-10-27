@@ -6,11 +6,11 @@ import { Icon } from "../components/ui/Icon";
 import { LanguageToggle } from "../components/ui/LanguageToggle";
 import { AitebAttribution, AitebLogo } from "../components/brand/Aiteb";
 import { useAttendeeSession } from "../hooks/useAttendeeSession";
-import { eventAccentStyle } from "../lib/eventAccent";
+import { eventAccentStyle, type AccentSpec } from "../lib/eventAccent";
 import { signInPath } from "../lib/safeRedirect";
 import { publicCopy, type PublicLocale } from "../components/public/copy";
 import { Bidi } from "../components/public/Bidi";
-import type { AccentChoice, PageImage } from "../lib/pageDocument";
+import type { PageImage } from "../lib/pageDocument";
 import "../styles/public.css";
 
 interface PublicLayoutProps {
@@ -24,7 +24,7 @@ interface PublicLayoutProps {
   /** Congress shown outside `/e/:slug` (the Page Studio preview). Defaults to the slug in the URL. */
   congressSlug?: string;
   /** Organizer branding from the published (or previewed) page. */
-  brand?: { accent?: AccentChoice; logo?: PageImage | null };
+  brand?: { accent?: AccentSpec; logo?: PageImage | null };
 }
 
 /** The congress mark in the shell: the organizer's logo on a white tile, else a plain congress tile. */

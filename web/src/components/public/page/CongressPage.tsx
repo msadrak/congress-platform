@@ -1,6 +1,7 @@
 import { Fragment, type ReactNode } from "react";
 import type { PublicBoothSummary, PublicProgramFile, PublicSession, PublicVenuePlace } from "../../../api/client";
 import {
+  accentOf,
   isSectionVisible,
   localized,
   sectionAnchor,
@@ -16,17 +17,23 @@ import { EditorialSection } from "../EditorialSection";
 import { EventActions } from "../EventActions";
 import { PublicProgram } from "../PublicProgram";
 import { PublicVenue } from "../PublicVenue";
+import { safeLinkHref } from "../../../lib/pageLinks";
 import {
   AgendaBlock,
+  ColumnsBlock,
   CtaBlock,
   EmptyBlock,
   FaqBlock,
+  GalleryBlock,
   HighlightsBlock,
   ImageTextBlock,
+  LinksBlock,
   RichTextBlock,
   SpeakersBlock,
+  VideoBlock,
 } from "./PageSections";
 import { RichText } from "./RichText";
+import { SectionFormatContext } from "./sectionFormat";
 import { ScheduleFiles } from "./ScheduleFiles";
 
 export interface CongressPageEvent extends HeroEvent {
@@ -70,9 +77,52 @@ function hasContent(section: PageSection, locale: PublicLocale): boolean {
       return section.items.some((i) => localized(i.name, locale));
     case "agenda":
       return section.items.some((i) => localized(i.title, locale));
+    case "columns":
+      return section.items.some((i) => i.image_asset_id || i.icon || localized(i.title, locale) || localized(i.body, locale));
+    case "video":
+      return Boolean(section.video_id);
+    case "gallery":
+      return section.items.some((i) => i.image_asset_id);
+    case "links":
+      return section.items.some((i) => safeLinkHref(i.url));
     default:
       return true;
   }
+}
+
+/** Sections whose look is their own (live data panels, the call-to-action band): no background band. */
+const UNBANDED: ReadonlySet<PageSection["type"]> = new Set(["passes", "exhibitors", "cta"]);
+
+/**
+ * The organizer's section style around a rendered section: background band, narrow column, centred text,
+ * forced direction, and the text size its prose reads from context.
+ */
+function StyledSection({ section, children }: { section: PageSection; children: ReactNode }) {
+  const { background, width, align, text_size, direction } = section.style;
+  const band = background !== "none" && !UNBANDED.has(section.type);
+  const classes = [
+    band ? `pub-band pub-band-${background}` : "",
+    band && background === "ink" ? "surface-ink" : "",
+    width === "narrow" ? "mx-auto max-w-3xl" : "",
+    align === "center" ? "pub-align-center" : "",
+  ].join(" ").trim();
+  const forced = direction === "auto" ? {} : { dir: direction, lang: direction === "rtl" ? "fa" : "en" };
+  return (
+    <SectionFormatContext.Provider value={{ textSize: text_size, direction }}>
+      {classes || direction !== "auto" ? (
+        <div {...forced} className={classes || undefined} data-section-style={band ? background : undefined}>
+          {children}
+        </div>
+      ) : (
+        children
+      )}
+    </SectionFormatContext.Provider>
+  );
+}
+
+function StyledRender({ section, render }: { section: PageSection; render: (section: PageSection) => ReactNode }) {
+  const content = render(section);
+  return content ? <StyledSection section={section}>{content}</StyledSection> : null;
 }
 
 /**
@@ -129,13 +179,43 @@ export function CongressPage({ event, doc, images, locale, passes, booths, mode 
     const anchor = sectionAnchor(section);
     const headingId = `${anchor}-heading`;
     if (!hasContent(section, locale)) return preview ? <EmptyBlock locale={locale} /> : null;
+    const align = section.style.align === "center" ? "center" : "start";
+    /** A block under the organizer's heading (or the fallback), else a labelled section with no visible heading. */
+    const framed = (content: ReactNode, options: { fallback?: string; lead?: ReactNode } = {}): ReactNode => {
+      const title = localized(section.title, locale) ?? options.fallback;
+      if (!title) {
+        return (
+          <section id={anchor} aria-label={c.sectionInformation} className="scroll-mt-24">
+            {content}
+          </section>
+        );
+      }
+      return (
+        <EditorialSection id={anchor} headingId={headingId} align={align} eyebrow={own(section.eyebrow)} title={<Bidi text={title} />} lead={options.lead}>
+          {content}
+        </EditorialSection>
+      );
+    };
+    /** The heading of a side-by-side block (image or video beside text). */
+    const sideHeading = (): ReactNode => {
+      const title = localized(section.title, locale);
+      const eyebrow = localized(section.eyebrow, locale);
+      return title ? (
+        <div className="space-y-2">
+          {eyebrow && <p className="text-meta font-semibold text-text-muted"><Bidi text={eyebrow} /></p>}
+          <h2 id={headingId} className="text-title font-bold text-text-primary sm:text-title-lg">
+            <Bidi text={title} />
+          </h2>
+        </div>
+      ) : null;
+    };
 
     switch (section.type) {
       case "about": {
         const body = localized(section.body, locale);
         if (!body && !event.description) return preview ? <EmptyBlock locale={locale} /> : null;
         return (
-          <EditorialSection id={anchor} headingId={headingId} eyebrow={own(section.eyebrow)} title={text(section.title, c.sectionAbout)}>
+          <EditorialSection id={anchor} align={align} headingId={headingId} eyebrow={own(section.eyebrow)} title={text(section.title, c.sectionAbout)}>
             {body ? (
               <RichText text={body} size="lg" className="max-w-3xl [&_p]:text-text-primary" />
             ) : (
@@ -157,20 +237,20 @@ export function CongressPage({ event, doc, images, locale, passes, booths, mode 
           );
         }
         return (
-          <EditorialSection id={anchor} headingId={headingId} eyebrow={own(section.eyebrow)} title={title}>
+          <EditorialSection id={anchor} align={align} headingId={headingId} eyebrow={own(section.eyebrow)} title={title}>
             <HighlightsBlock section={section} locale={locale} />
           </EditorialSection>
         );
       }
       case "passes":
         return (
-          <EditorialSection id={anchor} headingId={headingId} eyebrow={own(section.eyebrow)} title={text(section.title, c.sectionPasses)} lead={own(section.lead)}>
+          <EditorialSection id={anchor} align={align} headingId={headingId} eyebrow={own(section.eyebrow)} title={text(section.title, c.sectionPasses)} lead={own(section.lead)}>
             {passes}
           </EditorialSection>
         );
       case "exhibitors":
         return (
-          <EditorialSection id={anchor} headingId={headingId} eyebrow={own(section.eyebrow)} title={text(section.title, c.sectionExhibition)} lead={own(section.lead)}>
+          <EditorialSection id={anchor} align={align} headingId={headingId} eyebrow={own(section.eyebrow)} title={text(section.title, c.sectionExhibition)} lead={own(section.lead)}>
             <BoothIndex key={event.slug} slug={event.slug} locale={locale} booths={booths} />
           </EditorialSection>
         );
@@ -187,7 +267,7 @@ export function CongressPage({ event, doc, images, locale, passes, booths, mode 
           <EditorialSection
             id={anchor}
             headingId={headingId}
-            align={section.layout === "centered" ? "center" : "start"}
+            align={section.layout === "centered" ? "center" : align}
             eyebrow={own(section.eyebrow)}
             title={<Bidi text={title} />}
           >
@@ -196,37 +276,43 @@ export function CongressPage({ event, doc, images, locale, passes, booths, mode 
         );
       }
       case "image_text": {
-        const title = localized(section.title, locale);
-        const eyebrow = localized(section.eyebrow, locale);
-        const heading = title ? (
-          <div className="space-y-2">
-            {eyebrow && <p className="text-meta font-semibold text-text-muted"><Bidi text={eyebrow} /></p>}
-            <h2 id={headingId} className="text-title font-bold text-text-primary sm:text-title-lg">
-              <Bidi text={title} />
-            </h2>
-          </div>
-        ) : null;
+        const heading = sideHeading();
         return (
-          <section id={anchor} aria-labelledby={title ? headingId : undefined} aria-label={title ? undefined : c.sectionInformation} className="scroll-mt-24">
+          <section id={anchor} aria-labelledby={heading ? headingId : undefined} aria-label={heading ? undefined : c.sectionInformation} className="scroll-mt-24">
             <ImageTextBlock section={section} locale={locale} images={images} heading={heading} />
           </section>
         );
       }
+      case "columns":
+        return framed(<ColumnsBlock section={section} locale={locale} images={images} />);
+      case "video": {
+        if (section.layout === "full") return framed(<VideoBlock section={section} locale={locale} images={images} />);
+        const heading = sideHeading();
+        return (
+          <section id={anchor} aria-labelledby={heading ? headingId : undefined} aria-label={heading ? undefined : c.sectionVideo} className="scroll-mt-24">
+            <VideoBlock section={section} locale={locale} images={images} heading={heading} />
+          </section>
+        );
+      }
+      case "gallery":
+        return framed(<GalleryBlock section={section} locale={locale} images={images} />);
+      case "links":
+        return framed(<LinksBlock section={section} locale={locale} />, { fallback: c.sectionLinks, lead: own(section.lead) });
       case "faq":
         return (
-          <EditorialSection id={anchor} headingId={headingId} eyebrow={own(section.eyebrow)} title={text(section.title, c.sectionFaq)}>
+          <EditorialSection id={anchor} align={align} headingId={headingId} eyebrow={own(section.eyebrow)} title={text(section.title, c.sectionFaq)}>
             <FaqBlock section={section} locale={locale} />
           </EditorialSection>
         );
       case "speakers":
         return (
-          <EditorialSection id={anchor} headingId={headingId} eyebrow={own(section.eyebrow)} title={text(section.title, c.sectionSpeakers)} lead={own(section.lead)}>
+          <EditorialSection id={anchor} align={align} headingId={headingId} eyebrow={own(section.eyebrow)} title={text(section.title, c.sectionSpeakers)} lead={own(section.lead)}>
             <SpeakersBlock section={section} locale={locale} images={images} />
           </EditorialSection>
         );
       case "agenda":
         return (
-          <EditorialSection id={anchor} headingId={headingId} eyebrow={own(section.eyebrow)} title={text(section.title, c.sectionAgenda)} lead={own(section.lead)}>
+          <EditorialSection id={anchor} align={align} headingId={headingId} eyebrow={own(section.eyebrow)} title={text(section.title, c.sectionAgenda)} lead={own(section.lead)}>
             <AgendaBlock section={section} locale={locale} />
           </EditorialSection>
         );
@@ -244,7 +330,7 @@ export function CongressPage({ event, doc, images, locale, passes, booths, mode 
         now={now}
         locale={locale}
         hero={doc.hero}
-        accent={doc.branding.accent}
+        accent={accentOf(doc.branding)}
         images={images}
         logo={logo}
         showPasses={passesVisible}
@@ -259,7 +345,7 @@ export function CongressPage({ event, doc, images, locale, passes, booths, mode 
             .map((section) => (
               <Fragment key={section.id}>
                 {section.id === passesSectionId && programAndVenue()}
-                {render(section)}
+                <StyledRender section={section} render={render} />
               </Fragment>
             ))}
           {!passesSectionId && programAndVenue()}

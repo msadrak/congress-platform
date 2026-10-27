@@ -15,7 +15,7 @@ import { attendeeResponseState, isStoredAttendeeToken } from "../lib/attendeeSes
 import { useAttendeeSession } from "../hooks/useAttendeeSession";
 import { errorMessages, isTierUnavailable, networkErrorMessage } from "../lib/errorMessages";
 import { PublicLayout } from "../layouts/PublicLayout";
-import { isSectionVisible, normalizeDocument, standardDocument, type PageImages } from "../lib/pageDocument";
+import { accentOf, isSectionVisible, normalizeDocument, standardDocument, type PageImages } from "../lib/pageDocument";
 import { usePageMeta } from "../lib/pageMeta";
 import { Button, LinkButton } from "../components/ui/Button";
 import { Dialog } from "../components/ui/Dialog";
@@ -307,7 +307,7 @@ export default function PublicEvent() {
   const logo = doc.branding.logo_asset_id ? images[doc.branding.logo_asset_id] ?? null : null;
 
   return (
-    <PublicLayout locale={locale} onLocaleChange={setLocale} congressName={event.name} brand={{ accent: doc.branding.accent, logo }}>
+    <PublicLayout locale={locale} onLocaleChange={setLocale} congressName={event.name} brand={{ accent: accentOf(doc.branding), logo }}>
       <CongressPage
         event={event}
         doc={doc}

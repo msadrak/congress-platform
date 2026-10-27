@@ -1,6 +1,5 @@
 import { useId, useMemo } from "react";
-import { eventAccent, seededRandom } from "../../lib/eventAccent";
-import type { AccentName } from "../../lib/pageDocument";
+import { eventAccent, seededRandom, type AccentSpec } from "../../lib/eventAccent";
 
 interface CongressSignatureProps {
   /** Congress slug (or any stable id); the same seed always draws the same artwork. */
@@ -9,7 +8,7 @@ interface CongressSignatureProps {
   /** Draw the arcs in on mount (disabled automatically under prefers-reduced-motion). */
   animate?: boolean;
   /** Accent chosen in Page Studio; "auto"/absent derives it from the seed. */
-  accent?: AccentName | "auto";
+  accent?: AccentSpec;
   className?: string;
 }
 

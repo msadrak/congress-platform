@@ -10,7 +10,7 @@ import { Icon } from "../components/ui/Icon";
 import { organizerProgramCopy } from "../copy/organizerProgram";
 import { eventAccentStyle } from "../lib/eventAccent";
 import type { AttendeeLocale } from "../lib/i18n";
-import { normalizeDocument } from "../lib/pageDocument";
+import { accentOf, normalizeDocument } from "../lib/pageDocument";
 import { useOrganizerImages } from "../lib/pageMedia";
 import { usePageTitle } from "../hooks/usePageTitle";
 import "../styles/attendee.css";
@@ -223,7 +223,7 @@ export function OrganizerPanelFrame() {
     <div
       dir={locale === "en" ? "ltr" : "rtl"}
       lang={locale}
-      style={eventAccentStyle(slug, doc.branding.accent)}
+      style={eventAccentStyle(slug, accentOf(doc.branding))}
       onClickCapture={keepInside}
       data-testid="panel-preview"
       className="at-shell min-h-dvh bg-surface-page pb-16 font-sans text-start text-text-primary"
