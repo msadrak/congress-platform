@@ -580,6 +580,6 @@ The full hosted procedure is in [`HOSTED_STAGING_READINESS.md`](HOSTED_STAGING_R
 - **Several API workers** (`CONGRESS_API_WORKERS`) were load-tested on a laptop only (1 and 4 workers, `scripts/load/README.md`); what stays per worker is listed under [Scaling](#scaling). Re-run the load scenarios on the real server before choosing more than one.
 - **Untested for real:** ACME issuance on the real domain, a real S3 provider (drills used a stand-in), systemd timers on Linux, a Sentry/GlitchTip endpoint, Telegram delivery (or a relay) from Iran.
 - **Caddy runs as root** inside its container (official image); the API runs as uid 10001.
-- **CSP** allows `'unsafe-inline'` styles (React style attributes); scripts are `'self'` only.
+- **CSP** allows `'unsafe-inline'` styles (React style attributes); scripts are `'self'` only, plus `'wasm-unsafe-eval'` for the camera scanners' QR engine (ZXing WebAssembly, served from `/assets` and precached; without it the camera falls back to the weaker jsQR).
 - **Local CA:** test browsers that do not trust it use the `http://localhost` listener. Real certificates remove this split.
 - **Images** have a single rendition (≤ 2400 px). A CDN (ParsPack) in front is supported ([`CDN.md`](CDN.md), [`CDN_CACHE_RULES.md`](CDN_CACHE_RULES.md)).

@@ -7,7 +7,6 @@ import { useAppUpdate } from "../hooks/useAppUpdate";
 import { playErrorBuzz, playSuccessChime, playProvisionalChime, warmUpAudio } from "../lib/audioFeedback";
 import { useLocale } from "../lib/i18n";
 import { canPromptInstall, isIosInstallBrowser, promptInstall, subscribeInstallPrompt } from "../lib/installPrompt";
-import jsQR from "jsqr";
 import {
   evaluateOfflineAuthorization,
   getJwtExpiryIso,
@@ -15,6 +14,8 @@ import {
   type OfflineAuthVerdict,
 } from "../lib/scannerAuthPolicy";
 import { hidCharacter, normalizeScannedCode, qrHash } from "../lib/scannerInput";
+import { createQrFrameDecoder } from "../lib/qrFrameDecoder";
+import { canSwitchCamera, chooseNextCamera, hasTorch, openScannerCamera, setTorch } from "../lib/scannerCamera";
 import { HEARTBEAT_MS, MANIFEST_POLL_MS, mergeManifest, upgradeLegacyManifest } from "../lib/scannerManifest";
 import { SCANNER_APP_VERSION } from "../lib/appBuild";
 import {
@@ -78,14 +79,6 @@ import { ConflictDrawer } from "../components/scanner/ConflictDrawer";
 import { DirectionToggle } from "../components/scanner/DirectionToggle";
 import { PairingPanel } from "../components/scanner/PairingPanel";
 import "../styles/scanner.css";
-
-interface BarcodeDetectorInstance {
-  detect(source: HTMLVideoElement | ImageBitmapSource): Promise<Array<{ rawValue: string }>>;
-}
-
-interface WindowWithBarcodeDetector extends Window {
-  BarcodeDetector?: new (options?: { formats: string[] }) => BarcodeDetectorInstance;
-}
 
 /** Longest pause between heartbeats after failures. */
 const HEARTBEAT_MAX_BACKOFF_MS = 15 * 60_000;
@@ -426,6 +419,9 @@ export default function GateScanner() {
   // Camera state
   const [cameraActive, setCameraActive] = useState(false);
   const [cameraError, setCameraError] = useState<"cameraBlocked" | "cameraNotFound" | "cameraUnavailable" | "cameraInsecure" | null>(null);
+  // null: the camera has no light the page can switch.
+  const [torchOn, setTorchOn] = useState<boolean | null>(null);
+  const [cameraSwitchable, setCameraSwitchable] = useState(false);
 
   // Audio mute state
   const [soundEnabled, setSoundEnabled] = useState(true);
@@ -1134,7 +1130,7 @@ export default function GateScanner() {
   };
 
 
-  // 5. Mobile / Desktop Camera Detection Loop (Dual Native & jsQR fallback)
+  // 5. Mobile / Desktop Camera Detection Loop (native detector, ZXing and jsQR: lib/qrFrameDecoder)
   // The operator's camera choice is remembered per point, so a reload or the next shift starts the camera again.
   const rememberCamera = (on: boolean) => {
     if (!pointId) return;
@@ -1167,15 +1163,10 @@ export default function GateScanner() {
     }
     releaseCamera();
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: { ideal: "environment" },
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-        },
-        audio: false,
-      });
+      const stream = await openScannerCamera();
       streamRef.current = stream;
+      setTorchOn(hasTorch(stream) ? false : null);
+      void canSwitchCamera().then(setCameraSwitchable);
       // A locked screen or another app can end the track; it comes back when the page is visible again.
       stream.getVideoTracks().forEach((track) =>
         track.addEventListener("ended", () => {
@@ -1212,29 +1203,21 @@ export default function GateScanner() {
     rememberCamera(false);
   };
 
+  const switchCamera = async () => {
+    if (await chooseNextCamera(streamRef.current)) await startCamera();
+  };
+
+  const toggleTorch = async () => {
+    if (torchOn === null) return;
+    if (await setTorch(streamRef.current, !torchOn)) setTorchOn(!torchOn);
+  };
+
   const startDetectionLoop = () => {
     // One loop at a time: a restarted camera ends the loop of the stream before it.
     const loop = ++detectionLoopRef.current;
     detectionActiveRef.current = true;
     const running = () => detectionActiveRef.current && loop === detectionLoopRef.current;
-    const win = window as WindowWithBarcodeDetector;
-
-    let nativeDetector: BarcodeDetectorInstance | null = null;
-    if (typeof win.BarcodeDetector !== "undefined") {
-      try {
-        nativeDetector = new win.BarcodeDetector({ formats: ["qr_code"] });
-      } catch {
-        nativeDetector = null;
-      }
-    }
-
-    // In-memory canvas fallback for jsQR when native BarcodeDetector is unavailable
-    let canvas: HTMLCanvasElement | null = null;
-    let ctx: CanvasRenderingContext2D | null = null;
-    if (!nativeDetector) {
-      canvas = document.createElement("canvas");
-      ctx = canvas.getContext("2d", { willReadFrequently: true });
-    }
+    const decoder = createQrFrameDecoder();
 
     const checkFrame = async () => {
       if (!running()) return;
@@ -1250,29 +1233,8 @@ export default function GateScanner() {
       // Frames keep being read while a verdict is up: a re-read of the same badge is dropped below and in
       // processScannedCode, and a different badge replaces the verdict at once.
       try {
-        let detectedValue: string | null = null;
-
-        if (nativeDetector) {
-          const codes = await nativeDetector.detect(video);
-          if (codes && codes.length > 0 && codes[0].rawValue) {
-            detectedValue = codes[0].rawValue;
-          }
-        } else if (canvas && ctx) {
-          const width = video.videoWidth;
-          const height = video.videoHeight;
-          if (canvas.width !== width || canvas.height !== height) {
-            canvas.width = width;
-            canvas.height = height;
-          }
-          ctx.drawImage(video, 0, 0, width, height);
-          const imgData = ctx.getImageData(0, 0, width, height);
-          const decoded = jsQR(imgData.data, width, height, {
-            inversionAttempts: "dontInvert",
-          });
-          if (decoded && decoded.data) {
-            detectedValue = decoded.data;
-          }
-        }
+        const detectedValue = await decoder.decode(video);
+        if (!running()) return;
 
         if (detectedValue) {
           const normalized = normalizeScannedCode(detectedValue);
@@ -1608,6 +1570,9 @@ export default function GateScanner() {
             cameraError={cameraError ? copy[cameraError] : null}
             onStartCamera={() => void startCamera()}
             onStopCamera={stopCamera}
+            onSwitchCamera={cameraSwitchable ? () => void switchCamera() : undefined}
+            torchOn={torchOn}
+            onToggleTorch={() => void toggleTorch()}
             copy={copy}
           >
             {activeResult && <ScanVerdict key={verdictKey} result={activeResult} locale={locale} copy={copy} />}

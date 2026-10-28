@@ -4,6 +4,9 @@ import type { CopyShape } from "./useCopy";
 const fa = {
   turnOn: "روشن کردن دوربین",
   turnOff: "خاموش کردن دوربین",
+  switchCamera: "دوربین بعدی",
+  torchOn: "روشن کردن چراغ‌قوه",
+  torchOff: "خاموش کردن چراغ‌قوه",
   preview: "پیش‌نمایش دوربین",
   starting: "در انتظار اجازهٔ دوربین…",
   live: "کد QR کارت ورود را جلوی دوربین بگیرید.",
@@ -14,6 +17,9 @@ const fa = {
 const en: CopyShape<typeof fa> = {
   turnOn: "Turn on camera",
   turnOff: "Turn off camera",
+  switchCamera: "Next camera",
+  torchOn: "Turn on flashlight",
+  torchOff: "Turn off flashlight",
   preview: "Camera preview",
   starting: "Waiting for camera permission…",
   live: "Hold the pass QR code in front of the camera.",

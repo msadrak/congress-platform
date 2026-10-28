@@ -1,6 +1,6 @@
 import type { ReactNode, RefObject } from "react";
 import type { ScannerCopy } from "../../copy/scanner";
-import { Button } from "../ui/Button";
+import { Button, IconButton } from "../ui/Button";
 import { Icon } from "../ui/Icon";
 
 interface ViewfinderProps {
@@ -9,13 +9,18 @@ interface ViewfinderProps {
   cameraError: string | null;
   onStartCamera: () => void;
   onStopCamera: () => void;
+  /** Left out when the device has a single camera. */
+  onSwitchCamera?: () => void;
+  /** null when the camera has no light the page can switch. */
+  torchOn?: boolean | null;
+  onToggleTorch?: () => void;
   copy: ScannerCopy;
   /** The verdict, laid over everything inside the stage. */
   children?: ReactNode;
 }
 
 /** The scanning stage: fills the space it is given; camera preview or the ready state, and the verdict surface. */
-export function Viewfinder({ videoRef, cameraActive, cameraError, onStartCamera, onStopCamera, copy, children }: ViewfinderProps) {
+export function Viewfinder({ videoRef, cameraActive, cameraError, onStartCamera, onStopCamera, onSwitchCamera, torchOn = null, onToggleTorch, copy, children }: ViewfinderProps) {
   return (
     <section className="scanner-stage" aria-label={copy.ready}>
       {/* Always mounted, so the camera can attach to it at any time. */}
@@ -33,13 +38,27 @@ export function Viewfinder({ videoRef, cameraActive, cameraError, onStartCamera,
             <div className="scanner-camera-window" />
           </div>
           <div className="absolute inset-x-3 bottom-3 z-10 flex items-center justify-between gap-3 rounded-control bg-surface-ink/85 py-1 ps-3 pe-1 text-body-sm">
-            <span className="inline-flex items-center gap-2 text-ink-100">
+            <span className="inline-flex items-center gap-2 whitespace-nowrap text-ink-100">
               <span aria-hidden="true" className="size-2 rounded-full bg-status-success-solid" />
-              {copy.cameraLive}
+              {/* A phone has no room for it beside the camera buttons; the preview itself says the camera is on. */}
+              <span className="max-sm:sr-only">{copy.cameraLive}</span>
             </span>
-            <Button type="button" variant="ghost" tone="ink" icon="x" onClick={onStopCamera}>
-              {copy.cameraOff}
-            </Button>
+            <span className="flex shrink-0 items-center">
+              {torchOn !== null && onToggleTorch && (
+                <IconButton
+                  icon="flashlight"
+                  tone="ink"
+                  label={torchOn ? copy.torchOff : copy.torchOn}
+                  aria-pressed={torchOn}
+                  className="aria-pressed:bg-status-warning-solid aria-pressed:text-black"
+                  onClick={onToggleTorch}
+                />
+              )}
+              {onSwitchCamera && <IconButton icon="camera-switch" tone="ink" label={copy.switchCamera} onClick={onSwitchCamera} />}
+              <Button type="button" variant="ghost" tone="ink" icon="x" onClick={onStopCamera}>
+                <span className="max-[359px]:sr-only">{copy.cameraOff}</span>
+              </Button>
+            </span>
           </div>
         </>
       ) : (

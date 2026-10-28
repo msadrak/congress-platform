@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { expectScannerOnline, gateScreen, manualScan, verdictTitle, wireManifest, type FixtureTicket } from './scannerFixtures';
@@ -5,7 +6,8 @@ import { expectScannerOnline, gateScreen, manualScan, verdictTitle, wireManifest
 /**
  * The scanner's screen (docs/ux-review/ops/SPEC.md §3.1–3.2, WP-D): one screen without page scroll on a phone and a
  * kiosk, verdicts readable at arm's length, Persian digits, unpair only in the menu, pairing by scanning the pairing
- * QR code inside the app, the wake lock, and the remembered camera that restarts after the screen locks.
+ * QR code inside the app, the wake lock, the remembered camera that restarts after the screen locks, and the camera
+ * reading codes on any phone (the ZXing engine under the deployed CSP, the main lens, next camera, flashlight).
  *
  * Synthetic, intercepted /api/ responses.
  */
@@ -191,4 +193,129 @@ test('the camera choice is remembered per point, and a camera killed by a locked
   // Turned off by the operator: not started again next time.
   await page.getByRole('button', { name: 'Turn off camera' }).click();
   expect(await page.evaluate((p) => localStorage.getItem(`congress_scanner_camera_${p}`), POINT)).toBeNull();
+});
+
+/** SARA's pass as QR modules (version 1, level M; `#` dark). */
+const SARA_QR = [
+  '#######.#.##..#######',
+  '#.....#.##..#.#.....#',
+  '#.###.#...#...#.###.#',
+  '#.###.#.#####.#.###.#',
+  '#.###.#....#..#.###.#',
+  '#.....#...###.#.....#',
+  '#######.#.#.#.#######',
+  '........#..##........',
+  '#.##.###..###.#..#.##',
+  '.##.#....##.#...###.#',
+  '#..##.####.#..#....##',
+  '.##..#...###.#.###..#',
+  '..#..####...####.....',
+  '........##..#.#.##.#.',
+  '#######.#.#..#.####..',
+  '#.....#.##..#..#####.',
+  '#.###.#..###.#....##.',
+  '#.###.#.##.###.#...#.',
+  '#.###.#.##..#....#...',
+  '#.....#..#.#..##....#',
+  '#######.#.#...#.#.#..',
+];
+
+/** The Content-Security-Policy the deployed site sends (deploy/staging/Caddyfile). */
+function deployedCsp(): string {
+  const caddyfile = readFileSync(new URL('../../deploy/staging/Caddyfile', import.meta.url), 'utf8');
+  const policy = /\?Content-Security-Policy "([^"]+)"/.exec(caddyfile)?.[1];
+  if (!policy) throw new Error('no Content-Security-Policy in the Caddyfile');
+  return policy;
+}
+
+test.describe('the camera reads codes on any phone', () => {
+  // Pages and the QR worker go through the route below (a service worker would answer them past it).
+  test.use({ serviceWorkers: 'block' });
+
+  test('fa: a phone whose native detector reads nothing still scans, with ZXing under the deployed CSP', async ({ page }) => {
+    const csp = deployedCsp();
+    await page.route('**/*', async (route) => {
+      if (new URL(route.request().url()).pathname.startsWith('/api/')) return route.fallback();
+      const response = await route.fetch();
+      await route.fulfill({ response, headers: { ...response.headers(), 'content-security-policy': csp } });
+    });
+    // Android Chrome without the Play services barcode module: QR "supported", nothing ever found. The pass is
+    // drawn light on dark, which jsQR (set not to invert) cannot read, so the verdict proves ZXing ran.
+    await page.addInitScript((rows) => {
+      const win: Window & { BarcodeDetector?: unknown } = window;
+      win.BarcodeDetector = class {
+        static async getSupportedFormats() { return ['qr_code']; }
+        async detect() { return []; }
+      };
+      navigator.mediaDevices.getUserMedia = async () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = 640; canvas.height = 480;
+        const ctx = canvas.getContext('2d');
+        const cell = 10;
+        const x0 = (640 - rows.length * cell) / 2;
+        const y0 = (480 - rows.length * cell) / 2;
+        const paint = () => {
+          if (ctx) {
+            ctx.fillStyle = '#000';
+            ctx.fillRect(0, 0, 640, 480);
+            ctx.fillStyle = '#fff';
+            rows.forEach((row, r) => [...row].forEach((module, c) => { if (module === '#') ctx.fillRect(x0 + c * cell, y0 + r * cell, cell, cell); }));
+          }
+          requestAnimationFrame(paint);
+        };
+        paint();
+        return canvas.captureStream(15);
+      };
+    }, SARA_QR);
+    await openScanner(page, 'fa');
+    await page.getByRole('button', { name: 'روشن کردن دوربین' }).click();
+    await expect(verdictTitle(page)).toHaveText('مجاز', { timeout: 15000 });
+    await expect(page.getByTestId('scanner-verdict')).toContainText(SARA.attendee_name);
+  });
+
+  test('fa: the main rear lens opens first, the next camera is remembered, and the flashlight switches', async ({ page }) => {
+    await page.addInitScript(() => {
+      const win: Window & { __opened?: string[]; __torch?: boolean[] } = window;
+      win.__opened = [];
+      win.__torch = [];
+      const device = (deviceId: string, label: string) => ({ deviceId, label, kind: 'videoinput', groupId: '', toJSON() { return this; } }) as MediaDeviceInfo;
+      // An Android phone: the ultra-wide lens is listed first, the main one is camera2 0.
+      navigator.mediaDevices.enumerateDevices = async () => [
+        device('ultrawide', 'camera2 2, facing back'),
+        device('main', 'camera2 0, facing back'),
+        device('front', 'camera2 1, facing front'),
+      ];
+      navigator.mediaDevices.getUserMedia = async (constraints) => {
+        const asked = (constraints?.video as MediaTrackConstraints | undefined)?.deviceId as { exact?: string } | undefined;
+        const id = asked?.exact ?? 'ultrawide';
+        win.__opened?.push(id);
+        const canvas = document.createElement('canvas');
+        canvas.width = 64; canvas.height = 64;
+        const ctx = canvas.getContext('2d');
+        const paint = () => { ctx?.fillRect(0, 0, 64, 64); requestAnimationFrame(paint); };
+        paint();
+        const stream = canvas.captureStream(15);
+        const track = stream.getVideoTracks()[0];
+        track.getSettings = () => ({ deviceId: id });
+        track.getCapabilities = () => ({ torch: true }) as MediaTrackCapabilities;
+        track.applyConstraints = async (applied) => {
+          const torch = (applied?.advanced?.[0] as { torch?: boolean } | undefined)?.torch;
+          if (torch !== undefined) win.__torch?.push(torch);
+        };
+        return stream;
+      };
+    });
+    const opened = () => page.evaluate(() => (window as Window & { __opened?: string[] }).__opened ?? []);
+    await openScanner(page, 'fa');
+    await page.getByRole('button', { name: 'روشن کردن دوربین' }).click();
+    await expect.poll(opened).toEqual(['main']);
+
+    await page.getByRole('button', { name: 'دوربین بعدی' }).click();
+    await expect.poll(opened).toEqual(['main', 'front']);
+    expect(await page.evaluate(() => localStorage.getItem('congress_camera_device'))).toBe('front');
+
+    await page.getByRole('button', { name: 'روشن کردن چراغ‌قوه' }).click();
+    await expect(page.getByRole('button', { name: 'خاموش کردن چراغ‌قوه' })).toHaveAttribute('aria-pressed', 'true');
+    expect(await page.evaluate(() => (window as Window & { __torch?: boolean[] }).__torch)).toEqual([true]);
+  });
 });

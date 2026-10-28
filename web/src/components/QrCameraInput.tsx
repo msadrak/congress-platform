@@ -1,19 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import jsQR from "jsqr";
 import { createRepeatFilter } from "../hooks/useHidScanner";
 import { cameraCopy } from "../copy/camera";
 import { useCopy } from "../copy/useCopy";
+import { createQrFrameDecoder } from "../lib/qrFrameDecoder";
+import { canSwitchCamera, chooseNextCamera, hasTorch, openScannerCamera, setTorch } from "../lib/scannerCamera";
 import type { AttendeeLocale } from "../lib/i18n";
-import { Button } from "./ui/Button";
+import { Button, IconButton } from "./ui/Button";
 import { Icon } from "./ui/Icon";
 import "../styles/qr-camera.css";
-
-interface BarcodeDetectorInstance {
-  detect(source: CanvasImageSource): Promise<{ rawValue?: string }[]>;
-}
-interface WindowWithBarcodeDetector extends Window {
-  BarcodeDetector?: new (options?: { formats: string[] }) => BarcodeDetectorInstance;
-}
 
 type CameraState = "off" | "starting" | "live" | "denied" | "unavailable";
 
@@ -48,7 +42,7 @@ async function cameraPermissionGranted(): Promise<boolean> {
 
 /**
  * Opt-in camera input. Requests permission only after the user presses the button, decodes with
- * the native BarcodeDetector or jsQR, hands exactly one value to the caller and releases the
+ * every engine the device has (lib/qrFrameDecoder), hands exactly one value to the caller and releases the
  * camera. Every exit path (decode, stop, unmount, `disabled`) stops all media tracks, including a
  * stream that resolves late. Manual entry elsewhere stays available for every failure. Shared by
  * the exhibitor lead capture and attendee peer networking (both scan an attendee badge QR).
@@ -59,6 +53,9 @@ export function QrCameraInput({ onDecode, locale, disabled = false, autoStart = 
   const streamRef = useRef<MediaStream | null>(null);
   const runRef = useRef(0);
   const [state, setState] = useState<CameraState>("off");
+  // null: the camera has no light the page can switch.
+  const [torchOn, setTorchOn] = useState<boolean | null>(null);
+  const [switchable, setSwitchable] = useState(false);
   const onDecodeRef = useRef(onDecode);
   const continuousRef = useRef(continuous);
   const repeatRef = useRef(createRepeatFilter());
@@ -95,7 +92,7 @@ export function QrCameraInput({ onDecode, locale, disabled = false, autoStart = 
     setState("starting");
     let stream: MediaStream;
     try {
-      stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" } }, audio: false });
+      stream = await openScannerCamera();
     } catch (error) {
       if (run !== runRef.current) return;
       const name = error instanceof DOMException ? error.name : "";
@@ -108,6 +105,8 @@ export function QrCameraInput({ onDecode, locale, disabled = false, autoStart = 
       return;
     }
     streamRef.current = stream;
+    setTorchOn(hasTorch(stream) ? false : null);
+    void canSwitchCamera().then(setSwitchable);
     const video = videoRef.current;
     if (!video) {
       stop();
@@ -122,35 +121,16 @@ export function QrCameraInput({ onDecode, locale, disabled = false, autoStart = 
     if (run !== runRef.current) return;
     setState("live");
 
-    const Detector = (window as WindowWithBarcodeDetector).BarcodeDetector;
-    let native: BarcodeDetectorInstance | null = null;
-    try {
-      native = Detector ? new Detector({ formats: ["qr_code"] }) : null;
-    } catch {
-      native = null;
-    }
-    const canvas = native ? null : document.createElement("canvas");
-    const context = canvas ? canvas.getContext("2d", { willReadFrequently: true }) : null;
+    const decoder = createQrFrameDecoder();
 
     const tick = async () => {
       if (run !== runRef.current) return;
       const el = videoRef.current;
       if (el && el.readyState >= 2 && el.videoWidth > 0) {
         try {
-          let value: string | null = null;
-          if (native) {
-            const codes = await native.detect(el);
-            value = codes[0]?.rawValue ?? null;
-          } else if (canvas && context) {
-            canvas.width = el.videoWidth;
-            canvas.height = el.videoHeight;
-            context.drawImage(el, 0, 0, canvas.width, canvas.height);
-            const image = context.getImageData(0, 0, canvas.width, canvas.height);
-            value = jsQR(image.data, canvas.width, canvas.height, { inversionAttempts: "dontInvert" })?.data ?? null;
-          }
+          const code = await decoder.decode(el);
           if (run !== runRef.current) return;
-          if (value && value.trim()) {
-            const code = value.trim();
+          if (code) {
             if (!continuousRef.current) {
               stop();
               onDecodeRef.current(code);
@@ -165,6 +145,17 @@ export function QrCameraInput({ onDecode, locale, disabled = false, autoStart = 
       setTimeout(() => requestAnimationFrame(() => void tick()), 100);
     };
     requestAnimationFrame(() => void tick());
+  };
+
+  const switchCamera = async () => {
+    if (!(await chooseNextCamera(streamRef.current))) return;
+    release();
+    void start();
+  };
+
+  const toggleTorch = async () => {
+    if (torchOn === null) return;
+    if (await setTorch(streamRef.current, !torchOn)) setTorchOn(!torchOn);
   };
 
   // Runs on mount and whenever the camera is enabled again; a failure or denial leaves the button in place.
@@ -219,7 +210,20 @@ export function QrCameraInput({ onDecode, locale, disabled = false, autoStart = 
         {view === "live" ? (
           <>
             <span aria-hidden="true" className="qr-viewfinder__sweep pointer-events-none absolute inset-x-8 inset-y-6 motion-safe:animate-sweep" />
-            <div className="absolute inset-x-0 bottom-3 flex justify-center">{toggle}</div>
+            <div className="absolute inset-x-0 bottom-3 flex items-center justify-center gap-2">
+              {torchOn !== null && (
+                <IconButton
+                  icon="flashlight"
+                  variant="secondary"
+                  label={torchOn ? c.torchOff : c.torchOn}
+                  aria-pressed={torchOn}
+                  className="aria-pressed:bg-status-warning-solid aria-pressed:text-black"
+                  onClick={() => void toggleTorch()}
+                />
+              )}
+              {switchable && <IconButton icon="camera-switch" variant="secondary" label={c.switchCamera} onClick={() => void switchCamera()} />}
+              {toggle}
+            </div>
           </>
         ) : (
           <div className="flex min-h-[156px] flex-col items-center justify-center gap-3.5 px-5 py-6 text-center">

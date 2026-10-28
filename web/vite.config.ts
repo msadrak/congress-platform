@@ -30,9 +30,10 @@ export default defineConfig({
     tailwindcss(),
     VitePWA({
       registerType: 'prompt',
-      // Only precache the app shell (including self-hosted fonts); never cache API responses or bearer tokens
+      // Only precache the app shell (including self-hosted fonts and the scanners' QR engine, wasm); never cache
+      // API responses or bearer tokens
       workbox: {
-        globPatterns: ['**/*.{js,css,html,svg,png,ico,woff2}'],
+        globPatterns: ['**/*.{js,css,html,svg,png,ico,woff2,wasm}'],
         // Client-side SPA routes: serve index.html for all navigation requests
         // that don't match a precached file (enables offline /scan/:pointId)
         navigateFallback: '/index.html',
