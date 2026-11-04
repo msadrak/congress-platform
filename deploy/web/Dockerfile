@@ -3,7 +3,7 @@
 # HTTPS and reverse-proxies /api to the API container. Build context: repository root.
 
 # AWS ECR Public copy of Docker Library — docker.io CloudFront often returns 403 via bastion SOCKS.
-FROM public.ecr.aws/docker/library/node:24-bookworm-slim AS build
+FROM public.ecr.aws/docker/library/node:26-bookworm-slim AS build
 WORKDIR /web
 COPY web/package.json web/package-lock.json ./
 ARG HTTP_PROXY
