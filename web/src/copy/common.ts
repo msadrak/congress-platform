@@ -1,0 +1,116 @@
+import type { CopyShape } from "./useCopy";
+
+/*
+ * Strings every area shares (docs/ux-review/copy/SPEC.md §4.1). Areas import these instead of typing them again;
+ * an area that needs another shared string adds it to its own module. Terms: GLOSSARY.md "Persian UI terms".
+ */
+const fa = {
+  save: "ذخیره",
+  saving: "در حال ذخیره…",
+  saved: "ذخیره شد.",
+  add: "افزودن",
+  cancel: "انصراف",
+  close: "بستن",
+  dismissMessage: "بستن پیام",
+  delete: "حذف",
+  edit: "ویرایش",
+  back: "بازگشت",
+  retry: "تلاش دوباره",
+  /** The new-version offer (`components/AppUpdatePrompt.tsx`). */
+  updateReady: "نسخهٔ تازه آماده است.",
+  update: "به‌روزرسانی",
+  later: "بعداً",
+  /** The platform credit (`components/brand/Aiteb.tsx`). */
+  creditLead: "طراحی و توسعه توسط",
+  opensInNewTab: "(در زبانه جدید باز می‌شود)",
+  loading: "در حال بارگذاری…",
+  loadFailed: (thing: string) => `${thing} بارگذاری نشد.`,
+  /** No response at all (offline, DNS, connection reset). */
+  network: "اتصال برقرار نشد. اینترنت را بررسی کنید و دوباره تلاش کنید.",
+  /** Any failure without a message of its own. */
+  generic: "انجام نشد. دوباره تلاش کنید.",
+  search: "جستجو",
+  clearSearch: "پاک کردن جستجو",
+  copy: "کپی",
+  copied: "کپی شد",
+  exportCsv: "خروجی اکسل",
+  exporting: "در حال آماده‌سازی…",
+  /** Label suffix. */
+  optional: "(اختیاری)",
+  mobileInvalid: "شمارهٔ موبایل درست نیست؛ مثلاً ۰۹۱۲ ۳۴۵ ۶۷۸۹.",
+  sessionEnded: "زمان ورود شما تمام شده است. دوباره وارد شوید.",
+  /** The language switch names the other language, in that language (render it with `lang` set to it). */
+  languageToggle: "English",
+  /** Status chips (§3.4): the only words a status chip uses. */
+  status: {
+    active: "فعال",
+    cancelled: "لغوشده",
+    archived: "بایگانی‌شده",
+    open: "باز",
+    closed: "بسته",
+    full: "ظرفیت تکمیل",
+    notOpenYet: "هنوز باز نشده",
+    ended: "مهلت تمام شد",
+    published: "منتشرشده",
+    unpublished: "منتشرنشده",
+    admitted: "پذیرفته شد",
+    rejected: "رد شد",
+    waitingToSend: "در صف ارسال",
+    online: "آنلاین",
+    offline: "آفلاین",
+    accessRemoved: "دسترسی لغو شده",
+  },
+} as const;
+
+const en: CopyShape<typeof fa> = {
+  save: "Save",
+  saving: "Saving…",
+  saved: "Saved.",
+  add: "Add",
+  cancel: "Cancel",
+  close: "Close",
+  dismissMessage: "Dismiss",
+  delete: "Delete",
+  edit: "Edit",
+  back: "Back",
+  retry: "Try again",
+  updateReady: "A new version is ready.",
+  update: "Update",
+  later: "Later",
+  creditLead: "Designed & developed by",
+  opensInNewTab: "(opens in a new tab)",
+  loading: "Loading…",
+  loadFailed: (thing: string) => `Couldn't load ${thing}.`,
+  network: "Can't connect. Check your internet and try again.",
+  generic: "That didn't work. Try again.",
+  search: "Search",
+  clearSearch: "Clear search",
+  copy: "Copy",
+  copied: "Copied",
+  exportCsv: "Export CSV",
+  exporting: "Preparing…",
+  optional: "(optional)",
+  mobileInvalid: "Enter a valid mobile number, e.g. 0912 345 6789.",
+  sessionEnded: "You've been signed out. Sign in again.",
+  languageToggle: "فارسی",
+  status: {
+    active: "Active",
+    cancelled: "Cancelled",
+    archived: "Archived",
+    open: "Open",
+    closed: "Closed",
+    full: "Full",
+    notOpenYet: "Not open yet",
+    ended: "Ended",
+    published: "Published",
+    unpublished: "Not published",
+    admitted: "Admitted",
+    rejected: "Rejected",
+    waitingToSend: "Waiting to send",
+    online: "Online",
+    offline: "Offline",
+    accessRemoved: "Access removed",
+  },
+};
+
+export const commonCopy = { fa, en };

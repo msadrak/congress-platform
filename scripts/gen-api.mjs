@@ -7,31 +7,36 @@
  *
  * Run it after any change to a backend route, request or response model; CI and scripts/check.*
  * run --check. No database or server is needed: the app is built in development mode with throwaway
- * secrets only to read its schema.
+ * secrets only to read its schema. Without uv on PATH the schema is read inside the backend test-runner image
+ * (scripts/lib/backend-image.mjs, built on first use) with backend/ mounted read-only and no network.
  */
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { ensureBackendTestImage } from './lib/backend-image.mjs';
 import { run } from './lib/process.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const target = resolve(root, 'web/src/api/schema.d.ts');
 const check = process.argv.includes('--check');
 
-const schema = run(
-  'uv',
-  ['run', '--quiet', 'python', '-c', 'import json, sys\nfrom app.main import create_app_from_env\njson.dump(create_app_from_env().openapi(), sys.stdout)'],
-  {
-    cwd: resolve(root, 'backend'),
-    env: {
-      CONGRESS_ENVIRONMENT: 'development',
-      CONGRESS_PLATFORM_ADMIN_TOKEN: 'schema-export',
-      CONGRESS_JWT_SECRET: 'schema-export-only-secret-0123456789abcdef',
-      PYTHONUTF8: '1',
-    },
-  },
-).stdout;
+const EXPORT_SCHEMA = 'import json, sys\nfrom app.main import create_app_from_env\njson.dump(create_app_from_env().openapi(), sys.stdout)';
+const exportEnv = {
+  CONGRESS_ENVIRONMENT: 'development',
+  CONGRESS_PLATFORM_ADMIN_TOKEN: 'schema-export',
+  CONGRESS_JWT_SECRET: 'schema-export-only-secret-0123456789abcdef',
+  PYTHONUTF8: '1',
+};
+const hasUv = run('uv', ['--version'], { allowFail: true }).status === 0;
+
+const schema = hasUv
+  ? run('uv', ['run', '--quiet', 'python', '-c', EXPORT_SCHEMA], { cwd: resolve(root, 'backend'), env: exportEnv }).stdout
+  : run('docker', [
+    'run', '--rm', '--network', 'none', '-v', `${resolve(root, 'backend')}:/src:ro`, '-w', '/src',
+    ...Object.entries(exportEnv).flatMap(([name, value]) => ['-e', `${name}=${value}`]),
+    ensureBackendTestImage(), '/app/.venv/bin/python', '-c', EXPORT_SCHEMA,
+  ]).stdout;
 
 const dir = mkdtempSync(join(tmpdir(), 'congress-openapi-'));
 try {

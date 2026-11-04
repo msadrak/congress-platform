@@ -14,14 +14,20 @@ from typing import Literal
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.db import add_or_existing
 from app.models import SmsTemplate
 
-SmsKind = Literal["otp", "ticket_confirmation"]
+SmsKind = Literal[
+    "otp", "ticket_confirmation", "ticket_cancelled", "ticket_reissued", "staff_invite", "member_invite",
+    "operator_invite",
+]
 # Kinds an organizer may override for one event (sign-in codes are platform-wide: they belong to no event).
-EVENT_KINDS: tuple[SmsKind, ...] = ("ticket_confirmation",)
+EVENT_KINDS: tuple[SmsKind, ...] = ("ticket_confirmation", "ticket_cancelled", "ticket_reissued")
 MAX_BODY_LENGTH = 1000
 # Long names and event titles are shortened so one message never balloons into many SMS parts.
 MAX_VALUE_LENGTH = 60
+# Values inserted exactly as given: a shortened pass link ("…/my-tic…") opens no page.
+VERBATIM_PLACEHOLDERS = frozenset({"link"})
 
 _TOKEN = re.compile(r"\{([A-Za-z_]+)\}")
 
@@ -37,12 +43,44 @@ KINDS: dict[SmsKind, KindSpec] = {
     "otp": KindSpec(
         placeholders=("code", "minutes"),
         required=("code",),
-        default="کد ورود شما به سامانه همایش: {code}\nاین کد تا {minutes} دقیقه معتبر است؛ آن را به کسی ندهید.",
+        default="کد ورود همایش: {code}\nتا {minutes} دقیقه معتبر است؛ آن را به کسی ندهید.",
     ),
     "ticket_confirmation": KindSpec(
         placeholders=("name", "event", "tier", "location", "link"),
         required=(),
         default="{name} عزیز، ثبت‌نام شما در «{event}» تأیید شد.\nکارت ورود: {link}",
+    ),
+    # Ticket lifecycle (app/ticket_lifecycle.py). Placeholders are a subset of the confirmation's, so the
+    # organizer's preview and test send fill them with the same sample values.
+    "ticket_cancelled": KindSpec(
+        placeholders=("name", "event", "tier"),
+        required=(),
+        default="{name} عزیز، کارت ورود شما در «{event}» لغو شد.",
+    ),
+    "ticket_reissued": KindSpec(
+        placeholders=("name", "event", "tier", "location", "link"),
+        required=(),
+        default="{name} عزیز، کارت ورود تازهٔ شما در «{event}»:\n{link}\nکارت قبلی دیگر کار نمی‌کند.",
+    ),
+    # Booth staff invitation (app/routes/booths.py), platform-wide: {link} opens the booth portal.
+    "staff_invite": KindSpec(
+        placeholders=("name", "booth", "event", "link"),
+        required=("link",),
+        default="{name} عزیز، شما نمایندهٔ غرفهٔ «{booth}» در «{event}» هستید.\nورود: {link}",
+    ),
+    # Organizer member invitation (app/routes/organizer_console.py, ADR 0016), platform-wide: {link} opens the
+    # organizer console, where the member signs in with this number.
+    "member_invite": KindSpec(
+        placeholders=("name", "role", "organizer", "link"),
+        required=("link",),
+        default="{name} عزیز، شما با نقش «{role}» به پنل برگزارکنندهٔ «{organizer}» اضافه شدید.\nورود: {link}",
+    ),
+    # Reception desk operator invitation (app/routes/desk.py), platform-wide: {link} opens the congress's
+    # reception station (/reception/<event id>), where the operator signs in with this number.
+    "operator_invite": KindSpec(
+        placeholders=("name", "event", "link"),
+        required=("link",),
+        default="{name} عزیز، شما اپراتور میز پذیرش «{event}» هستید.\nورود: {link}",
     ),
 }
 
@@ -75,9 +113,14 @@ def _clean(value: str) -> str:
     return value if len(value) <= MAX_VALUE_LENGTH else value[: MAX_VALUE_LENGTH - 1] + "…"
 
 
+def _fill(name: str, values: dict[str, str]) -> str:
+    return values[name] if name in VERBATIM_PLACEHOLDERS else _clean(values[name])
+
+
 def render(body: str, values: dict[str, str]) -> str:
-    """Fill the placeholders; values are flattened to one line (no injected line breaks) and shortened."""
-    return _TOKEN.sub(lambda m: _clean(values[m.group(1)]) if m.group(1) in values else m.group(0), body)
+    """Fill the placeholders; values are flattened to one line (no injected line breaks) and shortened,
+    except VERBATIM_PLACEHOLDERS (the pass link), which are inserted whole."""
+    return _TOKEN.sub(lambda m: _fill(m.group(1), values) if m.group(1) in values else m.group(0), body)
 
 
 async def stored_body(session: AsyncSession, kind: SmsKind, event_id: uuid.UUID | None) -> str | None:
@@ -103,13 +146,19 @@ async def effective_body(session: AsyncSession, kind: SmsKind, event_id: uuid.UU
 
 
 async def save_body(session: AsyncSession, kind: SmsKind, event_id: uuid.UUID | None, body: str) -> None:
-    """Insert or replace the stored template (caller commits)."""
+    """Insert or replace the stored template (caller commits). Two first saves at once both succeed: the later
+    one replaces the wording the other inserted (the unique index decides who inserts)."""
     clause = SmsTemplate.event_id.is_(None) if event_id is None else SmsTemplate.event_id == event_id
-    row = await session.scalar(select(SmsTemplate).where(SmsTemplate.kind == kind, clause).with_for_update())
+    existing = select(SmsTemplate).where(SmsTemplate.kind == kind, clause).with_for_update()
+    row = await session.scalar(existing)
     if row is None:
-        session.add(SmsTemplate(kind=kind, event_id=event_id, body=body))
-    else:
-        row.body = body
+        inserted, created = await add_or_existing(
+            session, SmsTemplate(kind=kind, event_id=event_id, body=body), existing
+        )
+        if created:
+            return
+        row = inserted
+    row.body = body
 
 
 async def delete_body(session: AsyncSession, kind: SmsKind, event_id: uuid.UUID | None) -> None:

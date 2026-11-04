@@ -11,8 +11,8 @@ const bearer = (token: string) => `Bearer ${token}`;
 const eventName = (id: string) => `Fixture ${id}`;
 const tier = { id: 'tier-1', name: 'General', description: '', quota: 100, reserved_count: 0, is_open: true };
 const meOf = (id: string, auth: string | undefined) => auth === bearer(organizerKey)
-  ? { operator_id: null, operator_name: 'Organizer Admin', event_id: id, event_name: eventName(id), event_slug: id, is_organizer_admin: true }
-  : { operator_id: 'op-1', operator_name: 'Operator One', event_id: id, event_name: eventName(id), event_slug: id, is_organizer_admin: false };
+  ? { operator_id: null, operator_name: 'Organizer Admin', event_id: id, event_name: eventName(id), event_slug: id, is_organizer_admin: true, event_timezone: 'Asia/Tehran' }
+  : { operator_id: 'op-1', operator_name: 'Operator One', event_id: id, event_name: eventName(id), event_slug: id, is_organizer_admin: false, event_timezone: 'Asia/Tehran' };
 
 type Recorded = { method: string; path: string; auth: string | undefined };
 type Options = { meStatus?: (auth: string | undefined) => number | undefined; registerStatus?: number };
@@ -33,7 +33,7 @@ async function fixture(page: Page, options: Options = {}) {
     const match = path.match(/^\/api\/events\/([^/]+)\/(.*)$/);
     if (!match) return json(404, { detail: 'Not found' });
     const [, id, rest] = match;
-    if (rest === 'desk/login') return json(200, { access_token: deskB, token_type: 'bearer', event_id: id, event_name: eventName(id), event_slug: id, operator: { id: 'op-2', operator_name: 'Operator Two' } });
+    if (rest === 'desk/login') return json(200, { access_token: deskB, token_type: 'bearer', event_id: id, event_name: eventName(id), event_slug: id, event_timezone: 'Asia/Tehran', operator: { id: 'op-2', operator_name: 'Operator Two' } });
     if (rest === 'desk/me') { const status = options.meStatus?.(auth); return status ? error(status) : json(200, meOf(id, auth)); }
     if (rest === 'desk/tiers') return json(200, [tier]);
     if (rest === 'desk-registrations') return options.registerStatus ? error(options.registerStatus) : json(201, { ticket_id: 'ticket-walkin-1', attendee_name: 'Walk In', attendee_mobile: null, organization: '', title: '', ticket_tier_name: 'General', qr_secret: 'synthetic-walkin-qr', issued_by: auth === bearer(organizerKey) ? null : 'Operator One', created_at: '2027-01-01T00:00:00Z' });
@@ -44,7 +44,8 @@ async function fixture(page: Page, options: Options = {}) {
 }
 
 async function seed(page: Page, credentials: { organizer?: boolean; eventA?: boolean; eventB?: boolean } = {}) {
-  await page.goto('/');
+  // A same-origin static file, not the app: the home page would load its public congress list (an API request) mid-seed.
+  await page.goto('/favicon.png');
   await page.evaluate(({ credentials, organizerKey, deskA, deskB, userToken }) => {
     if (credentials.organizer) sessionStorage.setItem('congress_organizer_api_key', organizerKey);
     if (credentials.eventA) sessionStorage.setItem('congress_desk_token_event-a', deskA);
@@ -62,8 +63,16 @@ const store = (page: Page) => page.evaluate(() => ({
 const only = (requests: Recorded[], token: string) => requests.length > 0 && requests.every(r => r.auth === bearer(token));
 
 async function issueWalkIn(page: Page) {
-  await page.getByPlaceholder('e.g. Dr. Mahdi Ahmadi').fill('Walk In');
-  await page.getByRole('button', { name: 'Mint & Present Pass' }).click();
+  await page.getByRole('button', { name: 'Desk registration' }).click();
+  const form = page.getByRole('dialog', { name: 'Desk registration' });
+  await form.getByLabel('Full name').fill('Walk In');
+  await form.getByRole('button', { name: 'Issue pass' }).click();
+}
+const issued = (page: Page) => page.getByRole('dialog', { name: 'Issued' });
+/** Organizer administration only: the desk's mode choice lives in the ⋮ menu. */
+async function chooseMode(page: Page, mode: 'Organizer mode' | 'Operator mode') {
+  await page.locator('#organizer-main-content').getByRole('button', { name: 'Menu' }).click();
+  await page.getByRole('menuitem', { name: mode }).click();
 }
 
 test('without any desk or organizer credential the operator gate appears and nothing is sent', async ({ page }) => {
@@ -71,7 +80,7 @@ test('without any desk or organizer credential the operator gate appears and not
   await seed(page);
   requests.length = 0;
   await page.goto('/organizer/events/event-a/desk');
-  await expect(page.getByRole('heading', { name: 'Front Desk Operator Sign-In' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Sign in to the desk' })).toBeVisible();
   expect(requests).toEqual([]);
 });
 
@@ -82,7 +91,7 @@ test('operator mode with an organizer key and a desk token present sends the des
   await page.goto('/organizer/events/event-a/desk');
   await expect(page.getByText('Operator One')).toBeVisible();
   await issueWalkIn(page);
-  await expect(page.getByRole('dialog')).toContainText('Walk In');
+  await expect(issued(page)).toContainText('Walk In');
   // The attendee search is debounced (200 ms); wait for it instead of racing it.
   await expect.poll(() => requests.some(r => r.path.endsWith('/attendees'))).toBe(true);
   expect(requests.map(r => `${r.method} ${r.path}`)).toEqual(expect.arrayContaining(['GET /api/events/event-a/desk/me', 'GET /api/events/event-a/desk/tiers', 'GET /api/events/event-a/attendees', 'POST /api/events/event-a/desk-registrations']));
@@ -97,10 +106,10 @@ test('organizer mode is a deliberate choice and sends only the owning key', asyn
   await expect(page.getByText('Operator One')).toBeVisible();
   await expect.poll(() => requests.some(r => r.path.endsWith('/attendees'))).toBe(true);
   requests.length = 0;
-  await page.getByRole('button', { name: 'Organizer', exact: true }).click();
+  await chooseMode(page, 'Organizer mode');
   await expect(page.getByText('Organizer Admin')).toBeVisible();
   await issueWalkIn(page);
-  await expect(page.getByRole('dialog')).toContainText('Walk In');
+  await expect(issued(page)).toContainText('Walk In');
   expect(requests.filter(r => r.path.endsWith('desk-registrations')).length).toBe(1);
   expect(only(requests, organizerKey)).toBe(true);
   expect(await store(page)).toEqual({ organizer: organizerKey, eventA: deskA, eventB: null, user: userToken });
@@ -113,6 +122,10 @@ test('organizer-only start opens organizer mode without borrowing any desk crede
   await page.goto('/organizer/events/event-a/desk');
   await expect(page.getByText('Organizer Admin')).toBeVisible();
   expect(only(requests, organizerKey)).toBe(true);
+  // A manager reaches the desk operators from the desk's menu.
+  await page.locator('#organizer-main-content').getByRole('button', { name: 'Menu' }).click();
+  await page.getByRole('menuitem', { name: 'Desk operators' }).click();
+  await expect(page).toHaveURL(/\/organizer\/events\/event-a\/operators$/);
 });
 
 test('a rejected organizer key in organizer mode leaves the desk token untouched and never falls back', async ({ page }) => {
@@ -123,14 +136,14 @@ test('a rejected organizer key in organizer mode leaves the desk token untouched
   // Let the debounced operator-mode search finish so it is not counted after the switch.
   await expect.poll(() => requests.some(r => r.path.endsWith('/attendees'))).toBe(true);
   requests.length = 0;
-  await page.getByRole('button', { name: 'Organizer', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'Organizer mode needs your organizer key' })).toBeVisible();
+  await chooseMode(page, 'Organizer mode');
+  await expect(page.getByRole('heading', { name: 'Organizer mode needs the organizer key' })).toBeVisible();
   expect(await store(page)).toEqual({ organizer: null, eventA: deskA, eventB: null, user: userToken });
   expect(requests.length).toBeGreaterThan(0);
   expect(requests.every(r => r.auth === bearer(organizerKey))).toBe(true);
   // Switching back is an explicit user action, and only then is the desk token used.
   requests.length = 0;
-  await page.getByRole('button', { name: 'Use an operator session' }).click();
+  await page.getByRole('button', { name: 'Operator sign-in' }).click();
   await expect(page.getByText('Operator One')).toBeVisible();
   expect(only(requests, deskA)).toBe(true);
 });
@@ -140,8 +153,8 @@ test('a rejected desk token clears only that event session and never falls back 
   await seed(page, { organizer: true, eventA: true, eventB: true });
   requests.length = 0;
   await page.goto('/organizer/events/event-a/desk');
-  await expect(page.getByRole('heading', { name: 'Front Desk Operator Sign-In' })).toBeVisible();
-  await expect(page.getByRole('alert')).toContainText('revoked or session expired');
+  await expect(page.getByRole('heading', { name: 'Sign in to the desk' })).toBeVisible();
+  await expect(page.getByRole('alert')).toContainText('Access removed or signed out.');
   expect(await store(page)).toEqual({ organizer: organizerKey, eventA: null, eventB: deskB, user: userToken });
   expect(requests.length).toBeGreaterThan(0);
   expect(requests.every(r => r.auth === bearer(deskA))).toBe(true);
@@ -159,7 +172,7 @@ for (const status of [403, 404, 500]) {
     expect(only(requests, deskA)).toBe(true);
     failing = false;
     requests.length = 0;
-    await page.getByRole('button', { name: 'Retry' }).click();
+    await page.getByRole('button', { name: 'Try again' }).click();
     await expect(page.getByText('Operator One')).toBeVisible();
     expect(only(requests, deskA)).toBe(true);
   });
@@ -186,7 +199,7 @@ test('an event A desk token is never sent for event B, and a late event A respon
     history.pushState({}, '', '/organizer/events/event-b/desk');
     dispatchEvent(new PopStateEvent('popstate'));
   });
-  await expect(page.getByRole('heading', { name: 'Front Desk Operator Sign-In' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Sign in to the desk' })).toBeVisible();
   const late = page.waitForResponse(response => response.url().endsWith('/api/events/event-a/desk/me'));
   release.resolve();
   await late;

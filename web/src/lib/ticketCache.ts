@@ -17,9 +17,28 @@ import type { AttendeeTicketDetail } from "../api/client";
 
 export const CACHED_TICKETS_KEY_PREFIX = "congress_cached_tickets_";
 export const LEGACY_CACHED_TICKETS_KEY = "congress_cached_tickets";
+/** The owner of the last saved cache, so a sign-out still finds it after the token was removed. */
+export const CACHED_TICKETS_OWNER_KEY = "congress_ticket_cache_owner";
 
-// Default TTL: 7 days
+/**
+ * The shortest a saved pass is kept: 7 days. A pass is kept longer when its congress ends later (see
+ * `ticketCacheExpiry`), so the home-screen icon still opens it at the gate of a congress that starts in months.
+ */
 export const DEFAULT_TICKET_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * When a cache saved at `now` with these passes lapses: when the last of their congresses ends, but never sooner than
+ * the default 7 days (a congress that is over, or has no readable end, keeps the old window). Sign-out and a rejected
+ * session clear the cache whatever this says.
+ */
+export function ticketCacheExpiry(tickets: readonly Pick<AttendeeTicketDetail, "event_ends_at">[], now: number): number {
+  let lastEnd = 0;
+  for (const ticket of tickets) {
+    const end = ticket.event_ends_at ? Date.parse(ticket.event_ends_at) : NaN;
+    if (end > lastEnd) lastEnd = end;
+  }
+  return Math.max(lastEnd, now + DEFAULT_TICKET_CACHE_TTL_MS);
+}
 
 export interface OfflineTicketEnvelope {
   userId: string;
@@ -154,13 +173,14 @@ export function loadOwnerScopedTickets(
 }
 
 /**
- * Persist tickets under an owner-scoped envelope.
+ * Persist tickets under an owner-scoped envelope. They are kept until their congress ends (`ticketCacheExpiry`);
+ * `ttlMs` sets a fixed lifetime instead (tests).
  */
 export function saveOwnerScopedTickets(
   token: string | null | undefined,
   tickets: AttendeeTicketDetail[],
   now: number = Date.now(),
-  ttlMs: number = DEFAULT_TICKET_CACHE_TTL_MS,
+  ttlMs?: number,
   customStorage?: Storage | null
 ): boolean {
   const storage = resolveStorage(customStorage);
@@ -175,12 +195,13 @@ export function saveOwnerScopedTickets(
   const envelope: OfflineTicketEnvelope = {
     userId,
     cachedAt: now,
-    expiresAt: now + ttlMs,
+    expiresAt: ttlMs === undefined ? ticketCacheExpiry(tickets, now) : now + ttlMs,
     tickets,
   };
 
   try {
     storage.setItem(cacheKey, JSON.stringify(envelope));
+    storage.setItem(CACHED_TICKETS_OWNER_KEY, userId);
     return true;
   } catch {
     return false;
@@ -188,7 +209,9 @@ export function saveOwnerScopedTickets(
 }
 
 /**
- * Clear the ticket cache for a specific user upon logout.
+ * Clear the ticket cache upon logout or session rejection: the owner named by `userIdOrToken` and the
+ * remembered owner of the last saved cache. With no (or an unreadable) token, the remembered owner is
+ * still cleared, so passes never outlive a token that was removed first.
  */
 export function clearOwnerScopedTickets(
   userIdOrToken: string | null | undefined,
@@ -197,14 +220,19 @@ export function clearOwnerScopedTickets(
   const storage = resolveStorage(customStorage);
   purgeLegacyUnscopedCache(storage);
 
-  if (!storage || !userIdOrToken) return;
+  if (!storage) return;
 
   // Determine if passed argument is a JWT token or a raw userId
-  const userId = userIdOrToken.includes(".") ? getAuthenticatedUserId(userIdOrToken) : userIdOrToken;
-  if (!userId) return;
+  const userId = !userIdOrToken
+    ? null
+    : userIdOrToken.includes(".") ? getAuthenticatedUserId(userIdOrToken) : userIdOrToken;
 
   try {
-    storage.removeItem(`${CACHED_TICKETS_KEY_PREFIX}${userId}`);
+    const remembered = storage.getItem(CACHED_TICKETS_OWNER_KEY);
+    for (const owner of [userId, remembered]) {
+      if (owner) storage.removeItem(`${CACHED_TICKETS_KEY_PREFIX}${owner}`);
+    }
+    storage.removeItem(CACHED_TICKETS_OWNER_KEY);
   } catch {
     // ignore
   }

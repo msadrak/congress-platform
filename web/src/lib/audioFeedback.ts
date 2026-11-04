@@ -15,9 +15,33 @@ function getAudioContext(): AudioContext | null {
     }
   }
   if (audioCtx && audioCtx.state === "suspended") {
-    audioCtx.resume();
+    void audioCtx.resume().catch(() => undefined);
   }
   return audioCtx;
+}
+
+let warmedUp = false;
+
+/**
+ * Builds the AudioContext now, away from any scan: building it costs ~200 ms on the main thread, and doing that
+ * at the first chime splits the next barcode-gun burst. Browsers keep it suspended until a user gesture, so it
+ * resumes on the first tap or key press. Call once when the scanning screen mounts.
+ */
+export function warmUpAudio(): void {
+  if (warmedUp || typeof window === "undefined") return;
+  warmedUp = true;
+  try {
+    getAudioContext();
+  } catch {
+    return;
+  }
+  const resume = () => {
+    window.removeEventListener("pointerdown", resume, true);
+    window.removeEventListener("keydown", resume, true);
+    if (audioCtx?.state === "suspended") void audioCtx.resume().catch(() => undefined);
+  };
+  window.addEventListener("pointerdown", resume, true);
+  window.addEventListener("keydown", resume, true);
 }
 
 export function playSuccessChime(): void {

@@ -1,5 +1,13 @@
 # Exhibitor Booth Portal — visible product milestone 05
 
+> **Historical milestone result, kept as evidence. Superseded in parts.**
+>
+> Since then, **e-mail and passwords were removed**: attendees, booth staff and desk operators sign in with an Iranian
+> mobile number and a one-time SMS code (ADR 0012, migration `0015`); organizers keep their API key and scanners their
+> device tokens. Read e-mail fields, password checks, "wrong password" errors and operator password lifecycles below as
+> the state of that date. Current sources of truth: `docs/adr/` (with their status sections), `GLOSSARY.md` and
+> `docs/pilot/MASTER-PILOT-READINESS.md`.
+
 Branch `integration/task-05h`, base `0eca7bb1201f64368527097b3d184cd895f705fc`. Follows backlog P03-T48 (manual capture), T51 (new camera input) and the `/booth/:boothId` compatibility rule (no redirect, ids and QR unchanged). The Partner domain (T11–T15) was not touched.
 
 ## What a booth representative can do now

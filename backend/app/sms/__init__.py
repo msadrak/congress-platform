@@ -11,7 +11,11 @@ __all__ = ["SmsGateway", "SmsProvider", "build_gateway", "sms_provider"]
 
 def build_gateway(settings: Settings) -> SmsGateway:
     """Configured from the platform settings at startup (app/platform_config.py)."""
-    return SmsGateway(timeout=settings.smsir_timeout_seconds, log_text=settings.environment == "development")
+    return SmsGateway(
+        timeout=settings.smsir_timeout_seconds,
+        log_text=settings.environment == "development",
+        max_concurrent=settings.sms_max_concurrent_sends,
+    )
 
 
 def sms_provider(request: Request) -> SmsGateway:

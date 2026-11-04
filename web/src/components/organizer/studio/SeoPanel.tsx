@@ -29,7 +29,7 @@ export function SeoPanel({ doc, onChange, eventName, slug }: { doc: PageDoc; onC
             {share?.url ? <img src={share.url} alt="" className="size-full object-cover" /> : <Icon name="image" size={28} className="absolute inset-0 m-auto text-ink-400" />}
           </div>
           <div className="space-y-1 border-t border-border-subtle px-4 py-3">
-            <p className="font-mono text-[11px] text-text-muted" dir="ltr">
+            <p className="font-mono text-caption text-text-muted" dir="ltr">
               {host}/e/{slug}
             </p>
             <p className="line-clamp-2 text-sm font-semibold text-text-primary">
@@ -43,7 +43,6 @@ export function SeoPanel({ doc, onChange, eventName, slug }: { doc: PageDoc; onC
           </div>
         </div>
       </div>
-      <p className="text-xs leading-relaxed text-text-muted">{s.limitation}</p>
     </div>
   );
 }

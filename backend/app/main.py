@@ -7,15 +7,21 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import ValidationError
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from app.audit import AuditMiddleware
 from app.config import STRICT_ENVIRONMENTS, Settings, describe_settings_error
+from app.db import build_engine
+from app.errors import ApiError, api_error_handler
 from app.logging_setup import configure_logging
+from app.observability import install_observability, retention_sessionmaker
 from app.rate_limit import FailureLimiter
+from app.roles import document_role_errors
 from app.schema_guard import assert_schema_current
-from app.platform_config import apply_platform, environment_config, keep_loading_platform, reload_platform
+from app.platform_config import apply_platform, environment_config, keep_platform_fresh, reload_platform
 from app.sms import build_gateway
 from app.sms.outbox import run_outbox
+from app.retention import run_retention
 from app.routes import (
     access,
     analytics,
@@ -27,11 +33,16 @@ from app.routes import (
     health,
     leads,
     network,
+    organizer_console,
     organizers,
     pages,
+    participants,
+    passes,
     platform,
     program,
+    program_files,
     public,
+    session_attendance,
     sms,
     sms_outbox,
     ticket_tiers,
@@ -42,18 +53,18 @@ from app.routes import (
 def create_app(settings: Settings) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        engine = create_async_engine(settings.database_url, pool_pre_ping=True)
+        engine = build_engine(settings)
         if settings.environment in STRICT_ENVIRONMENTS:
             await assert_schema_current(engine)
         app.state.sessionmaker = async_sessionmaker(engine, expire_on_commit=False)
-        platform_loader = None
         try:
             async with app.state.sessionmaker() as session:
                 await reload_platform(app, session)
         except (OSError, SQLAlchemyError):
             # The API still starts (readiness reports the database); saved settings apply once it is reachable.
             apply_platform(app, environment_config(settings))
-            platform_loader = asyncio.create_task(keep_loading_platform(app))
+        # Also picks up console changes saved by another API process.
+        platform_loader = asyncio.create_task(keep_platform_fresh(app, settings.platform_settings_refresh_seconds))
         outbox = (
             asyncio.create_task(
                 run_outbox(app.state.sessionmaker, app.state.sms, settings.sms_outbox_poll_seconds)
@@ -61,8 +72,14 @@ def create_app(settings: Settings) -> FastAPI:
             if settings.sms_outbox_enabled
             else None
         )
+        retention = (
+            # Its own sessions, so each completed pass shows in the metrics.
+            asyncio.create_task(run_retention(retention_sessionmaker(engine, app.state.metrics), settings))
+            if settings.retention_enabled
+            else None
+        )
         yield
-        for task in (outbox, platform_loader):
+        for task in (outbox, retention, platform_loader):
             if task is not None:
                 task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
@@ -70,38 +87,57 @@ def create_app(settings: Settings) -> FastAPI:
         await app.state.sms.aclose()
         await engine.dispose()
 
-    app = FastAPI(title="Congress Platform", lifespan=lifespan)
+    # Interactive docs and the schema only outside production (scripts/gen-api.mjs reads app.openapi() directly).
+    docs = settings.environment != "production"
+    app = FastAPI(
+        title="Congress Platform",
+        lifespan=lifespan,
+        openapi_url="/openapi.json" if docs else None,
+        docs_url="/docs" if docs else None,
+        redoc_url="/redoc" if docs else None,
+    )
     app.state.settings = settings
     app.state.limiter = FailureLimiter(enabled=settings.auth_rate_limits_enabled)
     app.state.sms = build_gateway(settings)
+    app.add_exception_handler(ApiError, api_error_handler)
+    # Inside the request-id middleware (added later, so outer): audit rows carry the request id.
+    app.add_middleware(AuditMiddleware)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    install_observability(app, settings)
     app.include_router(health.router)
     app.include_router(auth.router)
     app.include_router(access.router)
     app.include_router(organizers.router)
+    app.include_router(organizer_console.router)
     app.include_router(events.router)
     app.include_router(ticket_tiers.router)
     app.include_router(tickets.router)
+    app.include_router(participants.router)
     app.include_router(checkin.router)
     app.include_router(desk.router)
     app.include_router(analytics.router)
     app.include_router(booths.router)
+    app.include_router(booths.public_router)
     app.include_router(leads.router)
     app.include_router(network.router)
     app.include_router(pages.router)
     app.include_router(program.router)
+    app.include_router(program_files.router)
+    app.include_router(session_attendance.router)
     app.include_router(public.router)
     app.include_router(public.seo_router)
+    app.include_router(passes.router)
     app.include_router(sms.router)
     app.include_router(sms.platform_router)
     app.include_router(platform.router)
     if settings.environment != "production":
         app.include_router(sms_outbox.router)
+    document_role_errors(app)
     return app
 
 
@@ -110,9 +146,10 @@ def create_app_from_env() -> FastAPI:
 
     A misconfigured deployment stops here with a list of what to fix, before it opens any connection.
     """
-    configure_logging()
     try:
         settings = Settings()
     except ValidationError as exc:
+        configure_logging()
         raise SystemExit(describe_settings_error(exc)) from None
+    configure_logging(settings.effective_log_format)
     return create_app(settings)

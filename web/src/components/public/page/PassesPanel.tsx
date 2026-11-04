@@ -1,147 +1,162 @@
 import { Link } from "react-router-dom";
 import type { TicketTierOut } from "../../../api/client";
-import { translations } from "../../../lib/i18n";
 import type { AccentChoice } from "../../../lib/pageDocument";
-import { CongressSignature } from "../../brand/CongressSignature";
 import { Button, LinkButton } from "../../ui/Button";
-import { Icon } from "../../ui/Icon";
+import { Notice } from "../../ui/Notice";
 import { Bidi } from "../Bidi";
 import { num, publicCopy, type PublicLocale } from "../copy";
-import { tierState } from "../format";
+import { formatMoment } from "../format";
 import { PassStub } from "../PassStub";
+import { useNow } from "../../attendee/useNow";
+import { tierAvailability, type RegistrationFields } from "../../../lib/registrationWindow";
+
+/** No window fields: nothing restricts the tiers beyond their own switch and quota (Page Studio preview). */
+const UNRESTRICTED: RegistrationFields = { ends_at: "" };
 
 interface PassesPanelProps {
   slug: string;
   tiers: TicketTierOut[];
   locale: PublicLocale;
-  accent: AccentChoice;
+  /** Kept for the callers; the dock no longer draws the congress artwork. */
+  accent?: AccentChoice;
   selectedTierId: string | null;
   onSelectTier: (id: string) => void;
   onReserve: () => void;
   submitting?: boolean;
+  /** The attendee holds a pass for this congress (found on load, reserved now, or refused as a duplicate). */
   alreadyHasTicket?: boolean;
+  /** Signed in: the "already registered?" link is left out (a held pass is found on its own). */
+  signedIn?: boolean;
+  /** Why the last reservation failed, shown above the dock until the attendee retries. */
+  error?: string | null;
   /** Set in the Page Studio preview: the dock is shown but cannot reserve. */
   disabledNote?: string;
+  /** The congress's registration window (switch, opening/closing instants, end of the congress). */
+  registration?: RegistrationFields;
+  /** The congress's zone, for "opens at" / "closes at" times. */
+  timeZone?: string;
+  /** The page's ticking clock (ms). */
+  now?: number;
 }
 
-/** Live ticket tiers (operational data, never page content) with the reservation dock. */
+const dock = "flex min-h-[72px] items-center gap-3 rounded-card bg-surface-ink py-3 ps-4 pe-3 text-white shadow-soft surface-ink sm:gap-5 sm:ps-5";
+
+/**
+ * Live pass types (operational data, never page content) with the reservation dock. Once the attendee holds a
+ * pass for this congress, only the dock remains and it opens that pass.
+ */
 export function PassesPanel({
   slug,
   tiers,
   locale,
-  accent,
   selectedTierId,
   onSelectTier,
   onReserve,
   submitting = false,
   alreadyHasTicket = false,
+  signedIn = false,
+  error = null,
   disabledNote,
+  registration = UNRESTRICTED,
+  timeZone,
+  now: givenNow,
 }: PassesPanelProps) {
+  const tick = useNow();
+  const now = givenNow ?? tick;
   const c = publicCopy[locale];
-  const t = translations[locale];
+  const passPath = `/c/${encodeURIComponent(slug)}/my-ticket`;
+
+  if (alreadyHasTicket) {
+    return (
+      <div className={dock} data-testid="passes-held">
+        <p className="min-w-0 flex-1 text-body-sm font-semibold leading-snug sm:text-body">{c.passReady}</p>
+        <LinkButton to={passPath} variant="primary" tone="ink" icon="qr" className="shrink-0">
+          {c.viewMyPass}
+        </LinkButton>
+      </div>
+    );
+  }
+
   const selectedTier = tiers.find((tier) => tier.id === selectedTierId) ?? tiers[0] ?? null;
-  const state = selectedTier ? tierState(selectedTier) : "CLOSED";
-  const available = state === "AVAILABLE";
+  const availability = selectedTier ? tierAvailability(registration, selectedTier, now) : ({ kind: "closed", reason: "tier" } as const);
+  const available = availability.kind === "open";
   const remaining = selectedTier ? Math.max(0, selectedTier.quota - (selectedTier.reserved_count ?? 0)) : 0;
   const reserveLabel = submitting
     ? c.processing
-    : state === "SOLD_OUT"
-      ? t.reserveButtonSoldOut
-      : state === "CLOSED"
-        ? t.reserveButtonClosed
-        : c.reserve;
+    : availability.kind === "full"
+      ? c.tierStatusSoldOut
+      : availability.kind === "opens"
+        ? c.dockOpens(formatMoment(availability.at, locale, timeZone))
+        : availability.kind === "closed"
+          ? availability.reason === "sales"
+            ? c.tierStatusSalesEnded
+            : c.tierStatusClosed
+          : c.reserve;
+  const closesAt = availability.kind === "open" ? availability.closesAt : null;
 
   return (
-    <div className="space-y-6">
-      {tiers.length === 0 ? (
-        <div className="flex items-start gap-4 rounded-2xl border border-dashed border-border-strong bg-surface-panel p-6 sm:p-8">
-          <span className="grid size-11 shrink-0 place-items-center rounded-xl bg-surface-panel-subtle text-text-muted">
-            <Icon name="lock" size={22} />
-          </span>
-          <div className="space-y-1">
-            <p className="text-base font-semibold text-text-primary">{c.noTiersTitle}</p>
-            <p className="text-sm text-text-secondary">{c.noTiersBody}</p>
-          </div>
-        </div>
-      ) : (
+    <div className="space-y-4">
+      {tiers.length > 0 && (
         <fieldset className="grid gap-5 md:grid-cols-2">
-          <legend className="sr-only">{c.tierLegend}</legend>
-          {tiers.map((tier, i) => (
-            <PassStub key={tier.id} tier={tier} index={i} locale={locale} selected={tier.id === selectedTier?.id} onSelect={() => onSelectTier(tier.id)} />
+          <legend className="sr-only">{c.sectionPasses}</legend>
+          {tiers.map((tier) => (
+            <PassStub
+              key={tier.id}
+              tier={tier}
+              locale={locale}
+              selected={tier.id === selectedTier?.id}
+              onSelect={() => onSelectTier(tier.id)}
+              availability={tierAvailability(registration, tier, now)}
+              timeZone={timeZone}
+            />
           ))}
         </fieldset>
       )}
 
-      {alreadyHasTicket && (
-        <div
-          role="alert"
-          className="flex flex-col gap-4 rounded-2xl border border-action-subtle-border bg-aiteb-lavender p-5 sm:flex-row sm:items-center sm:justify-between"
-        >
-          <div className="flex items-start gap-3">
-            <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-surface-panel text-aiteb-indigo shadow-soft">
-              <Icon name="ticket" size={20} />
-            </span>
-            <div className="space-y-0.5">
-              <p className="text-sm font-bold text-aiteb-indigo">{c.activePassTitle}</p>
-              <p className="text-sm text-text-secondary">{c.activePassBody}</p>
-            </div>
-          </div>
-          <LinkButton to={`/c/${slug}/my-ticket`} variant="primary" size="md">
-            {c.viewMyPass}
-            <Icon name="arrow-right" size={16} />
-          </LinkButton>
-        </div>
+      {error && (
+        <Notice tone="danger">{error}</Notice>
       )}
 
-      {/* Reservation dock: sticks to the viewport bottom while the passes are on screen. */}
-      <div className="sticky bottom-[max(0.75rem,env(safe-area-inset-bottom))] z-30 lg:static">
-        <div className="flex flex-col gap-4 bg-surface-ink p-4 text-white shadow-pop shape-arc sm:flex-row sm:items-center sm:gap-6 sm:p-5">
-          <div className="flex min-w-0 flex-1 items-center gap-4">
-            <span aria-hidden="true" className="relative hidden size-12 shrink-0 overflow-hidden rounded-xl ring-1 ring-white/15 [border-start-end-radius:20px] sm:block">
-              <CongressSignature seed={slug} accent={accent} tone="ink" className="absolute inset-0 size-full scale-150" />
-            </span>
-            <div className="min-w-0">
-              <p className="text-[11px] font-medium text-ink-300">{c.selectedPass}</p>
-              <p className="truncate text-base font-semibold">{selectedTier ? <Bidi text={selectedTier.name} /> : c.noTiersTitle}</p>
-              {selectedTier && available && (
-                <p className="text-xs text-ink-300">
-                  {c.freeAdmission} · {t.tierCapacityRemaining} <span className="tabular text-white">{num(remaining, locale)}</span>
-                </p>
-              )}
-            </div>
+      <div>
+        <div className={dock}>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-body-sm font-semibold sm:text-body">{selectedTier ? <Bidi text={selectedTier.name} /> : c.noTiersTitle}</p>
+            {selectedTier && available && (
+              <p className="truncate text-caption text-ink-300">
+                {c.capacityRemaining} <span className="tabular text-white">{num(remaining, locale)}</span>
+              </p>
+            )}
+            {closesAt && (
+              <p data-testid="registration-closes" className="truncate text-caption text-ink-300">
+                {c.dockCloses(formatMoment(closesAt, locale, timeZone))}
+              </p>
+            )}
           </div>
           <Button
             type="button"
-            variant="light"
-            size="lg"
-            className="w-full sm:w-auto sm:min-w-[14rem]"
-            disabled={submitting || tiers.length === 0 || !available || Boolean(disabledNote)}
-            aria-busy={submitting}
+            variant="primary"
+            tone="ink"
+            className="shrink-0 sm:min-w-[13rem]"
+            disabled={tiers.length === 0 || !available || Boolean(disabledNote)}
+            loading={submitting}
+            iconEnd={!submitting && available ? "arrow-right" : undefined}
             title={disabledNote}
             onClick={onReserve}
           >
             {reserveLabel}
-            {!submitting && available && <Icon name="arrow-right" size={18} />}
           </Button>
         </div>
-        {disabledNote && <p className="mt-2 text-center text-xs font-medium text-text-muted">{disabledNote}</p>}
+        {disabledNote && <p className="mt-2 text-center text-caption font-medium text-text-muted">{disabledNote}</p>}
       </div>
 
-      <div className="flex flex-col items-center gap-1.5 text-center text-sm text-text-muted lg:flex-row lg:justify-center lg:gap-3">
-        <span className="inline-flex items-center gap-2">
-          <Icon name="device" size={16} />
-          {c.digitalNote}
-        </span>
-        <span aria-hidden="true" className="hidden lg:inline">
-          ·
-        </span>
-        <span>
+      {!signedIn && (
+        <p className="text-center text-body-sm text-text-muted">
           {c.alreadyRegistered}{" "}
-          <Link to="/my-tickets" className="font-semibold text-event-accent hover:underline">
+          <Link to={passPath} className="inline-flex min-h-11 items-center font-semibold text-event-accent hover:underline">
             {c.viewExisting}
           </Link>
-        </span>
-      </div>
+        </p>
+      )}
     </div>
   );
 }

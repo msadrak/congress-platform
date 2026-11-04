@@ -22,3 +22,8 @@ test("placeholders render like the API: flattened, shortened, unknown tokens lef
   assert.deepEqual(placeholdersIn(body), ["name", "event", "link", "oops"]);
   assert.deepEqual(unknownPlaceholders(body, ["name", "event", "link"]), ["oops"]);
 });
+
+test("the pass link is never shortened, like the API: a cut link opens no page", () => {
+  const link = "https://congress-registration.example-medical-university.ac.ir/c/international-congress-2027/my-ticket";
+  assert.equal(renderSms("{event}: {link}", { event: "E".repeat(80), link }), `${"E".repeat(59)}…: ${link}`);
+});

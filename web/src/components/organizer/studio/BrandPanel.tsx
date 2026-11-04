@@ -1,14 +1,17 @@
-import { EVENT_ACCENTS } from "../../../lib/eventAccent";
+import { useState } from "react";
+import { EVENT_ACCENTS, legibleAccent } from "../../../lib/eventAccent";
+import { layoutForImage } from "../../../lib/heroImage";
 import type { AccentChoice, HeroLayout, PageDoc } from "../../../lib/pageDocument";
 import { CongressSignature } from "../../brand/CongressSignature";
 import { Icon } from "../../ui/Icon";
-import { ImageField, LocalizedField } from "./StudioFields";
+import { FocalPointField, ImageField, LocalizedField } from "./StudioFields";
 import { useStudio } from "./studioContext";
 
 function LayoutThumb({ layout }: { layout: HeroLayout }) {
   return (
     <span aria-hidden="true" className="relative block h-16 overflow-hidden rounded-lg bg-surface-ink">
       {layout === "signature" && <CongressSignature seed="layout-thumb" tone="ink" className="absolute inset-0 size-full scale-125" />}
+      {layout === "banner" && <span className="absolute inset-x-2 top-2 h-6 rounded-md bg-[linear-gradient(135deg,#6f5ad8,#d48ad8_55%,#f3c7a8)]" />}
       {layout === "cover" && <span className="absolute inset-0 bg-[linear-gradient(135deg,#6f5ad8,#d48ad8_55%,#f3c7a8)] opacity-80" />}
       {layout === "cover" && <span className="absolute inset-0 bg-linear-to-t from-surface-ink via-surface-ink/60 to-transparent" />}
       {layout === "split" && <span className="absolute inset-y-2 end-2 w-[38%] rounded-md bg-[linear-gradient(135deg,#6f5ad8,#d48ad8_55%,#f3c7a8)] [border-start-end-radius:14px]" />}
@@ -19,7 +22,7 @@ function LayoutThumb({ layout }: { layout: HeroLayout }) {
 }
 
 export function BrandPanel({ doc, onChange, eventName }: { doc: PageDoc; onChange: (next: PageDoc) => void; eventName: string }) {
-  const { copy } = useStudio();
+  const { copy, images } = useStudio();
   const b = copy.brand;
   const hero = doc.hero;
   const setHero = (patch: Partial<PageDoc["hero"]>) => onChange({ ...doc, hero: { ...hero, ...patch } });
@@ -29,9 +32,20 @@ export function BrandPanel({ doc, onChange, eventName }: { doc: PageDoc; onChang
   ];
   const layouts: Array<{ value: HeroLayout; label: string; hint: string }> = [
     { value: "signature", label: b.signature, hint: b.signatureHint },
+    { value: "banner", label: b.banner, hint: b.bannerHint },
     { value: "cover", label: b.cover, hint: b.coverHint },
     { value: "split", label: b.split, hint: b.splitHint },
   ];
+  const cover = hero.cover_asset_id ? images[hero.cover_asset_id] : undefined;
+  const custom = doc.branding.accent === "custom";
+  // What the organizer picked, when it had to be darkened to stay legible (the stored colour is the darker one).
+  const [picked, setPicked] = useState<string | null>(null);
+  const pickColour = (raw: string) => {
+    const colour = legibleAccent(raw);
+    if (!colour) return;
+    setPicked(colour === raw.toUpperCase() ? null : raw);
+    onChange({ ...doc, branding: { ...doc.branding, accent: "custom", accent_color: colour } });
+  };
 
   return (
     <div className="space-y-8">
@@ -63,8 +77,55 @@ export function BrandPanel({ doc, onChange, eventName }: { doc: PageDoc; onChang
               )}
             </label>
           ))}
+          <label
+            title={b.custom}
+            className={`relative grid size-11 cursor-pointer place-items-center rounded-full border-2 transition-transform has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-focus-ring ${
+              custom ? "scale-105 border-text-primary" : "border-transparent hover:scale-105"
+            }`}
+          >
+            <input
+              type="radio"
+              name="page-accent"
+              className="sr-only"
+              checked={custom}
+              onChange={() => pickColour(doc.branding.accent_color ?? "#0B6E4F")}
+              aria-label={b.custom}
+            />
+            {custom && doc.branding.accent_color ? (
+              <span className="size-8 rounded-full shadow-soft" style={{ background: doc.branding.accent_color }} />
+            ) : (
+              <span className="grid size-8 place-items-center rounded-full border-2 border-dashed border-border-strong text-text-muted">
+                <Icon name="palette" size={14} />
+              </span>
+            )}
+          </label>
         </div>
-        <p className="text-xs leading-relaxed text-text-muted">{b.accentHint}</p>
+        {custom && (
+          <div className="space-y-1.5 pt-1">
+            <div className="flex items-center gap-3">
+              <input
+                type="color"
+                aria-label={b.custom}
+                value={(picked ?? doc.branding.accent_color ?? "#0B6E4F").toLowerCase()}
+                onChange={(e) => pickColour(e.target.value)}
+                className="h-11 w-16 cursor-pointer rounded-lg border border-border-default bg-surface-panel p-1"
+              />
+              <input
+                type="text"
+                dir="ltr"
+                aria-label={`${b.custom} (HEX)`}
+                maxLength={7}
+                defaultValue={doc.branding.accent_color ?? ""}
+                key={doc.branding.accent_color ?? ""}
+                onBlur={(e) => pickColour(e.target.value.startsWith("#") ? e.target.value : `#${e.target.value}`)}
+                className="ui-input w-32 font-mono uppercase"
+              />
+            </div>
+            <p className="text-xs leading-relaxed text-text-muted">
+              {picked && doc.branding.accent_color ? b.customAdjusted(doc.branding.accent_color) : b.customHint}
+            </p>
+          </div>
+        )}
       </fieldset>
 
       <ImageField
@@ -77,7 +138,7 @@ export function BrandPanel({ doc, onChange, eventName }: { doc: PageDoc; onChang
 
       <fieldset className="space-y-2">
         <legend className="ui-label">{b.heroLayout}</legend>
-        <div className="grid grid-cols-3 gap-2">
+        <div className="grid grid-cols-2 gap-2">
           {layouts.map((l) => (
             <label
               key={l.value}
@@ -87,8 +148,13 @@ export function BrandPanel({ doc, onChange, eventName }: { doc: PageDoc; onChang
             >
               <input type="radio" name="hero-layout" className="sr-only" checked={hero.layout === l.value} onChange={() => setHero({ layout: l.value })} />
               <LayoutThumb layout={l.value} />
-              <span className="block text-xs font-semibold text-text-primary">{l.label}</span>
-              <span className="block text-[11px] leading-snug text-text-muted">{l.hint}</span>
+              <span className="flex flex-wrap items-center gap-1.5 text-xs font-semibold text-text-primary">
+                {l.label}
+                {l.value === "banner" && (
+                  <span className="rounded-full bg-aiteb-lavender px-1.5 py-px text-caption font-semibold text-aiteb-indigo">{b.recommended}</span>
+                )}
+              </span>
+              <span className="block text-caption leading-snug text-text-muted">{l.hint}</span>
             </label>
           ))}
         </div>
@@ -97,9 +163,40 @@ export function BrandPanel({ doc, onChange, eventName }: { doc: PageDoc; onChang
       <ImageField
         label={b.coverImage}
         value={hero.cover_asset_id}
-        onChange={(cover_asset_id) => setHero({ cover_asset_id })}
-        hint={hero.layout !== "signature" && !hero.cover_asset_id ? b.coverNeeded : undefined}
+        onChange={(cover_asset_id) => setHero({ cover_asset_id, layout: layoutForImage(hero, cover_asset_id) })}
+        hint={
+          hero.layout === "signature"
+            ? hero.cover_asset_id
+              ? undefined
+              : b.imageHint.signature
+            : hero.cover_asset_id
+              ? b.imageHint[hero.layout]
+              : b.coverNeeded
+        }
       />
+
+      {cover && (hero.layout === "cover" || hero.layout === "split") && (
+        <FocalPointField
+          label={b.focal}
+          hint={b.focalHint}
+          image={cover}
+          x={hero.focal_x}
+          y={hero.focal_y}
+          // A phone image of its own is shown whole-screen as composed; the focal point is for the main image.
+          phone={!(hero.layout === "cover" && hero.mobile_cover_asset_id)}
+          onChange={(focal_x, focal_y) => setHero({ focal_x, focal_y })}
+        />
+      )}
+
+      {hero.layout === "cover" && (
+        <ImageField
+          label={b.mobileImage}
+          aspect="portrait"
+          value={hero.mobile_cover_asset_id}
+          onChange={(mobile_cover_asset_id) => setHero({ mobile_cover_asset_id })}
+          hint={b.mobileImageHint}
+        />
+      )}
 
       <div className="space-y-4 border-t border-border-subtle pt-6">
         <p className="text-sm font-bold text-text-primary">{b.heroTexts}</p>
@@ -117,16 +214,11 @@ export function BrandPanel({ doc, onChange, eventName }: { doc: PageDoc; onChang
           onChange={(e) => onChange({ ...doc, primary_locale: e.target.value as PageDoc["primary_locale"] })}
         >
           <option value="auto">{b.languageAuto}</option>
-          <option value="fa">فارسی</option>
-          <option value="en">English</option>
+          <option value="fa">{copy.languages.fa}</option>
+          <option value="en">{copy.languages.en}</option>
         </select>
         <span className="mt-1.5 block text-xs leading-relaxed text-text-muted">{b.languageHint}</span>
       </label>
-
-      <p className="flex items-start gap-2 rounded-xl bg-surface-panel-subtle px-3.5 py-3 text-xs leading-relaxed text-text-secondary">
-        <Icon name="shield" size={16} className="mt-px shrink-0 text-aiteb-indigo" />
-        {b.attribution}
-      </p>
     </div>
   );
 }

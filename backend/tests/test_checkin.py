@@ -1,8 +1,9 @@
+import hashlib
 import uuid
 from typing import Any
 from httpx import AsyncClient
 
-from tests.helpers import bearer, provision_organizer
+from tests.helpers import bearer, provision_organizer, publish_page
 from tests.test_events import EVENT
 from tests.test_ticket_tiers import create_event, tier
 from tests.test_tickets import register_user
@@ -26,6 +27,7 @@ async def test_organizer_configures_checkin_points_with_admission_policies(
 ) -> None:
     organizer = await provision_organizer(client, "Acme Congress Co")
     event_id = await create_event(client, organizer)
+    await publish_page(client, organizer, event_id)
 
     tier_resp = await client.post(
         f"/api/events/{event_id}/ticket-tiers",
@@ -88,6 +90,7 @@ async def test_compact_manifest_snapshot_returns_valid_tickets_and_status(
 ) -> None:
     organizer = await provision_organizer(client, "Acme Congress Co")
     event_id = await create_event(client, organizer)
+    await publish_page(client, organizer, event_id)
     tier_resp = await client.post(
         f"/api/events/{event_id}/ticket-tiers",
         json=tier(name="General", quota=100),
@@ -120,11 +123,16 @@ async def test_compact_manifest_snapshot_returns_valid_tickets_and_status(
     assert manifest["checkin_point"]["id"] == point_id
     assert manifest["checkin_point"]["policy_type"] == "SINGLE_USE"
 
-    secrets = {item["qr_secret"]: item for item in manifest["tickets"]}
-    assert t1["qr_secret"] in secrets
-    assert t2["qr_secret"] in secrets
-    assert secrets[t1["qr_secret"]]["attendee_name"] == "Attendee One"
-    assert secrets[t1["qr_secret"]]["is_admitted"] is False
+    # The manifest carries sha256("<event_id>:<secret>"), never the raw QR secret.
+    def qr_hash(secret: str) -> str:
+        return hashlib.sha256(f"{event_id}:{secret}".encode()).hexdigest()
+
+    hashes = {item["qr_hash"]: item for item in manifest["tickets"]}
+    assert qr_hash(t1["qr_secret"]) in hashes
+    assert qr_hash(t2["qr_secret"]) in hashes
+    assert hashes[qr_hash(t1["qr_secret"])]["attendee_name"] == "Attendee One"
+    assert hashes[qr_hash(t1["qr_secret"])]["is_admitted"] is False
+    assert "qr_secret" not in manifest["tickets"][0]
     # Data minimization check: PII (mobile) is not leaked in offline manifest
     assert "attendee_mobile" not in manifest["tickets"][0]
 
@@ -133,6 +141,7 @@ async def test_single_use_admission_policy_enforcement(
 ) -> None:
     organizer = await provision_organizer(client, "Acme Congress Co")
     event_id = await create_event(client, organizer)
+    await publish_page(client, organizer, event_id)
     tier_resp = await client.post(
         f"/api/events/{event_id}/ticket-tiers",
         json=tier(name="General", quota=100),
@@ -198,6 +207,7 @@ async def test_tier_restricted_admission_policy_enforcement(
 ) -> None:
     organizer = await provision_organizer(client, "Acme Congress Co")
     event_id = await create_event(client, organizer)
+    await publish_page(client, organizer, event_id)
 
     gen_tier = await client.post(
         f"/api/events/{event_id}/ticket-tiers",
@@ -259,6 +269,7 @@ async def test_invalid_qr_secret_is_rejected(
 ) -> None:
     organizer = await provision_organizer(client, "Acme Congress Co")
     event_id = await create_event(client, organizer)
+    await publish_page(client, organizer, event_id)
     point_resp = await client.post(
         f"/api/events/{event_id}/checkin-points",
         json={"name": "Gate", "policy_type": "MULTI_ENTRY"},
@@ -290,6 +301,7 @@ async def test_idempotent_batch_replay_with_identical_scan_id(
 ) -> None:
     organizer = await provision_organizer(client, "Acme Congress Co")
     event_id = await create_event(client, organizer)
+    await publish_page(client, organizer, event_id)
     tier_resp = await client.post(
         f"/api/events/{event_id}/ticket-tiers",
         json=tier(name="Standard", quota=100),
@@ -342,6 +354,8 @@ async def test_scanner_endpoint_authentication_and_authorization_controls(
     org2 = await provision_organizer(client, "Organizer Two")
 
     event1_id = await create_event(client, org1)
+
+    await publish_page(client, org1, event1_id)
     event2_payload = dict(EVENT)
     event2_payload["slug"] = f"event-two-{uuid.uuid4().hex[:6]}"
     res_e2 = await client.post("/api/events", json=event2_payload, headers=bearer(org2))

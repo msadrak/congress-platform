@@ -1,7 +1,7 @@
 import uuid
 from httpx import AsyncClient
 
-from tests.helpers import bearer, provision_organizer
+from tests.helpers import bearer, provision_organizer, publish_page
 from tests.test_booths import BOOTH_PAYLOAD
 from tests.test_events import EVENT
 from tests.test_ticket_tiers import create_event, tier
@@ -13,6 +13,7 @@ async def setup_booth_staff_and_attendee(
 ) -> tuple[str, str, str, str, dict[str, str]]:
     organizer = await provision_organizer(client, "Acme Congress Co")
     event_id = await create_event(client, organizer)
+    await publish_page(client, organizer, event_id)
     tier_resp = await client.post(
         f"/api/events/{event_id}/ticket-tiers",
         json=tier(name="General", quota=100),
@@ -78,7 +79,8 @@ async def test_booth_staff_scans_attendee_badge_and_captures_lead(
     data = scan_resp.json()
     assert data["booth_id"] == booth_id
     assert data["attendee_name"] == "Dr. Lead Buyer"
-    assert data["attendee_mobile"] == "09121000046"
+    # The attendee has not consented to share their number with exhibitors.
+    assert data["attendee_mobile"] is None
     assert data["rating"] == "HOT"
     assert data["tags"] == ["Send Quote", "Schedule Demo"]
     assert data["notes"] == "Interested in 5 CT scanner systems for Q3."
@@ -225,6 +227,7 @@ async def test_scanning_ticket_from_different_event_is_rejected(
         headers=bearer(org2),
     )
     event_2_id = event_2_resp.json()["id"]
+    await publish_page(client, org2, event_2_id)
 
     tier2 = (
         await client.post(

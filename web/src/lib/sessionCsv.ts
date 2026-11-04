@@ -6,9 +6,21 @@
  * Format: one header row (case-insensitive; English or Persian names, any order), then one
  * session per row. Cells may be quoted (RFC 4180: commas, line breaks and `""` inside quotes).
  * A UTF-8 BOM and CRLF line endings (Excel's "CSV UTF-8") are accepted; `;` or tab separators are
- * detected from the header row. Dates: `YYYY-MM-DD HH:MM` in the browser's local time, or ISO-8601
- * with an offset (`2026-11-02T09:00:00+03:30`). Persian/Arabic digits are accepted.
+ * detected from the header row (separators inside quoted header cells do not count).
+ *
+ * Dates, read as wall-clock times in the event's time zone (or the browser's when none is given):
+ * - `YYYY-MM-DD HH:MM` (also `/` or `.` between the parts, optional seconds);
+ * - Solar Hijri (Jalali) dates in the same shape, such as `1405/08/11 09:00`;
+ * - Excel's US display format `M/D/YYYY H:MM`, optionally with seconds and `AM`/`PM`;
+ * - ISO-8601 with an offset (`2026-11-02T09:00:00+03:30`), which keeps its own offset.
+ * Persian/Arabic digits are accepted.
  */
+
+import { zonedWallTimeToIso } from "./format.ts";
+import { isValidJalali, jalaliToGregorian } from "./jalali.ts";
+
+/** Moved to `lib/format.ts`; re-exported for the existing callers. */
+export { zonedWallTimeToIso };
 
 export const SESSION_CSV_FIELDS = ["title", "track", "hall", "speakers", "description", "starts_at", "ends_at"] as const;
 export type SessionCsvField = (typeof SESSION_CSV_FIELDS)[number];
@@ -38,9 +50,13 @@ export type SessionRowProblem =
   | { code: "required"; field: "title" | DateField }
   | { code: "too_long"; field: LimitedField; max: number }
   | { code: "invalid_date"; field: DateField }
-  /** A Solar Hijri (Jalali) year such as 1405: the file must use Gregorian dates. */
-  | { code: "jalali_date"; field: DateField }
+  /** The session ends before, or at the same moment as, it starts. */
   | { code: "ends_before_start" };
+
+export interface SessionCsvOptions {
+  /** IANA zone the wall-clock times are in (the event's, e.g. `Asia/Tehran`); the browser's when omitted. */
+  timeZone?: string;
+}
 
 export interface ParsedSessionRow {
   /** 1-based position among the data rows: the number the API uses in "Row N: …" errors. */
@@ -99,18 +115,29 @@ interface CsvRecord {
   cells: string[];
 }
 
-/** The separator used by the header row: `,` unless `;` or tab clearly is. */
-function detectDelimiter(text: string): string {
-  const firstLine = text.split(/\r\n|\n|\r/, 1)[0] ?? "";
-  let best = ",";
-  let bestCount = 0;
-  for (const candidate of [",", ";", "\t"]) {
-    const count = firstLine.split(candidate).length - 1;
-    if (count > bestCount) {
-      best = candidate;
-      bestCount = count;
+const DELIMITERS = [",", ";", "\t"] as const;
+
+/**
+ * The separator used by the header row: `,` unless `;` or tab clearly is. Quote-aware: a `,` inside a
+ * quoted header cell (`"Start, local";End`) is not a separator, and a quoted cell may span lines.
+ */
+export function detectDelimiter(text: string): string {
+  const counts: Record<string, number> = { ",": 0, ";": 0, "\t": 0 };
+  let quoted = false;
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text[i];
+    if (ch === '"') {
+      // `""` inside quotes is an escaped quote and leaves the state unchanged.
+      if (quoted && text[i + 1] === '"') i += 1;
+      else quoted = !quoted;
+    } else if (!quoted && (ch === "\n" || ch === "\r")) {
+      break;
+    } else if (!quoted && ch in counts) {
+      counts[ch] += 1;
     }
   }
+  let best = ",";
+  for (const candidate of DELIMITERS) if (counts[candidate] > counts[best]) best = candidate;
   return best;
 }
 
@@ -188,8 +215,11 @@ function readRecords(text: string, delimiter: string): { records: CsvRecord[] } 
   return { records };
 }
 
-const LOCAL_DATE_TIME = /^(\d{4})[-/](\d{1,2})[-/](\d{1,2})[ T]+(\d{1,2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?$/;
+const YEAR_FIRST = /^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})[ T]+(\d{1,2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?$/;
+const EXCEL_US = /^(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?(?:\s*([AP])\.?M\.?)?$/i;
 const ZONED_DATE_TIME = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?(Z|[+-]\d{2}:?\d{2})$/i;
+/** Solar Hijri years a congress timetable can use (1300 AP is 1921). */
+const JALALI_YEARS = { min: 1300, max: 1499 };
 
 function validParts(year: number, month: number, day: number, hour: number, minute: number, second: number): boolean {
   if (month < 1 || month > 12 || hour > 23 || minute > 59 || second > 59) return false;
@@ -197,28 +227,54 @@ function validParts(year: number, month: number, day: number, hour: number, minu
   return day >= 1 && day <= new Date(Date.UTC(year, month, 0)).getUTCDate();
 }
 
-/** ISO-8601 instant for a timetable cell; local times use the browser's time zone. */
-export function parseSessionDateTime(raw: string): { iso: string } | { error: "invalid_date" | "jalali_date" } {
+/**
+ * ISO-8601 instant for a timetable cell. Wall-clock times are read in `timeZone` (the event's), or in the
+ * browser's zone when it is omitted; ISO cells with an offset keep their own.
+ */
+export function parseSessionDateTime(raw: string, timeZone?: string): { iso: string } | { error: "invalid_date" } {
+  const invalid = { error: "invalid_date" } as const;
   const value = toLatinDigits(raw).trim();
+
   const zoned = ZONED_DATE_TIME.exec(value);
-  const local = zoned ? null : LOCAL_DATE_TIME.exec(value);
-  const parts = zoned ?? local;
-  if (!parts) {
-    return /^1[2-4]\d{2}[-/]/.test(value) ? { error: "jalali_date" } : { error: "invalid_date" };
-  }
-  const [year, month, day, hour, minute] = parts.slice(1, 6).map(Number);
-  const second = parts[6] ? Number(parts[6]) : 0;
-  if (year < 1700) return { error: "jalali_date" };
-  if (!validParts(year, month, day, hour, minute, second)) return { error: "invalid_date" };
   if (zoned) {
+    const [year, month, day, hour, minute] = zoned.slice(1, 6).map(Number);
+    const second = zoned[6] ? Number(zoned[6]) : 0;
+    if (!validParts(year, month, day, hour, minute, second)) return invalid;
     const offset = zoned[7].toUpperCase() === "Z" ? "Z" : zoned[7].replace(/^([+-]\d{2}):?(\d{2})$/, "$1:$2");
     const ms = Date.parse(`${zoned[1]}-${zoned[2]}-${zoned[3]}T${zoned[4]}:${zoned[5]}:${String(second).padStart(2, "0")}${offset}`);
-    return Number.isNaN(ms) ? { error: "invalid_date" } : { iso: new Date(ms).toISOString() };
+    return Number.isNaN(ms) ? invalid : { iso: new Date(ms).toISOString() };
   }
+
+  let year: number, month: number, day: number, hour: number, minute: number, second: number;
+  const yearFirst = YEAR_FIRST.exec(value);
+  const excel = yearFirst ? null : EXCEL_US.exec(value);
+  if (yearFirst) {
+    [year, month, day, hour, minute] = yearFirst.slice(1, 6).map(Number);
+    second = yearFirst[6] ? Number(yearFirst[6]) : 0;
+    if (year >= JALALI_YEARS.min && year <= JALALI_YEARS.max) {
+      if (!isValidJalali(year, month, day)) return invalid;
+      [year, month, day] = jalaliToGregorian(year, month, day);
+    }
+  } else if (excel) {
+    [month, day, year, hour, minute] = excel.slice(1, 6).map(Number);
+    second = excel[6] ? Number(excel[6]) : 0;
+    const meridiem = excel[7]?.toUpperCase();
+    if (meridiem) {
+      if (hour < 1 || hour > 12) return invalid;
+      hour = (hour % 12) + (meridiem === "P" ? 12 : 0);
+    }
+  } else {
+    return invalid;
+  }
+  if (year < 1700 || !validParts(year, month, day, hour, minute, second)) return invalid;
+  if (timeZone) return { iso: zonedWallTimeToIso(timeZone, year, month, day, hour, minute, second) };
   return { iso: new Date(year, month - 1, day, hour, minute, second).toISOString() };
 }
 
-function validateRow(values: Record<SessionCsvField, string>): { session: SessionImportRow | null; problems: SessionRowProblem[] } {
+function validateRow(
+  values: Record<SessionCsvField, string>,
+  timeZone: string | undefined,
+): { session: SessionImportRow | null; problems: SessionRowProblem[] } {
   const problems: SessionRowProblem[] = [];
   if (!values.title) problems.push({ code: "required", field: "title" });
   for (const field of Object.keys(SESSION_FIELD_LIMITS) as LimitedField[]) {
@@ -232,11 +288,11 @@ function validateRow(values: Record<SessionCsvField, string>): { session: Sessio
       problems.push({ code: "required", field });
       continue;
     }
-    const parsed = parseSessionDateTime(values[field]);
+    const parsed = parseSessionDateTime(values[field], timeZone);
     if ("iso" in parsed) instants[field] = parsed.iso;
     else problems.push({ code: parsed.error, field });
   }
-  if (instants.starts_at && instants.ends_at && Date.parse(instants.ends_at) < Date.parse(instants.starts_at)) {
+  if (instants.starts_at && instants.ends_at && Date.parse(instants.ends_at) <= Date.parse(instants.starts_at)) {
     problems.push({ code: "ends_before_start" });
   }
   if (problems.length > 0 || !instants.starts_at || !instants.ends_at) return { session: null, problems };
@@ -254,7 +310,7 @@ function validateRow(values: Record<SessionCsvField, string>): { session: Sessio
   };
 }
 
-export function parseSessionCsv(input: string): SessionCsvResult {
+export function parseSessionCsv(input: string, options: SessionCsvOptions = {}): SessionCsvResult {
   const text = input.replace(/^\uFEFF/, "");
   const read = readRecords(text, detectDelimiter(text));
   if ("unterminatedAt" in read) return { ok: false, error: "unterminated_quote", line: read.unterminatedAt };
@@ -290,7 +346,7 @@ export function parseSessionCsv(input: string): SessionCsvResult {
       starts_at: cell("starts_at"),
       ends_at: cell("ends_at"),
     };
-    return { row: index + 1, line: record.line, values, ...validateRow(values) };
+    return { row: index + 1, line: record.line, values, ...validateRow(values, options.timeZone) };
   });
   return { ok: true, rows, ignoredColumns };
 }

@@ -7,11 +7,13 @@ interface PhaseBadgeProps {
   locale: AttendeeLocale;
   tone?: "ink" | "light";
   className?: string;
+  /** The congress's IANA zone: "day 2" and "starts tomorrow" follow the venue's calendar. */
+  timeZone?: string;
 }
 
 /** Live / upcoming / ended status computed from the congress's own dates. Renders nothing if they are unusable. */
-export function PhaseBadge({ startsAt, endsAt, locale, tone = "light", className = "" }: PhaseBadgeProps) {
-  const phase = congressPhase(startsAt, endsAt);
+export function PhaseBadge({ startsAt, endsAt, locale, tone = "light", className = "", timeZone }: PhaseBadgeProps) {
+  const phase = congressPhase(startsAt, endsAt, undefined, timeZone);
   if (!phase) return null;
   const ink = tone === "ink";
   const surface =

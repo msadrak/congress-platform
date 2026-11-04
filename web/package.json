@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "test": "node --experimental-strip-types --test tests/*.test.ts",
-    "typecheck": "tsc -b",
+    "typecheck": "tsc -b && tsc -p tsconfig.e2e.json && tsc -p tsconfig.e2e-live.json",
     "lint": "oxlint --deny-warnings",
     "preview": "vite preview",
     "gen:api": "node ../scripts/gen-api.mjs"
@@ -21,7 +21,8 @@
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-qr-code": "^2.2.0",
-    "react-router-dom": "^7.18.4"
+    "react-router-dom": "^7.18.4",
+    "zxing-wasm": "3.1.6"
   },
   "devDependencies": {
     "@playwright/test": "^1.64.0",

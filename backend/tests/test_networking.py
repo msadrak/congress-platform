@@ -1,7 +1,7 @@
 import uuid
-from httpx import AsyncClient
+from httpx import AsyncClient, Response
 
-from tests.helpers import bearer, provision_organizer
+from tests.helpers import bearer, provision_organizer, publish_page, sign_in
 from tests.test_events import EVENT
 from tests.test_ticket_tiers import create_event, tier
 from tests.test_tickets import register_user
@@ -12,6 +12,7 @@ async def setup_event_and_attendees(
 ) -> tuple[str, dict[str, str], str, dict[str, str], str, dict[str, str]]:
     organizer = await provision_organizer(client, "Acme Congress Co")
     event_id = await create_event(client, organizer)
+    await publish_page(client, organizer, event_id)
     tier_resp = await client.post(
         f"/api/events/{event_id}/ticket-tiers",
         json=tier(name="General", quota=100),
@@ -59,6 +60,7 @@ async def test_attendee_scans_peer_badge_and_creates_connection(
         json={
             "qr_secret": t_b["qr_secret"],
             "private_notes": "Met during morning keynote.",
+            "event_id": event_id,
         },
         headers={"Authorization": f"Bearer {token_a}"},
     )
@@ -82,7 +84,7 @@ async def test_scanning_own_badge_is_rejected(
     # Alice tries scanning her own badge
     self_resp = await client.post(
         "/api/attendees/me/network/scan",
-        json={"qr_secret": t_a["qr_secret"]},
+        json={"qr_secret": t_a["qr_secret"], "event_id": event_id},
         headers={"Authorization": f"Bearer {token_a}"},
     )
 
@@ -100,7 +102,7 @@ async def test_duplicate_peer_scan_updates_existing_connection(
     # First scan
     first = await client.post(
         "/api/attendees/me/network/scan",
-        json={"qr_secret": t_b["qr_secret"], "private_notes": "First note"},
+        json={"qr_secret": t_b["qr_secret"], "private_notes": "First note", "event_id": event_id},
         headers={"Authorization": f"Bearer {token_a}"},
     )
     assert first.status_code == 201
@@ -108,7 +110,7 @@ async def test_duplicate_peer_scan_updates_existing_connection(
     # Second scan updates notes
     second = await client.post(
         "/api/attendees/me/network/scan",
-        json={"qr_secret": t_b["qr_secret"], "private_notes": "Updated note"},
+        json={"qr_secret": t_b["qr_secret"], "private_notes": "Updated note", "event_id": event_id},
         headers={"Authorization": f"Bearer {token_a}"},
     )
     assert second.status_code == 200
@@ -134,7 +136,7 @@ async def test_attendee_can_list_connections_and_update_private_notes(
     created = (
         await client.post(
             "/api/attendees/me/network/scan",
-            json={"qr_secret": t_b["qr_secret"], "private_notes": "Initial"},
+            json={"qr_secret": t_b["qr_secret"], "private_notes": "Initial", "event_id": event_id},
             headers={"Authorization": f"Bearer {token_a}"},
         )
     ).json()
@@ -160,7 +162,7 @@ async def test_vcard_download_returns_rfc_compliant_vcf_file(
     created = (
         await client.post(
             "/api/attendees/me/network/scan",
-            json={"qr_secret": t_b["qr_secret"], "private_notes": "Met at keynote"},
+            json={"qr_secret": t_b["qr_secret"], "private_notes": "Met at keynote", "event_id": event_id},
             headers={"Authorization": f"Bearer {token_a}"},
         )
     ).json()
@@ -195,7 +197,7 @@ async def test_authorization_isolation_on_network(
     created = (
         await client.post(
             "/api/attendees/me/network/scan",
-            json={"qr_secret": t_b["qr_secret"]},
+            json={"qr_secret": t_b["qr_secret"], "event_id": event_id},
             headers={"Authorization": f"Bearer {token_a}"},
         )
     ).json()
@@ -266,7 +268,7 @@ async def test_peer_consent_toggle_governs_api_and_vcard_disclosure(
     # 1. Initially Bob has consent=False. Alice scans Bob -> mobile is None
     scan1 = await client.post(
         "/api/attendees/me/network/scan",
-        json={"qr_secret": t_b["qr_secret"]},
+        json={"qr_secret": t_b["qr_secret"], "event_id": event_id},
         headers=header_a,
     )
     assert scan1.status_code == 201
@@ -328,6 +330,7 @@ async def _second_event_attendee(
     )
     assert created.status_code == 201, created.text
     other_event_id: str = created.json()["id"]
+    await publish_page(client, organizer, other_event_id)
     tier_resp = await client.post(
         f"/api/events/{other_event_id}/ticket-tiers",
         json=tier(name="General", quota=100),
@@ -372,12 +375,19 @@ async def test_event_scoped_scan_of_another_congress_badge_leaves_existing_notes
     other_event_id, carol_ticket = await _second_event_attendee(client, "09121000056")
     event_id, _, token_a, _, _, _ = await setup_event_and_attendees(client)
     header_a = {"Authorization": f"Bearer {token_a}"}
-    legacy = await client.post(
-        "/api/attendees/me/network/scan",
-        json={"qr_secret": carol_ticket["qr_secret"], "private_notes": "original"},
+    # Alice also attends the other congress and connected with Carol there.
+    reserved = await client.post(
+        f"/api/events/{other_event_id}/tickets/reserve",
+        json={"ticket_tier_id": carol_ticket["ticket_tier_id"]},
         headers=header_a,
     )
-    assert legacy.status_code == 201
+    assert reserved.status_code == 201, reserved.text
+    there = await client.post(
+        "/api/attendees/me/network/scan",
+        json={"qr_secret": carol_ticket["qr_secret"], "private_notes": "original", "event_id": other_event_id},
+        headers=header_a,
+    )
+    assert there.status_code == 201
 
     rejected = await client.post(
         "/api/attendees/me/network/scan",
@@ -407,3 +417,66 @@ async def test_event_scoped_scan_of_same_congress_badge_still_connects(
 
     assert accepted.status_code == 201
     assert accepted.json()["event_id"] == event_id
+
+
+async def _vcard_of_peer(client: AsyncClient, name: str, organization: str, title: str, notes: str) -> Response:
+    """Alice connects with a peer whose profile is (name, organization, title) and downloads the vCard."""
+    organizer = await provision_organizer(client, "Acme Congress Co")
+    event_id = await create_event(client, organizer)
+    tier_id = (
+        await client.post(f"/api/events/{event_id}/ticket-tiers", json=tier(), headers=bearer(organizer))
+    ).json()["id"]
+    await publish_page(client, organizer, event_id)
+    _, token_a = await sign_in(client, "09121000054", "Alice Smith")
+    _, token_b = await sign_in(client, "09121000055", name, organization, title)
+    badge = (
+        await client.post(
+            f"/api/events/{event_id}/tickets/reserve", json={"ticket_tier_id": tier_id},
+            headers={"Authorization": f"Bearer {token_b}"},
+        )
+    ).json()
+    header_a = {"Authorization": f"Bearer {token_a}"}
+    await client.post(f"/api/events/{event_id}/tickets/reserve", json={"ticket_tier_id": tier_id}, headers=header_a)
+    conn = await client.post(
+        "/api/attendees/me/network/scan",
+        json={"qr_secret": badge["qr_secret"], "private_notes": notes, "event_id": event_id},
+        headers=header_a,
+    )
+    assert conn.status_code == 201, conn.text
+    vcard = await client.get(f"/api/attendees/me/network/{conn.json()['id']}/vcard", headers=header_a)
+    assert vcard.status_code == 200
+    return vcard
+
+
+async def test_vcard_values_are_escaped_so_profile_text_cannot_add_properties(client: AsyncClient) -> None:
+    vcard = await _vcard_of_peer(
+        client,
+        name="Bob, Jr.; \\x\r\nTEL;TYPE=CELL:+15550000000",
+        organization="Org;Unit,Two\nEND:VCARD",
+        title="Head\rBEGIN:VCARD",
+        notes="line one\r\nline two; a,b",
+    )
+
+    lines = vcard.text.split("\r\n")
+    assert lines[0] == "BEGIN:VCARD" and lines[-2:] == ["END:VCARD", ""]
+    assert [line.split(":", 1)[0].split(";", 1)[0] for line in lines[:-1]] == [
+        "BEGIN", "VERSION", "FN", "N", "ORG", "TITLE", "NOTE", "END",
+    ]
+    assert "FN:Bob\\, Jr.\\; \\\\x\\nTEL\\;TYPE=CELL:+15550000000" in lines
+    assert "N:;Bob\\, Jr.\\; \\\\x\\nTEL\\;TYPE=CELL:+15550000000;;;" in lines
+    assert "ORG:Org\\;Unit\\,Two\\nEND:VCARD" in lines
+    assert "TITLE:Head\\nBEGIN:VCARD" in lines
+    assert "NOTE:line one\\nline two\\; a\\,b" in lines
+    assert "\r" not in vcard.text.replace("\r\n", "") and "\n" not in vcard.text.replace("\r\n", "")
+
+
+async def test_vcard_filename_is_ascii_with_a_utf8_name_for_persian_names(client: AsyncClient) -> None:
+    vcard = await _vcard_of_peer(client, name='علی "رضایی"', organization="", title="", notes="")
+
+    disposition = vcard.headers["content-disposition"]
+    assert disposition.isascii()
+    assert disposition == (
+        "attachment; filename=\"contact.vcf\"; "
+        "filename*=UTF-8''%D8%B9%D9%84%DB%8C%20%D8%B1%D8%B6%D8%A7%DB%8C%DB%8C.vcf"
+    )
+    assert "FN:علی \"رضایی\"" in vcard.text.split("\r\n")

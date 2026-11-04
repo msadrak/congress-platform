@@ -61,6 +61,13 @@ Regression tests: `tests/test_config_safety.py`, `tests/test_platform_safeguards
 | Call to action | addable | Ink band / accent panel, targets passes or exhibitors |
 | Speakers | addable | Editorial: name, role, affiliation, photo |
 | Agenda | addable | Editorial: free-text time, title, detail |
+| Columns | addable | 2–4 texts side by side, optional icon/image/link button (ADR 0023) |
+| Video | addable | YouTube or Aparat, player loads on play (ADR 0023) |
+| Gallery & logos | addable | Photos or a sponsor/partner logo wall, optionally linked (ADR 0023) |
+| Links & channels | addable | Telegram, Instagram, Eitaa, Bale, website, e-mail, phone … (ADR 0023) |
+
+Every section also has an **Appearance** (background, width, alignment, text size, direction), prose has a formatting
+toolbar, and the accent can be a custom AA-legible colour: see `docs/adr/0023-page-studio-layout-and-media-blocks.md`.
 
 **Rules.**
 - Core sections can be hidden, never removed (the API enforces exactly one of each).

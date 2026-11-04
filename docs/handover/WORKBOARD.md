@@ -1,0 +1,193 @@
+# Workboard — who is doing what
+
+Single place to claim work on the upgrade programme. Read `UPGRADE_HANDOVER.md` first.
+
+## Persian UI terms (decided 2026-10-23 — use in every new string)
+Ticket type / tier = «نوع کارت ورود» · attendee ticket = «کارت ورود» · session = «جلسه» · check-in point = «نقطه ورود» · QR = «کد QR» · never «بلیط» · walk-in = «ثبت‌نام حضوری». The full term list (portal names, «لید», «پیوند», banned words) is `docs/ux-review/UX_PLAN.md` §1.
+
+## How to claim (any team)
+1. `git fetch origin` and look at the newest version of this file on `integration/upgrade`.
+2. Pick a row whose status is **free**. Check its "Files / area" column does not overlap a row that is **taken**.
+3. Edit this file: set owner (team name), branch, status `taken`, date. Commit only this file
+   (`docs(workboard): <team> claims <id>`) and push to `integration/upgrade`. If the push is rejected,
+   fetch, re-check the row is still free, and retry.
+4. Work on your own branch (`ws/<team>-<id>-<name>`) from `integration/upgrade`; pass all gates
+   (handover §3.2). New migrations: number ≥ 0030, `down_revision` = current head; the merger re-chains.
+5. When done, set status `ready to merge` here and push your branch (or open a GitHub PR into
+   `integration/upgrade`). Do not merge into `integration/upgrade` yourself — one merger
+   (the coordinator session `aiteb-congress-7d` on the product owner's Mac) merges, verifies and pushes.
+6. Same-Mac teams: use ports from 47500 up, your own `*_test` database names, and never touch Docker
+   containers you did not start.
+
+Status values: `free` · `taken` · `ready to merge` · `merged` · `blocked (reason)`.
+
+## In progress (taken)
+
+| ID | Owner | Branch | Scope | Files / area | Status |
+|---|---|---|---|---|---|
+| C2 | coordinator team | `ws/c2-desk` | Desk: QR lookup, admit at a point, badge prints + reprint flag, desk registration edits/cancel/reissue/transfer, operator invite/restore, desk search Persian folding, archived checks, resend via `consume` | `backend/app/routes/desk.py`, migration 0026, `web/src/components/reception/*`, `ReceptionPortal.tsx`, `pages/organizer/EventOperators.tsx`, `OperatorFormDialog.tsx` | merged |
+| C1 | coordinator team | `ws/c1-gate-rules` | Single-use per day, IN/OUT occupancy, tier filter with any policy, requires-point, session attendance + CSV, device heartbeat + dashboard, point archive | `backend/app/routes/checkin.py`, `routes/session_attendance.py`, migration 0025, `web/src/pages/GateScanner.tsx`, `web/src/lib/scanner*.ts`, `components/scanner/*`, `pages/organizer/EventCheckIn.tsx`, `CheckInPointFormDialog.tsx` | merged |
+| B6a | coordinator team | `ws/b6a-organizer-ui` | Event settings/archive/delete, tier delete + sales windows, booth staff + standee QR, Page Studio leave-guard + 409 choice, program times in event tz, role-aware UI | `web/src/pages/organizer/*` (except check-in/operators), `components/organizer/*` (same), `OrganizerPageStudio.tsx`, `OrganizerProgram.tsx` | merged |
+| B6b | coordinator team | `ws/b6b-exhibitor` | Exhibitor portal: server search, trash + undo, offline lead queue, removed-staff screen | `web/src/pages/ExhibitorPortal.tsx`, `web/src/components/booth/*`, `web/src/lib/lead*.ts` | merged |
+| B5d | coordinator team | `ws/b5d-attendee-pages` | My Congress state machine, program filters/agenda, network rework, profile edit/consent/export/delete, booth `?b=` | `MyCongress.tsx`, `CongressDetails*`, `MyNetwork.tsx`, `MyProfile.tsx`, `BoothDirectory.tsx`, `PublicBooth.tsx`, `components/attendee/*` (except pass card) | merged |
+| D2 | coordinator team | `ws/d2-live-e2e` | Live-backend Playwright journeys for every persona + CI job | `web/e2e-live/*`, `web/playwright.live.config.ts`, `scripts/integration/live-e2e.mjs`, one CI job | merged |
+| FIX-1 | coordinator team | `ws/fix1-auth-sms` | Organizer-key throttle lockout (expired tokens), SMS cap abuse (reserve/cancel loops, organizer notices, OTP headroom), re-register race, `ip_group` limiters, admin token compare | `backend/app/auth.py`, `security.py`, `routes/tickets.py`, `app/ticket_lifecycle.py`, `sms/gateway.py`, limiter lines in `passes.py`/`booths.py` | merged |
+| FIX-2 | coordinator team | `ws/fix2-privacy` | Attendee logout + session_version (migration 0030), account deletion/export completeness, retention (OTP rows, short links, idempotency keys), outbox skips deleted/cancelled | `routes/auth.py` (session parts), `app/account.py`, `app/retention.py`, `sms/outbox.py`, `lib/attendeeSession.ts` | merged |
+| FIX-3 | coordinator team | `ws/fix3-exhibitor-network` | Network scan race, input size limits, booth-staff tenant revocation/archive, archived network/bookmarks, `public_media` archived, paginated legacy lists, streamed leads CSV | `routes/leads.py`, `routes/network.py`, `routes/booths.py` (staff/bookmark parts), `public_media` in `routes/pages.py` | merged |
+| FIX-4 | coordinator team | `ws/fix4-archive-robustness` | Archived read-only on booths/participants/SMS/Page Studio, template save race, last-owner lock, coded errors, SMS log cursor, streamed participants CSV, short-link expiry on date change, PDF hardening | `routes/participants.py`, `routes/sms.py`, `routes/events.py`, `app/links.py`, `app/media.py`, `sms/templates.py`, `routes/organizer_console.py`, dependency lines in `booths.py`/`pages.py` | merged |
+| PWA-1 | team2 (second agent team) | `ws/team2-pwa1-pwa-settings` | Manifest `orientation: any` + stable `id: "/"`; `start_url` is `/?source=pwa`, rewritten before the app renders to the device's own paired scanner point (plain `/` otherwise; offline too); captive-portal-aware `probeServer` + `serverReachability` monitor + `useServerReachability` hook (real `/api/health` round trip) for C1 to adopt — nothing consumes it yet. Web only: no migration, no env var, no backend. Done 2026-10-23, verified on `03003a3` + branch: backend 648, web unit 275, Playwright 318 | `web/pwa-manifest.ts` (new; manifest moved out of `vite.config.ts`), `web/vite.config.ts` (manifest block → import), `web/src/lib/pwaRegistration.ts` (+1 `await`), new `web/src/lib/launchTarget.ts`, `serverReachability.ts`, `web/src/hooks/useServerReachability.ts`, new `web/tests/{launchTarget,serverReachability,pwaManifest}.test.ts`, `web/e2e/pwa-launch.spec.ts`. Merge notes: C1's `vite.config.ts` hunk (`__APP_BUILD__`) auto-merges; B6a's data-router `main.tsx` verified compatible (keep `./lib/pwaRegistration` imported before the router is created) | merged |
+| POLISH-2 | team2 (second agent team) | `ws/team2-polish2` | Shared-lib polish + one small API field: (1) `formatLocalizedNumber` in `web/src/lib/i18n.ts` uses a Latin thousands comma in fa («۵,۰۰۰») → Persian separator «٬»; (2) `localizedApiError` in `web/src/api/client.ts` falls back to the English `detail` for errors without a code → localized generic sentence by HTTP status (keep English detail only in en or as a tooltip/diagnostic); (3) backend: add `event_timezone` to the attendee ticket response (`GET /api/attendees/me/tickets`, `routes/tickets.py`) and to the link-pass resolve response (`routes/passes.py`), regenerate `schema.d.ts`; (4) web: `DigitalPassCard` shows dates in that zone. Done 2026-10-23, merged with `75fcab0` and verified on the merge (`75fcab0..7b5d785`): backend 712, web unit 283, staging 26, Playwright 343. API change is additive (`event_timezone: string` on `AttendeeTicketDetail` and `LinkPassOut`; no migration, no env var). Behaviour change: in fa, an error without a known code now reads as a generic localized sentence by status instead of the server's English text; bare `result.error` bodies carry no status (so they get the neutral sentence, or the 422 one for a validation body) until a call site passes `result.response.status` as the new optional third argument | `web/src/lib/i18n.ts` (number formatter only), `web/src/api/client.ts` (fallback + `apiErrorDiagnostic`/`genericApiErrorMessage`), `routes/tickets.py` + `routes/passes.py` (response model only), `components/attendee/DigitalPassCard.tsx`, new `web/src/lib/passDates.ts` (zone-aware range/issued date; `congressTime.ts` left alone: WEB-FIX-1 "attendee time display"), `web/src/lib/linkPass.ts` (`linkPassCard` +1 line), `schema.d.ts` (regenerated), tests incl. `web/e2e/pass-event-timezone.spec.ts`. Merge notes: `Me.tsx` untouched (its date ranges can adopt `passDates.ts` later); `errorMessages.ts` untouched; regenerate `schema.d.ts` rather than hand-merging; `web/tests/apiErrorCodes.test.ts` has one deliberately changed test (fa fallback) | merged |
+| AUD-WEB | coordinator team | (read-only) | Frontend/UX gap audit, all personas | none | merged (report done) |
+| UX-REVIEW | coordinator team | (read-only) | Product-owner UX pass: all personas/scenarios, simple & minimal (remove unnecessary text), consistent design system, device fit, PWA install on mobile. 5 reviewers: design system, attendee/public, organizer/platform, on-site operators, copy/i18n → specs in `docs/ux-review/*/SPEC.md`, plan `docs/ux-review/UX_PLAN.md` | none | merged (report done) |
+| WEB-FIX-1 | coordinator team | `ws/webfix1-public-attendee` | Registration-window states on the public page, booth/desk entry cards on `/me` + switcher, public congress list on `/` and signed-out `/me`, event-timezone times on public/attendee pages, touch targets | `PublicEvent.tsx`, `components/public/*`, `Home.tsx`, `Me.tsx`, `AttendeeLayout.tsx` (switcher), attendee time display | merged |
+| WEB-FIX-2 | coordinator team | `ws/webfix2-console` | Platform console members drawer, readable Activity/Members labels, analytics StrictMode bug + tz label, platform error localization + touch targets, `formatApiError` guard test | `Platform*.tsx`, `OrganizerMembers*`, Activity page, `lib/organizerConsole.ts`, `OrganizerAnalytics.tsx` | merged |
+| AUD-OPS | coordinator team | (read-only) | Ops/CI/docs gap audit | none | merged (report done) |
+| OPS-FIX-A | coordinator team | `ws/opsfix-a-deploy` | Referer log leak, compose passes every setting + secret-box key in init, SMS-failure alerts + external heartbeat, metrics, Caddy request id, backup consistency for program files, dev/stack data-dir collision | `deploy/**`, `scripts/staging/**` (except verify.mjs CLI), `backend/app/config.py` validators, `backend/app/observability.py` | merged |
+| OPS-FIX-B | coordinator team | `ws/opsfix-b-ci-load` | Load harness vs current API + new scenarios, CI gaps (ws/** CI, uv --locked, db image, compose smoke, k6 inspect, timeouts), `check.sh --full`, verify.mjs project/paths, .gitignore, head tests derive head | `scripts/load/**`, `.github/**`, `scripts/check.*`, `scripts/staging/verify.mjs` (CLI/paths), `.gitignore`, `AGENTS.md`, 2 head tests | merged |
+| DOCS-FIX | coordinator team | `ws/docsfix-runbook-adrs` | Event-day runbook rewrite, stale rate-limit docs, upgrade rehearsal + migration compatibility table, ADR status notes + 6 new ADRs, docs truth, root README | `docs/**` (except `docs/handover/*`), `README.md`, `web/README.md`, `mobile/README.md`, `GLOSSARY.md`, `SPEC*.md`, `REPORT.md` | merged |
+
+## Free — can be claimed now
+
+| ID | Scope | Files / area | Notes |
+|---|---|---|---|
+| OPS-1 | Real-infrastructure drills: ACME on the real domain, a real S3 provider for encrypted backups + PITR restore drill, systemd timers on a Linux host, Sentry endpoint, Telegram delivery/relay from Iran | `deploy/**`, `scripts/staging/**` (only fixes found), docs | Needs server access — a human or ops team with credentials |
+| LOAD-1 | Re-run `scripts/load/` on staging after the next deploy; update targets/notes for the current API (published page, OTP budgets, hashed manifest) | `scripts/load/**` | Needs a staging stack |
+| SMS-2 | Backup SMS provider adapter with failover only on definite non-delivery | `backend/app/sms/provider.py`, `gateway.py` | **blocked** until the product owner chooses a provider |
+
+## UX-IMPL — UI/UX implementation (from the UX review)
+
+**Read `docs/ux-review/UX_PLAN.md` first** — decisions (§1), phases and exclusive file lists (§2), critical items (§3),
+how to work (§4). Specs: `docs/ux-review/{ds,att,org,ops,copy}/SPEC.md`. These rows absorb A11Y-1, GLOSS-2, DATE-1 and POLISH-1.
+The batch (C2, B6b, WEB-FIX-1/2, OPS-FIX-B, PWA-1, PERF-1, POLISH-2, pdf links) is merged — start from the `integration/upgrade` tip.
+Branch `ws/ux-<id>` (team2: `ws/team2-ux-<id>`). A phase-1 package starts when the foundations it needs are merged.
+
+| ID | Phase | Needs | Owner | Status |
+|---|---|---|---|---|
+| UX-F1 tokens | 0 | — | coordinator team | merged (`ws/ux-f1` a3b34a7) |
+| UX-F2 format & Jalali dates | 0 | — | coordinator team | merged (`ws/ux-f2` 74c732a) |
+| UX-F3 copy foundation + guards | 0 | — | coordinator team | merged (`ws/ux-f3` 596ed48) |
+| UX-F5 PWA launch, install, offline sign-in, device hooks (critical) | 0 | — | team2 | merged (`ws/team2-ux-f5` 4989c8f; report below) |
+| UX-F6 operator shell components | 0 | — | coordinator team | merged (`ws/ux-f6` d245b42) |
+| UX-F7 backend: booth `event_archived`, SMS default texts | 0 | — | coordinator team | merged (`ws/ux-f7` 3940717) |
+| UX-F4 shared ui primitives | 0 | F1 | coordinator team | merged (`ws/ux-f4` 5af511a) |
+| UX-F8 organizer scaffold (`canEdit`, offline, RolePicker) | 0 | F4 | coordinator team | merged (`ws/ux-f8` 5227c74) |
+| UX-SCAN scanner | 1 | F1–F6 | coordinator team | merged (`ws/ux-scan` 9074314) |
+| UX-DESK reception desk | 1 | F1–F6 | coordinator team | merged (`ws/ux-desk` 64de308) |
+| UX-BOOTH booth panel | 1 | F1–F7 | coordinator team | merged (`ws/ux-booth` 025aa2a) |
+| UX-ATT-PASS pass + link pass (also `lib/ticketCache.ts`) | 1 | F1–F5 | team2 | merged (`ws/team2-ux-att-pass` 389dfbc; report below) |
+| UX-ATT-SHELL attendee shell, Home/Program, /me, Network, Profile | 1 | F1–F5 | team2 | merged (`ws/team2-ux-att-shell` df31cd4; report below) |
+| UX-PUB platform home, public congress, reservation, booth page | 1 | F1–F4 | coordinator team | merged (`ws/ux-pub` b4134f2) |
+| UX-ORG-1 organizer shell, congress list, overview, members, activity | 1 | F1–F4, F8 | coordinator team | merged (`ws/ux-org1` 0646153) |
+| UX-ORG-2 program, venue, Page Studio | 1 | F1–F4, F8 | coordinator team | merged (`ws/ux-org2` d63916f) |
+| UX-ORG-3 check-in, operators, ticket types, booths | 1 | F1–F4, F8 | coordinator team | merged (`ws/ux-org3` 7060349) |
+| UX-ORG-4 participants, SMS, statistics | 1 | F1–F4, F8 | coordinator team | merged (`ws/ux-org4` 11d54a6) |
+| UX-PLAT platform admin | 1 | F1–F4, F8 | coordinator team | merged (`ws/ux-plat` 346775f) |
+| UX-Z cleanup, design guard, copy baseline 0, screenshot re-run | 2 | all of phase 1 | coordinator team | merged (`ws/ux-z` 3c7a3e5) |
+
+### UX-F5 report (team2, 2026-10-23) — `ws/team2-ux-f5` at `4989c8f`, from `0170ef6`
+
+Web only: no migration, no env var, no backend, no new dependency, no `schema.d.ts` change. A dry merge into `3bf1b43` is clean (no shared files).
+
+**What changed.**
+- **Launch** (`lib/launchTarget.ts`; `pwa-manifest.ts`, `pwaRegistration.ts`, `vite.config.ts` need no functional change — Workbox already serves offline deep links). The home-screen icon opens, in order: the paired scanner point → the pass (`/c/<slug>/my-ticket`) when the device holds exactly one live/upcoming active pass → `/me` for several → the last booth/desk recorded on the device → `/me` when only a session exists → `/` (clean address). All local-storage/IndexedDB reads; works offline. Cached passes are read without the 7-day cap.
+- **Offline sign-in** (`AttendeeSignIn.tsx`): a stored session with an unreachable server (fetch failure or HTTP ≥500 from `/api/auth/me`) continues to the destination (`?next=` honoured); a 401 still shows the phone form.
+- **Install** (`InstallHint.tsx`, `installPrompt.ts`): one component, `persona` = `attendee | scanner | booth`. T6 rules in `installAllowedOnPath`/`installOffer`: never on public, organizer, platform or desk pages, never when installed (display-mode or `navigator.standalone`), never after «بعداً»/"Not now" (dismissal kept per persona), attendee/booth only on phones. iOS Safari gets a 3-step «چطور؟» sheet and **no offline promise**; iOS in-app browsers (Instagram etc.) get nothing; Android Chrome uses the native prompt, hides on `appinstalled`.
+- **Hooks**: `useHidScanner` (burst of ≥8 keys <60 ms + Enter = a code, `preventDefault` on the burst's keys, slow typing passes through; `createRepeatFilter`), `useWakeLock` (re-acquires on visibility, swallows refusals), `useAppUpdate`. `AppUpdatePrompt` is hidden on `/scan`, `/booth`, `/reception`. `QrCameraInput` gained `autoStart` (only when camera permission is already granted) and `continuous` (repeat-filtered).
+
+**`InstallHint` props (stable):** `{ locale: AttendeeLocale; persona?: "attendee" | "scanner" | "booth" }` (default `"attendee"`). It decides for itself whether to render (route + device + dismissal), so callers just mount it. Test ids: `install-hint`, `install-action`, `install-how`, `install-ios-steps`, `install-ios-step`. Allowed paths: attendee `/c/:slug/my-ticket` and `/t/:code`; scanner `/scan[/:id]`; booth `/booth/:id` (not `/sign-in`). The booth strings are mine (copy SPEC §8 has none).
+
+**Gates (real exit codes).** `npm test` 0 (460 pass) · `npm run lint` 0 · `npx tsc -b` 0 · `vite build` 0 · `e2e/pwa-launch.spec.ts` 0 (27 pass; 3 deliberate source breaks made exactly the 5 expected tests fail) · full Playwright on `vite preview` :47531, `CONGRESS_BROWSER_CHANNEL=chrome` **0 (416 passed, 12.3 min)** · `./scripts/check.sh` **0** (mypy 145 files clean, pytest 762 passed, `schema.d.ts` matches, web unit 460, staging 26, Dart tests + analyze clean). Screenshots (JPEG, fa + en; iOS row, iOS «چطور؟» sheet, Android row at 390×844 and 360×740, desktop with no row at 1440×900): `/tmp/team2-f5-shots/` on the shared Mac. `web/dist` deleted.
+
+**Files outside my list.** `web/e2e/attendee-me-and-pass.spec.ts` (UX-ATT-SHELL's): deleted the single case "the add-to-home-screen hint uses the install prompt and stays dismissed" — it ran on a desktop pointer with the old button names; `pwa-launch.spec.ts` covers the install row on iOS, Android and desktop.
+
+**For the coordinator at merge.**
+1. `web/src/lib/ticketCache.ts` (phase-0 file, not mine): the 7-day TTL defeats offline launch at the gate for a congress that starts later. Keep a cached pass until its congress ends (`launchTarget` already reads the cache without the TTL, so the launch works either way; the pass page does not).
+2. `docs/handover/UPGRADE_HANDOVER.md` ~line 185 describes the launch rewrite as "paired scanner point" only; it now also covers the pass, `/me`, booth and desk.
+3. The att spec suggests emulating `display-mode: standalone` through CDP `Emulation.setEmulatedMedia`; Chrome ignores it. The e2e overrides `matchMedia` instead.
+
+**For the operator packages (UX-SCAN, UX-DESK, UX-BOOTH).**
+- Call `recordOperatorLaunch("scan" | "booth" | "desk", path)` (from `lib/launchTarget`) once the screen is ready. Without it a booth-staff device (which holds an attendee token) opens `/me` from the icon; with it, it reopens its booth or desk.
+- Use `useHidScanner(onCode)`, `useWakeLock()` and `useAppUpdate()` rather than local copies. UX-DESK can delete its `KeyBurst` (the desk passes its `badgeCode` filter inside its own `onCode`).
+- Known limit: the first 1–3 keys of a burst can reach a focused text field before the burst is recognised; clear the field in `onCode`.
+- `QrCameraInput` `autoStart`/`continuous` have unit tests for the repeat filter only; no screen mounts them yet.
+
+**Left over.** `useWakeLock` has no consumer until UX-ATT-PASS wires it into `QrFullscreen`. The pass card still says «شناسه رهگیری بلیت» (ATT-PASS's file; I will fix it there).
+
+### UX-ATT-PASS report (team2, 2026-10-23) — `ws/team2-ux-att-pass` at `389dfbc`, from `3a293f4`
+
+Web only: no migration, no env var, no backend, no new dependency, no `schema.d.ts` change. A trial merge of `6329562` (current tip) into the branch is clean — the only shared file is `web/tests/copy-baseline.json`, which auto-merges; on the merged tree `npm test` 0 (522 pass), `tsc -b` 0, lint 0.
+
+**What changed.** Spec: att WP2 + copy §4.3 (pass). Words are in the new `src/copy/pass.ts` (`passCopy`).
+- **Pass tab** (`MyTickets.tsx`): [switcher if several] → card with QR → one status line only if needed → install row → divider → «لغو ثبت‌نام» text button. The QR is fully in the first screen at 360×740 and 390×844, fa + en, and nothing but the header sits above the card. Online and "refreshing" lines are gone. The one line (under the card, `pass-status-line`) is offline («آفلاین: نمایش کارت ورود ذخیره‌شده»), a session that ended («زمان ورود شما تمام شده؛ کارت ذخیره‌شده نمایش داده می‌شود.» + «ورود» link), or a notice. Cancel: quiet ghost text button, no hint, short confirm «ثبت‌نام لغو شود؟» that says the QR stops working and the place is released; buttons «لغو ثبت‌نام» / «انصراف». The old "Pass from your SMS link" note is gone.
+- **Signed out** on `/c/:slug/my-ticket`: `otp-mobile-step` (the phone form) is on the page, with title «ورود برای دیدن کارت ورود»; no extra navigation. First run with no network and nothing saved: «برای بار اول به اینترنت نیاز دارید» + retry.
+- **Card** (`DigitalPassCard.tsx`): «شناسه کارت ورود» / "Pass ID"; the tap-hint line is replaced by a small expand mark on the QR (`pass-qr-expand`); print button hidden below `md`.
+- **`QrFullscreen.tsx`** uses `useWakeLock` (the inline copy is deleted).
+- **Link pass** (`/t/:code`): switcher → card → one centered «برای شبکه‌سازی وارد شوید» link under it → install row. **Expired link (410)** (`LinkPassEntry.tsx`): title «این پیوند دیگر معتبر نیست», body, the phone form inline (signing in lands on `/c/<slug>/my-ticket`), and the language switch is the shared `LanguageToggle` in the header position, not under the form. Other outcomes keep their button.
+- **`lib/ticketCache.ts`**: a cached pass lives until the latest congress end among the cached passes, never less than 7 days; an explicit `ttlMs` still wins (tests). `Me`, `MyNetwork`, `MyCongress` call `saveOwnerScopedTickets` without a TTL, so they get this too. «شناسه رهگیری بلیت» was already fixed by F3; the card now says «شناسه کارت ورود».
+
+**Gates (real exit codes).** `npm test` 0 (514 pass) · `npm run lint` 0 · `npx tsc -b` 0 · `vite build` 0 · new `e2e/pass-layout.spec.ts` 17 tests (written first; 15 of 16 failed on the old UI for the intended reasons, 1 passed; the 17th, sign in from the expired-link page, was added later and passed alone) · full Playwright on `vite preview` :47531, `CONGRESS_BROWSER_CHANNEL=chrome` **0 (432 passed, 13.1 min)** on the final build (the first full run had 10 failures, all specs encoding the old pass UI, listed below; the 5 affected files re-ran green, 68 pass) · `./scripts/check.sh` **0** (mypy 145 files clean, pytest 764 passed, `schema.d.ts` matches, web unit 514, staging 26, Dart tests + analyze clean). Screenshots (JPEG, fa + en, 390×844 / 360×740 / 1440×900: pass online, offline, offline first run, signed out, link pass, expired link; Android install row + cancel at 390 and 360): `/tmp/team2-attpass-shots/` on the shared Mac. `web/dist` deleted.
+
+**Files outside my list.**
+- `web/tests/copy-baseline.json` and `web/tests/glossary.test.ts` (F3's ratchets; they only fall): DigitalPassCard 7+7 → 0, QrFullscreen 3+2 → 0, LinkPassEntry 1+1 → 0, MyTickets persian 22 → 0; the `MyTickets.tsx: ["نشست"]` allowlist entry is removed (the word is gone).
+- ATT-SHELL's specs, edited minimally for the new pass UI — keep these when ATT-SHELL touches them: `attendee-me-and-pass.spec.ts` (`link-pass-note` → the sign-in link; online `pass-status-line` count 1 → 0; dialog buttons 'Keep my pass' → 'Keep', 'Yes, cancel it' / «بله، لغو شود» → 'Cancel registration' / «لغو ثبت‌نام»), `attendee-authority.spec.ts` (session line is now "Signed out; showing the saved pass."; the signed-out pass tab shows the phone form, not "Sign In to Attendee Portal"), `attendee-portal.spec.ts` (print is hidden at 412 px, so the test checks the QR button; signed-out `my-ticket` shows `otp-mobile-step`).
+
+**For the coordinator at merge.**
+1. `DigitalPassCard` no longer reads `t` (kept as an optional prop so nothing breaks). `OrganizerPanel.tsx:191` (UX-ORG-2's) can drop `t={t}`.
+2. Dictionary keys no longer used anywhere: `linkPassNote`, `digitalPassTitle`, `ticketIdLabel` (UX-Z deletes; `lib/i18n.ts` is not mine). `SignInPrompt.tsx` stays: `MyNetwork` and `MyProfile` (ATT-SHELL) still use it.
+3. Spec choices: att says no hint under cancel (copy §4.3 had a shortened one) → none. `arrow-up-right` is the expand mark because the shared `Icon` set has no expand icon. The cancel text is neutral grey: `Button` has no danger text tone, and the dialog carries the danger.
+
+**Left over.** Nothing for this package. Next: UX-ATT-SHELL (needs a claim).
+
+### UX-ATT-SHELL report (team2, 2026-10-23) — `ws/team2-ux-att-shell` at `df31cd4`, contains `72d949f` (the tip with every other phase-1 package merged)
+
+Web only: no migration, no env var, no backend, no new dependency, no `schema.d.ts` change. The branch already contains the tip, so the merge is a fast-forward in effect (the second merge of the tip is done; the conflicts were the ratchets and two spec hunks, resolved as described below). No claim commit was pushed before the work (the shared worktree had unmerged work and I did not want to move `integration/upgrade` under it); the row goes straight from "waiting" to "ready to merge".
+
+**What changed.** Spec: att WP3 + WP4, ds P2, copy §4.3. All words are in the new `src/copy/attendee.ts` (`attendeeCopy`); `components/attendee/attendeeCopy.ts` keeps only `n` and `contactsPhrase` (its dead `boothCopy` is deleted: `BoothDirectory` and `PublicBooth` now read `copy/booth.ts`).
+- **Shell** (`AttendeeLayout.tsx`): on a phone the header has the congress switcher and the avatar, nothing else (2 controls at 360 and 390, fa + en). The language switch is the last row of the switcher menu; log out is in the profile and asks first («خروج از حساب در این دستگاه؟», says the saved pass is removed). From `md` up the header keeps `LanguageToggle`, the avatar and «خروج» and the tabs are the shared `TabNav`. Signed out: the switcher and one «ورود» pill. The footer is only on `/me`. On `/me` (no congress, so no switcher) the header keeps the language switch and log out, and log out is icon-only under 640 px so the title fits at 360. `SignInPrompt.tsx`, `CongressHero.tsx`, `.at-hero-scrim` are deleted; `InlineSignIn.tsx` (title + body + `MobileOtpForm` as UX-PUB left it, `signIn(auth.access_token)`) replaces `SignInPrompt` on Home, `/me`, Network and Profile.
+- **Home** (`CongressHomeView.tsx`): `PageHeader` with the name and one meta row (phase chip, dates, place); the chip is the only countdown (days only; the `role=timer` block is gone). Before: pass card (one «نمایش کارت ورود» button) and a checklist with only calendar and directions; the install row is gone (`InstallHint` lives under the pass). During: the pass QR is the first thing in `main` and inside the first screen at 360×740 and 390×844 (256 px, 224 px under 380 px, the same as the pass tab). After: thanks + summary. Signed out: the phone form on the page, then the program.
+- **Program tab** (`CongressDetailsView.tsx`): `PageHeader` «برنامه» + dates + «درباره همایش» link (`/e/:slug#about`), then the day tabs (in the first screen), the explorer, then the venue. No masthead, fact grid or About text.
+- **`/me`** (`Me.tsx`): «همایش‌های من» without a lead; each card is a link, and the live congress has a «کد QR» button next to it (under the text on a phone) that opens the pass. One offline chip when the list is from this device (no red alert while a saved list is shown); staff and saved booths in a second column from `lg`; no description under «غرفه‌های ذخیره‌شده»; the remove-booth icon is an `IconButton`.
+- **Network** (`MyNetwork.tsx`): `PageHeader` with the count, no eyebrow and no sentence under the code; `?scan=1` opens Scan and the camera starts without a tap when the browser already allows it; empty state = title + «اسکن» button, no paragraph; `SearchInput`, `Notice`, `ErrorState`. My code / Scan stays a `tablist` (a radiogroup would change the existing tests and the tabpanel semantics).
+- **Profile** (`MyProfile.tsx`): `Avatar` + `PageHeader`, `Field`/`TextInput`, `Switch` (no on/off captions, one short line each), `SegmentedControl` for the language; «ذخیره» and the one-line «روی کارت ورود همایش‌های پیش رو هم اعمال می‌شود.» appear only after a change (sticky above the dock on a phone); sign-out is the confirm dialog.
+- Obsolete `min-h-11` / `max-sm:min-h-[52px]` are gone from all my files (`tests/attendeeShell.test.ts` keeps it that way). `lib/attendeeSession.ts` and `congressTime.ts` read the copy module.
+
+**Copy ratchets.** `copy-baseline.json`: every file of mine is 0 (attendeeCopy 1, CongressDetailsView 14, CongressHero 2, CongressHomeView 1, CongressSchedule 5, ProgramExplorer 2, AttendeeLayout 19, attendeeSession 1, CongressDetails 8, Me 29, MyCongress 8, MyProfile 1). `glossary.test.ts`: the `attendeeCopy.ts` and `lib/attendeeSession.ts` entries are gone (the `گردید` that stayed in `attendeeCopy.ts` was the dead `boothCopy`).
+
+**Gates (real exit codes), on the merged tree `df31cd4`.** `npm test` 0 (537 pass) · `npm run lint` 0 · `npx tsc -b` 0 · `vite build` 0 · new `e2e/attendee-shell.spec.ts` (23 tests) and `tests/attendeeShell.test.ts` written first (21 e2e and 9 unit failed on the old UI) and green · all `e2e/attendee-*.spec.ts` 0 (142 passed) · full Playwright on `vite preview` :47531, `CONGRESS_BROWSER_CHANNEL=chrome` **0, 548 passed** (six `--shard=i/6` runs, each exit 0, because something on the shared Mac kept killing one long run) · `./scripts/check.sh` **0** (all three stacks). Screenshots (JPEG, fa + en, 390×844 / 360×740 / 1440×900: Home before, during, signed out; Program; /me; Network code and scan; Profile and Profile with a change; 54 files): `/tmp/team2-att-shell-shots/<locale>-<size>-<page>.jpg`.
+
+**Merge of the tip, what I resolved.** `copy-baseline.json` and `glossary.test.ts`: took the tip's file and removed my entries. `e2e/attendee-authority.spec.ts` (R6 export leads, UX-BOOTH's `exportCsv` helper): `await exportCsv(page); await expect(page.getByText('sign-in changed')).toBeVisible();`. `e2e-live/attendee.spec.ts`: kept ATT-PASS's check of the «برای شبکه‌سازی وارد شوید» link. `sessionChangedMessage` now says «ورود شما در زبانهٔ دیگری تغییر کرد. صفحه را دوباره باز کنید.» / "Your sign-in changed in another tab. Reload this page." (copy §4.3); the booth screens show it too and the booth specs pass.
+
+**Files outside my list.**
+- `web/tests/copy-baseline.json`, `web/tests/glossary.test.ts` (ratchets; they only fall).
+- `web/e2e/public-event-list.spec.ts`: one line, signed-out `/me` shows `otp-mobile-step` instead of the «Sign in to see your pass» link.
+- Existing attendee specs edited for the new UI (mine): authority (`sign-in changed` wording, the phone form instead of the portal heading), home, links-and-session (the header log-out tests run at 1280×800; the footer test opens `/me`), me-and-pass, portal, profile, session-recovery, signin-discovery, staff-access ("Open booth panel"). `e2e-live/attendee.spec.ts`: dropped the "pass from your SMS link" note check (ATT-PASS removed that note).
+
+**For UX-Z.**
+1. `CongressHomeView` / `CongressDetailsView` keep their deprecated optional `page`, `t`, `labels` and `booths(index)` props so `OrganizerPanel` compiles; the organizer package can drop `t`, `page` and the index argument.
+2. Delete: the attendee `SettingSwitch.tsx` (no user left); `SectionHeader.tsx` is still used by `BoothDirectory`, `Monogram.tsx` by `AttendeeSignIn` and `network/ContactCard.tsx`. Unused dictionary keys in `lib/i18n.ts` (no reader left in `src`): `attendeePortal`, `bookmarkRemovedFeedback`, `digitalPassTitle`, `linkPassNote`, `loginAction`, `navCongressDetails`, `navMyCongress`, `navMyProfile`, `networkHeading`, `removeBookmarkAction`, `savedBoothsDesc`, `savedBoothsHeading`, `ticketIdLabel`, `unauthenticatedDesc`, `unauthenticatedTitle`, `venueLabel`.
+3. The `#about` anchor on `/e/:slug` is UX-PUB's: the «درباره همایش» link needs it (check it on the merged public page).
+
+**Spec choices to know.** (a) att §5 asks for a QR of at least 260 px; the pass tab and Home use 256 px (224 px under 380 px) inside a white plate, so the scannable area is bigger than the number; change the QR size classes (`h-56 w-56 min-[380px]:h-64 min-[380px]:w-64`) in `CongressHomeView.tsx` and `DigitalPassCard.tsx` together if you want 260. (b) The saved-booth remove button keeps its old accessible name «Remove Bookmark: <name>» (the spec is silent, and the authority specs search for it). (c) The Home QR card shows the tier and holder under the code, and opens the full pass.
+
+**Left over.**
+- `?scan=1` starts the camera only when the camera permission is already granted (`QrCameraInput`'s `autoStart`); asking for permission on arrival needs a change in `QrCameraInput.tsx` (UX-SCAN's file).
+- I did not edit `MobileOtpForm.tsx` or `AttendeeSignIn.tsx`; none was needed.
+- FOLLOW-4 is merged by the coordinator (`4f46ce2`), so I did not start it. A trial merge of this branch into `4f46ce2` (`git merge-tree`) is clean and no file overlaps.
+
+## Later (start after the overlapping branches merge)
+
+| ID | Scope | Waits for |
+|---|---|---|
+| GLOSS-2 | Folded into UX-IMPL (see `docs/ux-review/UX_PLAN.md`) | — |
+| A11Y-1 | Folded into UX-IMPL (see `docs/ux-review/UX_PLAN.md`) | — |
+| DATE-1 | Folded into UX-IMPL (see `docs/ux-review/UX_PLAN.md`) | — |
+| ARCH-2 | Archived read-only on desk and check-in routes (if C1/C2 leave gaps) | C1, C2 merged |
+| POLISH-1 | Folded into UX-IMPL (see `docs/ux-review/UX_PLAN.md`) | — |
+| HW-1 | Hardware/browser matrix by a person: iOS Safari, Android Chrome, barcode guns, thermal printer; dress rehearsal | release candidate |
+| TOKEN-1 | Remove the untyped attendee-token allowance (`LEGACY_UNTYPED_USER_TOKENS_UNTIL`) | after 2026-12-08 |
+
+| FOLLOW-1 | DB pool timeout returns 503 with a retry hint instead of 500 | — |
+| FOLLOW-2 | Remove the remaining manual `onKeyRejected` 401 calls (EventCheckIn, CheckInPointFormDialog, EventOperators, OperatorFormDialog, OrganizerProgram, OrganizerPageStudio) — do it inside the UX-ORG packages that own those files | UX-ORG-2/3 |
+| FOLLOW-3 | Call sites pass `result.response.status` to `localizedApiError` (POLISH-2 third argument) so fa errors get the status-specific sentence | UX phase 1 (each package for its files) |
+| FOLLOW-4 | Rate limits strict under concurrency (per-key advisory locks in `take()`); `event_timezone` on `DeskMeOut`, `DeskLoginResponse`, `BoothOut` used by the desk and booth | merged (`ws/follow4-tz-ratelimit` 8aa0e0f) |
+| TOKEN-2 | Remove `LEGACY_UNVERSIONED_USER_TOKENS_UNTIL` | after 2027-01-08 |

@@ -4,8 +4,10 @@ import { createApiClient, ORGANIZER_KEY_STORAGE, type PagePreview } from "../api
 import { CongressPage } from "../components/public/page/CongressPage";
 import { PassesPanel } from "../components/public/page/PassesPanel";
 import { publicCopy } from "../components/public/copy";
+import { organizerProgramCopy } from "../copy/organizerProgram";
 import { PublicLayout } from "../layouts/PublicLayout";
-import { normalizeDocument, type PageDoc, type PageLocale } from "../lib/pageDocument";
+import { usePageTitle } from "../hooks/usePageTitle";
+import { accentOf, normalizeDocument, type PageDoc, type PageLocale } from "../lib/pageDocument";
 import { useOrganizerImages } from "../lib/pageMedia";
 import { readStudioMessage, type PreviewAsset, type PreviewToStudio } from "../lib/studioPreview";
 
@@ -64,6 +66,8 @@ export default function OrganizerPagePreview() {
   }, []);
 
   const preview = load.status === "ready" ? load.preview : null;
+  const frameCopy = organizerProgramCopy[locale].frame;
+  usePageTitle(frameCopy.publicTitle, preview?.name);
   const doc = useMemo(() => live?.doc ?? (preview ? normalizeDocument(preview.page.document) : null), [live, preview]);
   const assets = live?.assets ?? preview?.page.assets ?? [];
   const images = useOrganizerImages(apiKey, eventId, assets);
@@ -86,8 +90,8 @@ export default function OrganizerPagePreview() {
         {load.status === "loading"
           ? "…"
           : load.status === "denied"
-            ? locale === "fa" ? "برای پیش‌نمایش، با کلید برگزارکنندهٔ این همایش وارد شوید." : "Sign in with this congress's organizer key to preview it."
-            : locale === "fa" ? "پیش‌نمایش بارگذاری نشد." : "The preview could not be loaded."}
+            ? frameCopy.denied
+            : frameCopy.failed}
       </div>
     );
   }
@@ -100,7 +104,7 @@ export default function OrganizerPagePreview() {
         onLocaleChange={changeLocale}
         congressName={preview.name}
         congressSlug={preview.slug}
-        brand={{ accent: doc.branding.accent, logo }}
+        brand={{ accent: accentOf(doc.branding), logo }}
       >
         <CongressPage
           event={preview}

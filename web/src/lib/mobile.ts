@@ -45,3 +45,15 @@ export function telHref(mobile: string, scheme: "tel" | "sms" = "tel"): string {
   const normalized = normalizeIranMobile(mobile);
   return `${scheme}:${normalized ? `+98${normalized.slice(1)}` : mobile}`;
 }
+
+/**
+ * The sign-in code inside pasted or autofilled text, in ASCII digits ("کد ورود: ۴۸۲۹۱۳" -> "482913").
+ * A run of exactly `length` digits wins (an SMS may also contain other numbers); otherwise every digit is
+ * kept, up to `length`.
+ */
+export function extractOtpCode(text: string, length: number): string {
+  const ascii = asciiDigits(text);
+  const runs = Array.from(ascii.matchAll(/\d+/g), (match) => match[0]);
+  const exact = runs.find((run) => run.length === length);
+  return exact ?? runs.join("").slice(0, length);
+}

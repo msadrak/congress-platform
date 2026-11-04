@@ -15,21 +15,72 @@ x-logging: &logging
     max-size: "10m"
     max-file: "5"
 
+# Images: `stack.mjs up` builds under CONGRESS_IMAGE_TAG (the alias the services run) and also tags each build
+# with its commit (congress-platform/api:<sha>); `stack.mjs rollback` points the alias back at an older one.
 x-backend: &backend
   image: congress-platform/api:${CONGRESS_IMAGE_TAG:-staging}
   logging: *logging
   networks: [backend]
+  # Every operator setting of backend/app/config.py. An empty value means "unset" (the API's default applies), so
+  # each one is documented in deploy/staging/.env.staging.example and deploy/hosted/.env.hosted.example and may be
+  # left blank. scripts/staging/stack.test.mjs fails when a setting is added to config.py but not forwarded here.
   environment:
     CONGRESS_ENVIRONMENT: ${CONGRESS_ENVIRONMENT:?set CONGRESS_ENVIRONMENT (staging or production)}
     CONGRESS_DATABASE_URL: postgresql+asyncpg://congress:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@db:5432/congress
     CONGRESS_PLATFORM_ADMIN_TOKEN: ${CONGRESS_PLATFORM_ADMIN_TOKEN:?set CONGRESS_PLATFORM_ADMIN_TOKEN}
     CONGRESS_JWT_SECRET: ${CONGRESS_JWT_SECRET:?set CONGRESS_JWT_SECRET}
+    CONGRESS_SECRET_BOX_KEY: ${CONGRESS_SECRET_BOX_KEY:-}
     CONGRESS_MEDIA_ROOT: /data/media
+    CONGRESS_MEDIA_MAX_BYTES: ${CONGRESS_MEDIA_MAX_BYTES:-}
     CONGRESS_PUBLIC_ORIGIN: ${CONGRESS_PUBLIC_ORIGIN:?set CONGRESS_PUBLIC_ORIGIN}
+    CONGRESS_SHORT_LINK_ORIGIN: ${CONGRESS_SHORT_LINK_ORIGIN:-}
     CONGRESS_CORS_ORIGINS: '["${CONGRESS_PUBLIC_ORIGIN}"]'
+    CONGRESS_AUTH_RATE_LIMITS_ENABLED: ${CONGRESS_AUTH_RATE_LIMITS_ENABLED:-}
+    # Database pool and statement timeout (per API process).
+    CONGRESS_DB_POOL_SIZE: ${CONGRESS_DB_POOL_SIZE:-}
+    CONGRESS_DB_MAX_OVERFLOW: ${CONGRESS_DB_MAX_OVERFLOW:-}
+    CONGRESS_DB_POOL_TIMEOUT_SECONDS: ${CONGRESS_DB_POOL_TIMEOUT_SECONDS:-}
+    CONGRESS_DB_POOL_PRE_PING: ${CONGRESS_DB_POOL_PRE_PING:-}
+    CONGRESS_DB_STATEMENT_TIMEOUT_MS: ${CONGRESS_DB_STATEMENT_TIMEOUT_MS:-}
+    # uvicorn worker processes of the API (default 1); each has its own pool (docs/deployment/STAGING_OPERATIONS.md → Scaling).
+    CONGRESS_API_WORKERS: ${CONGRESS_API_WORKERS:-}
+    # SMS delivery, sign-in codes and their limits (the platform console overrides the caps and sign-in rules).
     CONGRESS_SMS_PROVIDER: ${CONGRESS_SMS_PROVIDER:?set CONGRESS_SMS_PROVIDER (smsir or console)}
     CONGRESS_SMSIR_API_KEY: ${CONGRESS_SMSIR_API_KEY:-}
     CONGRESS_SMSIR_LINE_NUMBER: ${CONGRESS_SMSIR_LINE_NUMBER:-}
+    CONGRESS_SMSIR_TIMEOUT_SECONDS: ${CONGRESS_SMSIR_TIMEOUT_SECONDS:-}
+    CONGRESS_OTP_LENGTH: ${CONGRESS_OTP_LENGTH:-}
+    CONGRESS_OTP_TTL_SECONDS: ${CONGRESS_OTP_TTL_SECONDS:-}
+    CONGRESS_OTP_RESEND_COOLDOWN_SECONDS: ${CONGRESS_OTP_RESEND_COOLDOWN_SECONDS:-}
+    CONGRESS_OTP_SENDS_PER_MOBILE_PER_HOUR: ${CONGRESS_OTP_SENDS_PER_MOBILE_PER_HOUR:-}
+    CONGRESS_OTP_SENDS_PER_IP_PER_HOUR: ${CONGRESS_OTP_SENDS_PER_IP_PER_HOUR:-}
+    CONGRESS_OTP_TRUSTED_NETWORKS: ${CONGRESS_OTP_TRUSTED_NETWORKS:-}
+    CONGRESS_OTP_SENDS_PER_TRUSTED_IP_PER_HOUR: ${CONGRESS_OTP_SENDS_PER_TRUSTED_IP_PER_HOUR:-}
+    CONGRESS_SMS_OUTBOX_ENABLED: ${CONGRESS_SMS_OUTBOX_ENABLED:-}
+    CONGRESS_SMS_OUTBOX_POLL_SECONDS: ${CONGRESS_SMS_OUTBOX_POLL_SECONDS:-}
+    CONGRESS_SMS_HOURLY_CAP: ${CONGRESS_SMS_HOURLY_CAP:-}
+    CONGRESS_SMS_DAILY_CAP: ${CONGRESS_SMS_DAILY_CAP:-}
+    CONGRESS_SMS_OTP_RESERVE_PERCENT: ${CONGRESS_SMS_OTP_RESERVE_PERCENT:-}
+    CONGRESS_SMS_NOTICES_PER_ATTENDEE_PER_HOUR: ${CONGRESS_SMS_NOTICES_PER_ATTENDEE_PER_HOUR:-}
+    CONGRESS_SMS_NOTICES_PER_TICKET_PER_DAY: ${CONGRESS_SMS_NOTICES_PER_TICKET_PER_DAY:-}
+    CONGRESS_SMS_NOTICES_PER_ORGANIZER_PER_HOUR: ${CONGRESS_SMS_NOTICES_PER_ORGANIZER_PER_HOUR:-}
+    CONGRESS_SMS_TEST_SENDS_PER_ORGANIZER_PER_DAY: ${CONGRESS_SMS_TEST_SENDS_PER_ORGANIZER_PER_DAY:-}
+    CONGRESS_SMS_MAX_CONCURRENT_SENDS: ${CONGRESS_SMS_MAX_CONCURRENT_SENDS:-}
+    CONGRESS_PLATFORM_SETTINGS_REFRESH_SECONDS: ${CONGRESS_PLATFORM_SETTINGS_REFRESH_SECONDS:-}
+    # Data retention.
+    CONGRESS_RETENTION_ENABLED: ${CONGRESS_RETENTION_ENABLED:-}
+    CONGRESS_RETENTION_INTERVAL_SECONDS: ${CONGRESS_RETENTION_INTERVAL_SECONDS:-}
+    CONGRESS_OTP_RETENTION_HOURS: ${CONGRESS_OTP_RETENTION_HOURS:-}
+    CONGRESS_SMS_BODY_RETENTION_DAYS: ${CONGRESS_SMS_BODY_RETENTION_DAYS:-}
+    CONGRESS_OTP_SMS_LOG_RETENTION_DAYS: ${CONGRESS_OTP_SMS_LOG_RETENTION_DAYS:-}
+    CONGRESS_SMS_MOBILE_RETENTION_DAYS: ${CONGRESS_SMS_MOBILE_RETENTION_DAYS:-}
+    CONGRESS_SHORT_LINK_GRACE_DAYS: ${CONGRESS_SHORT_LINK_GRACE_DAYS:-}
+    CONGRESS_AUDIT_RETENTION_DAYS: ${CONGRESS_AUDIT_RETENTION_DAYS:-}
+    # Monitoring (docs/deployment/STAGING_OPERATIONS.md → Monitoring). Empty = defaults: JSON logs in
+    # staging/production, /api/metrics disabled, no error reporting.
+    CONGRESS_LOG_FORMAT: ${CONGRESS_LOG_FORMAT:-}
+    CONGRESS_METRICS_TOKEN: ${CONGRESS_METRICS_TOKEN:-}
+    CONGRESS_SENTRY_DSN: ${CONGRESS_SENTRY_DSN:-}
 
 services:
   db:
@@ -44,7 +95,9 @@ services:
     volumes:
       - ${CONGRESS_PERSISTENT_DATA_ROOT:?set CONGRESS_PERSISTENT_DATA_ROOT in .staging/staging.env}/data/postgres:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U congress -d congress"]
+      # Over TCP: on first start the image runs a temporary socket-only server for initialisation and then stops
+      # it, so a socket check can report healthy just before the database goes away again.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U congress -d congress"]
       interval: 5s
       timeout: 5s
       retries: 20
@@ -55,7 +108,9 @@ services:
     <<: *backend
     # The api image, built once by the api service: Compose with Bake (buildx) refuses to build one image twice.
     pull_policy: never
-    command: ["alembic", "upgrade", "head"]
+    # alembic upgrade head, then record the revision chain for older builds (rollback, app/schema_guard.py); a
+    # database already ahead by backward-compatible migrations (after `stack.mjs rollback`) is left as it is.
+    command: ["python", "-m", "app.schema_guard", "migrate"]
     restart: "no"
     healthcheck:
       disable: true
@@ -84,6 +139,11 @@ services:
     build:
       context: ../..
       dockerfile: deploy/web/Dockerfile
+      args:
+        # The release the bundle belongs to (`stack.mjs up` sets it to the release id: short commit, with a -dirty-<time>
+        # suffix for uncommitted changes), so the scanner can show its build and the organizer dashboard can spot
+        # devices running an older one. Empty for a plain `docker compose build`.
+        CONGRESS_APP_BUILD: ${CONGRESS_APP_BUILD:-}
     restart: unless-stopped
     logging: *logging
     networks: [backend, edge]
@@ -100,6 +160,8 @@ services:
       CONGRESS_TRUSTED_PROXIES: ${CONGRESS_TRUSTED_PROXIES:-}
       CONGRESS_CLIENT_IP_HEADER: ${CONGRESS_CLIENT_IP_HEADER:-X-Forwarded-For}
       CONGRESS_ORIGIN_TLS: ${CONGRESS_ORIGIN_TLS:-on}
+      # Client ranges that may reach /api/metrics (the API also requires CONGRESS_METRICS_TOKEN).
+      CONGRESS_METRICS_ALLOW: ${CONGRESS_METRICS_ALLOW:-private_ranges}
     ports:
       - "${CONGRESS_BIND:-127.0.0.1}:${CONGRESS_HTTPS_PORT:-8443}:443"
       - "${CONGRESS_BIND:-127.0.0.1}:${CONGRESS_HTTP_PORT:-18080}:80"

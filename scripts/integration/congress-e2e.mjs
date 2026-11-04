@@ -3,7 +3,10 @@
  * One complete congress on a disposable, isolated stack: real browser -> vite preview (production
  * build, service worker enabled) -> FastAPI -> PostgreSQL.
  *
- *   node scripts/integration/congress-e2e.mjs [--keep] [--skip-build] [--skip-scanner-spec]
+ *   node scripts/integration/congress-e2e.mjs [--keep] [--skip-build]
+ *
+ * The per-persona Playwright journeys against a live stack are web/e2e-live (scripts/integration/live-e2e.mjs);
+ * this script is the older single-run journey with database cross-checks.
  *
  * Safety: everything is created with fixed `congress-e2e-*` names on a private --internal Docker
  * network. PostgreSQL has no published port; only the API is published, on 127.0.0.1 at a free port
@@ -12,19 +15,21 @@
  * database inside its own PostgreSQL container. Nothing outside those containers is touched.
  *
  * Requirements: Docker, a local backend image with the dependencies in /app/.venv
- * (CONGRESS_E2E_BACKEND_IMAGE, default congress-t0-backend:2c0085137f), the postgres:16 image,
+ * (CONGRESS_E2E_BACKEND_IMAGE, default: the hashed test-runner image, built on first use), the postgres:16 image,
  * Node 22+, `npm ci` done in web/, and Microsoft Edge (Playwright channel `msedge`).
  */
 import { randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { backendImage, syncBackendDependencies } from '../lib/backend-image.mjs';
 import { freePorts, run, startPreview, stopProcess } from '../lib/process.mjs';
 import { runJourney } from './journey.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const args = new Set(process.argv.slice(2));
-const IMAGE = process.env.CONGRESS_E2E_BACKEND_IMAGE ?? 'congress-t0-backend:2c0085137f';
+// The hashed test-runner image (built on first use) or CONGRESS_E2E_BACKEND_IMAGE: scripts/lib/backend-image.mjs.
+const IMAGE = backendImage();
 const PG_IMAGE = process.env.CONGRESS_E2E_PG_IMAGE ?? 'postgres:16';
 const NET = 'congress-e2e-net';
 const PG = 'congress-e2e-pg';
@@ -79,7 +84,7 @@ async function up() {
   }
   for (const f of ['alembic.ini', 'pyproject.toml', 'uv.lock']) docker('cp', resolve(root, 'backend', f), `${API}:/app/${f}`);
   // The image predates some dependencies (Pillow): sync the venv to the lock file while the container is still online.
-  docker('exec', '-e', 'UV_PROJECT_ENVIRONMENT=/app/.venv', '-w', '/app', API, 'uv', 'sync', '--frozen', '--no-dev', '--quiet');
+  syncBackendDependencies(API, ['--no-dev']);
   // Staging mode: the hardened configuration (explicit database, media volume, generated secrets) must hold. Not
   // production, which requires real sms.ir delivery: the console provider records SMS for the journey to read, and
   // the send limits are relaxed because the journey signs the same numbers in repeatedly within seconds.
@@ -113,15 +118,6 @@ async function main() {
     const result = await runJourney(ctx);
     writeFileSync(resolve(SHOT_DIR, 'last-run.json'), JSON.stringify(result, null, 2));
     failed = result.failed > 0;
-
-    if (!args.has('--skip-scanner-spec')) {
-      const spec = run('npx', ['playwright', 'test', 'e2e/scanner-real-api.spec.ts', '--retries=0'], {
-        cwd: resolve(root, 'web'), allowFail: true,
-        env: { PLAYWRIGHT_BASE_URL: BASE, CONGRESS_API_BASE_URL: API_URL, CONGRESS_PLATFORM_ADMIN_TOKEN: ADMIN_TOKEN, CI: '', FORCE_COLOR: '0', NO_COLOR: '1' },
-      });
-      console.log(`scanner-real-api.spec.ts exit=${spec.status}\n${(spec.stdout || '').split('\n').slice(-6).join('\n')}`);
-      if (spec.status !== 0) failed = true;
-    }
   } finally {
     stopProcess(preview);
     if (!args.has('--keep')) teardown();

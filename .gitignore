@@ -34,8 +34,17 @@ Thumbs.db
 
 # Agent tooling & local artifacts
 .obsidian/
+.claude/
 nul
 web/test-results/
+web/test-results-live/
+web/playwright-live-report/
+web/playwright-report/
+web/blob-report/
+coverage/
+backend/var/
+# Database dumps (backups are written under .staging/backups; never commit one)
+*.dump
 
 # Local demo environment (credentials, logs, ports)
 .demo/
@@ -47,3 +56,4 @@ web/test-results/
 
 # Reference copy of the official sms.ir SDK; the backend uses its own httpx client (ADR 0012).
 SmsPanelV2.Python/
+skills/

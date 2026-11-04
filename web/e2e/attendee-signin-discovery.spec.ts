@@ -39,6 +39,11 @@ const user = { id: 'user-1', mobile: MOBILE, full_name: 'Sara Fixture', organiza
 type Recorded = { method: string; path: string; auth: string | undefined; body: unknown };
 interface Options {
   requestStatus?: number;
+  requestCode?: string;
+  /** sms.ir did not confirm the send in time. */
+  uncertain?: boolean;
+  retryAfter?: string;
+  verifyStatus?: number;
   verifyAbort?: boolean;
   newNumber?: boolean;
   bookmarkFails?: boolean;
@@ -59,11 +64,12 @@ async function fixture(page: Page, options: Options = {}) {
     const json = (status: number, body: unknown) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
 
     if (path === '/api/auth/otp/request') {
-      if (options.requestStatus) return route.fulfill({ status: options.requestStatus, contentType: 'application/json', headers: { 'Retry-After': '42' }, body: '{"detail":"no"}' });
-      return json(202, { mobile: JSON.parse(raw ?? '{}').mobile, code_length: 6, expires_in: 120, resend_after: 60 });
+      if (options.requestStatus) return route.fulfill({ status: options.requestStatus, contentType: 'application/json', headers: { 'Retry-After': options.retryAfter ?? '42' }, body: JSON.stringify({ detail: 'no', code: options.requestCode }) });
+      return json(202, { mobile: JSON.parse(raw ?? '{}').mobile, code_length: 6, expires_in: 120, resend_after: 60, delivery: options.uncertain ? 'uncertain' : 'sent' });
     }
     if (path === '/api/auth/otp/verify') {
       if (options.verifyAbort) return route.abort('failed');
+      if (options.verifyStatus) return route.fulfill({ status: options.verifyStatus, contentType: 'application/json', headers: { 'Retry-After': options.retryAfter ?? '42' }, body: '{"detail":"Too many attempts"}' });
       if (JSON.parse(raw ?? '{}').code !== CODE) return json(401, { detail: 'The code is wrong or has expired.' });
       return options.newNumber
         ? json(200, { status: 'profile_required', access_token: null, token_type: 'bearer', user: null, signup_token: 'signup-fixture' })
@@ -82,6 +88,10 @@ async function fixture(page: Page, options: Options = {}) {
     if (path === '/api/auth/me') return json(200, { ...user, share_contact_with_peers: share });
     if (path === '/api/attendees/me/tickets') return json(200, [ticket]);
     if (path === '/api/attendees/me/network') return json(200, []);
+    if (path === '/api/attendees/me/network/search') return json(200, { items: [], total: 0, next_cursor: null });
+    if (path === '/api/attendees/me/network/c' && method === 'PATCH') {
+      return json(200, { id: 'c', connected_user_id: 'p', full_name: 'Peer', mobile: null, organization: '', title: '', event_id: 'event-a', private_notes: JSON.parse(raw ?? '{}').private_notes, created_at: '2027-01-01T00:00:00Z' });
+    }
     if (path === '/api/me/access') return json(200, { user_id: 'user-1', events: [] });
     if (path === '/api/attendees/me/network/scan') {
       return options.scanStatus === 409
@@ -111,7 +121,8 @@ async function fixture(page: Page, options: Options = {}) {
 }
 
 async function seed(page: Page, entries: Record<string, string>) {
-  await page.goto('/');
+  // A same-origin static file, not the app: the home page would load its public congress list (an API request) mid-seed.
+  await page.goto('/favicon.png');
   await page.evaluate(values => { for (const [k, v] of Object.entries(values)) localStorage.setItem(k, v); }, entries);
 }
 const signedIn = (page: Page) => seed(page, { congress_attendee_token: token, congress_attendee_locale: 'en' });
@@ -125,12 +136,31 @@ async function signInWithCode(page: Page, mobile: string = MOBILE, code: string 
 }
 
 test.describe('direct attendee sign-in', () => {
+  test('an unconfirmed send says the code may still arrive; a platform SMS cap is named', async ({ page }) => {
+    await fixture(page, { uncertain: true });
+    await anonymous(page);
+    await page.goto('/c/alpha/sign-in');
+    await page.getByLabel('Mobile number').fill(MOBILE);
+    await page.getByRole('button', { name: 'Send code' }).click();
+    await expect(page.getByTestId('otp-delivery-uncertain')).toContainText('The code may still arrive');
+
+    await page.unrouteAll();
+    await fixture(page, { requestStatus: 503, requestCode: 'SMS_HOURLY_CAP_REACHED' });
+    await page.goto('/c/alpha/sign-in');
+    await page.getByLabel('Mobile number').fill(MOBILE);
+    await page.getByRole('button', { name: 'Send code' }).click();
+    await expect(page.getByRole('alert')).toContainText('SMS limit for this hour');
+  });
+
   test('signed-out portal page leads to sign-in and returns to the same destination', async ({ page }) => {
     const requests = await fixture(page);
     await anonymous(page);
     await page.goto('/c/alpha/my-profile');
-    await page.getByRole('link', { name: /Sign In/ }).first().click();
+    // The page has the phone form itself; the header's log in is the way to the full sign-in page.
+    await page.locator('header').getByRole('link', { name: 'Log In' }).click();
     await expect(page).toHaveURL(/\/c\/alpha\/sign-in\?next=%2Fc%2Falpha%2Fmy-profile$/);
+    // The sign-in page's own heading: the page being left has a «Sign in» heading and the congress name too.
+    await expect(page.getByRole('heading', { name: 'Sign in with your mobile' })).toBeVisible();
     await expect(page.getByText('Alpha Congress').first()).toBeVisible();
 
     await signInWithCode(page, '۰۹۱۲ ۱۲۳ ۴۵۶۷');  // Persian digits and spaces, as typed on a phone
@@ -165,7 +195,7 @@ test.describe('direct attendee sign-in', () => {
     await page.unrouteAll();
     await fixture(page, { verifyAbort: true });
     await page.getByLabel('Code from the SMS').fill(CODE);
-    await expect(page.getByRole('alert')).toContainText('Could not reach the server');
+    await expect(page.getByRole('alert')).toContainText("Can't connect");
   });
 
   test('a new number completes a short profile, then continues to the destination', async ({ page }) => {
@@ -173,7 +203,8 @@ test.describe('direct attendee sign-in', () => {
     await anonymous(page);
     await page.goto('/c/alpha/sign-in?next=%2Fc%2Falpha%2Fmy-profile');
     await signInWithCode(page);
-    await expect(page.getByText('This number is new to us.')).toBeVisible();
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Complete your profile');
+    await expect(page.getByText('This is your first sign-in with this number.')).toBeVisible();
     await page.getByRole('button', { name: 'Create my account' }).click();
     await expect(page.getByText('Enter your full name.')).toBeVisible();
     await page.getByLabel('Full name').fill('Neda Karimi');
@@ -191,7 +222,100 @@ test.describe('direct attendee sign-in', () => {
     await page.goto('/c/alpha/sign-in');
     await page.getByLabel('Mobile number').fill(MOBILE);
     await page.getByRole('button', { name: 'Send code' }).click();
-    await expect(page.getByRole('alert')).toContainText('Try again in 42 s');
+    await expect(page.getByTestId('otp-rate-limit')).toContainText(/You can ask for a new one in \u2066?0:4[12]\u2069?\./);
+    await expect(page.getByTestId('otp-announcer')).toHaveText('Too many codes requested. You can ask for a new one in 42 seconds.');
+    // The language toggle re-renders the message rather than keeping the English text.
+    await page.getByRole('button', { name: 'تغییر زبان به فارسی' }).click();
+    await expect(page.getByTestId('otp-rate-limit')).toContainText('دیگر می‌توانید کد تازه بگیرید');
+  });
+
+  test('a 429 locks only the throttled action with a live countdown, then unlocks it', async ({ page }) => {
+    const requests = await fixture(page, { requestStatus: 429, retryAfter: '4' });
+    await anonymous(page);
+    await page.goto('/c/alpha/sign-in');
+    await page.getByLabel('Mobile number').fill(MOBILE);
+    const send = page.getByRole('button', { name: 'Send code' });
+    await send.click();
+    await expect(send).toHaveAttribute('aria-disabled', 'true');
+    await expect(send).toBeFocused();  // aria-disabled keeps the button focusable, unlike disabled
+    await expect(page.getByTestId('otp-rate-limit')).toContainText('0:0');
+    // Activating the locked button (Playwright's click would wait for it to unlock) sends nothing.
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(300);
+    expect(requests.filter(r => r.path === '/api/auth/otp/request')).toHaveLength(1);
+
+    await expect(send).not.toHaveAttribute('aria-disabled', 'true', { timeout: 6000 });
+    await expect(page.getByTestId('otp-rate-limit')).toHaveCount(0);
+    await expect(page.getByTestId('otp-announcer')).toHaveText('You can try again now.');
+    await send.click();
+    await expect.poll(() => requests.filter(r => r.path === '/api/auth/otp/request').length).toBe(2);
+  });
+
+  test('a 429 on the code locks checking but not changing the number', async ({ page }) => {
+    await fixture(page, { verifyStatus: 429, retryAfter: '120' });
+    await anonymous(page);
+    await page.goto('/c/alpha/sign-in');
+    await signInWithCode(page);
+    const verify = page.getByRole('button', { name: 'Continue' });
+    await expect(verify).toHaveAttribute('aria-disabled', 'true');
+    await expect(page.getByTestId('otp-rate-limit')).toContainText(/You can try again in \u2066?(2:00|1:59)\u2069?\./);
+    await page.getByRole('button', { name: 'Change number' }).click();
+    await expect(page.getByRole('button', { name: 'Send code' })).not.toHaveAttribute('aria-disabled', 'true');
+  });
+
+  test('a pasted SMS fills only the code and submits it; editing clears an error', async ({ page }) => {
+    await fixture(page);
+    await anonymous(page);
+    await page.goto('/c/alpha/sign-in?next=%2Fc%2Falpha%2Fmy-ticket');
+    await page.getByLabel('Mobile number').fill(MOBILE);
+    await page.getByRole('button', { name: 'Send code' }).click();
+    const field = page.getByLabel('Code from the SMS');
+    await field.fill('000000');
+    await expect(page.getByText('The code is wrong or has expired.')).toBeVisible();
+    await field.press('Backspace');
+    await expect(page.getByText('The code is wrong or has expired.')).toHaveCount(0);
+
+    await field.fill('');
+    await field.evaluate((input, text) => {
+      const data = new DataTransfer();
+      data.setData('text/plain', text);
+      input.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }));
+    }, 'کد ورود شما: ۴۸۲۹۱۳\nاعتبار ۲ دقیقه');
+    await expect(page).toHaveURL(/\/c\/alpha\/my-ticket$/);
+  });
+
+  test('the new-number profile keeps its heading and button in view on a short screen', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 480 });
+    await fixture(page, { newNumber: true });
+    await anonymous(page);
+    await page.goto('/c/alpha/sign-in');
+    await signInWithCode(page);
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Complete your profile');
+    await expect(page.getByRole('button', { name: 'Create my account' })).toBeInViewport({ ratio: 1 });
+    await page.getByLabel('Full name').fill('Neda Karimi');
+    await expect(page.getByRole('button', { name: 'Create my account' })).toBeInViewport({ ratio: 1 });
+  });
+
+  test('the code field stays on screen with a short (keyboard-sized) viewport', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 480 });
+    await fixture(page);
+    await anonymous(page);
+    await page.goto('/c/alpha/sign-in');
+    await page.getByLabel('Mobile number').fill(MOBILE);
+    await page.getByRole('button', { name: 'Send code' }).click();
+    await expect(page.getByLabel('Code from the SMS')).toBeInViewport({ ratio: 1 });
+  });
+
+  test('the sign-in page never links to the platform root', async ({ page }) => {
+    await fixture(page);
+    await anonymous(page);
+    for (const path of ['/c/alpha/sign-in', '/sign-in', '/booth/booth-1/sign-in', '/c/nope/sign-in']) {
+      await page.goto(path);
+      await expect(page.getByLabel('Mobile number')).toBeVisible();
+      await expect(page.locator('a[href="/"]')).toHaveCount(0);
+    }
+    await page.goto('/c/alpha/sign-in');
+    await expect(page.getByRole('link', { name: /Alpha Congress|Attendee Portal/ }).first()).toHaveAttribute('href', '/e/alpha');
   });
 
   test('external and unknown return destinations are ignored', async ({ page }) => {
@@ -217,9 +341,27 @@ test.describe('direct attendee sign-in', () => {
     await expect(page).toHaveURL(/\/c\/alpha\/my-ticket$/);
 
     await page.goto('/c/alpha/sign-in');
-    await page.getByRole('button', { name: 'Use a different account' }).click();
+    await page.getByRole('button', { name: 'Not you? Sign out' }).click();
     await expect(page.getByLabel('Mobile number')).toBeVisible();
     expect(await page.evaluate(() => localStorage.getItem('congress_attendee_token'))).toBeNull();
+  });
+
+  test('a valid existing session continues on its own to the safe destination', async ({ page }) => {
+    await fixture(page);
+    await signedIn(page);
+    await page.goto('/c/alpha/sign-in?next=%2Fc%2Falpha%2Fmy-ticket');
+    await expect(page.getByTestId('existing-session')).toContainText('Taking you there in a moment');
+    await expect(page).toHaveURL(/\/c\/alpha\/my-ticket$/, { timeout: 5000 });
+
+    // An unsafe `next` still lands on the congress fallback.
+    await page.goto(`/c/alpha/sign-in?next=${encodeURIComponent('https://evil.example/')}`);
+    await expect(page).toHaveURL(/\/c\/alpha\/my-congress$/, { timeout: 5000 });
+
+    // Reaching for the card stops the timer.
+    await page.goto('/c/alpha/sign-in?next=%2Fc%2Falpha%2Fmy-ticket');
+    await page.getByTestId('existing-session').getByText('Sara Fixture').click();
+    await page.waitForTimeout(2600);
+    await expect(page).toHaveURL(/\/c\/alpha\/sign-in/);
   });
 
   test('a rejected stored session shows the form instead of a false signed-in state', async ({ page }) => {
@@ -308,25 +450,23 @@ test.describe('booth directory in My Congress', () => {
 });
 
 test.describe('My Profile', () => {
-  test('identity is read-only while the contact-sharing switch persists through the API', async ({ page }) => {
+  test('the contact-sharing switch persists through the API', async ({ page }) => {
     const requests = await fixture(page);
     await signedIn(page);
     await page.goto('/c/alpha/my-profile');
-    await expect(page.getByText('Heart Center')).toBeVisible();
-    await expect(page.getByText('Read-only')).toBeVisible();
-    await expect(page.locator('main input')).toHaveCount(0);
+    await expect(page.getByLabel('Organization')).toHaveValue('Heart Center');
 
-    const toggle = page.getByRole('switch', { name: /Share mobile number/ });
+    const toggle = page.getByRole('switch', { name: /Share my mobile number with colleagues/ });
     await expect(toggle).toHaveAttribute('aria-checked', 'false');
     await toggle.click();
     await expect(toggle).toHaveAttribute('aria-checked', 'true');
-    await expect(page.getByRole('status').filter({ hasText: 'updated successfully' })).toBeVisible();
+    await expect(page.getByRole('status').filter({ hasText: 'Setting saved.' })).toBeVisible();
     const patch = requests.find(r => r.method === 'PATCH');
     expect(patch?.auth).toBe(bearer);
     expect(patch?.body).toEqual({ share_contact_with_peers: true });
 
     await page.reload();
-    await expect(page.getByRole('switch', { name: /Share mobile number/ })).toHaveAttribute('aria-checked', 'true');
+    await expect(page.getByRole('switch', { name: /Share my mobile number with colleagues/ })).toHaveAttribute('aria-checked', 'true');
     expect(requests.some(r => r.method === 'PATCH' && r.path !== '/api/attendees/me/network/privacy')).toBe(false);
   });
 
@@ -334,7 +474,7 @@ test.describe('My Profile', () => {
     await fixture(page, { privacyFails: true });
     await signedIn(page);
     await page.goto('/c/alpha/my-profile');
-    const toggle = page.getByRole('switch', { name: /Share mobile number/ });
+    const toggle = page.getByRole('switch', { name: /Share my mobile number with colleagues/ });
     await toggle.click();
     await expect(page.getByRole('alert')).toContainText('not saved');
     await expect(toggle).toHaveAttribute('aria-checked', 'false');
@@ -386,25 +526,24 @@ async function fakeCamera(page: Page, decoded: string | null) {
 test.describe('event-scoped badge scan', () => {
   async function scan(page: Page) {
     await page.goto('/c/alpha/my-network');
-    await page.getByRole('button', { name: 'Scan colleague QR code' }).first().click();
-    const dialog = page.getByRole('dialog');
-    await dialog.getByLabel(/Peer Badge Code/).fill('some-peer-secret');
-    await dialog.getByRole('button', { name: 'Save to My Network' }).click();
+    await page.getByRole('tab', { name: 'Scan' }).click();
+    await page.getByRole('button', { name: 'No camera? Enter the code' }).click();
+    await page.getByLabel("Colleague's pass code").fill('some-peer-secret');
+    await page.getByRole('button', { name: 'Add to My Network' }).click();
   }
 
   test('the congress id is sent and an other-congress badge shows an error', async ({ page }) => {
     const requests = await fixture(page, { scanStatus: 409 });
     await signedIn(page);
     await scan(page);
-    await expect(page.getByRole('dialog')).toContainText('belongs to another congress and was not saved');
+    await expect(page.getByRole('alert')).toContainText('belongs to another congress and was not saved');
     expect(requests.find(r => r.path === '/api/attendees/me/network/scan')?.body).toMatchObject({ event_id: 'event-a' });
   });
 
-  test('a typed code saves the connection, closes the dialog and names the new contact', async ({ page }) => {
+  test('a typed code saves the connection and names the new contact', async ({ page }) => {
     const requests = await fixture(page);
     await signedIn(page);
     await scan(page);
-    await expect(page.getByRole('dialog')).toHaveCount(0);
     await expect(page.getByRole('status').filter({ hasText: 'Peer was added to your network.' })).toBeVisible();
     expect(requests.find(r => r.path === '/api/attendees/me/network/scan')?.body).toEqual({ qr_secret: 'some-peer-secret', private_notes: '', event_id: 'event-a' });
   });
@@ -413,44 +552,45 @@ test.describe('event-scoped badge scan', () => {
     await fixture(page, { scanStatus: 200 });
     await signedIn(page);
     await scan(page);
-    await expect(page.getByRole('dialog')).toHaveCount(0);
-    await expect(page.getByRole('status').filter({ hasText: 'You are already connected with Peer.' })).toBeVisible();
+    await expect(page.getByRole('status').filter({ hasText: 'Peer is already in your network.' })).toBeVisible();
   });
 
-  test('?scan=1 opens the dialog once and a scanned pass QR connects with one tap', async ({ page }) => {
+  test('?scan=1 opens the scan sheet once; a scanned pass QR connects with one tap and the note follows', async ({ page }) => {
     const requests = await fixture(page);
     await fakeCamera(page, 'Peer-Secret');
     await signedIn(page);
     await page.goto('/c/alpha/my-network?scan=1');
-    const dialog = page.getByRole('dialog');
-    await expect(dialog).toBeVisible();
+    await expect(page.getByRole('tab', { name: 'Scan' })).toHaveAttribute('aria-selected', 'true');
     await expect(page).toHaveURL(/\/c\/alpha\/my-network$/);
     // The camera waits for the user's tap: no permission request on open.
     expect(await page.evaluate(() => window.__cameraRequests)).toBe(0);
 
-    await dialog.getByLabel('Private Notes on This Discussion').fill('Met at the poster session');
-    await dialog.getByRole('button', { name: 'Scan with camera' }).click();
-    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await page.getByRole('button', { name: 'Turn on camera' }).click();
     await expect(page.getByRole('status').filter({ hasText: 'Peer was added to your network.' })).toBeVisible();
-    expect(requests.find(r => r.path === '/api/attendees/me/network/scan')?.body).toEqual({ qr_secret: 'Peer-Secret', private_notes: 'Met at the poster session', event_id: 'event-a' });
+    expect(requests.find(r => r.path === '/api/attendees/me/network/scan')?.body).toEqual({ qr_secret: 'Peer-Secret', private_notes: '', event_id: 'event-a' });
     expect(await page.evaluate(() => (window.__cameraTracks ?? []).map(track => track.readyState))).toEqual(['ended']);
 
+    // The private note is written after the scan, then saved on the new connection.
+    await page.getByLabel('Private note about this meeting').fill('Met at the poster session');
+    await page.getByRole('button', { name: 'Save note' }).click();
+    await expect(page.getByRole('status').filter({ hasText: 'Note saved.' }).first()).toBeVisible();
+    expect(requests.find(r => r.method === 'PATCH' && r.path === '/api/attendees/me/network/c')?.body).toEqual({ private_notes: 'Met at the poster session' });
+
     await page.reload();
-    await expect(page.getByRole('heading', { name: 'No Connections Saved Yet' })).toBeVisible();
-    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await expect(page.getByRole('heading', { name: 'No contacts yet' })).toBeVisible();
+    await expect(page.getByRole('tab', { name: 'My code' })).toHaveAttribute('aria-selected', 'true');
   });
 
-  test('closing the dialog releases a live camera', async ({ page }) => {
+  test('leaving the scan sheet releases a live camera', async ({ page }) => {
     await fixture(page);
     await fakeCamera(page, null);
     await signedIn(page);
     await page.goto('/c/alpha/my-network');
-    await page.getByRole('button', { name: 'Scan colleague QR code' }).first().click();
-    const dialog = page.getByRole('dialog');
-    await dialog.getByRole('button', { name: 'Scan with camera' }).click();
-    await expect(dialog.getByRole('button', { name: 'Stop camera' })).toBeVisible();
-    await page.keyboard.press('Escape');
-    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await page.getByRole('tab', { name: 'Scan' }).click();
+    await page.getByRole('button', { name: 'Turn on camera' }).click();
+    await expect(page.getByRole('button', { name: 'Turn off camera' })).toBeVisible();
+    await page.getByRole('tab', { name: 'My code' }).click();
+    await expect(page.getByRole('button', { name: 'Turn off camera' })).toHaveCount(0);
     await expect.poll(() => page.evaluate(() => (window.__cameraTracks ?? []).map(track => track.readyState))).toEqual(['ended']);
   });
 });

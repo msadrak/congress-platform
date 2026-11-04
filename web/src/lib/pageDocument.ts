@@ -6,6 +6,7 @@
  * at the bottom keeps this model assignable to the generated API schema, so drift fails `tsc`.
  */
 import type { components } from "../api/schema";
+import type { AccentSpec } from "./eventAccent.ts";
 
 export type PageLocale = "fa" | "en";
 export interface LocalizedText {
@@ -14,8 +15,11 @@ export interface LocalizedText {
 }
 
 export type AccentName = "indigo" | "magenta" | "azure" | "violet" | "orchid";
-export type AccentChoice = "auto" | AccentName;
-export type HeroLayout = "signature" | "cover" | "split";
+/** What the document stores; "custom" uses `branding.accent_color`. */
+export type AccentChoice = "auto" | AccentName | "custom";
+export type HeroLayout = "signature" | "banner" | "cover" | "split";
+/** Layouts that show the hero image (signature shows the generative artwork instead). */
+export const IMAGE_LAYOUTS: readonly HeroLayout[] = ["banner", "cover", "split"];
 export const HIGHLIGHT_ICONS = [
   "qr", "booth", "users", "wifi-off", "calendar", "clock", "pin", "ticket", "shield", "activity",
   "globe", "layers", "note", "chart", "device", "mail", "bookmark", "congress", "id-card",
@@ -23,11 +27,23 @@ export const HIGHLIGHT_ICONS = [
 ] as const;
 export type HighlightIcon = (typeof HIGHLIGHT_ICONS)[number];
 
+/** Curated presentation of one section (tokens, never CSS). */
+export interface SectionStyle {
+  background: "none" | "subtle" | "accent" | "ink";
+  width: "normal" | "narrow";
+  align: "start" | "center";
+  text_size: "sm" | "md" | "lg";
+  /** auto: each paragraph follows its own script. */
+  direction: "auto" | "rtl" | "ltr";
+}
+export const DEFAULT_STYLE: SectionStyle = { background: "none", width: "normal", align: "start", text_size: "md", direction: "auto" };
+
 interface SectionBase {
   id: string;
   visible: boolean;
   eyebrow: LocalizedText;
   title: LocalizedText;
+  style: SectionStyle;
 }
 export interface AboutSection extends SectionBase {
   type: "about";
@@ -53,7 +69,7 @@ export interface ExhibitorsSection extends SectionBase {
 }
 export interface RichTextSection extends SectionBase {
   type: "rich_text";
-  layout: "split" | "centered";
+  layout: "split" | "centered" | "columns";
   body: LocalizedText;
 }
 export interface ImageTextSection extends SectionBase {
@@ -76,7 +92,9 @@ export interface CtaSection extends SectionBase {
   layout: "ink" | "accent";
   body: LocalizedText;
   button_label: LocalizedText;
-  target: "passes" | "exhibitors";
+  target: "passes" | "exhibitors" | "url";
+  /** target "url": the address the button opens. */
+  url: string;
 }
 export interface Speaker {
   name: LocalizedText;
@@ -100,6 +118,59 @@ export interface AgendaSection extends SectionBase {
   items: AgendaItem[];
 }
 
+export interface ColumnItem {
+  icon: HighlightIcon | null;
+  image_asset_id: string | null;
+  image_alt: LocalizedText;
+  title: LocalizedText;
+  body: LocalizedText;
+  button_label: LocalizedText;
+  button_url: string;
+}
+export interface ColumnsSection extends SectionBase {
+  type: "columns";
+  layout: "equal" | "wide_start" | "wide_end";
+  surface: "plain" | "cards";
+  items: ColumnItem[];
+}
+export type VideoProvider = "youtube" | "aparat";
+export interface VideoSection extends SectionBase {
+  type: "video";
+  layout: "full" | "video_start" | "video_end";
+  provider: VideoProvider;
+  video_id: string;
+  poster_asset_id: string | null;
+  caption: LocalizedText;
+  body: LocalizedText;
+}
+export interface GalleryItem {
+  image_asset_id: string | null;
+  alt: LocalizedText;
+  caption: LocalizedText;
+  url: string;
+}
+export interface GallerySection extends SectionBase {
+  type: "gallery";
+  layout: "grid" | "logos";
+  columns: 2 | 3 | 4;
+  items: GalleryItem[];
+}
+export const LINK_KINDS = [
+  "website", "telegram", "instagram", "whatsapp", "eitaa", "bale", "rubika", "linkedin", "x", "youtube", "aparat", "email", "phone",
+] as const;
+export type LinkKind = (typeof LINK_KINDS)[number];
+export interface LinkItem {
+  kind: LinkKind;
+  url: string;
+  label: LocalizedText;
+}
+export interface LinksSection extends SectionBase {
+  type: "links";
+  layout: "buttons" | "cards";
+  lead: LocalizedText;
+  items: LinkItem[];
+}
+
 export type PageSection =
   | AboutSection
   | HighlightsSection
@@ -110,13 +181,17 @@ export type PageSection =
   | FaqSection
   | CtaSection
   | SpeakersSection
-  | AgendaSection;
+  | AgendaSection
+  | ColumnsSection
+  | VideoSection
+  | GallerySection
+  | LinksSection;
 export type SectionType = PageSection["type"];
 
 export interface PageDoc {
   version: 1;
   primary_locale: "auto" | PageLocale;
-  branding: { accent: AccentChoice; logo_asset_id: string | null };
+  branding: { accent: AccentChoice; accent_color: string | null; logo_asset_id: string | null };
   hero: {
     layout: HeroLayout;
     eyebrow: LocalizedText;
@@ -124,6 +199,11 @@ export interface PageDoc {
     subtitle: LocalizedText;
     cta_label: LocalizedText;
     cover_asset_id: string | null;
+    /** Where the subject of a cropped image sits (cover, split), in percent: CSS object-position. */
+    focal_x: number;
+    focal_y: number;
+    /** Cover layout: a separately composed image for narrow screens (below `md`). */
+    mobile_cover_asset_id: string | null;
   };
   seo: { title: LocalizedText; description: LocalizedText; share_image_asset_id: string | null };
   sections: PageSection[];
@@ -140,11 +220,21 @@ export type PageImages = Readonly<Record<string, PageImage>>;
 /** Bound to operational event data: always present exactly once; hidden, never removed. */
 export const CORE_SECTIONS: readonly SectionType[] = ["about", "passes", "exhibitors"];
 /** Curated blocks an organizer can add (any number of times) and remove. */
-export const ADDABLE_SECTIONS: readonly SectionType[] = ["rich_text", "image_text", "highlights", "speakers", "agenda", "faq", "cta"];
+export const ADDABLE_SECTIONS: readonly SectionType[] = [
+  "rich_text", "columns", "image_text", "video", "gallery", "links", "highlights", "speakers", "agenda", "faq", "cta",
+];
 export const MAX_SECTIONS = 24;
 export const ACCENTS: readonly AccentName[] = ["indigo", "magenta", "azure", "violet", "orchid"];
 
 export const isCoreSection = (section: PageSection) => CORE_SECTIONS.includes(section.type);
+
+/** The accent to paint with: a curated name, "auto", or the custom colour (curated default when it is missing). */
+export function accentOf(branding: { accent?: AccentChoice; accent_color?: string | null } | null | undefined): AccentSpec {
+  const accent = branding?.accent ?? "auto";
+  if (accent !== "custom") return accent;
+  const color = branding?.accent_color;
+  return color && /^#[0-9a-f]{6}$/i.test(color) ? (color as `#${string}`) : "auto";
+}
 
 // ── Normalisation ─────────────────────────────────────────────────────────────────────────────────
 
@@ -154,7 +244,13 @@ const text = (value?: Partial<LocalizedText> | null): LocalizedText => ({ fa: va
 const emptyText = (): LocalizedText => ({ fa: "", en: "" });
 
 function normalizeSection(raw: ApiDocument["sections"][number]): PageSection {
-  const base = { id: raw.id, visible: raw.visible ?? true, eyebrow: text(raw.eyebrow), title: text(raw.title) };
+  const base = {
+    id: raw.id,
+    visible: raw.visible ?? true,
+    eyebrow: text(raw.eyebrow),
+    title: text(raw.title),
+    style: { ...DEFAULT_STYLE, ...raw.style },
+  };
   switch (raw.type) {
     case "about":
       return { ...base, type: "about", body: text(raw.body) };
@@ -190,6 +286,7 @@ function normalizeSection(raw: ApiDocument["sections"][number]): PageSection {
         body: text(raw.body),
         button_label: text(raw.button_label),
         target: raw.target ?? "passes",
+        url: raw.url ?? "",
       };
     case "speakers":
       return {
@@ -210,6 +307,49 @@ function normalizeSection(raw: ApiDocument["sections"][number]): PageSection {
         lead: text(raw.lead),
         items: (raw.items ?? []).map((i) => ({ time: i.time ?? "", title: text(i.title), detail: text(i.detail) })),
       };
+    case "columns":
+      return {
+        ...base,
+        type: "columns",
+        layout: raw.layout ?? "equal",
+        surface: raw.surface ?? "plain",
+        items: (raw.items ?? []).map((i) => ({
+          icon: i.icon ?? null,
+          image_asset_id: i.image_asset_id ?? null,
+          image_alt: text(i.image_alt),
+          title: text(i.title),
+          body: text(i.body),
+          button_label: text(i.button_label),
+          button_url: i.button_url ?? "",
+        })),
+      };
+    case "video":
+      return {
+        ...base,
+        type: "video",
+        layout: raw.layout ?? "full",
+        provider: raw.provider ?? "aparat",
+        video_id: raw.video_id ?? "",
+        poster_asset_id: raw.poster_asset_id ?? null,
+        caption: text(raw.caption),
+        body: text(raw.body),
+      };
+    case "gallery":
+      return {
+        ...base,
+        type: "gallery",
+        layout: raw.layout ?? "grid",
+        columns: raw.columns ?? 3,
+        items: (raw.items ?? []).map((i) => ({ image_asset_id: i.image_asset_id ?? null, alt: text(i.alt), caption: text(i.caption), url: i.url ?? "" })),
+      };
+    case "links":
+      return {
+        ...base,
+        type: "links",
+        layout: raw.layout ?? "buttons",
+        lead: text(raw.lead),
+        items: (raw.items ?? []).map((i) => ({ kind: i.kind ?? "website", url: i.url ?? "", label: text(i.label) })),
+      };
   }
 }
 
@@ -217,7 +357,11 @@ export function normalizeDocument(raw: ApiDocument): PageDoc {
   return {
     version: 1,
     primary_locale: raw.primary_locale ?? "auto",
-    branding: { accent: raw.branding?.accent ?? "auto", logo_asset_id: raw.branding?.logo_asset_id ?? null },
+    branding: {
+      accent: raw.branding?.accent ?? "auto",
+      accent_color: raw.branding?.accent_color ?? null,
+      logo_asset_id: raw.branding?.logo_asset_id ?? null,
+    },
     hero: {
       layout: raw.hero?.layout ?? "signature",
       eyebrow: text(raw.hero?.eyebrow),
@@ -225,6 +369,9 @@ export function normalizeDocument(raw: ApiDocument): PageDoc {
       subtitle: text(raw.hero?.subtitle),
       cta_label: text(raw.hero?.cta_label),
       cover_asset_id: raw.hero?.cover_asset_id ?? null,
+      focal_x: raw.hero?.focal_x ?? 50,
+      focal_y: raw.hero?.focal_y ?? 50,
+      mobile_cover_asset_id: raw.hero?.mobile_cover_asset_id ?? null,
     },
     seo: {
       title: text(raw.seo?.title),
@@ -309,11 +456,21 @@ function freshId(doc: PageDoc, type: SectionType): string {
   }
 }
 
+export const emptyColumn = (): ColumnItem => ({
+  icon: null,
+  image_asset_id: null,
+  image_alt: emptyText(),
+  title: emptyText(),
+  body: emptyText(),
+  button_label: emptyText(),
+  button_url: "",
+});
+
 /** A new block with sensible starting content, inserted after `afterId` (or at the end). */
 export function addSection(doc: PageDoc, type: SectionType, afterId?: string): { doc: PageDoc; id: string } {
   if (!ADDABLE_SECTIONS.includes(type) || doc.sections.length >= MAX_SECTIONS) return { doc, id: "" };
   const id = freshId(doc, type);
-  const base = { id, visible: true, eyebrow: emptyText(), title: emptyText() };
+  const base = { id, visible: true, eyebrow: emptyText(), title: emptyText(), style: { ...DEFAULT_STYLE } };
   let section: PageSection;
   switch (type) {
     case "rich_text":
@@ -334,8 +491,20 @@ export function addSection(doc: PageDoc, type: SectionType, afterId?: string): {
     case "faq":
       section = { ...base, type, items: [{ question: emptyText(), answer: emptyText() }] };
       break;
+    case "columns":
+      section = { ...base, type, layout: "equal", surface: "plain", items: [emptyColumn(), emptyColumn()] };
+      break;
+    case "video":
+      section = { ...base, type, layout: "full", provider: "aparat", video_id: "", poster_asset_id: null, caption: emptyText(), body: emptyText() };
+      break;
+    case "gallery":
+      section = { ...base, type, layout: "grid", columns: 3, items: [] };
+      break;
+    case "links":
+      section = { ...base, type, layout: "buttons", lead: emptyText(), items: [{ kind: "website", url: "", label: emptyText() }] };
+      break;
     default:
-      section = { ...base, type: "cta", layout: "ink", body: emptyText(), button_label: emptyText(), target: "passes" };
+      section = { ...base, type: "cta", layout: "ink", body: emptyText(), button_label: emptyText(), target: "passes", url: "" };
   }
   const index = afterId ? doc.sections.findIndex((s) => s.id === afterId) : -1;
   const sections = doc.sections.slice();
@@ -343,7 +512,7 @@ export function addSection(doc: PageDoc, type: SectionType, afterId?: string): {
   return { doc: { ...doc, sections }, id };
 }
 
-/** Every image id the document references (logo, cover, share image, section images, speaker photos). */
+/** Every image id the document references (logo, hero images, share image, section images, photos, posters). */
 export function referencedImages(doc: PageDoc): Set<string> {
   const ids = new Set<string>();
   const add = (id: string | null) => {
@@ -351,16 +520,57 @@ export function referencedImages(doc: PageDoc): Set<string> {
   };
   add(doc.branding.logo_asset_id);
   add(doc.hero.cover_asset_id);
+  add(doc.hero.mobile_cover_asset_id);
   add(doc.seo.share_image_asset_id);
   for (const s of doc.sections) {
     if (s.type === "image_text") add(s.image_asset_id);
     if (s.type === "speakers") s.items.forEach((i) => add(i.photo_asset_id));
+    if (s.type === "columns" || s.type === "gallery") s.items.forEach((i) => add(i.image_asset_id));
+    if (s.type === "video") add(s.poster_asset_id);
   }
   return ids;
 }
 
 /** Stable comparison for "unsaved changes": same content in the same order. */
 export const sameDocument = (a: PageDoc, b: PageDoc) => JSON.stringify(a) === JSON.stringify(b);
+
+/** What another saved version (`theirs`) has that differs from `mine`: the summary of a stale-save conflict. */
+export interface DocumentDiff {
+  hero: boolean;
+  branding: boolean;
+  seo: boolean;
+  /** The sections both versions have are in another order. */
+  order: boolean;
+  /** Sections only `theirs` has. */
+  added: PageSection[];
+  /** Sections only `mine` has. */
+  removed: PageSection[];
+  /** Sections both have, with other content (`theirs`'s copy). */
+  changed: PageSection[];
+}
+
+export function documentDiff(mine: PageDoc, theirs: PageDoc): DocumentDiff {
+  const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+  const byId = (doc: PageDoc) => {
+    const index: Record<string, PageSection> = {};
+    for (const section of doc.sections) index[section.id] = section;
+    return index;
+  };
+  const mineById = byId(mine);
+  const theirsById = byId(theirs);
+  return {
+    hero: !same(mine.hero, theirs.hero) || mine.primary_locale !== theirs.primary_locale,
+    branding: !same(mine.branding, theirs.branding),
+    seo: !same(mine.seo, theirs.seo),
+    order: !same(
+      mine.sections.filter((s) => Object.hasOwn(theirsById, s.id)).map((s) => s.id),
+      theirs.sections.filter((s) => Object.hasOwn(mineById, s.id)).map((s) => s.id),
+    ),
+    added: theirs.sections.filter((s) => !Object.hasOwn(mineById, s.id)),
+    removed: mine.sections.filter((s) => !Object.hasOwn(theirsById, s.id)),
+    changed: theirs.sections.filter((s) => Object.hasOwn(mineById, s.id) && !same(s, mineById[s.id])),
+  };
+}
 
 // Drift guard: the normalised model must stay a valid API document.
 export const toApiDocument = (doc: PageDoc): ApiDocument => doc;

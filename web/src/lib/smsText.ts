@@ -6,6 +6,8 @@
 const TOKEN = /\{([A-Za-z_]+)\}/g;
 // Values are flattened to one line and shortened exactly as the API does before sending.
 const MAX_VALUE_LENGTH = 60;
+// Inserted exactly as given, as the API does: a shortened pass link ("…/my-tic…") opens no page.
+const VERBATIM_PLACEHOLDERS = new Set(["link"]);
 
 // GSM 03.38 basic character set (plus the extension table, which costs two characters each).
 const GSM_BASIC = new Set(
@@ -37,7 +39,10 @@ function clean(value: string): string {
 
 /** Fill `{placeholders}`; unknown tokens stay visible so the organizer notices them. */
 export function renderSms(body: string, values: Record<string, string>): string {
-  return body.replace(TOKEN, (token, name: string) => (name in values ? clean(values[name]) : token));
+  return body.replace(TOKEN, (token, name: string) => {
+    if (!(name in values)) return token;
+    return VERBATIM_PLACEHOLDERS.has(name) ? values[name] : clean(values[name]);
+  });
 }
 
 export function placeholdersIn(body: string): string[] {

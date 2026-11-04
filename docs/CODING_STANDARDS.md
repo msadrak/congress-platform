@@ -2,7 +2,7 @@
 
 This document records the engineering standards and patterns enforced across the repository.
 
-Mechanical rules live in checks, not here: no `any` (oxlint `typescript/no-explicit-any`), static routes before parameterized siblings (`backend/tests/test_route_order.py`), strict mypy, clean `dart analyze`, oxlint warnings, and API types matching the backend (`scripts/gen-api.mjs --check`). `scripts/check.*` and CI run them all.
+Mechanical rules live in checks, not here: no `any` (oxlint `typescript/no-explicit-any`), static routes before parameterized siblings (`backend/tests/test_route_order.py`), every organizer route listed with its role in `backend/app/roles.py` (`backend/tests/test_roles.py`, ADR 0016), strict mypy, clean `dart analyze`, oxlint warnings, and API types matching the backend (`scripts/gen-api.mjs --check`). `scripts/check.*` and CI run them all.
 
 ---
 
@@ -24,6 +24,16 @@ Mechanical rules live in checks, not here: no `any` (oxlint `typescript/no-expli
 - **Rule:** Avoid inline-casting an object type for property access: `(value as { foo: string }).foo`.
 - **Why:** Fabricates an unchecked shape and suppresses compiler errors. Check with `"foo" in value` first, then access. Without `any`, narrow with custom type guards or extended interfaces for globals (e.g. `interface WindowWithAudio extends Window`).
 
+### E. User-Facing Copy (`src/copy/<area>.ts`)
+- **Rule:** New user-facing strings go into a typed copy module `web/src/copy/<area>.ts` (`const fa = {…} as const; const en: CopyShape<typeof fa> = {…}; export const <area>Copy = { fa, en };`) and are read with `useCopy(<area>Copy)` or `<area>Copy[locale]`. Shared buttons, status words and messages come from `copy/common.ts`. No new inline `isRtl ? "…" : "…"` text. Persian terms follow GLOSSARY.md "Persian UI terms"; error messages follow §2.F. Every string exists in fa and en; values from people or the network go into a whole-sentence function and render inside `<bdi>`, never concatenated fragments.
+- **Locale:** one app-wide locale (`useLocale` in `lib/i18n.ts`; the legacy dictionary is gone). It also sets `<html lang dir>`.
+- **Checks:** `web/tests/glossary.test.ts` (banned terms, with a per-file allowlist that only shrinks), `web/tests/copyGuard.test.ts` (per-file counts of inline locale ternaries, Persian text in `.tsx`, developer terms and "..." in Persian strings, against `tests/copy-baseline.json`, which only goes down), `web/tests/apiErrorCodes.test.ts` (every backend code has fa and en messages; Persian readers never see English).
+- **Why:** One place per string keeps the wording reviewable and consistent; the type makes a missing translation a build error.
+
+### F. Design Tokens, Dates and Icons
+- **Rule:** Sizes, radii and colours come from the tokens in `web/src/index.css` (`text-caption` … `text-display`, `rounded-control` / `rounded-card`, `h-(--control-sm|md|lg)`, the colour tokens) and the shared `components/ui` primitives. Dates, times, numbers and zones go through `lib/format.ts` (the only module with `Intl.DateTimeFormat`); date entry uses `ui/DateTimeField`; whole numbers use `ui/Input`'s `NumberInput`. Directional icons are passed by their logical name and `ui/Icon` mirrors them in RTL.
+- **Checks:** `web/tests/designGuard.test.ts` fails on `rounded-[`, `text-[N`, `font-[N` and `[#hex]` in `.tsx`, `isRtl ? "chevron-…"` / `dir === "rtl" ? "arrow-…"`, `bg-meridian`, `SectionIndex`, the `.eyebrow` class, `type="datetime-local"` and `new Intl.DateTimeFormat` outside `lib/format.ts`, with a per-file allowlist that only shrinks.
+
 ---
 
 ## 2. Python & FastAPI Standards (`backend/`)
@@ -39,9 +49,53 @@ Mechanical rules live in checks, not here: no `any` (oxlint `typescript/no-expli
 - **Rule:** When writing tests that provision more than one event, every secondary event must randomize or parameterize its slug (e.g. `f"event-b-{uuid.uuid4().hex[:6]}"`).
 - **Why:** Global unique constraints on `events.slug` reject duplicate slugs with `409 Conflict`. Reusing static dictionary fixtures across multiple events causes unforced test failures.
 
+### D. Migrations: expand/contract and `backward_compatible`
+- **Rule:** Split every schema change into an *expand* step and a later *contract* step.
+  - **Expand** (new tables, new nullable columns or columns with a server default, new indexes, new enum values only if the previous release can never meet a row holding one): one migration with a module-level `backward_compatible = True` next to `revision`/`down_revision`. The previous release's code must still work on the expanded schema.
+  - **Contract** (dropping or renaming a table or column, tightening `NOT NULL`, changing a type, removing an enum value, anything the previous release still reads or writes): only in a **later** migration, in a release after the code stopped using the old shape, and **without** the flag.
+  - A rename is three steps: add the new column (marked), deploy code that writes both and reads the new one, then drop the old column (unmarked) in a later release.
+  - Mark a migration only when it is true: a wrong flag lets an older API start on a schema it cannot handle.
+- **Why:** `stack.mjs rollback` re-runs the previous release's images and **never downgrades the database**. The older API starts only if `app/schema_guard.py` accepts the newer schema; an unmarked migration makes rollback impossible, leaving a backup restore or point-in-time recovery as the only way back.
+- **How the guard decides:** an older build does not have the newer migration files. The migrate service (`python -m app.schema_guard migrate`) therefore runs `alembic upgrade head` and then records every revision of its build, with its parent and flag, in the `schema_compatibility` table. At startup in `staging`/`production` the API accepts the database when its revision equals the build's head, or when walking `schema_compatibility` from the database revision down to the build's head passes only revisions recorded `backward_compatible` (then it logs that it serves in rollback mode). A revision missing from the table, an unmarked one, a merge revision or a cycle means refusal. The older image's own migrate step sees the same state and leaves the database untouched.
+- **Checks:** `backend/tests/test_schema_guard.py` covers the chain walk, acceptance of marked revisions and refusal of unmarked ones. Operator side: `docs/deployment/STAGING_OPERATIONS.md` → *Releases and rollback*.
+
+### F. Stable Error Codes (`app/errors.py`)
+- **Rule:** An error a client must react to or show to a person is raised as `ApiError(status, "UPPER_SNAKE_CODE", "English message")`, and the route declares it with `responses=error_responses(...)` so the OpenAPI document and `web/src/api/schema.d.ts` describe the body. The response is `{"detail": "<English message>", "code": "<CODE>"}`; `detail` stays a string, plain `HTTPException`s keep answering `{"detail": ...}`, and 422 validation bodies are unchanged.
+- **Naming:** `SUBJECT_STATE` in upper snake case, describing what happened rather than the status (`TIER_SOLD_OUT`, `TIER_CLOSED`, `ALREADY_REGISTERED`, `EVENT_NOT_FOUND`). A code is a contract: never rename or reuse one; keep its status and `detail` stable when converting an existing error.
+- **Web:** decide with `apiErrorCode(error)` and show `localizedApiError(error, locale)` (both in `web/src/api/client.ts`); add every new code to the fa and en maps in `web/src/lib/errorMessages.ts` (`web/tests/apiErrorCodes.test.ts` fails otherwise). A Persian message is one short clause for what failed plus one next step, with no code, status or English. Never match or branch on the English `detail` text.
+- **Why:** Persian readers must not see raw English, and UI behaviour must not break when a message is reworded.
+
 ---
 
 ## 3. Flutter & Dart Standards (`mobile/`)
 
 ### A. Pure Business Logic Separation
 - **Rule:** Core domain logic (e.g., `PolicyEngine`) must remain pure Dart with zero Flutter widget or DOM dependencies so it can be verified in milliseconds via `dart test`.
+
+---
+
+## 4. Verification Infrastructure
+
+### A. Models Match the Migrations (`backend/tests/test_migrations.py`)
+- **Rule:** `Base.metadata` and the database built by `alembic upgrade head` must be identical (tables, columns, types, server defaults, indexes, constraints), and `alembic downgrade base` followed by `upgrade head` must leave an empty schema in between and no drift afterwards.
+- **How to fix a failure:** a model change needs a migration (`alembic revision`); a migration-only object (e.g. a partial unique index such as `uq_checkin_single_use_admitted`) must also be declared on the model, exactly as the migration creates it. Never edit an applied migration to silence the test.
+
+### B. Backend Runner (`scripts/integration/backend-tests.mjs`)
+- **What:** mypy + pytest in a container against a fresh PostgreSQL on a private `--internal` Docker network, with the `*_test` database guard of `backend/tests/conftest.py`; everything is removed afterwards. Extra arguments go to pytest (`node scripts/integration/backend-tests.mjs tests/test_migrations.py`).
+- **Image:** `scripts/integration/backend-test.Dockerfile` (Python 3.11, uv, every locked dependency), built on first use as `congress-backend-test:<hash of the Dockerfile, pyproject.toml and uv.lock>`, so a fresh machine needs only Docker and a lock change builds a new image. `CONGRESS_E2E_BACKEND_IMAGE` overrides it for every `scripts/integration/*` stack.
+- **Guardrail:** `scripts/check.sh` / `scripts\check.bat` use it whenever Docker is running; without Docker they need `uv` and PostgreSQL on `127.0.0.1:5433`. Without `dart` on PATH they run the Dart checks in the `dart:3.13.5` image (the release CI installs; `CONGRESS_DART_IMAGE` overrides). A missing tool fails the run, never skips a check.
+- **Full gate:** `scripts/check.sh --full` / `scripts\check.bat --full` adds what otherwise only CI runs (`scripts/check-full.mjs`): Playwright on the production build (Chrome locally, `CONGRESS_BROWSER_CHANNEL`), Caddy validation, `k6 inspect` of `scripts/load/`, pip-audit and npm audit (high/critical fail) and the three Docker image builds. Every full check runs and the summary lists each result; `--skip <name,…>` on the script runs a subset. Run it before a merge.
+- **Migration head tests** (`test_desk_session_migration.py`, `test_staging_support.py`) derive the expected head and chain from `migrations/versions` (`tests/migration_chain.py`), so a merge that adds or re-chains a migration needs no edit to them; they fail when the files do not form one straight line.
+
+### C. CI (`.github/workflows/ci.yml`)
+- Runs on pushes to `main`, `integration/**` and `feature/**`, on pull requests and by hand (`workflow_dispatch`); `ws/**` pushes are not built, to save Actions minutes. Jobs run on `ubuntu-24.04` (pinned, not `ubuntu-latest`); every job has a `timeout-minutes`. Third-party actions are pinned to commit SHAs (release in a comment) and Dependabot proposes updates for actions, npm, uv, pub (`/mobile`) and the Dockerfiles (including `/deploy/db`). Backend installs use `uv sync --locked`, so a `uv.lock` that no longer matches `pyproject.toml` fails CI.
+- Besides the stack checks, CI builds the API, web and database (`deploy/db`) Docker images, validates `deploy/staging/Caddyfile` in every edge mode (`node scripts/ci/validate-caddyfile.mjs`), audits dependencies (high and critical fail: `scripts/ci/pip-audit-gate.mjs`, `npm audit --omit=dev --audit-level=high`), and runs every `web/e2e` spec against the production build in Playwright's Chromium (`CONGRESS_BROWSER_CHANNEL=chromium CONGRESS_E2E_PREVIEW=1 npx playwright test`; the local default browser stays Edge). `scanner-real-api.spec.ts` needs a live API and is skipped there. Those specs intercept `/api/`; the `live-e2e` job runs the live suite of §4.D on its own, and uploads the Playwright report only when it fails.
+- **Playwright retries:** CI runs the specs with `--retries=1`. A test that passes only on its retry is *flaky*: the job stays green, but `.github/scripts/playwright-flaky.mjs` prints a warning annotation and lists it in the job summary. Treat a flaky report as a bug to fix (or a spec to stabilise) in the same week, never as noise; locally the default is no retries.
+- **Stack smoke** (`compose-smoke` job): `stack.mjs init` → `up` (build, migrate, healthy) → `check` (exit ≤ 1) → HTTP probes through Caddy (health, ready, SPA, 404 for an unknown congress, CSP header, HTTPS) → `compose down`.
+- **Load scripts:** the `load-scripts` job runs `node scripts/load/k6.mjs inspect`, so every k6 scenario still compiles against the pinned k6 image. Running the scenarios themselves needs a stack (`scripts/load/README.md`).
+
+### D. Live-stack journeys (`web/e2e-live`, `scripts/integration/live-e2e.mjs`)
+- **What:** one Playwright journey per persona (organizer, attendee, desk, scanner, exhibitor, member roles) against the real API and PostgreSQL, through the production build. `web/e2e` stays the fast, intercepted suite for UI states; `web/e2e-live` proves the wiring.
+- **Run:** `node scripts/integration/live-e2e.mjs` (Docker, `npm ci` in `web/`). It starts a disposable PostgreSQL + API (backend test image of §4.B, development mode, console SMS provider, fixed admin token) under unique `congress-live-<id>-*` names, migrates, builds `web/dist`, serves it with `vite preview` proxying `/api`, runs `web/playwright.live.config.ts` and removes everything. Ports 47400–47409. Locally add `CONGRESS_BROWSER_CHANNEL=chrome` (CI uses Playwright's Chromium). Flags: `--skip-build` reuses `web/dist`; `--keep` leaves the stack up after the run and prints the `LIVE_E2E_*` line to rerun specs against it (`npx playwright test -c playwright.live.config.ts …` in `web/`) and the `docker rm` line to remove it; `--up-only` starts it without running specs; arguments after `--` go to Playwright (`-- e2e-live/desk.spec.ts --headed`).
+- **Writing a spec:** provision through the API with `web/e2e-live/support/live.ts` (`createOrganizer`, `createEvent` — registration open, page published —, `createTier`, `reserveTicket`), and drive the persona's own steps through the UI. Every spec makes its own organizer, event and mobile numbers (`uid()`, `uniqueMobile()`), so specs run in parallel and never depend on each other. SMS codes and sent SMS come from the dev-only outbox (`signInWithCode`, `smsCode`, `waitForSms`). Locate by role and structure first (the only dialog, its first textbox, its submit button, an enum `<option value>`), and by Persian accessible name only for wording that is settled (the glossary terms «کارت ورود», «نوع کارت ورود», «جلسه», «نقطه ورود», «کد QR»), so a copy sweep does not break the suite; names and slugs the spec created are always safe to match; confirm what the screen claims through the API (participants, manifest, tiers). No fixed waits: wait for a visible state or an API condition (`expect.poll`). Type-check with `npx tsc -p tsconfig.e2e-live.json`.
+- **Known gaps** are pinned with `test.fail(true, '<why, which branch fixes it>')`, so the suite turns red when the fix lands and the marker must be removed.

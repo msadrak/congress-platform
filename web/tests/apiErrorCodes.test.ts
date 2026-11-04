@@ -1,0 +1,133 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import { join, relative } from "node:path";
+import { ApiResponseError, apiErrorCode, formatApiError, localizedApiError } from "../src/api/client.ts";
+import { errorMessages, isTierUnavailable, networkErrorMessage } from "../src/lib/errorMessages.ts";
+
+const soldOut = { detail: "Ticket tier is sold out / quota exhausted", code: "TIER_SOLD_OUT" };
+
+test("apiErrorCode reads the code from an error body or an ApiResponseError", () => {
+  assert.equal(apiErrorCode(soldOut), "TIER_SOLD_OUT");
+  assert.equal(apiErrorCode(new ApiResponseError(410, soldOut)), "TIER_SOLD_OUT");
+  assert.equal(apiErrorCode({ detail: "Event not found" }), undefined);
+  assert.equal(apiErrorCode({ detail: "x", code: null }), undefined);
+  assert.equal(apiErrorCode({ detail: "x", code: 42 }), undefined);
+  assert.equal(apiErrorCode({ detail: "x", code: "" }), undefined);
+  assert.equal(apiErrorCode(null), undefined);
+  assert.equal(apiErrorCode("TIER_SOLD_OUT"), undefined);
+});
+
+test("a known code is shown in the reader's language, never the English detail", () => {
+  assert.equal(localizedApiError(soldOut, "fa"), errorMessages.fa.TIER_SOLD_OUT);
+  assert.equal(localizedApiError(soldOut, "en"), errorMessages.en.TIER_SOLD_OUT);
+  assert.notEqual(localizedApiError(soldOut, "fa"), soldOut.detail);
+  assert.equal(localizedApiError(new ApiResponseError(410, soldOut), "fa"), errorMessages.fa.TIER_SOLD_OUT);
+});
+
+test("unknown or missing codes: English readers keep the server's text, Persian readers never see it", () => {
+  // en: unchanged.
+  assert.equal(localizedApiError({ detail: "Slug already in use" }, "en"), "Slug already in use");
+  assert.equal(localizedApiError({ detail: "Future failure", code: "SOMETHING_NEW" }, "en"), "Future failure");
+  assert.equal(localizedApiError({ detail: "x", code: "constructor" }, "en"), "x");
+  const validation = { detail: [{ loc: ["body", "ticket_tier_id"], msg: "Input should be a valid UUID" }] };
+  assert.equal(localizedApiError(validation, "en"), formatApiError(validation));
+  // fa: a localized generic sentence instead (apiErrorFallback.test.ts pins the sentences by status).
+  for (const body of [{ detail: "Slug already in use" }, { detail: "Future failure", code: "SOMETHING_NEW" }, validation, undefined]) {
+    const shown = localizedApiError(body, "fa");
+    assert.doesNotMatch(shown, /[A-Za-z]/, JSON.stringify(body));
+    assert.match(shown, /[\u0600-\u06FF]/, JSON.stringify(body));
+  }
+});
+
+test("every code has a Persian and an English message", () => {
+  assert.deepEqual(Object.keys(errorMessages.fa).sort(), Object.keys(errorMessages.en).sort());
+  for (const code of [
+    "EVENT_NOT_FOUND", "TIER_NOT_FOUND", "TIER_CLOSED", "TIER_SOLD_OUT", "ALREADY_REGISTERED", "ANALYTICS_RANGE_INVALID",
+    "EVENT_ENDED", "REGISTRATION_CLOSED", "REGISTRATION_NOT_OPEN", "TIER_SALES_NOT_OPEN", "TIER_SALES_CLOSED",
+    "EVENT_ARCHIVED", "EVENT_HAS_TICKETS", "EVENT_HAS_RECORDS", "TIER_HAS_RESERVATIONS", "HALL_NAME_TAKEN", "HALL_IN_USE",
+    "ROLE_FORBIDDEN",
+    "PROGRAM_FILE_NOT_FOUND", "PROGRAM_FILE_LABEL_REQUIRED", "PROGRAM_FILE_TYPE_UNSUPPORTED", "PROGRAM_FILE_TOO_LARGE",
+    "PROGRAM_FILE_EMPTY", "PROGRAM_FILE_LIMIT_REACHED", "PROGRAM_FILE_PDF_REJECTED", "PROGRAM_FILE_IMAGE_REJECTED",
+    "CHECKIN_POINT_POLICY_LOCKED", "OCCUPANCY_POLICY_UNSUPPORTED", "REQUIRED_POINT_INVALID", "CHECKIN_SESSION_INVALID",
+    "CHECKIN_POINT_HAS_SCANS", "CHECKIN_POINT_REQUIRED_BY_OTHER", "CHECKIN_POINT_ARCHIVED", "SESSION_NOT_FOUND",
+    "POINT_NOT_FOUND", "CHECKIN_POLICY_INVALID", "TIER_FILTER_REQUIRED", "TIER_NOT_IN_EVENT", "SCANNER_CREDENTIALS_MISSING",
+    "SCANNER_CREDENTIALS_REQUIRED", "SCANNER_TOKEN_INVALID", "SCANNER_REVOKED", "SCANNER_SCOPE_MISMATCH", "SCANNER_DEVICE_NOT_FOUND",
+  ]) {
+    assert.ok(errorMessages.fa[code]?.trim(), `fa ${code}`);
+    assert.ok(errorMessages.en[code]?.trim(), `en ${code}`);
+    assert.match(code, /^[A-Z][A-Z0-9_]*$/);
+  }
+  assert.ok(networkErrorMessage.fa.trim() && networkErrorMessage.en.trim());
+});
+
+test("sold-out and closed tiers mean the page should reload availability", () => {
+  assert.equal(isTierUnavailable("TIER_SOLD_OUT"), true);
+  assert.equal(isTierUnavailable("TIER_CLOSED"), true);
+  assert.equal(isTierUnavailable("TIER_SALES_CLOSED"), true);
+  assert.equal(isTierUnavailable("REGISTRATION_CLOSED"), true);
+  assert.equal(isTierUnavailable("ALREADY_REGISTERED"), false);
+  assert.equal(isTierUnavailable(undefined), false);
+});
+
+const BACKEND = new URL("../../backend/app", import.meta.url).pathname;
+
+function* pythonFiles(path: string): Generator<string> {
+  if (statSync(path).isDirectory()) {
+    for (const name of readdirSync(path)) yield* pythonFiles(join(path, name));
+  } else if (path.endsWith(".py")) {
+    yield path;
+  }
+}
+
+/** Every error code the backend raises, with the file that raises it. */
+function backendCodes(): Map<string, string> {
+  const CODE = String.raw`"([A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+)"`;
+  const patterns = [
+    new RegExp(String.raw`ApiError\(\s*[^,()]+(?:\([^()]*\))?,\s*${CODE}`, "g"), // ApiError(status, "CODE", …)
+    new RegExp(String.raw`_unprocessable\(\s*${CODE}`, "g"), // platform.py's ApiError helper
+    new RegExp(String.raw`\bcode\s*=\s*${CODE}`, "g"), // rate limits: code="CODE"
+    new RegExp(String.raw`:\s*${CODE}(?=[,}])`, "g"), // rate limits per key: code={key: "CODE"}
+    new RegExp(String.raw`\(\s*${CODE},\s*"[A-Z][a-z]`, "g"), // ("CODE", "English detail") tables
+  ];
+  const codes = new Map<string, string>();
+  for (const file of pythonFiles(BACKEND)) {
+    const text = readFileSync(file, "utf8");
+    for (const pattern of patterns) for (const m of text.matchAll(pattern)) codes.set(m[1]!, relative(BACKEND, file));
+  }
+  return codes;
+}
+
+test("every error code the backend raises has a Persian and an English message", () => {
+  const codes = backendCodes();
+  assert.ok(codes.size > 80, `found only ${codes.size} codes: the backend scan is broken`);
+  const missing = [...codes]
+    .filter(([code]) => !errorMessages.fa[code]?.trim() || !errorMessages.en[code]?.trim())
+    .map(([code, file]) => `${code} (${file})`);
+  assert.deepEqual(missing, [], "add these codes to both maps in web/src/lib/errorMessages.ts");
+  for (const code of ["SMS_TEMPLATE_INVALID", "TRUSTED_NETWORK_INVALID", "TIER_SOLD_OUT", "OTP_SEND_FAILED", "TEST_SMS_RATE_LIMITED"]) {
+    assert.ok(codes.has(code), `the scan finds ${code}`);
+  }
+});
+
+test("Persian error messages are Persian, and never fall back to English", () => {
+  for (const [code, message] of Object.entries(errorMessages.fa)) {
+    assert.match(message, /[\u0600-\u06FF]/, code);
+    // Latin only for names and examples that stay Latin (sms.ir, PDF, a CIDR example), never a sentence.
+    assert.doesNotMatch(message, /[A-Za-z]{3,} [A-Za-z]{3,}/, code);
+  }
+  assert.match(networkErrorMessage.fa, /[\u0600-\u06FF]/);
+  const bodies: unknown[] = [
+    undefined, null, "", "<html>Bad Gateway</html>", {}, { detail: "Internal Server Error" }, { detail: "Not found" },
+    { detail: "x", code: "SOMETHING_NEW" }, { detail: [{ loc: ["body", "mobile"], msg: "Field required" }] },
+    new Error("Upload failed"), new TypeError("x is not a function"),
+  ];
+  for (const body of bodies) {
+    for (const status of [undefined, 400, 401, 403, 404, 409, 410, 422, 429, 500, 502, 503]) {
+      const shown = localizedApiError(body, "fa", status);
+      assert.match(shown, /[\u0600-\u06FF]/, `${JSON.stringify(body)} ${status}`);
+      assert.doesNotMatch(shown, /[A-Za-z]/, `${JSON.stringify(body)} ${status}`);
+    }
+  }
+  assert.doesNotMatch(localizedApiError(new ApiResponseError(500, { detail: "Internal Server Error" }), "fa"), /[A-Za-z]/);
+});

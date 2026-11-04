@@ -21,7 +21,7 @@ from pydantic import ValidationError
 
 from app.config import DISALLOWED_JWT_SECRETS, Settings
 from app.security import create_access_token, create_scanner_token
-from tests.helpers import bearer, provision_organizer
+from tests.helpers import bearer, provision_organizer, publish_page
 from tests.test_events import EVENT
 from tests.test_ticket_tiers import create_event, tier
 from tests.test_tickets import register_user
@@ -104,6 +104,7 @@ async def test_invalid_and_malformed_scanner_tokens_rejected(client: AsyncClient
     """Malformed or invalid signature bearer tokens return 401."""
     organizer = await provision_organizer(client, "Malformed Org")
     event_id = await create_event(client, organizer)
+    await publish_page(client, organizer, event_id)
     point_res = await client.post(
         f"/api/events/{event_id}/checkin-points",
         json={"name": "Gate", "policy_type": "MULTI_ENTRY"},
@@ -129,6 +130,7 @@ async def test_attendee_jwt_cannot_access_scanner_endpoints(client: AsyncClient)
     """Regular attendee JWT tokens without 'scanner' scope return 403 Forbidden."""
     organizer = await provision_organizer(client, "Security Org")
     event_id = await create_event(client, organizer)
+    await publish_page(client, organizer, event_id)
 
     point_res = await client.post(
         f"/api/events/{event_id}/checkin-points",
@@ -160,6 +162,8 @@ async def test_cross_point_and_cross_event_token_abuse_rejected(client: AsyncCli
     org2 = await provision_organizer(client, "Org 2")
 
     event1 = await create_event(client, org1)
+
+    await publish_page(client, org1, event1)
     event2_payload = dict(EVENT)
     event2_payload["slug"] = f"event-two-{uuid.uuid4().hex[:6]}"
     res2 = await client.post("/api/events", json=event2_payload, headers=bearer(org2))
@@ -217,6 +221,8 @@ async def test_cross_tenant_organizer_access_returns_404(client: AsyncClient) ->
 
     event1 = await create_event(client, org1)
 
+    await publish_page(client, org1, event1)
+
     p1_res = await client.post(
         f"/api/events/{event1}/checkin-points",
         json={"name": "Gate A", "policy_type": "MULTI_ENTRY"},
@@ -237,6 +243,7 @@ async def test_per_device_token_issuance_and_revocation_lifecycle(
     """Test full device lifecycle: issuance, verification, listing, and immediate revocation."""
     organizer = await provision_organizer(client, "Lifecycle Org")
     event_id = await create_event(client, organizer)
+    await publish_page(client, organizer, event_id)
 
     point_res = await client.post(
         f"/api/events/{event_id}/checkin-points",
@@ -390,6 +397,7 @@ async def create_unique_test_event(client: AsyncClient, organizer: dict[str, str
     evt["slug"] = f"scanner-sec-{uuid.uuid4().hex[:8]}"
     resp = await client.post("/api/events", json=evt, headers=bearer(organizer))
     assert resp.status_code == 201, resp.text
+    await publish_page(client, organizer, resp.json()["id"])
     return str(resp.json()["id"])
 
 

@@ -117,7 +117,9 @@ async def test_a_stale_revision_never_overwrites_newer_work(client: AsyncClient)
 
     assert first.status_code == 200
     assert second.status_code == 409
+    assert second.json()["code"] == "PAGE_DRAFT_STALE"
     assert stale_publish.status_code == 409
+    assert stale_publish.json()["code"] == "PAGE_DRAFT_STALE"
     latest = await page_state(client, organizer, event_id)
     assert latest["draft"]["hero"]["subtitle"]["en"] == "Editor one"
     assert latest["is_published"] is False
@@ -143,6 +145,53 @@ async def test_invalid_documents_are_rejected(client: AsyncClient) -> None:
     for document in (without_passes, duplicate_ids, unknown_type, extra_field, bad_accent):
         response = await save_draft(client, organizer, event_id, revision, document)
         assert response.status_code == 422, response.text
+    assert (await page_state(client, organizer, event_id))["draft_revision"] == revision
+
+
+async def test_hero_layout_and_focal_point_are_published_as_saved(client: AsyncClient) -> None:
+    organizer = await provision_organizer(client, "Acme Congress Co")
+    event_id = await create_event(client, organizer)
+    state = await page_state(client, organizer, event_id)
+    # A document saved before the banner layout and the focal point existed carries none of the new fields.
+    legacy = copy.deepcopy(state["draft"])
+    for key in ("focal_x", "focal_y", "mobile_cover_asset_id"):
+        legacy["hero"].pop(key)
+    saved = await save_draft(client, organizer, event_id, state["draft_revision"], legacy)
+    assert saved.status_code == 200, saved.text
+    hero = (await page_state(client, organizer, event_id))["draft"]["hero"]
+    assert {k: hero[k] for k in ("layout", "focal_x", "focal_y", "mobile_cover_asset_id")} == {
+        "layout": "signature", "focal_x": 50, "focal_y": 50, "mobile_cover_asset_id": None,
+    }
+
+    for layout, focal in (("banner", (50, 50)), ("cover", (0, 100)), ("split", (25, 70))):
+        current = await page_state(client, organizer, event_id)
+        document = copy.deepcopy(current["draft"])
+        document["hero"].update(layout=layout, focal_x=focal[0], focal_y=focal[1])
+        saved = await save_draft(client, organizer, event_id, current["draft_revision"], document)
+        assert saved.status_code == 200, saved.text
+        await publish_page(client, organizer, event_id)
+        hero = (await client.get(PUBLIC)).json()["page"]["document"]["hero"]
+        assert (hero["layout"], hero["focal_x"], hero["focal_y"]) == (layout, *focal)
+
+
+async def test_invalid_hero_presentation_is_rejected(client: AsyncClient) -> None:
+    organizer = await provision_organizer(client, "Acme Congress Co")
+    event_id = await create_event(client, organizer)
+    state = await page_state(client, organizer, event_id)
+    revision = state["draft_revision"]
+
+    for patch in (
+        {"layout": "fullscreen"},
+        {"focal_x": 101},
+        {"focal_y": -1},
+        {"focal_x": "left"},
+        {"focal_y": 33.5},
+        {"mobile_cover_asset_id": "not-a-uuid"},
+    ):
+        document = copy.deepcopy(state["draft"])
+        document["hero"].update(patch)
+        response = await save_draft(client, organizer, event_id, revision, document)
+        assert response.status_code == 422, (patch, response.text)
     assert (await page_state(client, organizer, event_id))["draft_revision"] == revision
 
 
@@ -209,13 +258,20 @@ async def test_preview_renders_the_draft_for_the_owner_only(client: AsyncClient)
     assert "Coming soon" not in str(public)
 
 
-async def test_unpublish_hides_the_page_but_not_the_operations(client: AsyncClient) -> None:
+async def test_unpublish_hides_the_page_and_new_reservations_but_keeps_tickets(client: AsyncClient) -> None:
     organizer = await provision_organizer(client, "Acme Congress Co")
     event_id = await create_event(client, organizer)
     tier_id = (
         await client.post(f"/api/events/{event_id}/ticket-tiers", json=tier(), headers=bearer(organizer))
     ).json()["id"]
     await publish_page(client, organizer, event_id)
+    _, holder = await register_user(client, "09121000056")
+    kept = await client.post(
+        f"/api/events/{event_id}/tickets/reserve",
+        json={"ticket_tier_id": tier_id},
+        headers={"Authorization": f"Bearer {holder}"},
+    )
+    assert kept.status_code == 201, kept.text
 
     unpublished = await client.post(f"/api/events/{event_id}/page/unpublish", headers=bearer(organizer))
     _, token = await register_user(client, "09121000057")
@@ -227,7 +283,10 @@ async def test_unpublish_hides_the_page_but_not_the_operations(client: AsyncClie
 
     assert unpublished.json()["is_published"] is False
     assert (await client.get(PUBLIC)).status_code == 404
-    assert reserved.status_code == 201, reserved.text
+    # Reservations need a published page; tickets already issued stay valid.
+    assert reserved.status_code == 404, reserved.text
+    mine = await client.get("/api/attendees/me/tickets", headers={"Authorization": f"Bearer {holder}"})
+    assert [t["id"] for t in mine.json()] == [kept.json()["id"]]
     assert (await page_state(client, organizer, event_id))["draft"]["sections"]
 
 

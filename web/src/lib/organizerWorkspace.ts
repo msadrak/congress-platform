@@ -1,38 +1,66 @@
-/** Sections of one event's workspace, in navigation order. `path` is relative to `/organizer/events/:id`. */
-export const EVENT_SETUP_SECTIONS = [
-  { key: "overview", path: "" },
-  { key: "program", path: "/program" },
-  { key: "venue", path: "/venue" },
-  { key: "tiers", path: "/tiers" },
-  { key: "check-in", path: "/check-in" },
-  { key: "booths", path: "/booths" },
-  { key: "operators", path: "/operators" },
-  { key: "page", path: "/page" },
-  { key: "panel", path: "/panel" },
-  { key: "sms", path: "/sms" },
-] as const;
+import type { OrganizerRole } from "../api/client";
 
-export type EventSetupSection = (typeof EVENT_SETUP_SECTIONS)[number]["key"];
-export type EventWorkspaceSection = EventSetupSection | "analytics" | "desk";
-
-/** 1-based position of a setup section in the workspace navigation: the "01", "02" … index its header shows. */
-export function eventSectionNumber(key: EventSetupSection): number {
-  return EVENT_SETUP_SECTIONS.findIndex((s) => s.key === key) + 1;
+/** A section of one congress's workspace. `path` is relative to `/organizer/events/:id`. */
+export interface EventNavItem {
+  key: EventWorkspaceSection;
+  path: string;
+  /** The lowest role the section is offered to (participants and the desk carry personal data). */
+  role: OrganizerRole;
 }
+
+const item = (key: EventWorkspaceSection, path: string, role: OrganizerRole = "viewer"): EventNavItem => ({ key, path, role });
+
+/**
+ * The workspace navigation (org spec §3): the overview, then the congress-day group, then the setup group. One
+ * list for the rail and the phone strip, so the day-of sections come first everywhere.
+ */
+export const EVENT_NAV_GROUPS = [
+  { key: "overview", items: [item("overview", "")] },
+  {
+    key: "day",
+    items: [item("participants", "/participants", "staff"), item("check-in", "/check-in"), item("desk", "/desk", "staff"), item("analytics", "/analytics")],
+  },
+  {
+    key: "setup",
+    items: [item("program", "/program"), item("tiers", "/tiers"), item("booths", "/booths"), item("page", "/page"), item("sms", "/sms")],
+  },
+] as const satisfies readonly { key: string; items: readonly EventNavItem[] }[];
+
+export type EventWorkspaceSection =
+  | "overview"
+  | "participants"
+  | "check-in"
+  | "desk"
+  | "analytics"
+  | "program"
+  | "tiers"
+  | "booths"
+  | "page"
+  | "sms";
+
+/** Routes without a navigation item of their own, and the item they belong to. */
+const SECTION_OF_SEGMENT: Record<string, EventWorkspaceSection> = {
+  operators: "desk",
+  venue: "program",
+  panel: "page",
+};
 
 export function eventWorkspacePath(eventId: string, path: string): string {
   return `/organizer/events/${encodeURIComponent(eventId)}${path}`;
 }
 
-/** The active section for a pathname below `/organizer/events/:id`, or null outside an event. */
+/** The navigation item of a pathname below `/organizer/events/:id`, or null outside a congress. */
 export function eventSectionFromPath(pathname: string): EventWorkspaceSection | null {
   const match = /^\/organizer\/events\/[^/]+(?:\/([^/]+))?\/?$/.exec(pathname);
   if (!match) return null;
   const segment = match[1];
   if (!segment) return "overview";
-  if (segment === "analytics" || segment === "desk") return segment;
-  const setup = EVENT_SETUP_SECTIONS.find((s) => s.path === `/${segment}`);
-  return setup ? setup.key : null;
+  if (Object.hasOwn(SECTION_OF_SEGMENT, segment)) return SECTION_OF_SEGMENT[segment];
+  for (const group of EVENT_NAV_GROUPS) {
+    const found = group.items.find((s) => s.path === `/${segment}`);
+    if (found) return found.key;
+  }
+  return null;
 }
 
 export type EventTimeStatus = "upcoming" | "in-progress" | "ended";
@@ -74,4 +102,9 @@ export function eventFormProblem(form: {
   if (ends <= starts) return { field: "endsAt", message: "eventEndBeforeStart" };
   if (!form.location.trim()) return { field: "location", message: "eventLocationRequired" };
   return null;
+}
+
+/** Moves focus to the first control a validation marked invalid (`aria-invalid`), inside `root`. */
+export function focusFirstInvalid(root: HTMLElement | null): void {
+  root?.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus();
 }
